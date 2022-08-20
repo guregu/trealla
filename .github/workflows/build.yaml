@@ -4,6 +4,9 @@
     create:
       tags:
     push:
+     branches:
+       - main
+    pull_request:
 
   jobs:
     build:
@@ -25,12 +28,6 @@
           run: |
             brew install readline vim libffi openssl make
             echo "$(brew --prefix)/opt/make/libexec/gnubin" >> $GITHUB_PATH
-          if: matrix.os == 'macos-latest'
-        - name: Setup upterm session
-          uses: lhotari/action-upterm@v1
-          with:
-            limit-access-to-actor: true
-            limit-access-to-users: guregu
           if: matrix.os == 'macos-latest'
         - name: Build
           run: make release
