@@ -4,9 +4,6 @@
     create:
       tags:
     push:
-      branches:
-        - main
-    pull_request:
 
   jobs:
     build:
