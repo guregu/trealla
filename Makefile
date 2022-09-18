@@ -127,7 +127,7 @@ tpl.wasm:
 	$(MAKE) 'WASI=1 OPT=$(OPT) -O0 -DNDEBUG'
 
 wasm: tpl.wasm
-	wizer --allow-wasi --dir . -o tpl-wizened.wasm tpl.wasm
+	$(WIZER) --allow-wasi --dir . -o tpl-wizened.wasm tpl.wasm
 	wasm-opt tpl-wizened.wasm -o tpl.wasm -O4
 
 test:
