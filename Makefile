@@ -127,14 +127,14 @@ tpl.wasm:
 	$(MAKE) 'WASI=1 OPT=$(OPT) -O0 -DNDEBUG'
 
 wasm: tpl.wasm
-	wizer --allow-wasi --dir . -r _start=wizer.resume -o tpl-wizened.wasm tpl.wasm
+	wizer --allow-wasi --dir . -o tpl-wizened.wasm tpl.wasm
 	wasm-opt tpl-wizened.wasm -o tpl.wasm -O4
 
 test:
 	./tests/run.sh
 
 clean:
-	rm -f tpl tpl.wasm src/*.o src/imath/*.o src/isocline/src/*.o \
+	rm -f tpl tpl.wasm tpl-*.wasm src/*.o src/imath/*.o src/isocline/src/*.o \
 		library/*.o library/*.c *.o samples/*.o samples/*.so \
 		vgcore.* *.core core core.* *.exe gmon.*
 	rm -f *.itf *.po samples/*.itf samples/*.po

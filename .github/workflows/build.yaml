@@ -44,7 +44,7 @@
       name: WebAssembly
       runs-on: ubuntu-latest
       env:
-        WASI_VERSION: 15
+        WASI_VERSION: 12
         BINARYEN_VERSION: 109
         WAPM_REGISTRY_TOKEN: ${{ secrets.WAPM_REGISTRY_TOKEN }}
       steps:
@@ -65,8 +65,13 @@
             tar xvf wasi-sdk-${WASI_VERSION_FULL}-linux.tar.gz
         - name: Install Binaryen
           run: brew install binaryen
-        - name: Setup Wasmer
+        - name: Install Wasmer
           uses: wasmerio/setup-wasmer@v1
+        - name: Install Wizer
+          uses: baptiste0928/cargo-install@v1
+          with:
+            crate: wizer
+            features: wasmprinter structopt env_logger
         - name: Build
           run: |
             make clean
