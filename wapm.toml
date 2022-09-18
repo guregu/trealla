@@ -1,6 +1,6 @@
 [package]
 name = "guregu/trealla"
-version = "__RELEASE_VERSION__"
+version = "0.2.0-rc3"
 description = "Trealla Prolog"
 license = "MIT"
 repository = "https://github.com/trealla-prolog/trealla"
