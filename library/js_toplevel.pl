@@ -110,9 +110,6 @@ var_name([_=V|Vs], Var, Name) :-
 	var_name(Vs, Var, Name).
 var_name([], _, "_").
 
-attvars_json(Vars, Xs) :-
-	maplist(attvar_json(Vars), Vars, Xs).
-
 attvar_json(Vars, Var, JS) :-
 	copy_term(Var, _, Attr),
 	once(term_json(Vars, Attr, JS)).
