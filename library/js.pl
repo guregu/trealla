@@ -93,28 +93,31 @@ js_ask(Input) :-
 		read_term_from_chars(Input, Query, [variable_names(Vars)]),
 		Error,
 		(
-			write(stdout, '\u0002\u0003'),
 			result_json(error, Vars, Error, JSON),
 			write_result(JSON),
 			flush_output(stdout)
 		)
 	),
 	catch(
-		query(Query, Status),
+		query(Query, Status, Output),
 		Error,
 		Status = error
 	),
-	write(stdout, '\u0003'),
+	'$capture_output_to_chars'(_),
 	result_json(Status, Vars, Error, JSON),
 	write_result(JSON),
+	'$put_chars'(stdout, Output),
+	write(stdout, '\u0003'),
 	flush_output(stdout).
 
-query(Query, Status) :-
-	write(stdout, '\u0002'),  % START OF TEXT
+query(Query, Status, Output) :-
+	'$capture_output',
 	(   call(Query)
 	*-> Status = success
 	;   Status = failure
-	).
+	),
+	'$capture_output_to_chars'(Output),
+	( true ; '$capture_output', fail ).
 
 write_result(JSON) :-
 	json_value(JS, JSON),
