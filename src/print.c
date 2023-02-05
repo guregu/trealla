@@ -1329,7 +1329,7 @@ bool print_canonical_to_stream(query *q, stream *str, cell *c, pl_idx_t c_ctx, i
 
 	while (len) {
 		size_t nbytes = net_write(src, len, str);
-		
+
 		if (str->fp && feof(str->fp)) {
 			q->error = true;
 			free(dst);
