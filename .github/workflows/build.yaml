@@ -34,7 +34,7 @@
         - name: Test
           run: make test
         - name: Upload artifacts
-          uses: actions/upload-artifact@v1
+          uses: actions/upload-artifact@v3
           with:
             name: ${{ format( 'tpl-{0}', matrix.os) }}
             path: |
@@ -99,7 +99,7 @@
             chmod +x tpl
             make test
         - name: Upload artifacts
-          uses: actions/upload-artifact@v1
+          uses: actions/upload-artifact@v3
           with:
             name: tpl.wasm
             path: |
@@ -107,7 +107,7 @@
               LICENSE
               ATTRIBUTION
         - name: Upload artifacts
-          uses: actions/upload-artifact@v1
+          uses: actions/upload-artifact@v3
           with:
             name: libtpl.wasm
             path: |
@@ -115,7 +115,7 @@
               LICENSE
               ATTRIBUTION
         - name: Upload artifacts
-          uses: actions/upload-artifact@v1
+          uses: actions/upload-artifact@v3
           with:
             name: libtpl-js.wasm
             path: |
@@ -123,7 +123,7 @@
               LICENSE
               ATTRIBUTION
         - name: Upload artifacts
-          uses: actions/upload-artifact@v1
+          uses: actions/upload-artifact@v3
           with:
             name: libtpl-spin.wasm
             path: |
