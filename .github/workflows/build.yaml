@@ -145,9 +145,17 @@
       name: Release binaries
       runs-on: ubuntu-latest
       steps:
+        - name: Download artifacts
+          uses: actions/download-artifact@v3
+          with:
+            path: artifacts
+        - name: Display structure of downloaded files
+          run: ls -R
+        - name: Zip releases
+          run: for i in artifacts/*; do zip -r "${i%/}.zip" "$i"; done
         - name: Publish
           uses: skx/github-action-publish-binaries@master
           env:
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           with:
-            args: '*tpl*'
+            args: 'artifacts/*.zip'
