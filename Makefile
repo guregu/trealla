@@ -9,10 +9,6 @@ CFLAGS =  -std=gnu99 -Isrc -I/usr/local/include -DVERSION='$(GIT_VERSION)' -O3 \
 
 LDFLAGS = -L/usr/local/lib -lm
 
-ifdef CTARGET
-CFLAGS += -target $(CTARGET)
-endif
-
 ifndef TPL
 TPL = tpl
 endif
@@ -161,11 +157,6 @@ debug:
 
 release:
 	$(MAKE) 'OPT=$(OPT) -DNDEBUG'
-
-macos:
-	$(MAKE) TPL=tpl-arm CC=clang CTARGET=arm64-apple-macos11 'OPT=$(OPT) -DNDEBUG'
-	$(MAKE) TPL=tpl-x64 CC=clang CTARGET=x86_64-apple-macos10.12 'OPT=$(OPT) -DNDEBUG'
-	lipo -create -output tpl tpl-x64 tpl-arm
 
 tpl.wasm:
 	$(MAKE) WASI=1 TPL=tpl.wasm 'OPT=$(OPT) -DNDEBUG'
