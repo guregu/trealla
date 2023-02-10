@@ -7,6 +7,8 @@
       branches:
         - main
     pull_request:
+    release:
+      types: [created]
 
   jobs:
     build:
@@ -41,7 +43,6 @@
               tpl
               LICENSE
               ATTRIBUTION
-              README.md
 
     # Roughly matches https://github.com/WebAssembly/wasi-sdk#install
     wasm:
@@ -137,3 +138,16 @@
         #     wapm login $WAPM_REGISTRY_TOKEN
         #     wapm publish || echo "Warning: WAPM publish failed"
         #   if: ${{ env.WAPM_REGISTRY_TOKEN != '' && env.RELEASE_VERSION != '' }}
+
+    release:
+      if: github.event_name == 'release' && github.event.action == 'created'
+      needs: [build, wasm]
+      name: Release binaries
+      runs-on: ubuntu-latest
+      steps:
+        - name: Publish
+          uses: skx/github-action-publish-binaries@master
+          env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          with:
+            args: '*tpl*'
