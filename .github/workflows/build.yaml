@@ -8,7 +8,8 @@
         - main
     pull_request:
     release:
-      types: [created]
+      types:
+        - created
 
   jobs:
     build:
@@ -19,18 +20,11 @@
         matrix:
           os:
             - ubuntu-latest
-            - macos-latest
       steps:
         - uses: actions/checkout@v1
         - name: Install deps (Linux)
           run: |
             sudo apt-get install libreadline-dev xxd libffi-dev libssl-dev
-          if: matrix.os == 'ubuntu-latest'
-        - name: Install deps (macOS)
-          run: |
-            brew install readline vim libffi openssl make
-            echo "$(brew --prefix)/opt/make/libexec/gnubin" >> $GITHUB_PATH
-          if: matrix.os == 'macos-latest'
         - name: Build
           run: make release
         - name: Test
@@ -39,6 +33,30 @@
           uses: actions/upload-artifact@v3
           with:
             name: ${{ format('tpl-{0}-{1}', runner.os, runner.arch) }}
+            path: |
+              tpl
+              LICENSE
+              ATTRIBUTION
+
+    mac:
+      name: Native (macOS)
+      runs-on: macos-latest
+      strategy:
+        fail-fast: false
+      steps:
+        - uses: actions/checkout@v1
+        - name: Install deps
+          run: |
+            brew install readline vim libffi openssl make
+            echo "$(brew --prefix)/opt/make/libexec/gnubin" >> $GITHUB_PATH
+        - name: Build
+          run: make macos
+        - name: Test
+          run: make test
+        - name: Upload artifacts
+          uses: actions/upload-artifact@v3
+          with:
+            name: tpl-macos-universal
             path: |
               tpl
               LICENSE
@@ -141,7 +159,7 @@
 
     release:
       if: github.event_name == 'release' && github.event.action == 'created'
-      needs: [build, wasm]
+      needs: [build, mac, wasm]
       name: Release binaries
       runs-on: ubuntu-latest
       steps:
@@ -149,8 +167,8 @@
           uses: actions/download-artifact@v3
           with:
             path: artifacts
-        - name: Display structure of downloaded files
-          run: ls -R
+        - name: List artifacts
+          run: ls -R artifacts
         - name: Zip releases
           run: for i in artifacts/*; do dir=${i%/}; zip -r "${dir,,}.zip" "$i"; done
         - name: Publish
