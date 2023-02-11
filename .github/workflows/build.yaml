@@ -44,6 +44,47 @@
               LICENSE
               ATTRIBUTION
 
+    windows:
+      name: Windows
+      runs-on: windows-latest
+      defaults:
+        run:
+          shell: msys2 {0}
+      steps:
+        - uses: msys2/setup-msys2@v2
+        - uses: actions/checkout@v1
+        - name: Install deps
+          run: |
+            pacman --noconfirm -S make mingw-w64-x86_64-gcc mingw-w64-x86_64-headers-git mingw-w64-x86_64-libffi mingw-w64-x86_64-dlfcn
+            pacman --noconfirm -S mingw-w64-x86_64-openssl mingw-w64-x86_64-readline vim diffutils
+        - name: Build
+          run: make ISOCLINE=1 release
+        - name: Test
+          run: make test
+        - name: Make Windows-friendly
+          run: |
+            cp ${MINGW_PREFIX}/bin/{libcrypto-3-x64.dll,libssl-3-x64.dll,libffi-8.dll} .
+            echo "OpenSSL:" >> ATTRIBUTION
+            cat ${MINGW_PREFIX}/share/licenses/openssl/LICENSE >> ATTRIBUTION
+            echo "libffi:" >> ATTRIBUTION
+            cat ${MINGW_PREFIX}/share/licenses/libffi/LICENSE >> ATTRIBUTION
+            echo "isocline:" >> ATTRIBUTION
+            cat src/isocline/LICENSE >> ATTRIBUTION
+            mv tpl tpl.exe
+            mv ATTRIBUTION ATTRIBUTION.txt
+            mv LICENSE LICENSE.txt
+        - name: Upload artifacts
+          uses: actions/upload-artifact@v3
+          with:
+            name: ${{ format('tpl-{0}-{1}', runner.os, runner.arch) }}
+            path: |
+              tpl.exe
+              LICENSE.txt
+              ATTRIBUTION.txt
+              libcrypto-3-x64.dll
+              libssl-3-x64.dll
+              libffi-8.dll
+
     # Roughly matches https://github.com/WebAssembly/wasi-sdk#install
     wasm:
       name: WebAssembly
@@ -141,7 +182,7 @@
 
     release:
       if: github.event_name == 'release' && github.event.action == 'created'
-      needs: [build, wasm]
+      needs: [build, windows, wasm]
       name: Release binaries
       runs-on: ubuntu-latest
       steps:
@@ -154,19 +195,19 @@
         - name: Zip releases
           run: |
             cd artifacts
-            chmod +x */tpl */*.wasm
+            chmod +x */tpl* */*.wasm
             for i in */; do
               dir=${i%/}
               lower=${dir,,}
               if [ "$dir" != "$lower" ]
               then
-                mv "$dir" "${dir,,}"
+                mv "$dir" "$lower"
               fi
+              zip -r "${lower}.zip" "$lower"
             done
-            find . -maxdepth 1 -mindepth 1 -type d -exec tar czf {}.tar.gz {} \;
         - name: Publish
           uses: skx/github-action-publish-binaries@master
           env:
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           with:
-            args: 'artifacts/*.tar.gz'
+            args: 'artifacts/*.zip'
