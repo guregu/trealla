@@ -14,11 +14,12 @@ TPL = tpl
 endif
 
 ifdef WASI
-CFLAGS += -D_WASI_EMULATED_MMAN -D_WASI_EMULATED_SIGNAL -Isrc/wasm -std=c11
-LDFLAGS += -lwasi-emulated-mman -lwasi-emulated-signal -Wl,--stack-first -Wl,-zstack-size=8388608 -Wl,--initial-memory=100663296
-# after WASI SDK upgrade add:
-CFLAGS += -D_WASI_EMULATED_PROCESS_CLOCKS
-LDFLAGS += -lwasi-emulated-process-clocks
+CFLAGS += -std=c11 -Isrc/wasm \
+	-D_WASI_EMULATED_MMAN -D_WASI_EMULATED_SIGNAL \
+	-D_WASI_EMULATED_PROCESS_CLOCKS
+LDFLAGS += -lwasi-emulated-mman -lwasi-emulated-signal \
+	-lwasi-emulated-process-clocks -Wl,--stack-first \
+	-Wl,-zstack-size=8388608 -Wl,--initial-memory=100663296
 NOFFI = 1
 NOSSL = 1
 ifdef WASI_CC
@@ -64,6 +65,10 @@ CFLAGS += -flto=$(LTO)
 LDFLAGS += -flto=$(LTO)
 endif
 
+ifndef WASMOPT
+WASMOPT = wasm-opt
+endif
+
 SRCOBJECTS = tpl.o \
 	src/bags.o \
 	src/base64.o \
@@ -93,7 +98,6 @@ SRCOBJECTS = tpl.o \
 LIBOBJECTS +=  \
 	library/abnf.o \
 	library/apply.o \
-	library/apply_macros.o \
 	library/assoc.o \
 	library/atts.o \
 	library/builtins.o \
@@ -121,8 +125,7 @@ LIBOBJECTS +=  \
 	library/wasm.o \
 	library/wasm_generic.o \
 	library/wasm_js.o \
-	library/when.o \
-	library/yall.o
+	library/when.o
 
 SRCOBJECTS += src/imath/imath.o
 SRCOBJECTS += src/sre/re.o

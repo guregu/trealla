@@ -6,8 +6,6 @@ extern unsigned char library_lists_pl[];
 extern unsigned int library_lists_pl_len;
 extern unsigned char library_apply_pl[];
 extern unsigned int library_apply_pl_len;
-extern unsigned char library_apply_macros_pl[];
-extern unsigned int library_apply_macros_pl_len;
 extern unsigned char library_http_pl[];
 extern unsigned int library_http_pl_len;
 extern unsigned char library_atts_pl[];
@@ -60,8 +58,6 @@ extern unsigned char library_pseudojson_pl[];
 extern unsigned int library_pseudojson_pl_len;
 extern unsigned char library_abnf_pl[];
 extern unsigned int library_abnf_pl_len;
-extern unsigned char library_yall_pl[];
-extern unsigned int library_yall_pl_len;
 
 #ifdef WASI_TARGET_SPIN
 	extern unsigned char library_spin_pl[];
@@ -71,7 +67,6 @@ extern unsigned int library_yall_pl_len;
 library g_libs[] = {
 	 {"abnf", library_abnf_pl, &library_abnf_pl_len},
 	 {"apply", library_apply_pl, &library_apply_pl_len},
-	 {"apply_macros", library_apply_macros_pl, &library_apply_macros_pl_len},
 	 {"assoc", library_assoc_pl, &library_assoc_pl_len},
 	 {"atts", library_atts_pl, &library_atts_pl_len},
 	 {"builtins", library_builtins_pl, &library_builtins_pl_len},
@@ -102,7 +97,6 @@ library g_libs[] = {
 	 {"wasm_generic", library_wasm_generic_pl, &library_wasm_generic_pl_len},
 	 {"wasm_js", library_wasm_js_pl, &library_wasm_js_pl_len},
 	 {"when", library_when_pl, &library_when_pl_len},
-	 {"yall", library_yall_pl, &library_yall_pl_len},
 
 	 {0}
 };

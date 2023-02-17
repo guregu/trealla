@@ -43,6 +43,7 @@
               tpl
               LICENSE
               ATTRIBUTION
+              README.md
 
     windows:
       name: Windows
@@ -64,11 +65,11 @@
         - name: Make Windows-friendly
           run: |
             cp ${MINGW_PREFIX}/bin/{libcrypto-3-x64.dll,libssl-3-x64.dll,libffi-8.dll} .
-            echo "OpenSSL:" >> ATTRIBUTION
+            echo -e "\n\nOpenSSL (libcrypto-3-x64.dll, libssl-3-x64.dll):\n" >> ATTRIBUTION
             cat ${MINGW_PREFIX}/share/licenses/openssl/LICENSE >> ATTRIBUTION
-            echo "libffi:" >> ATTRIBUTION
+            echo -e "\n\nlibffi: (libffi-8.dll)\n" >> ATTRIBUTION
             cat ${MINGW_PREFIX}/share/licenses/libffi/LICENSE >> ATTRIBUTION
-            echo "isocline:" >> ATTRIBUTION
+            echo -e "\n\nisocline:\n" >> ATTRIBUTION
             cat src/isocline/LICENSE >> ATTRIBUTION
             mv tpl tpl.exe
             mv ATTRIBUTION ATTRIBUTION.txt
@@ -81,6 +82,7 @@
               tpl.exe
               LICENSE.txt
               ATTRIBUTION.txt
+              README.md
               libcrypto-3-x64.dll
               libssl-3-x64.dll
               libffi-8.dll
@@ -148,6 +150,7 @@
               tpl.wasm
               LICENSE
               ATTRIBUTION
+              README.md
         - name: Upload artifacts
           uses: actions/upload-artifact@v3
           with:
@@ -156,6 +159,7 @@
               libtpl.wasm
               LICENSE
               ATTRIBUTION
+              README.md
         - name: Upload artifacts
           uses: actions/upload-artifact@v3
           with:
@@ -164,6 +168,7 @@
               libtpl-js.wasm
               LICENSE
               ATTRIBUTION
+              README.md
         - name: Upload artifacts
           uses: actions/upload-artifact@v3
           with:
@@ -172,6 +177,7 @@
               libtpl-spin.wasm
               LICENSE
               ATTRIBUTION
+              README.md
         # TODO: temporarily disabled, see: https://github.com/guregu/trealla/issues/11
         # - name: Publish on WAPM
         #   run: |
@@ -190,7 +196,7 @@
           uses: actions/download-artifact@v3
           with:
             path: artifacts
-        - name: Display structure of downloaded files
+        - name: List files
           run: ls -R
         - name: Zip releases
           run: |

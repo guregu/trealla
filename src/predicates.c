@@ -3988,6 +3988,27 @@ static void save_db(FILE *fp, query *q, int logging)
 	q->listing = false;
 }
 
+static bool fn_load_all_modules_0(query *q)
+{
+	prolog *pl = q->pl;
+
+	for (library *lib = g_libs; lib->name; lib++) {
+		size_t len = *lib->len;
+		char *src = malloc(len+1);
+		check_error(src, pl_destroy(pl));
+		memcpy(src, lib->start, len);
+		src[len] = '\0';
+		SB(s1);
+		SB_sprintf(s1, "library/%s", lib->name);
+		module *m = load_text(pl->user_m, src, SB_cstr(s1));
+		SB_free(s1);
+		free(src);
+		check_error(m, pl_destroy(pl));
+	}
+
+	return true;
+}
+
 static bool fn_listing_0(query *q)
 {
 	int n = q->pl->current_output;
@@ -6558,30 +6579,34 @@ static bool fn_call_nth_2(query *q)
 	return true;
 }
 
-static bool fn_sys_lengthchk_2(query *q)
+static bool fn_string_length_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_list_or_nil);
 	GET_NEXT_ARG(p2,integer_or_var);
 
-	if (is_atom(p1)) {
+	if (is_interned(p1) && !CMP_STR_TO_CSTR(q, p1, "[]")) {
 		cell tmp;
-		make_int(&tmp, C_STRLEN(q, p1));
+		make_int(&tmp, 0);
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 	}
 
-	LIST_HANDLER(p1);
-	pl_int_t n = 0;
-
-	while (is_iso_list(p1)) {
-		p1 = LIST_TAIL(p1);
-		p1 = deref(q, p1, p1_ctx);
-		p1_ctx = q->latest_ctx;
-		n++;
+	if (is_atom(p1)) {
+		cell tmp;
+		make_int(&tmp, C_STRLEN_UTF8(p1));
+		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 	}
 
-	cell tmp;
-	make_int(&tmp, n);
-	return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
+	size_t tmp_len;
+
+	if (q->st.m->flags.double_quote_chars
+		&& !is_cyclic_term(q, p1, p1_ctx)
+		&& (tmp_len = scan_is_chars_list(q, p1, p1_ctx, false)) > 0) {
+		cell tmp;
+		make_int(&tmp, tmp_len);
+		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
+	}
+
+	return throw_error(q, p1, p1_ctx, "type_error", "chars");
 }
 
 static bool fn_sys_unifiable_3(query *q)
@@ -7053,6 +7078,18 @@ static bool fn_use_module_2(query *q)
 		return false;
 
 	return do_use_module_2(q->st.m, q->st.curr_cell);
+}
+
+static bool fn_use_foreign_module_2(query *q)
+{
+	GET_FIRST_ARG(p1,atom);
+	GET_NEXT_ARG(p2,list_or_nil);
+	LIST_HANDLER(p2);
+
+	if (!do_use_module_1(q->st.m, q->st.curr_cell))
+		return false;
+
+	return do_use_foreign_module_2(q->st.m, q->st.curr_cell);
 }
 
 static bool fn_attribute_3(query *q)
@@ -7882,7 +7919,8 @@ builtins g_other_bifs[] =
 	{"attribute", 3, fn_attribute_3, "?atom,+atom,+integer", false, false, BLAH},
 	{"using", 0, fn_using_0, NULL, false, false, BLAH},
 	{"use_module", 1, fn_use_module_1, "+term", false, false, BLAH},
-	{"use_module", 2, fn_use_module_2, "+term,+term", false, false, BLAH},
+	{"use_module", 2, fn_use_module_2, "+term,+list", false, false, BLAH},
+	{"use_foreign_module", 2, fn_use_foreign_module_2, "+atom,+list", false, false, BLAH},
 
 #ifndef WASI_TARGET_JS
 	{"sleep", 1, fn_sleep_1, "+secs", false, false, BLAH},
@@ -7904,6 +7942,7 @@ builtins g_other_bifs[] =
 	{"module_help", 3, fn_module_help_3, "+atom,+predicateindicator,+atom", false, false, BLAH},
 	{"module_help", 2, fn_module_help_2, "+atom,+predicateindicator", false, false, BLAH},
 	{"module_help", 1, fn_module_help_1, "+atom", false, false, BLAH},
+	{"load_all_modules", 0, fn_load_all_modules_0, NULL, false, false, BLAH},
 
 	// Miscellaneous...
 
@@ -7970,7 +8009,7 @@ builtins g_other_bifs[] =
 	{"kv_set", 3, fn_kv_set_3, "+atomic,+term,+list", false, false, BLAH},
 	{"kv_get", 3, fn_kv_get_3, "+atomic,-term,+list", false, false, BLAH},
 	{"between", 3, fn_between_3, "+integer,+integer,-integer", false, false, BLAH},
-	{"string_length", 2, fn_sys_lengthchk_2, "+atom,?integer", false, false, BLAH},
+	{"string_length", 2, fn_string_length_2, "+string,?integer", false, false, BLAH},
 
 	{"must_be", 4, fn_must_be_4, "+term,+atom,+term,?any", false, false, BLAH},
 	{"can_be", 4, fn_can_be_4, "+term,+atom,+term,?any", false, false, BLAH},

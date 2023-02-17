@@ -90,9 +90,9 @@ static void trace_call(query *q, cell *c, pl_idx_t c_ctx, box_t box)
 	if (box == CALL)
 		box = q->retry?REDO:CALL;
 
-#if 1
 	const char *src = C_STR(q, c);
 
+#if 1
 	if (!strcmp(src, ",") || !strcmp(src, ";") || !strcmp(src, "->") || !strcmp(src, "*->"))
 		return;
 #endif
@@ -102,7 +102,7 @@ static void trace_call(query *q, cell *c, pl_idx_t c_ctx, box_t box)
 #ifdef DEBUG
 	SB_sprintf(pr, "[%s:%"PRIu64":f%u:fp:%u:cp%u:sp%u:hp%u:tp%u] ",
 		q->st.m->name,
-		q->step++,
+		q->step++
 		q->st.curr_frame, q->st.fp, q->cp, q->st.sp, q->st.hp, q->st.tp
 		);
 #else
@@ -1888,11 +1888,10 @@ static int my_clock_gettime(clockid_t type, struct timespec *tp)
 uint64_t cpu_time_in_usec(void)
 {
 	struct timespec now = {0};
-#if !defined(CLOCK_PROCESS_CPUTIME_ID) || defined(__wasi__)
-	// CLOCK_PROCESS_CPUTIME_ID not yet part of WASI?
-	my_clock_gettime(CLOCK_MONOTONIC, &now);
-#else
+#ifdef CLOCK_PROCESS_CPUTIME_ID
 	my_clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &now);
+#else
+	my_clock_gettime(CLOCK_MONOTONIC, &now);
 #endif
 	return (uint64_t)(now.tv_sec * 1000 * 1000) + (now.tv_nsec / 1000);
 }
