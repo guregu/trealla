@@ -122,10 +122,10 @@ LIBOBJECTS +=  \
 	library/pio.o \
 	library/pseudojson.o \
 	library/random.o \
+	library/raylib.o \
 	library/si.o \
 	library/spin.o \
 	library/sqlite3.o \
-	library/sqlite3_register.o \
 	library/ugraphs.o \
 	library/wasm.o \
 	library/wasm_generic.o \

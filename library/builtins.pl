@@ -55,11 +55,12 @@ catch(G, E, C) :-
 :- help(catch(:callable,+term,:callable), [iso(true)]).
 
 call_cleanup(G, C) :-
+	(var(C) -> throw(error(instantiation_error, setup_call_cleanup/3)) ; true),
 	'$register_cleanup'(ignore(C)),
 	'$call_cleanup'(
 		call(G),
 		Err,
-		(catch(ignore(C), _, true), throw(Err))
+		( catch(ignore(C), _, true), throw(Err))
 	).
 
 :- meta_predicate(call_cleanup(0,0)).
@@ -67,6 +68,7 @@ call_cleanup(G, C) :-
 
 setup_call_cleanup(S, G, C) :-
 	once(S),
+	(var(C) -> throw(error(instantiation_error, setup_call_cleanup/3)) ; true),
 	'$register_cleanup'(ignore(C)),
 	'$call_cleanup'(
 		call(G),

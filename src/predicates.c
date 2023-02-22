@@ -7080,18 +7080,6 @@ static bool fn_use_module_2(query *q)
 	return do_use_module_2(q->st.m, q->st.curr_cell);
 }
 
-static bool fn_use_foreign_module_2(query *q)
-{
-	GET_FIRST_ARG(p1,atom);
-	GET_NEXT_ARG(p2,list_or_nil);
-	LIST_HANDLER(p2);
-
-	if (!do_use_module_1(q->st.m, q->st.curr_cell))
-		return false;
-
-	return do_use_foreign_module_2(q->st.m, q->st.curr_cell);
-}
-
 static bool fn_attribute_3(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_var);
@@ -7266,8 +7254,7 @@ static bool fn_sys_get_level_1(query *q)
 
 static bool fn_abort_0(query *q)
 {
-	exit(0);
-	return false;
+	return throw_error(q, q->st.curr_cell, q->st.curr_frame, "$aborted", "abort_error");
 }
 
 static bool fn_sys_choice_0(query *q)
@@ -7920,7 +7907,6 @@ builtins g_other_bifs[] =
 	{"using", 0, fn_using_0, NULL, false, false, BLAH},
 	{"use_module", 1, fn_use_module_1, "+term", false, false, BLAH},
 	{"use_module", 2, fn_use_module_2, "+term,+list", false, false, BLAH},
-	{"use_foreign_module", 2, fn_use_foreign_module_2, "+atom,+list", false, false, BLAH},
 
 #ifndef WASI_TARGET_JS
 	{"sleep", 1, fn_sleep_1, "+secs", false, false, BLAH},

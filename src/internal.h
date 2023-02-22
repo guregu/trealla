@@ -243,7 +243,8 @@ enum {
 	TAG_FLOAT=5,
 	TAG_PTR=6,
 	TAG_BLOB=7,
-	TAG_END=8
+	TAG_VOID=8,
+	TAG_END=9
 };
 
 enum {
@@ -349,19 +350,6 @@ struct cell_ {
 	// 2 * 8 = 16 bytes.
 
 	union {
-
-		// These are pseudo types used in FFI...
-
-		int8_t val_int8;
-		int16_t val_int16;
-		int32_t val_int32;
-		int64_t val_int64;
-		uint8_t val_uint8;
-		uint16_t val_uint16;
-		uint32_t val_uint32;
-		uint64_t val_uint64;
-		float val_float32;
-		double val_float64;
 
 		// Proper types...
 
@@ -476,7 +464,7 @@ struct predicate_ {
 	bool is_var_in_first_arg:1;
 };
 
-#define BLAH false, 0, {0}, 0, NULL, NULL
+#define BLAH false, false, false, {0}, {0}, 0, NULL, NULL, NULL
 
 struct builtins_ {
 	const char *name;
@@ -485,10 +473,13 @@ struct builtins_ {
 	const char *help;
 	bool iso;
 	bool evaluable;
+	bool is_struct;
 	bool ffi;
 	bool via_directive;
 	uint8_t types[MAX_ARITY];
+	const char *names[MAX_ARITY];
 	uint8_t ret_type;
+	const char *ret_name;
 	module *m;
 	char *desc;
 };

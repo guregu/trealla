@@ -44,8 +44,6 @@ extern unsigned char library_ugraphs_pl[];
 extern unsigned int library_ugraphs_pl_len;
 extern unsigned char library_sqlite3_pl[];
 extern unsigned int library_sqlite3_pl_len;
-extern unsigned char library_sqlite3_register_pl[];
-extern unsigned int library_sqlite3_register_pl_len;
 extern unsigned char library_json_pl[];
 extern unsigned int library_json_pl_len;
 extern unsigned char library_wasm_pl[];
@@ -58,6 +56,8 @@ extern unsigned char library_pseudojson_pl[];
 extern unsigned int library_pseudojson_pl_len;
 extern unsigned char library_abnf_pl[];
 extern unsigned int library_abnf_pl_len;
+extern unsigned char library_raylib_pl[];
+extern unsigned int library_raylib_pl_len;
 
 #ifdef WASI_TARGET_SPIN
 	extern unsigned char library_spin_pl[];
@@ -86,12 +86,12 @@ library g_libs[] = {
 	 {"pio", library_pio_pl, &library_pio_pl_len},
 	 {"pseudojson", library_pseudojson_pl, &library_pseudojson_pl_len},
 	 {"random", library_random_pl, &library_random_pl_len},
+	 {"raylib", library_raylib_pl, &library_raylib_pl_len},
 	 {"si", library_si_pl, &library_si_pl_len},
 #ifdef WASI_TARGET_SPIN
 	 {"spin", library_spin_pl, &library_spin_pl_len},
 #endif
 	 {"sqlite3", library_sqlite3_pl, &library_sqlite3_pl_len},
-	 {"sqlite3_register", library_sqlite3_register_pl, &library_sqlite3_register_pl_len},
 	 {"ugraphs", library_ugraphs_pl, &library_ugraphs_pl_len},
 	 {"wasm", library_wasm_pl, &library_wasm_pl_len},
 	 {"wasm_generic", library_wasm_generic_pl, &library_wasm_generic_pl_len},

@@ -735,6 +735,20 @@ static void directives(parser *p, cell *d)
 		return;
 	}
 
+#if USE_FFI
+	if (!strcmp(dirname, "foreign_struct") && (c->arity == 2)) {
+		if (!is_iso_atom(p1)) { p->error = true; return; }
+		do_foreign_struct(p->m, c);
+		return;
+	}
+
+	if (!strcmp(dirname, "use_foreign_module") && (c->arity == 2)) {
+		if (!is_atom(p1)) { p->error = true; return; }
+		do_use_foreign_module(p->m, c);
+		return;
+	}
+#endif
+
 	if (!strcmp(dirname, "meta_predicate") && (c->arity == 1)) {
 		if (!is_structure(p1)) return;
 	}
