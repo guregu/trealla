@@ -1,6 +1,6 @@
 
 :- module(wasm_js, [js_eval/1, js_eval/2, js_eval_json/2,
-	js_fetch/3, http_consult/1, crypto_data_hash/3, sleep/1]).
+	js_fetch/3, http_fetch/3, http_consult/1, crypto_data_hash/3, sleep/1]).
 
 :- use_module(library(lists)).
 :- use_module(library(error)).
@@ -52,6 +52,8 @@ js_fetch(URL, Result, Opts) :-
 	js_eval_(Expr, Result, js_fetch/3),
 	!.
 
+http_fetch(URL, Result, Opts) :- js_fetch(URL, Result, Opts).
+
 fetch_expr(URL, As, Method, Body, Hdr, Expr) :-
 	fetch_then(As, Then),
 	fetch_obj(Method, Body, Hdr, Obj),
@@ -83,11 +85,20 @@ no_body("GET").
 no_body("HEAD").
 
 http_consult(URL) :-
-	( js_fetch(URL, Cs, [as(string)]) -> true
-	; throw(error(js_error(fetch_failed, URL)))),
-	atom_chars(Module, URL),
+	(  js_fetch(URL, Cs, [as(string)])
+	-> true
+	;  throw(error(js_error(fetch_failed, URL), http_consult/1))
+	),
+	consulted_url_module(URL, Module),
 	Module:'$load_chars'(Cs),
-	use_module(Module).
+	!,
+	ignore(use_module(Module)).
+
+consulted_url_module(URL, Module) :-
+	append(File, ".pl", URL),
+	atom_chars(Module, File).
+consulted_url_module(URL, Module) :-
+	atom_chars(Module, URL).
 
 crypto_data_hash(Data, Hash, Options) :-
 	must_be(chars, Data),
