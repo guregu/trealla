@@ -139,6 +139,7 @@ ifdef WASI_TARGET_SPIN
 SRCOBJECTS += src/wasm/spin.o
 SRCOBJECTS += src/wasm/spin-http.o
 SRCOBJECTS += src/wasm/wasi-outbound-http.o
+SRCOBJECTS += src/wasm/key-value.o
 endif
 
 ifdef ISOCLINE
@@ -199,12 +200,12 @@ libtpl-spin: libtpl-spin.wasm
 	rm libtpl-wizened.wasm
 
 wit:
-	wit-bindgen guest c --export $(SPINDIR)/wit/ephemeral/spin-http.wit --out-dir ./src/wasm/
-	wit-bindgen guest c --import $(SPINDIR)/wit/ephemeral/wasi-outbound-http.wit --out-dir ./src/wasm/
-	wit-bindgen guest c --import $(SPINDIR)/wit/ephemeral/outbound-pg.wit --out-dir ./src/wasm/
-	sed -i 's/<spin-http.h>/"spin-http.h"/' ./src/wasm/spin-http.c
-	sed -i 's/<wasi-outbound-http.h>/"wasi-outbound-http.h"/' ./src/wasm/wasi-outbound-http.c
-	sed -i 's/<outbound-pg.h>/"outbound-pg.h"/' ./src/wasm/outbound-pg.c
+	wit-bindgen c --export $(SPINDIR)/wit/ephemeral/spin-http.wit --out-dir ./src/wasm/
+	wit-bindgen c --import $(SPINDIR)/wit/ephemeral/wasi-outbound-http.wit --out-dir ./src/wasm/
+	wit-bindgen c --import $(SPINDIR)/wit/ephemeral/key-value.wit --out-dir ./src/wasm/
+	sed -i '' -e 's/<spin-http.h>/"spin-http.h"/' ./src/wasm/spin-http.c
+	sed -i '' -e 's/<wasi-outbound-http.h>/"wasi-outbound-http.h"/' ./src/wasm/wasi-outbound-http.c
+	sed -i '' -e 's/<key-value.h>/"key-value.h"/' ./src/wasm/key-value.c
 
 test:
 	./tests/run.sh
