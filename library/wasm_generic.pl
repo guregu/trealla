@@ -2,6 +2,7 @@
 :- use_module(library(wasm)).
 :- use_module(library(pseudojson)).
 :- use_module(library(lists)).
+:- use_module(library(charsio)).
 
 host_call(Expr, Cs) :-
 	'$host_call'(Expr, Cs), !
@@ -22,20 +23,11 @@ host_rpc_eval(true, _, _, _) :- !.
 host_rpc_eval(fail, _, _, _) :- !, fail.
 host_rpc_eval(false, _, _, _) :- !, fail.
 host_rpc_eval(call(G), _, Vs0, Vs1) :-
-	merge_vars(Vs1, Vs0),
+	union(Vs0, Vs1, _),
 	call(G).
-host_rpc_eval(G1, G0, Vs0, Vs1) :-
-	G1 \= call(_),
-	merge_vars(Vs0, Vs1),
-	G0 = G1.
-
-merge_vars(L0, L2) :-
-	maplist(merge_vars_(L2), L0).
-merge_vars_(L, Name=Var) :-
-	(  memberchk(Name=V1, L)
-	-> Var = V1
-	;  true
-	).
+host_rpc_eval(G, G, Vs0, Vs1) :-
+	G \= call(_),
+	union(Vs0, Vs1, _).
 
 % from format/charsio:
 
@@ -46,22 +38,3 @@ unique_variable_names(Term, VNs) :-
 var_name(V, Name=V, Num0, Num) :-
 	fabricate_var_name(numbervars, Name, Num0),
 	Num is Num0 + 1.
-
-fabricate_var_name(VarType, VarName, N) :-
-	char_code('A', AC),
-	LN is N mod 26 + AC,
-	char_code(LC, LN),
-	NN is N // 26,
-	(  NN =:= 0 ->
-	( VarType == fabricated ->
-		atom_chars(VarName, ['_', LC])
-	; VarType == numbervars ->
-		atom_chars(VarName, [LC])
-	)
-	;  number_chars(NN, NNChars),
-	( VarType == fabricated ->
-		atom_chars(VarName, ['_', LC | NNChars])
-	; VarType == numbervars ->
-		atom_chars(VarName, [LC | NNChars])
-	)
-	).
