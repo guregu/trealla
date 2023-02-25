@@ -10,6 +10,7 @@
 #include "trealla.h"
 #include "internal.h"
 #include "query.h"
+#include "heap.h"
 
 #ifdef WASI_TARGET_SPIN
 #include "wasi.h"
@@ -66,13 +67,84 @@ static bool fn_sys_wasi_kv_close_1(query *q)
 	return true;
 }
 
+static bool fn_sys_wasi_kv_get_3(query *q)
+{
+	GET_FIRST_ARG(p1,smallint);
+	GET_NEXT_ARG(p2,atom_or_list);
+	GET_NEXT_ARG(p3,var);
+
+	dup_string(key, p2);
+
+	const key_value_store_t store = p1->val_int;
+	COMPONENT(key_value_string) kv_key = {
+		.ptr = key,
+		.len = key_len
+	};
+	COMPONENT(key_value_expected_list_u8_error) ret;
+
+	key_value_get(store, &kv_key, &ret);
+	check_kv_error(p1, ret);
+
+	cell tmp;
+	check_heap_error(make_stringn(&tmp, (const char*)ret.val.ok.ptr, ret.val.ok.len));
+	return unify(q, p3, p3_ctx, &tmp, q->st.curr_frame);
+}
+
+static bool fn_sys_wasi_kv_get_keys_2(query *q)
+{
+	GET_FIRST_ARG(p1,smallint);
+	GET_NEXT_ARG(p2,var);
+
+	const key_value_store_t store = p1->val_int;
+	COMPONENT(key_value_expected_list_string_error) ret;
+
+	key_value_get_keys(store, &ret);
+	check_kv_error(p1, ret);
+
+	for (size_t i = 0; i < ret.val.ok.len; i++) {
+		key_value_string_t key = ret.val.ok.ptr[i];
+		
+		cell tmp;
+		check_heap_error(make_stringn(&tmp, key.ptr, key.len));
+
+		if (i == 0)
+			allocate_list(q, &tmp);
+		else
+			append_list(q, &tmp);
+	}
+
+	cell *l = end_list(q);
+	check_heap_error(l);
+	return unify(q, p2, p2_ctx, l, q->st.curr_frame);
+}
+
+static bool fn_sys_wasi_kv_exists_2(query *q)
+{
+	GET_FIRST_ARG(p1,smallint);
+	GET_NEXT_ARG(p2,atom_or_list);
+
+	dup_string(key, p2);
+
+	const key_value_store_t store = p1->val_int;
+	COMPONENT(key_value_string) kv_key = {
+		.ptr = key,
+		.len = key_len
+	};
+	COMPONENT(key_value_expected_bool_error) ret;
+
+	key_value_exists(store, &kv_key, &ret);
+	check_kv_error(p1, ret);
+
+	return ret.val.ok;
+}
+
 static bool fn_sys_wasi_kv_set_3(query *q) {
 	GET_FIRST_ARG(p1,smallint);
 	GET_NEXT_ARG(p2,atom_or_list);
 	GET_NEXT_ARG(p3,atom_or_list);
 
-	dup_string(key, q, p2);
-	dup_string(val, q, p3);
+	dup_string(key, p2);
+	dup_string(val, p3);
 
 	const key_value_store_t store = p1->val_int;
 	COMPONENT(key_value_string) kv_key = {
@@ -91,35 +163,12 @@ static bool fn_sys_wasi_kv_set_3(query *q) {
 	return true;
 }
 
-static bool fn_sys_wasi_kv_get_3(query *q)
-{
-	GET_FIRST_ARG(p1,smallint);
-	GET_NEXT_ARG(p2,atom_or_list);
-	GET_NEXT_ARG(p3,var);
-
-	dup_string(key, q, p2);
-
-	const key_value_store_t store = p1->val_int;
-	COMPONENT(key_value_string) kv_key = {
-		.ptr = key,
-		.len = key_len
-	};
-	COMPONENT(key_value_expected_list_u8_error) ret;
-
-	key_value_get(store, &kv_key, &ret);
-	check_kv_error(p1, ret);
-
-	cell tmp;
-	check_heap_error(make_stringn(&tmp, (const char*)ret.val.ok.ptr, ret.val.ok.len));
-	return unify(q, p3, p3_ctx, &tmp, q->st.curr_frame);
-}
-
 static bool fn_sys_wasi_kv_delete_2(query *q)
 {
 	GET_FIRST_ARG(p1,smallint);
 	GET_NEXT_ARG(p2,atom_or_list);
 
-	dup_string(key, q, p2);
+	dup_string(key, p2);
 
 	const key_value_store_t store = p1->val_int;
 	COMPONENT(key_value_string) kv_key = {
@@ -132,26 +181,6 @@ static bool fn_sys_wasi_kv_delete_2(query *q)
 	check_kv_error(p1, ret);
 
 	return true;
-}
-
-static bool fn_sys_wasi_kv_exists_2(query *q)
-{
-	GET_FIRST_ARG(p1,smallint);
-	GET_NEXT_ARG(p2,atom_or_list);
-
-	dup_string(key, q, p2);
-
-	const key_value_store_t store = p1->val_int;
-	COMPONENT(key_value_string) kv_key = {
-		.ptr = key,
-		.len = key_len
-	};
-	COMPONENT(key_value_expected_bool_error) ret;
-
-	key_value_exists(store, &kv_key, &ret);
-	check_kv_error(p1, ret);
-
-	return ret.val.ok;
 }
 
 static bool fn_sys_wasi_outbound_http_5(query *q)
@@ -179,7 +208,7 @@ static bool fn_sys_wasi_outbound_http_5(query *q)
 	COMPONENT(wasi_outbound_http_response) response;
 
 	// Request URL
-	const dup_string(url, q, p1);
+	const dup_string(url, p1);
 	wasi_outbound_http_string_set(&request.uri, url);
 
 	// Request method
@@ -282,9 +311,10 @@ builtins g_contrib_bifs[] =
 	{"$wasi_kv_open", 2, fn_sys_wasi_kv_open_2, "+atom,-store", false, false, BLAH},
 	{"$wasi_kv_close", 1, fn_sys_wasi_kv_close_1, "+store", false, false, BLAH},
 	{"$wasi_kv_get", 3, fn_sys_wasi_kv_get_3, "+store,+string,-string", false, false, BLAH},
+	{"$wasi_kv_get_keys", 2, fn_sys_wasi_kv_get_keys_2, "+store,-list", false, false, BLAH},
+	{"$wasi_kv_exists", 2, fn_sys_wasi_kv_exists_2, "+store,+string", false, false, BLAH},
 	{"$wasi_kv_set", 3, fn_sys_wasi_kv_set_3, "+store,+string,+string", false, false, BLAH},
 	{"$wasi_kv_delete", 2, fn_sys_wasi_kv_delete_2, "+store,+string", false, false, BLAH},
-	{"$wasi_kv_exists", 2, fn_sys_wasi_kv_exists_2, "+store,+string", false, false, BLAH},
 #endif
 	{0}
 };

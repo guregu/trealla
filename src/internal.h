@@ -924,7 +924,7 @@ inline static int fake_strcmp(const void *ptr1, const void *ptr2, const void *pa
 	if (l->tail == e) l->tail = e->prev;						\
 }
 
-#define dup_string(str, q, p)												\
+#define dup_string(str, p)													\
 	char *str;																\
 	size_t str##_len;														\
 	if (is_cstring(p)) {													\

@@ -10,6 +10,7 @@
 		store_open/1, store_open/2,
 		store_close/1,
 		store_get/3, store_exists/2,
+		store_keys/2,
 		store_set/3, store_delete/2
 	]).
 
@@ -36,21 +37,27 @@ store_close(Handle) :- '$wasi_kv_close'(Handle).
 store_get(Handle, Key, Value) :-
 	ground_canon(Key, Ks),
 	'$wasi_kv_get'(Handle, Ks, Vs),
-	read_term_from_chars(Vs, Value, []).
+	canon_term(Vs, Value).
+store_keys(Handle, Keys) :-
+	'$wasi_kv_get_keys'(Handle, Ks),
+	maplist(canon_term, Ks, Keys).
+	%maplist(canon_term, Ks, Keys).
 store_set(Handle, Key, Value) :-
 	ground_canon(Key, Ks),
-	store_canon(Value, Vs),
+	term_canon(Value, Vs),
 	'$wasi_kv_set'(Handle, Ks, Vs).
 store_delete(Handle, Key) :-
 	ground_canon(Key, Cs),
 	'$wasi_kv_delete'(Handle, Cs).
 store_exists(Handle, Key) :- '$wasi_kv_exists'(Handle, Key).
 
-store_canon(Term, Cs) :-
+term_canon(Term, Cs) :-
 	write_term_to_chars(Term, [quoted(true), ignore_ops(true)], Cs).
+canon_term(Cs, Term) :-
+	catch(read_term_from_chars(Cs, Term, []), error(syntax_error(_), _), atom_chars(Term, Cs)).
 ground_canon(Term, Cs) :-
 	( ground(Term) -> true ; instantiation_error(Term) ),
-	store_canon(Term, Cs).
+	term_canon(Term, Cs).
 
 http_handle_request(URI, Method) :-
 	assertz(current_http_uri(URI)),
