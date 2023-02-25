@@ -51,7 +51,7 @@ static bool any_choices(const query *q, const frame *f)
 		return false;
 
 	const choice *ch = q->in_commit ? GET_PREV_CHOICE() : GET_CURR_CHOICE();
-	return ch->cgen > f->cgen;
+	return ch->cgen >= f->cgen;
 }
 
 void dump_term(query *q, const char *s, const cell *c)
@@ -681,6 +681,12 @@ bool retry_choice(query *q)
 
 		if (ch->catchme_exception || ch->soft_cut || ch->did_cleanup)
 			continue;
+
+		if (!ch->register_cleanup && q->noretry)
+			continue;
+
+		if (ch->register_cleanup && q->noretry)
+			q->noretry = false;
 
 		return true;
 	}
@@ -1716,11 +1722,11 @@ bool start(query *q)
 			bool status;
 
 #if USE_FFI
-			if (q->st.curr_cell->fn_ptr && q->st.curr_cell->fn_ptr->ffi) {
+			if (q->st.curr_cell->fn_ptr->ffi) {
 				if (q->st.curr_cell->fn_ptr->evaluable)
-					status = wrapper_for_function(q, q->st.curr_cell->fn_ptr);
+					status = wrap_ffi_function(q, q->st.curr_cell->fn_ptr);
 				else
-					status = wrapper_for_predicate(q, q->st.curr_cell->fn_ptr);
+					status = wrap_ffi_predicate(q, q->st.curr_cell->fn_ptr);
 			} else
 #endif
 				status = q->st.curr_cell->fn_ptr->fn(q);

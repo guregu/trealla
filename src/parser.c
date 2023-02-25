@@ -2195,7 +2195,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 	read_integer(p, &v2, 10, s, &s);
 
 	if (s && (*s == '.') && isdigit(s[1])) {
-		p->v.tag = TAG_FLOAT;
+		p->v.tag = TAG_DOUBLE;
 		errno = 0;
 		pl_flt_t v = strtod(tmpptr, &tmpptr);
 
@@ -2723,7 +2723,7 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 
 		int ch_start = peek_char_utf8(SB_cstr(p->token));
 
-		if (iswupper(ch_start) || (ch_start == '_'))
+		if ((!p->flags.var_prefix && !p->flags.json && iswupper(ch_start)) || (ch_start == '_'))
 			p->is_var = true;
 		else if (search_op(p->m, SB_cstr(p->token), NULL, false))
 			p->is_op = true;
@@ -3486,7 +3486,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 			c->val_bigint = p->v.val_bigint;
 		} else if (is_smallint(&p->v)) {
 			set_smallint(c, get_smallint(&p->v));
-		} else if (p->v.tag == TAG_FLOAT) {
+		} else if (p->v.tag == TAG_DOUBLE) {
 			set_float(c, get_float(&p->v));
 		} else if (!p->string && (!p->is_quoted || is_func || p->is_op || p->is_var
 			|| (get_builtin(p->m->pl, SB_cstr(p->token), SB_strlen(p->token), 0, &found, NULL), found)

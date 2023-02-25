@@ -634,7 +634,7 @@ bool find_exception_handler(query *q, char *ball)
 	else
 		fprintf(stdout, "  ");
 
-	if (!is_interned(e) || strcmp(C_STR(q, e), "error"))
+	if (!q->run_init/*!is_interned(e) || strcmp(C_STR(q, e), "error")*/)
 		fprintf(stdout, "throw(");
 
 	if (is_cyclic_term(q, e, e_ctx)) {
@@ -645,7 +645,7 @@ bool find_exception_handler(query *q, char *ball)
 		print_term(q, stdout, e, e_ctx, 1);
 	}
 
-	if (!is_interned(e) || strcmp(C_STR(q, e), "error"))
+	if (!q->run_init/*!is_interned(e) || strcmp(C_STR(q, e), "error")*/)
 		fprintf(stdout, ")");
 
 	fprintf(stdout, ".");
@@ -656,7 +656,7 @@ bool find_exception_handler(query *q, char *ball)
 	q->quoted = 0;
 	q->pl->did_dump_vars = true;
 	q->ball = NULL;
-	q->error = true;
+	//q->error = true;
 	return false;
 }
 

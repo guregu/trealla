@@ -327,54 +327,6 @@ builtins *get_fn_ptr(void *fn)
 	return NULL;
 }
 
-#if USE_FFI
-static int max_ffi_idx = 0;
-
-void register_struct(prolog *pl, const char *name, unsigned arity, void *fn, uint8_t *types, const char **names)
-{
-	builtins *ptr = &g_ffi_bifs[max_ffi_idx++];
-	ptr->name = name;
-	ptr->arity = arity;
-	ptr->fn = fn;
-	ptr->help = NULL;
-	ptr->evaluable = false;
-	ptr->is_struct = true;
-	ptr->ffi = true;
-
-	for (unsigned i = 0; i < arity; i++) {
-		ptr->types[i] = types[i];
-		ptr->names[i] = names[i];
-	}
-
-	//printf("*** reg struct '%s'\n", name);
-
-	ptr->ret_type = TAG_VOID;
-	map_app(pl->biftab, ptr->name, ptr);
-}
-
-void register_ffi(prolog *pl, const char *name, unsigned arity, void *fn, uint8_t *types, uint8_t ret_type, const char *ret_name, bool evaluable)
-{
-	builtins *ptr = &g_ffi_bifs[max_ffi_idx++];
-	ptr->name = name;
-	ptr->arity = arity;
-	ptr->fn = fn;
-	ptr->help = NULL;
-	ptr->evaluable = evaluable;
-	ptr->is_struct = false;
-	ptr->ffi = true;
-
-	if (ret_type == TAG_VOID)
-		ptr->arity--;
-
-	for (unsigned i = 0; i < arity; i++)
-		ptr->types[i] = types[i];
-
-	ptr->ret_type = ret_type;
-	ptr->ret_name = ret_name;
-	map_app(pl->biftab, ptr->name, ptr);
-}
-#endif
-
 void load_builtins(prolog *pl)
 {
 	for (const builtins *ptr = g_iso_bifs; ptr->name; ptr++) {
@@ -440,6 +392,7 @@ void pl_destroy(prolog *pl)
 	while (pl->modules)
 		destroy_module(pl->modules);
 
+	map_destroy(pl->fortab);
 	map_destroy(pl->biftab);
 	map_destroy(pl->symtab);
 	map_destroy(pl->keyval);
@@ -613,6 +566,9 @@ prolog *pl_create()
 
 	pl->help = map_create((void*)fake_strcmp, (void*)ptrfree, NULL);
 	map_allow_dups(pl->help, false);
+
+	pl->fortab = map_create((void*)fake_strcmp, NULL, NULL);
+	map_allow_dups(pl->fortab, false);
 
 	pl->biftab = map_create((void*)fake_strcmp, NULL, NULL);
 	map_allow_dups(pl->biftab, false);
