@@ -31,34 +31,6 @@ init :-
 
 :- initialization(init).
 
-store_open(Handle) :- store_open(default, Handle).
-store_open(Name, Handle) :- '$wasi_kv_open'(Name, Handle).
-store_close(Handle) :- '$wasi_kv_close'(Handle).
-store_get(Handle, Key, Value) :-
-	ground_canon(Key, Ks),
-	'$wasi_kv_get'(Handle, Ks, Vs),
-	canon_term(Vs, Value).
-store_keys(Handle, Keys) :-
-	'$wasi_kv_get_keys'(Handle, Ks),
-	maplist(canon_term, Ks, Keys).
-	%maplist(canon_term, Ks, Keys).
-store_set(Handle, Key, Value) :-
-	ground_canon(Key, Ks),
-	term_canon(Value, Vs),
-	'$wasi_kv_set'(Handle, Ks, Vs).
-store_delete(Handle, Key) :-
-	ground_canon(Key, Cs),
-	'$wasi_kv_delete'(Handle, Cs).
-store_exists(Handle, Key) :- '$wasi_kv_exists'(Handle, Key).
-
-term_canon(Term, Cs) :-
-	write_term_to_chars(Term, [quoted(true), ignore_ops(true)], Cs).
-canon_term(Cs, Term) :-
-	catch(read_term_from_chars(Cs, Term, []), error(syntax_error(_), _), atom_chars(Term, Cs)).
-ground_canon(Term, Cs) :-
-	( ground(Term) -> true ; instantiation_error(Term) ),
-	term_canon(Term, Cs).
-
 http_handle_request(URI, Method) :-
 	assertz(current_http_uri(URI)),
 	assertz(current_http_method(Method)),
@@ -213,3 +185,40 @@ param_value([V|Vs]) --> [V], { V \= '&' }, param_value(Vs).
 param_value([]) --> [].
 
 form([V|Vs]) --> param(V), params(Vs).
+
+store_open(Handle) :- store_open(default, Handle).
+store_open(Name, Handle) :- '$wasi_kv_open'(Name, Handle).
+
+store_close(Handle) :- '$wasi_kv_close'(Handle).
+
+store_get(Handle, Key, Value) :-
+	must_be(ground, Key),
+	term_canon(Key, Ks),
+	'$wasi_kv_get'(Handle, Ks, Vs),
+	once(canon_term(Vs, Value)).
+
+store_keys(Handle, Keys) :-
+	'$wasi_kv_get_keys'(Handle, Ks),
+	once(maplist(canon_term, Ks, Keys)).
+
+store_set(Handle, Key, Value) :-
+	must_be(ground, Key),
+	must_be(ground, Value),
+	term_canon(Key, Ks),
+	term_canon(Value, Vs),
+	'$wasi_kv_set'(Handle, Ks, Vs).
+
+store_delete(Handle, Key) :-
+	must_be(ground, Key),
+	term_canon(Key, Cs),
+	'$wasi_kv_delete'(Handle, Cs).
+
+store_exists(Handle, Key) :- '$wasi_kv_exists'(Handle, Key).
+
+term_canon(key(Cs), Cs).
+term_canon(Term, Cs) :-
+	Term \= key(_),
+	write_term_to_chars(Term, [], Cs).
+canon_term([], []).
+canon_term(Cs, Term) :-
+	catch(read_term_from_chars(Cs, Term, []), error(syntax_error(_), _), Term = key(Cs)).
