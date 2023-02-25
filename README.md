@@ -55,6 +55,12 @@ See `library/spin.pl`.
 - [ ] Outbound Redis
 - [x] Key-value store
 
+You can use Trealla Prolog with [Spin](https://developer.fermyon.com/spin/index), server-side
+runtime for WebAssembly.
+
+Place a file called `init.pl` or `lib.pl` in your root directory of the Spin component.
+From there you can load other modules, etc.
+
 Example of a visit counter using Spin:
 
 ```prolog
@@ -76,6 +82,31 @@ http_handler(get("/", _), _, _, 200) :-
 	),
 	format(http_body, "Welcome, visitor #~d!", [N]).
 ```
+
+#### Spin component configuration
+
+Example of `spin.toml`.
+
+```toml
+spin_version = "1"
+name = "prolog-test"
+description = "Trealla Prolog is WEBSCALE"
+trigger = { type = "http", base = "/" }
+version = "0.0.0"
+[[component]]
+id = "prolog"
+description = "Prolog Website"
+source = "libtpl-spin.wasm"
+# This puts the folder "www" as the root for the WASM component.
+# You can put init.pl there.
+files = [{ source = "www/", destination = "/"}]
+allowed_http_hosts = ["insecure:allow-all"] # configure this
+key_value_stores = ["default"] # currently only "default" does something
+[component.trigger]
+route = "/..."
+```
+
+Template/OCI image coming soon. For now, you can grab `libtpl-spin.wasm` from the Releases page.
 
 ## See also
 
