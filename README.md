@@ -74,7 +74,7 @@ http_handler(get("/", _), _, _, 200) :-
 		),
 		store_close(Store)
 	),
-	format(http_body, "Welcome, visitor #~d!, [N]).
+	format(http_body, "Welcome, visitor #~d!", [N]).
 ```
 
 ## See also
