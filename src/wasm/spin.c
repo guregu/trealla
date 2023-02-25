@@ -115,7 +115,7 @@ BADMETHOD:
 		size_t body_len = request->body.val.len*3;
 		RESIZE_TMPBUF(body_len);
 		size_t len = formatted(tmpbuf, tmpbuf_len,
-			(const char *)request->body.val.ptr, request->body.val.len,
+			(const char*)request->body.val.ptr, request->body.val.len,
 			true, false);
 		SB_strcat(s, "spin:assertz(current_http_body(\"");
 		SB_strcatn(s, tmpbuf, len);

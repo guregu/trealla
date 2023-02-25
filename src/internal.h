@@ -923,3 +923,16 @@ inline static int fake_strcmp(const void *ptr1, const void *ptr2, const void *pa
 	if (l->head == e) l->head = e->next;						\
 	if (l->tail == e) l->tail = e->prev;						\
 }
+
+#define dup_string(str, q, p)												\
+	char *str;																\
+	size_t str##_len;														\
+	if (is_cstring(p)) {													\
+		str = DUP_STR(q, p);												\
+		str##_len = C_STRLEN(q, p);											\
+	} else if ((str##_len = scan_is_chars_list(q, p, p##_ctx, true)) > 0) {	\
+		str = chars_list_to_string(q, p, p##_ctx, str##_len);				\
+	} else if (is_nil(p)) {													\
+		str = NULL;															\
+	} else																	\
+		return throw_error(q, p, p##_ctx, "type_error", "chars");

@@ -1,9 +1,20 @@
-:- module(spin, [http_handler/3, current_http_uri/1, current_http_method/1, current_http_body/1,
-	current_http_param/2, current_http_header/2, http_header_set/2, http_body_output/1,
-	html_content/0, html_content/1, text_content/0, text_content/1,
-	prolog_content/0, prolog_content/1]).
+:- module(spin, [
+		http_handler/3,
+		current_http_uri/1, current_http_method/1, current_http_body/1,
+		current_http_param/2, current_http_header/2,
+		http_header_set/2,
+		http_body_output/1,
+		html_content/0, html_content/1,
+		text_content/0, text_content/1,
+		prolog_content/0, prolog_content/1,
+		store_open/1, store_open/2,
+		store_close/1,
+		store_get/3, store_exists/2,
+		store_set/3, store_delete/2
+	]).
 
 :- use_module(library(pseudojson)).
+:- use_module(library(error)).
 
 :- dynamic(current_http_uri/1).
 :- dynamic(current_http_method/1).
@@ -17,7 +28,29 @@ init :-
 	map_create(_, [alias(http_headers)]),
 	'$memory_stream_create'(_, [alias(http_body)]).
 
-:- initialization(init).	
+:- initialization(init).
+
+store_open(Handle) :- store_open(default, Handle).
+store_open(Name, Handle) :- '$wasi_kv_open'(Name, Handle).
+store_close(Handle) :- '$wasi_kv_close'(Handle).
+store_get(Handle, Key, Value) :-
+	ground_canon(Key, Ks),
+	'$wasi_kv_get'(Handle, Ks, Vs),
+	read_term_from_chars(Vs, Value, []).
+store_set(Handle, Key, Value) :-
+	ground_canon(Key, Ks),
+	store_canon(Value, Vs),
+	'$wasi_kv_set'(Handle, Ks, Vs).
+store_delete(Handle, Key) :-
+	ground_canon(Key, Cs),
+	'$wasi_kv_delete'(Handle, Cs).
+store_exists(Handle, Key) :- '$wasi_kv_exists'(Handle, Key).
+
+store_canon(Term, Cs) :-
+	write_term_to_chars(Term, [quoted(true), ignore_ops(true)], Cs).
+ground_canon(Term, Cs) :-
+	( ground(Term) -> true ; instantiation_error(Term) ),
+	store_canon(Term, Cs).
 
 http_handle_request(URI, Method) :-
 	assertz(current_http_uri(URI)),

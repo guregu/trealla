@@ -12,32 +12,29 @@
 #include "query.h"
 
 #ifdef WASI_TARGET_SPIN
+#include "wasi.h"
 #include "spin.h"
 #include "wasi-outbound-http.h"
 #include "key-value.h"
 
-#define spin_check_kv_error(ret) {															\
+#define check_kv_error(p, ret) {															\
 		if (ret.is_err) {																	\
-			char *errmsg;																	\
 			switch (ret.val.err.tag) {														\
 			case KEY_VALUE_ERROR_STORE_TABLE_FULL:											\
-				return throw_error(q, p1, p1_ctx, "key_value_error", "store_table_full");	\
+				return throw_error(q, p, p##_ctx, "key_value_error", "store_table_full");	\
 			case KEY_VALUE_ERROR_NO_SUCH_STORE:												\
-				return throw_error(q, p1, p1_ctx, "key_value_error", "no_such_store");		\
+				return throw_error(q, p, p##_ctx, "key_value_error", "no_such_store");		\
 			case KEY_VALUE_ERROR_ACCESS_DENIED:												\
-				return throw_error(q, p1, p1_ctx, "key_value_error", "access_denied");		\
+				return throw_error(q, p, p##_ctx, "key_value_error", "access_denied");		\
 			case KEY_VALUE_ERROR_INVALID_STORE:												\
-				return throw_error(q, p1, p1_ctx, "key_value_error", "invalid_store");		\
+				return throw_error(q, p, p##_ctx, "key_value_error", "invalid_store");		\
 			case KEY_VALUE_ERROR_NO_SUCH_KEY:												\
 				return false;																\
 			case KEY_VALUE_ERROR_IO:														\
-				errmsg = alloca(ret.val.err.val.io.len+1);									\
-				memcpy(errmsg, ret.val.err.val.io.ptr, ret.val.err.val.io.len);				\
-				errmsg[ret.val.err.val.io.len] = 0;											\
-				fprintf(stderr, "key value io error: %s\n", errmsg);						\
-				return throw_error(q, p1, p1_ctx, "key_value_io_error", errmsg);			\
+				return throw_error(q, p, p##_ctx, "key_value_io_error",						\
+					COMPONENT_CSTR(ret.val.err.val.io));									\
 			default:																		\
-				return throw_error(q, p1, p1_ctx, "key_value_error", "unknown_error");		\
+				return throw_error(q, p, p##_ctx, "key_value_error", "unknown_error");		\
 			}																				\
 		}																					\
 	}
@@ -47,24 +44,24 @@ static bool fn_sys_wasi_kv_open_2(query *q)
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p2,var);
 
-	__attribute__((cleanup(key_value_string_free)))
-		key_value_string_t kv_name;
-	__attribute__((cleanup(key_value_expected_store_error_free)))
-		key_value_expected_store_error_t ret;
+	COMPONENT(key_value_string) kv_name;
+	COMPONENT(key_value_expected_store_error) ret;
 	
 	key_value_string_dup(&kv_name, C_STR(q, p1));
+
 	key_value_open(&kv_name, &ret);
-	spin_check_kv_error(ret);
+	check_kv_error(p1, ret);
 
 	cell tmp;
 	make_int(&tmp, ret.val.ok);
+	tmp.flags |= FLAG_INT_HANDLE | FLAG_INT_OCTAL;
 	return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 }
 
 static bool fn_sys_wasi_kv_close_1(query *q)
 {
 	GET_FIRST_ARG(p1,smallint);
-	key_value_store_t store = p1->val_int;
+	const key_value_store_t store = p1->val_int;
 	key_value_close(store);
 	return true;
 }
@@ -74,44 +71,22 @@ static bool fn_sys_wasi_kv_set_3(query *q) {
 	GET_NEXT_ARG(p2,atom_or_list);
 	GET_NEXT_ARG(p3,atom_or_list);
 
-	key_value_store_t store = p1->val_int;
+	dup_string(key, q, p2);
+	dup_string(val, q, p3);
 
-	const char *key;
-	if (is_iso_list(p2)) {
-		size_t len = scan_is_chars_list(q, p2, p2_ctx, true);
-		
-		if (!len)
-			return throw_error(q, p2, p2_ctx, "type_error", "atom");
-		
-		key = chars_list_to_string(q, p2, p2_ctx, len);
-	} else {
-		key = DUP_STR(q, p2);
-	}
-
-	const char *value;
-	if (is_iso_list(p3)) {
-		size_t len = scan_is_chars_list(q, p3, p3_ctx, true);
-		
-		if (!len)
-			return throw_error(q, p3, p3_ctx, "type_error", "atom");
-		
-		value = chars_list_to_string(q, p3, p3_ctx, len);
-	} else {
-		value = DUP_STR(q, p3);
-	}
-
-	__attribute__((cleanup(key_value_string_free)))
-		key_value_string_t kv_key;
-	__attribute__((cleanup(key_value_list_u8_free)))
-		key_value_list_u8_t kv_val;
-	__attribute__((cleanup(key_value_expected_unit_error_free)))
-		key_value_expected_unit_error_t ret;
-
-	key_value_string_set(&kv_key, key);
-	key_value_string_set(&kv_val, value);
+	const key_value_store_t store = p1->val_int;
+	COMPONENT(key_value_string) kv_key = {
+		.ptr = key,
+		.len = key_len
+	};
+	COMPONENT(key_value_list_u8) kv_val = {
+		.ptr = (uint8_t*)val,
+		.len = val_len
+	};
+	COMPONENT(key_value_expected_unit_error) ret;
 
 	key_value_set(store, &kv_key, &kv_val, &ret);
-	spin_check_kv_error(ret);
+	check_kv_error(p1, ret);
 
 	return true;
 }
@@ -122,30 +97,20 @@ static bool fn_sys_wasi_kv_get_3(query *q)
 	GET_NEXT_ARG(p2,atom_or_list);
 	GET_NEXT_ARG(p3,var);
 
-	key_value_store_t store = p1->val_int;
-	__attribute__((cleanup(key_value_string_free)))
-		key_value_string_t kv_key;
-	__attribute__((cleanup(key_value_expected_list_u8_error_free)))
-		key_value_expected_list_u8_error_t ret;
-	
-	const char *key;
-	if (is_iso_list(p2)) {
-		size_t len = scan_is_chars_list(q, p2, p2_ctx, true);
-		
-		if (!len)
-			return throw_error(q, p2, p2_ctx, "type_error", "atom");
-		
-		key = chars_list_to_string(q, p2, p2_ctx, len);
-	} else {
-		key = DUP_STR(q, p2);
-	}
-	key_value_string_set(&kv_key, key);
+	dup_string(key, q, p2);
+
+	const key_value_store_t store = p1->val_int;
+	COMPONENT(key_value_string) kv_key = {
+		.ptr = key,
+		.len = key_len
+	};
+	COMPONENT(key_value_expected_list_u8_error) ret;
 
 	key_value_get(store, &kv_key, &ret);
-	spin_check_kv_error(ret);
+	check_kv_error(p1, ret);
 
 	cell tmp;
-	check_heap_error(make_cstringn(&tmp, ret.val.ok.ptr, ret.val.ok.len));
+	check_heap_error(make_stringn(&tmp, (const char*)ret.val.ok.ptr, ret.val.ok.len));
 	return unify(q, p3, p3_ctx, &tmp, q->st.curr_frame);
 }
 
@@ -154,27 +119,17 @@ static bool fn_sys_wasi_kv_delete_2(query *q)
 	GET_FIRST_ARG(p1,smallint);
 	GET_NEXT_ARG(p2,atom_or_list);
 
-	key_value_store_t store = p1->val_int;
-	__attribute__((cleanup(key_value_string_free)))
-		key_value_string_t kv_key;
-	__attribute__((cleanup(key_value_expected_bool_error_free)))
-		key_value_expected_bool_error_t ret;
-	
-	const char *key;
-	if (is_iso_list(p2)) {
-		size_t len = scan_is_chars_list(q, p2, p2_ctx, true);
-		
-		if (!len)
-			return throw_error(q, p2, p2_ctx, "type_error", "atom");
-		
-		key = chars_list_to_string(q, p2, p2_ctx, len);
-	} else {
-		key = DUP_STR(q, p2);
-	}
-	key_value_string_set(&kv_key, key);
+	dup_string(key, q, p2);
+
+	const key_value_store_t store = p1->val_int;
+	COMPONENT(key_value_string) kv_key = {
+		.ptr = key,
+		.len = key_len
+	};
+	COMPONENT(key_value_expected_unit_error) ret;
 
 	key_value_delete(store, &kv_key, &ret);
-	spin_check_kv_error(ret);
+	check_kv_error(p1, ret);
 
 	return true;
 }
@@ -184,27 +139,17 @@ static bool fn_sys_wasi_kv_exists_2(query *q)
 	GET_FIRST_ARG(p1,smallint);
 	GET_NEXT_ARG(p2,atom_or_list);
 
-	key_value_store_t store = p1->val_int;
-	__attribute__((cleanup(key_value_string_free)))
-		key_value_string_t kv_key;
-	__attribute__((cleanup(key_value_expected_bool_error_free)))
-		key_value_expected_bool_error_t ret;
-	
-	const char *key;
-	if (is_iso_list(p2)) {
-		size_t len = scan_is_chars_list(q, p2, p2_ctx, true);
-		
-		if (!len)
-			return throw_error(q, p2, p2_ctx, "type_error", "atom");
-		
-		key = chars_list_to_string(q, p2, p2_ctx, len);
-	} else {
-		key = DUP_STR(q, p2);
-	}
-	key_value_string_set(&kv_key, key);
+	dup_string(key, q, p2);
+
+	const key_value_store_t store = p1->val_int;
+	COMPONENT(key_value_string) kv_key = {
+		.ptr = key,
+		.len = key_len
+	};
+	COMPONENT(key_value_expected_bool_error) ret;
 
 	key_value_exists(store, &kv_key, &ret);
-	spin_check_kv_error(ret);
+	check_kv_error(p1, ret);
 
 	return ret.val.ok;
 }
@@ -230,23 +175,11 @@ static bool fn_sys_wasi_outbound_http_5(query *q)
 	if (!is_map_stream(resp_hdr_str))
 		return throw_error(q, p5, q->st.curr_frame, "type_error", "not_a_map");
 
-	__attribute__((cleanup(wasi_outbound_http_request_free)))
-		wasi_outbound_http_request_t request = {0};
-	__attribute__((cleanup(wasi_outbound_http_response_free)))
-		wasi_outbound_http_response_t response = {0};
+	COMPONENT(wasi_outbound_http_request) request = {0};
+	COMPONENT(wasi_outbound_http_response) response;
 
 	// Request URL
-	const char *url;
-	if (is_iso_list(p1)) {
-		size_t len = scan_is_chars_list(q, p1, p1_ctx, true);
-
-		if (!len)
-			return throw_error(q, p1, p1_ctx, "type_error", "atom");
-
-		url = chars_list_to_string(q, p1, p1_ctx, len);
-	} else {
-		url = DUP_STR(q, p1);
-	}
+	const dup_string(url, q, p1);
 	wasi_outbound_http_string_set(&request.uri, url);
 
 	// Request method
@@ -346,13 +279,14 @@ builtins g_contrib_bifs[] =
 {
 #ifdef WASI_TARGET_SPIN
 	{"$wasi_outbound_http", 5, fn_sys_wasi_outbound_http_5, "+string,+map,+map,-map,-map", false, false, BLAH},
-	{"$wasi_kv_open", 2, fn_sys_wasi_kv_open_2, "+atom,-integer", false, false, BLAH},
-	{"$wasi_kv_close", 1, fn_sys_wasi_kv_close_1, "+integer", false, false, BLAH},
-	{"$wasi_kv_get", 3, fn_sys_wasi_kv_get_3, "+integer,+string,-string", false, false, BLAH},
-	{"$wasi_kv_set", 3, fn_sys_wasi_kv_set_3, "+integer,+string,+string", false, false, BLAH},
-	{"$wasi_kv_delete", 2, fn_sys_wasi_kv_delete_2, "+integer,+string", false, false, BLAH},
-	{"$wasi_kv_exists", 2, fn_sys_wasi_kv_exists_2, "+integer,+string", false, false, BLAH},
+	{"$wasi_kv_open", 2, fn_sys_wasi_kv_open_2, "+atom,-store", false, false, BLAH},
+	{"$wasi_kv_close", 1, fn_sys_wasi_kv_close_1, "+store", false, false, BLAH},
+	{"$wasi_kv_get", 3, fn_sys_wasi_kv_get_3, "+store,+string,-string", false, false, BLAH},
+	{"$wasi_kv_set", 3, fn_sys_wasi_kv_set_3, "+store,+string,+string", false, false, BLAH},
+	{"$wasi_kv_delete", 2, fn_sys_wasi_kv_delete_2, "+store,+string", false, false, BLAH},
+	{"$wasi_kv_exists", 2, fn_sys_wasi_kv_exists_2, "+store,+string", false, false, BLAH},
 #endif
 	{0}
 };
 
+#undef check_kv_error
