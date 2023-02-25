@@ -53,6 +53,28 @@ See `library/spin.pl`.
 - [ ] Outbound PostgreSQL
 - [ ] Inbound Redis
 - [ ] Outbound Redis
+- [x] Key-value store
+
+Example of a visit counter using Spin:
+
+```prolog
+http_handler(get("/", _), _, _, 200) :-
+	html_content,
+	setup_call_cleanup(
+		store_open(default, Store),
+		(
+			(  store_get(Store, counter, N0)
+			-> true
+			;  N0 = 0
+			),
+			succ(N0, N),
+			store_set(Store, counter, N),
+			findall(K-V, store_get(Store, K, V), All)
+		),
+		store_close(Store)
+	),
+	format(http_body, "Welcome, visitor #~d!, [N]).
+```
 
 ## See also
 

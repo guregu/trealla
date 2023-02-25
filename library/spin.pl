@@ -192,10 +192,16 @@ store_open(Name, Handle) :- '$wasi_kv_open'(Name, Handle).
 store_close(Handle) :- '$wasi_kv_close'(Handle).
 
 store_get(Handle, Key, Value) :-
-	must_be(ground, Key),
+	ground(Key),
 	term_canon(Key, Ks),
 	'$wasi_kv_get'(Handle, Ks, Vs),
-	once(canon_term(Vs, Value)).
+	canon_term(Vs, Value).
+store_get(Handle, Key, Value) :-
+	\+ground(Key),
+	store_keys(Handle, Keys),
+	member(Key, Keys),
+	ground(Key),
+	store_get(Handle, Key, Value).
 
 store_keys(Handle, Keys) :-
 	'$wasi_kv_get_keys'(Handle, Ks),
