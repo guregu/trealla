@@ -58,6 +58,8 @@ See `library/spin.pl`.
 Example of a visit counter using Spin:
 
 ```prolog
+:- use_module(library(spin)).
+
 http_handler(get("/", _), _, _, 200) :-
 	html_content,
 	setup_call_cleanup(
@@ -69,7 +71,6 @@ http_handler(get("/", _), _, _, 200) :-
 			),
 			succ(N0, N),
 			store_set(Store, counter, N),
-			findall(K-V, store_get(Store, K, V), All)
 		),
 		store_close(Store)
 	),
