@@ -94,7 +94,7 @@ extern unsigned g_string_cnt, g_interned_cnt;
 #define is_cstring(c) ((c)->tag == TAG_CSTR)
 #define is_basic_integer(c) ((c)->tag == TAG_INTEGER)
 #define is_integer(c) (((c)->tag == TAG_INTEGER) && !((c)->flags & FLAG_INT_STREAM))
-#define is_float(c) ((c)->tag == TAG_FLOAT)
+#define is_float(c) ((c)->tag == TAG_DOUBLE)
 #define is_indirect(c) ((c)->tag == TAG_PTR)
 #define is_blob(c) ((c)->tag == TAG_BLOB)
 #define is_end(c) ((c)->tag == TAG_END)
@@ -240,7 +240,7 @@ enum {
 	TAG_INTERNED=2,
 	TAG_CSTR=3,
 	TAG_INTEGER=4,
-	TAG_FLOAT=5,
+	TAG_DOUBLE=5,
 	TAG_PTR=6,
 	TAG_BLOB=7,
 	TAG_VOID=8,
@@ -464,7 +464,8 @@ struct predicate_ {
 	bool is_var_in_first_arg:1;
 };
 
-#define BLAH false, false, false, {0}, {0}, 0, NULL, NULL, NULL
+#define BLAH false, false, {0}, {0}, 0, NULL, NULL, NULL, NULL
+#define MAX_FFI_ARGS 16
 
 struct builtins_ {
 	const char *name;
@@ -473,12 +474,12 @@ struct builtins_ {
 	const char *help;
 	bool iso;
 	bool evaluable;
-	bool is_struct;
 	bool ffi;
 	bool via_directive;
-	uint8_t types[MAX_ARITY];
-	const char *names[MAX_ARITY];
+	uint8_t types[MAX_FFI_ARGS];
+	const char *names[MAX_FFI_ARGS];
 	uint8_t ret_type;
+	void *ffi_ret_type;
 	const char *ret_name;
 	module *m;
 	char *desc;
@@ -622,6 +623,7 @@ struct prolog_flags_ {
 	bool not_strict_iso:1;
 	bool debug:1;
 	bool json:1;
+	bool var_prefix:1;
 };
 
 struct query_ {
@@ -667,6 +669,7 @@ struct query_ {
 	bool in_attvar_print:1;
 	bool lists_ok:1;
 	bool autofail:1;
+	bool noretry:1;
 	bool is_oom:1;
 	bool is_redo:1;
 	bool run_hook:1;
@@ -795,7 +798,7 @@ struct prolog_ {
 	var_item *tabs;
 	parser *p;
 	query *curr_query;
-	map *symtab, *biftab, *keyval, *help;
+	map *symtab, *biftab, *keyval, *help, *fortab;
 	char *pool;
 	size_t pool_offset, pool_size, tabs_size;
 	uint64_t s_last, s_cnt, seed, ugen;
