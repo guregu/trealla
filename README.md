@@ -40,9 +40,14 @@ There's a bunch of new compile targets for WASM.
 
 ### libtpl-spin
 
+You can use Trealla Prolog with [Spin](https://developer.fermyon.com/spin/index), a server-side
+runtime for WebAssembly.
+
 `make libtpl-spin` builds the [Spin](https://github.com/fermyon/spin)-flavored libtpl.
 
 `make SPINDIR=path/to/spin/source wit` to generate the WASM component code via wit-bindgen.
+These files are included in the repository so you won't need to generate them unless adding support for a new one.
+Currently requires wit-bindgen v0.2.0.
 
 #### Spin Components
 
@@ -53,10 +58,7 @@ See `library/spin.pl`.
 - [ ] Outbound PostgreSQL
 - [ ] Inbound Redis
 - [ ] Outbound Redis
-- [x] Key-value store
-
-You can use Trealla Prolog with [Spin](https://developer.fermyon.com/spin/index), server-side
-runtime for WebAssembly.
+- [x] [Key-value store](https://developer.fermyon.com/spin/kv-store)
 
 Place a file called `init.pl` or `lib.pl` in your root directory of the Spin component.
 From there you can load other modules, etc.
@@ -100,13 +102,14 @@ source = "libtpl-spin.wasm"
 # This puts the folder "www" as the root for the WASM component.
 # You can put init.pl there.
 files = [{ source = "www/", destination = "/"}]
-allowed_http_hosts = ["insecure:allow-all"] # configure this
+# allowed_http_hosts determines which hosts can be used to for outgoing HTTP (see: http_fetch/3)
+allowed_http_hosts = ["insecure:allow-all"] # special unsafe value to allow any host
 key_value_stores = ["default"] # currently only "default" does something
 [component.trigger]
 route = "/..."
 ```
 
-Template/OCI image coming soon. For now, you can grab `libtpl-spin.wasm` from the Releases page.
+Template/OCI image coming soon. For now, you can grab `libtpl-wasm-spin.zip` (which includes `libtpl-spin.wasm`) from the Releases page.
 
 ## See also
 
