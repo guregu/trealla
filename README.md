@@ -76,7 +76,7 @@ http_handler(get("/", _), _, _, 200) :-
 			;  N0 = 0
 			),
 			succ(N0, N),
-			store_set(Store, counter, N),
+			store_set(Store, counter, N)
 		),
 		store_close(Store)
 	),
