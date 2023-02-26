@@ -42,7 +42,7 @@ int check_interrupt(query *q)
 			printf("%c\n", ch);
 
 		if (ch == 'h') {
-			printf("Action (#digit), (a)ll, (e)nd, e(x)it, (r)etry, (c)ontinue, (t)race, cree(p): ");
+			printf("Action (#digit), (e)nd, e(x)it, (r)etry, (c)ontinue, (t)race, cree(p): ");
 			goto LOOP;
 		}
 
@@ -67,14 +67,16 @@ int check_interrupt(query *q)
 		}
 
 #ifndef __wasi__
-		if (ch == '\n')
-			return -1;
-#endif
-
-		if (ch == 'e') {
-			q->abort = true;
-			return 1;
+		if ((ch == '\n') || (ch == 'e')) {
+			//printf(";  ... .\n");
+			printf("  ... .\n");
+			q->is_redo = true;
+			q->retry = QUERY_RETRY;
+			q->pl->did_dump_vars = false;
+			q->noretry = true;
+			break;
 		}
+#endif
 
 		if (ch == 'x') {
 			if (!q->run_init)
@@ -132,7 +134,7 @@ bool check_redo(query *q)
 		int ch = history_getch();
 
 		if ((ch == 'h') || (ch == '?')) {
-			printf("Action (#digit), (a)ll, e(x)it, (r)etry, (e)nd:\n");
+			printf("Action (#digit), (a)ll, (e)nd, e(x)it, (r)etry, (e)nd:\n");
 			fflush(stdout);
 			continue;
 		}
