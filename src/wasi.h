@@ -1,7 +1,7 @@
 #pragma once
 #ifdef WASI_IMPORTS
 #include <stddef.h>
-#include <stdbool.h>
+#include <stdint.h>
 
 // Return statuses for host calls
 #define WASM_HOST_CALL_ERROR 0

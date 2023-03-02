@@ -68,6 +68,11 @@ Example of a visit counter using Spin:
 ```prolog
 :- use_module(library(spin)).
 
+% Roughly:
+% http_handler(verb(Path, QueryParams), Headers, RequestBody, ResponseCode) :-
+%	map_set(http_headers, "cache-control", "no-cache"),
+%   write(http_body, 'response body').
+
 http_handler(get("/", _), _, _, 200) :-
 	html_content,
 	setup_call_cleanup(

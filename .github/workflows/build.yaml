@@ -202,7 +202,7 @@
           run: |
             cd artifacts
             chmod +x */tpl* */*.wasm
-            for i in */; do
+            for i in tpl-*/; do
               dir=${i%/}
               lower=${dir,,}
               if [ "$dir" != "$lower" ]
@@ -211,9 +211,16 @@
               fi
               zip -r "${lower}.zip" "$lower"
             done
-        - name: Publish
+        - name: Publish zips
           uses: skx/github-action-publish-binaries@master
           env:
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           with:
             args: 'artifacts/*.zip'
+        - name: Publish wasms
+          uses: skx/github-action-publish-binaries@master
+          env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          with:
+            args: 'artifacts/*/*.wasm'
+
