@@ -1,6 +1,11 @@
 :- use_module(library(spin)).
 
-http_handler(get("/", _QueryParams), _Headers, _Body, 200) :-
+% See library/spin.pl for all the predicates built-in
+% https://github.com/guregu/trealla/blob/main/library/spin.pl
+
+%% http_handler(+Spec, +Headers, +Body, -Status)
+
+http_handler(get("/", _QueryParams), _RequestHeaders, _RequestBody, 200) :-
 	html_content,
 	setup_call_cleanup(
 		store_open(default, Store),
@@ -14,7 +19,15 @@ http_handler(get("/", _QueryParams), _Headers, _Body, 200) :-
 		),
 		store_close(Store)
 	),
-    % stream alias http_headers lets you manipulate response headers
-    map_set(http_headers, "x-powered-by", "memes"),
-    % stream alias http_body is the response body
-	format(http_body, "<h3>Welcome, visitor #~d!</h3>", [N]).
+	http_header_set("x-powered-by", "memes"),
+	current_prolog_flag(dialect, Dialect),
+	% stream alias http_body is the response body
+	write(http_body, '<!doctype html><html>'),
+	format(http_body, "<h1>Hello, ~a prolog!</h1>", [Dialect]),
+	format(http_body, "Welcome, visitor #<b>~d!</b>", [N]),
+	write(http_body, '</html>').
+
+http_handler(get("/json", _), _, _, 200) :-
+	wall_time(Time),
+	% json_content({"time": Time}) works too
+	json_content(pairs([string("time")-number(Time)])).

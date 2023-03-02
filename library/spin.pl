@@ -145,7 +145,7 @@ json_content :-
 	http_header_set("content-type", "application/json").
 json_content(JSON) :-
 	json_content,
-	json_values(JS, JSON),
+	json_value(JS, JSON),
 	json_chars(JS, Cs),
 	!,
 	'$put_chars'(http_body, Cs).
