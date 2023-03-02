@@ -202,7 +202,7 @@
           run: |
             cd artifacts
             chmod +x */tpl* */*.wasm
-            for i in */; do
+            for i in tpl-*/; do
               dir=${i%/}
               lower=${dir,,}
               if [ "$dir" != "$lower" ]
@@ -216,4 +216,4 @@
           env:
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           with:
-            args: 'artifacts/*.zip'
+            args: '{artifacts/*.zip,artifacts/*/*.wasm}'
