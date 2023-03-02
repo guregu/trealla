@@ -51,7 +51,7 @@ Currently requires wit-bindgen v0.2.0.
 
 #### Spin Components
 
-See `library/spin.pl`.
+For a helpful template and README to get started, check out [trealla-spin](https://github.com/guregu/trealla-spin). See also `library/spin.pl`.
 
 - [x] Inbound HTTP (via `http_handler/4` multifile predicate)
 - [x] Outbound HTTP (via `http_fetch/3`)
@@ -70,7 +70,7 @@ Example of a visit counter using Spin:
 
 % Roughly:
 % http_handler(verb(Path, QueryParams), Headers, RequestBody, ResponseCode) :-
-%	map_set(http_headers, "cache-control", "no-cache"),
+%	http_header_set("cache-control", "no-cache"),
 %   write(http_body, 'response body').
 
 http_handler(get("/", _), _, _, 200) :-
@@ -89,32 +89,6 @@ http_handler(get("/", _), _, _, 200) :-
 	),
 	format(http_body, "Welcome, visitor #~d!", [N]).
 ```
-
-#### Spin component configuration
-
-Example of `spin.toml`.
-
-```toml
-spin_version = "1"
-name = "prolog-test"
-description = "Trealla Prolog is WEBSCALE"
-trigger = { type = "http", base = "/" }
-version = "0.0.0"
-[[component]]
-id = "prolog"
-description = "Prolog Website"
-source = "libtpl-spin.wasm"
-# This puts the folder "www" as the root for the Wasm component.
-# You can put init.pl there.
-files = [{ source = "www/", destination = "/"}]
-# allowed_http_hosts determines which hosts can be used to for outgoing HTTP (see: http_fetch/3)
-allowed_http_hosts = ["insecure:allow-all"] # special unsafe value to allow any host
-key_value_stores = ["default"] # currently only "default" does something
-[component.trigger]
-route = "/..."
-```
-
-Template/OCI image coming soon. For now, you can grab `libtpl-wasm-spin.zip` (which includes `libtpl-spin.wasm`) from the Releases page.
 
 ## See also
 

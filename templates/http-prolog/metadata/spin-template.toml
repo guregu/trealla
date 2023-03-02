@@ -1,9 +1,0 @@
-manifest_version = "1"
-id = "http-prolog"
-description = "HTTP request handler using Trealla Prolog"
-tags = ["http", "prolog"]
-
-[parameters]
-project-description = { type = "string",  prompt = "Description", default = "" }
-http-base = { type = "string", prompt = "HTTP base", default = "/", pattern = "^/\\S*$" }
-http-path = { type = "string", prompt = "HTTP path", default = "/...", pattern = "^/\\S*$" }
