@@ -5,57 +5,65 @@ run :-
 	ScreenHeight = 450,
 	'InitWindow'(ScreenWidth, ScreenHeight, "Trealla Prolog Raylib"),
 
-	P1 is ScreenWidth / 2.0,
-	P2 is ScreenHeight / 2.0,
-    BallPosition = [vector2,P1,P2],
-    BallSpeed = [vector2,5.0,4.0],
-    BallRadius = 20,
+	X is ScreenWidth / 2.0,
+	Y is ScreenHeight / 2.0,
 
 	'SetTargetFPS'(60),
-	loop(BallPosition, BallSpeed, BallRadius).
+	loop(X, Y, 5.0, 4.0, 20, 0).
 
-loop(BallPosition, BallSpeed, BallRadius) :-
+loop(PosX, PosY, SpeedX, SpeedY, BallRadius, Paused) :-
+	'WindowShouldClose'(Close),
+	Close =\= 0 -> 'CloseWindow' ;
+	draw(PosX, PosY, SpeedX, SpeedY, BallRadius, Paused, NewPosX, NewPosY, NewSpeedX, NewSpeedY, Paused2),
+	loop(NewPosX, NewPosY, NewSpeedX, NewSpeedY, BallRadius, Paused2).
+
+draw(PosX, PosY, SpeedX, SpeedY, BallRadius, Paused, X, Y, NewSpeedX, NewSpeedY, Paused2) :-
+	'GetScreenWidth'(ScreenWidth),
+	'GetScreenHeight'(ScreenHeight),
+
+	KEY_SPACE = 32,
+	'IsKeyPressed'(KEY_SPACE, Pressed),
+
+	( Pressed =\= 0 -> Paused2 is \Paused ; Paused2 is Paused ),
+
 	(
-		'WindowShouldClose'(Close),
-		Close =\= 0 ->
-		'CloseWindow'
-	;	(
-		BallPosition = [vector2,PosX,PosY],
-		BallSpeed = [vector2,SpeedX,SpeedY],
+		Paused2 =\= 0
+		-> ( X = PosX, Y = PosY, NewSpeedX = SpeedX, NewSpeedY = SpeedY )
+		; (
+			X is PosX + SpeedX,
+			Y is PosY + SpeedY,
 
-		X is PosX + SpeedX,
-		Y is PosY + SpeedY,
+			% Check walls collision for bouncing
 
-		% Check walls collision for bouncing
+			(
+				X >= (ScreenWidth - BallRadius) -> NewSpeedX is SpeedX * -1.0 ;
+				X =< BallRadius -> NewSpeedX is SpeedX * -1.0 ;
+				NewSpeedX is SpeedX
+			),
 
-		'GetScreenWidth'(ScreenWidth),
-		'GetScreenHeight'(ScreenHeight),
-
-		(
-			X >= (ScreenWidth - BallRadius) -> Speed2X is SpeedX * -1.0 ;
-			X =< BallRadius -> Speed2X is SpeedX * -1.0 ;
-			Speed2X is SpeedX
-		),
-
-		(
-			Y >= (ScreenHeight - BallRadius) -> Speed2Y is SpeedY * -1.0 ;
-			Y =< BallRadius -> Speed2Y is SpeedY * -1.0 ;
-			Speed2Y is SpeedY
-		),
-
-		BallPosition2 = [vector2,X,Y],
-		BallSpeed2 = [vector2,Speed2X,Speed2Y],
-		BallRadius2 is float(BallRadius),
-
-		RAYWHITE = [color,245,245,245,245],
-		MAROON = [color,190,33,55,255],
-
-		'BeginDrawing',
-		'ClearBackground'(RAYWHITE),
-		'DrawCircleV'(BallPosition2, BallRadius2, MAROON),
-		'DrawFPS'(10, 10),
-		'EndDrawing',
-
-		loop(BallPosition2, BallSpeed2, BallRadius)
+			(
+				Y >= (ScreenHeight - BallRadius) -> NewSpeedY is SpeedY * -1.0 ;
+				Y =< BallRadius -> NewSpeedY is SpeedY * -1.0 ;
+				NewSpeedY is SpeedY
+			)
 		)
-	).
+	),
+
+	BallRadius2 is float(BallRadius),
+	Height is ScreenHeight - 25,
+
+	LIGHTGRAY = [color,200,200,200,255],
+	GRAY = [color,130,130,130,255],
+	RAYWHITE = [color,245,245,245,245],
+	MAROON = [color,190,33,55,255],
+
+	'BeginDrawing',
+	'ClearBackground'(RAYWHITE),
+
+	'DrawCircleV'([vector2,X,Y], BallRadius2, MAROON),
+	'DrawText'("PRESS SPACE to PAUSE BALL MOVEMENT", 10, Height, 20, LIGHTGRAY),
+
+	 (Paused2 =\= 0 -> 'DrawText'("PAUSED", 350, 200, 30, GRAY) ; true),
+
+	'DrawFPS'(10, 10),
+	'EndDrawing'.

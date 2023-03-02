@@ -465,7 +465,7 @@ struct predicate_ {
 };
 
 #define BLAH false, false, {0}, {0}, 0, NULL, NULL, NULL, NULL
-#define MAX_FFI_ARGS 16
+#define MAX_FFI_ARGS 64
 
 struct builtins_ {
 	const char *name;
@@ -518,7 +518,7 @@ struct slot_ {
 struct frame_ {
 	cell *prev_cell;
 	uint64_t ugen, cgen;
-	pl_idx_t prev_offset, base, overflow;
+	pl_idx_t prev_offset, base, overflow, hp;
 	uint32_t initial_slots, actual_slots;
 	uint16_t mid;
 	bool is_last:1;

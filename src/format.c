@@ -358,26 +358,29 @@ bool do_format(query *q, cell *str, pl_idx_t str_ctx, cell *p1, pl_idx_t p1_ctx,
 		switch(ch) {
 		case 's':
 			if (is_string(c)) {
-				len = MAX_OF(argval, (int)C_STRLEN(q, c));
+				len = noargval ? (int)C_STRLEN_UTF8(c) : MIN_OF(argval, (int)C_STRLEN(q, c));
 				CHECK_BUF(len);
 				memcpy(dst, C_STR(q, c), len);
+				dst += len;
+				argval -= len;
 			} else {
 				list_reader_t fmt3 = {0};
 				fmt3.p = c;
 				fmt3.p_ctx = c_ctx;
-				int cnt = 0;
+				int len = noargval ? INT_MAX : argval;
 
-				while (is_more_data(q, &fmt3)) {
+				while (is_more_data(q, &fmt3) && len--) {
 					int ch = get_next_char(q, &fmt3);
 					CHECK_BUF(MAX_BYTES_PER_CODEPOINT);
 					dst += put_char_utf8(dst, ch);
-					cnt++;
-
-					if (cnt == argval)
-						break;
+					argval--;
 				}
 
 				len = 0;
+			}
+
+			while (!noargval && argval--) {
+				dst += put_char_utf8(dst, ' ');
 			}
 
 			break;

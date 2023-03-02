@@ -107,6 +107,7 @@ LIBOBJECTS +=  \
 	library/atts.o \
 	library/builtins.o \
 	library/charsio.o \
+	library/curl.o \
 	library/dcgs.o \
 	library/dict.o \
 	library/dif.o \
