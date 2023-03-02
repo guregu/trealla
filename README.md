@@ -51,7 +51,7 @@ Currently requires wit-bindgen v0.2.0.
 
 #### Spin Components
 
-For a helpful template and README to get started, check out [trealla-spin](https://github.com/guregu/trealla-spin). See also `library/spin.pl`.
+👉 For a helpful template and README to get started, check out [**trealla-spin**](https://github.com/guregu/trealla-spin). See also `library/spin.pl`.
 
 - [x] Inbound HTTP (via `http_handler/4` multifile predicate)
 - [x] Outbound HTTP (via `http_fetch/3`)
