@@ -13,7 +13,7 @@ allowed_http_hosts = [] # "insecure:allow-all" is a special unsafe value to allo
 # access to key-value stores (see spin:store_* predicates)
 key_value_stores = ["default"]
 [component.source]
-url = "https://github.com/guregu/trealla/releases/download/v0.14.2/libtpl-spin.wasm"
-digest = "sha256:1dc2d285b8d4d86d8315b91c283e767013edb3ae581cf47cdb79b309bf5ab391"
+url = "https://github.com/guregu/trealla/releases/download/v0.14.3/libtpl-spin.wasm"
+digest = "sha256:91f95706abd4b4a39468106b015bda0ecda6798e5ee60ab43a9003350ba2d9db"
 [component.trigger]
 route = "{{http-path}}"
