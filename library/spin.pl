@@ -1,5 +1,5 @@
 :- module(spin, [
-		http_handler/3,
+		http_handler/4,
 		current_http_uri/1, current_http_method/1, current_http_body/1,
 		current_http_param/2, current_http_header/2,
 		http_header_set/2,
