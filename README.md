@@ -4,14 +4,14 @@ This is a fork of [Trealla Prolog](https://github.com/trealla-prolog/trealla) fo
 For more info on Trealla, check out the parent repository.
 
 We endeavor to keep this fork as close as possible to the upstream and contribute all stable changes upstream.
-Ideally, when WASM support is better stablized, this fork won't need to exist.
+Ideally, when Wasm support is better stablized, this fork won't need to exist.
 
 ## Download
 
 You can find binaries on [the Releases page](https://github.com/guregu/trealla/releases).
 
 ## Binaries on WAPM
-~~You can grab WASM binary builds from [guregu/trealla on WAPM](https://wapm.io/guregu/trealla).~~
+~~You can grab Wasm binary builds from [guregu/trealla on WAPM](https://wapm.io/guregu/trealla).~~
 ~~These builds are uploaded automatically for each release.~~
 
 **Note**: currently WAPM builds are [temporarily disabled](https://github.com/guregu/trealla/issues/11).
@@ -20,11 +20,11 @@ You can find binaries on [the Releases page](https://github.com/guregu/trealla/r
 - `library(wasm)` JSON-based programmatic toplevel.
 - `library(wasm_*)` host-guest interop.
 - `library(pseudojson)` Very fast JSON parser/generator (but not validator).
-- WASM system predicates: `'$host_call'/2` and `'$host_resume'/1` (see `js_eval/2` in `library/wasm_js.pl`).
+- Wasm system predicates: `'$host_call'/2` and `'$host_resume'/1` (see `js_eval/2` in `library/wasm_js.pl`).
 
 ## Compile targets
 
-There's a bunch of new compile targets for WASM.
+There's a bunch of new compile targets for Wasm.
 
 ### wasm
 
@@ -32,7 +32,7 @@ There's a bunch of new compile targets for WASM.
 
 ### libtpl
 
-`make libtpl` will build a WASM binary with host calls enabled: `libtpl.wasm`. This adds host-guest interop exports and imports that break pure WASI compatibility. This is currently used by the Go port.
+`make libtpl` will build a Wasm binary with host calls enabled: `libtpl.wasm`. This adds host-guest interop exports and imports that break pure WASI compatibility. This is currently used by the Go port.
 
 ### libtpl-js
 
@@ -45,7 +45,7 @@ runtime for WebAssembly.
 
 `make libtpl-spin` builds the [Spin](https://github.com/fermyon/spin)-flavored libtpl.
 
-`make SPINDIR=path/to/spin/source wit` to generate the WASM component code via wit-bindgen.
+`make SPINDIR=path/to/spin/source wit` to generate the Wasm component code via wit-bindgen.
 These files are included in the repository so you won't need to generate them unless adding support for a new one.
 Currently requires wit-bindgen v0.2.0.
 
@@ -104,7 +104,7 @@ version = "0.0.0"
 id = "prolog"
 description = "Prolog Website"
 source = "libtpl-spin.wasm"
-# This puts the folder "www" as the root for the WASM component.
+# This puts the folder "www" as the root for the Wasm component.
 # You can put init.pl there.
 files = [{ source = "www/", destination = "/"}]
 # allowed_http_hosts determines which hosts can be used to for outgoing HTTP (see: http_fetch/3)
