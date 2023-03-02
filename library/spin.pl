@@ -21,6 +21,7 @@
 :- dynamic(current_http_method/1).
 :- dynamic(current_http_body/1).
 :- dynamic(current_http_header/2).
+:- dynamic(current_http_param/2).
 
 :- dynamic(http_handler/4).
 :- multifile([http_handler/4]).
