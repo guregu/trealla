@@ -11,7 +11,8 @@
 		store_close/1,
 		store_get/3, store_exists/2,
 		store_keys/2,
-		store_set/3, store_delete/2
+		store_set/3, store_delete/2,
+		http_fetch/3
 	]).
 
 :- use_module(library(pseudojson)).
@@ -32,10 +33,14 @@ init :-
 
 :- initialization(init).
 
+consult_init :- getenv('INIT', File), try_consult(File), !.
+consult_init :- try_consult(init), !.
+consult_init :- try_consult(lib).
+
 http_handle_request(URI, Method) :-
 	assertz(current_http_uri(URI)),
 	assertz(current_http_method(Method)),
-	( try_consult(lib) ; try_consult(init) ),
+	consult_init,
 	fail.
 http_handle_request(RawURI, Method) :-
 	findall(K:V, current_http_header(K, V), Headers),

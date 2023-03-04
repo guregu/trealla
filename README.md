@@ -62,6 +62,7 @@ Currently requires wit-bindgen v0.2.0.
 
 Place a file called `init.pl` or `lib.pl` in your root directory of the Spin component.
 From there you can load other modules, etc.
+You can also use set the `INIT` environment variable to a file path to use that file instead.
 
 Example of a visit counter using Spin:
 
