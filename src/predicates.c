@@ -4538,15 +4538,25 @@ static bool fn_sleep_1(query *q)
 	if (q->retry)
 		return true;
 
-	GET_FIRST_ARG(p1,integer);
+	GET_FIRST_ARG(p1,number);
+
+	if (is_negative(p1))
+		return true;
 
 	if (is_bigint(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
 
-	if (q->is_task)
-		return do_yield(q, get_smallint(p1)*1000);
+	unsigned ms = 0;
 
-	sleep((unsigned)get_smallint(p1));
+	if (is_float(p1))
+		ms = (unsigned)(get_float(p1) * 1000);
+	else
+		ms = get_smalluint(p1) * 1000;
+
+	if (q->is_task)
+		return do_yield(q, ms);
+
+	msleep(ms);
 	return true;
 }
 #endif
@@ -4557,6 +4567,9 @@ static bool fn_delay_1(query *q)
 		return true;
 
 	GET_FIRST_ARG(p1,integer);
+
+	if (is_negative(p1))
+		return true;
 
 	if (is_bigint(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
@@ -5306,7 +5319,7 @@ static bool fn_wait_0(query *q)
 		}
 
 		if (!did_something)
-			msleep(1);
+			msleep(0);
 	}
 
 	return true;
@@ -5356,7 +5369,7 @@ static bool fn_await_0(query *q)
 		}
 
 		if (!did_something)
-			msleep(1);
+			msleep(0);
 		else
 			break;
 	}
@@ -6637,10 +6650,6 @@ static bool fn_sys_unifiable_3(query *q)
 		const frame *f = GET_FRAME(tr->var_ctx);
 		slot *e = GET_SLOT(f, tr->var_nbr);
 		cell *c = deref(q, &e->c, e->c.var_ctx);
-
-		if (is_indirect(c))
-			c = c->val_ptr;
-
 		cell *tmp = malloc(sizeof(cell)*(2+c->nbr_cells));
 		check_heap_error(tmp);
 		make_struct(tmp, g_unify_s, fn_iso_unify_2, 2, 1+c->nbr_cells);
@@ -7909,9 +7918,9 @@ builtins g_other_bifs[] =
 	{"use_module", 2, fn_use_module_2, "+term,+list", false, false, BLAH},
 
 #ifndef WASI_TARGET_JS
-	{"sleep", 1, fn_sleep_1, "+secs", false, false, BLAH},
+	{"sleep", 1, fn_sleep_1, "+number", false, false, BLAH},
+	{"delay", 1, fn_delay_1, "+number", false, false, BLAH},
 #endif
-	{"delay", 1, fn_delay_1, "+ms", false, false, BLAH},
 #ifndef __wasi__
 	{"shell", 1, fn_shell_1, "+atom", false, false, BLAH},
 	{"shell", 2, fn_shell_2, "+atom,-integer", false, false, BLAH},
