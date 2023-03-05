@@ -1,6 +1,7 @@
 
 :- module(wasm_js, [js_eval/1, js_eval/2, js_eval_json/2,
-	js_fetch/3, http_fetch/3, http_consult/1, crypto_data_hash/3, sleep/1]).
+	js_fetch/3, http_fetch/3, http_consult/1,
+	crypto_data_hash/3, sleep/1, delay/1]).
 
 :- use_module(library(lists)).
 :- use_module(library(error)).
@@ -126,9 +127,15 @@ subtle_digest_expr(Data, Algo, Expr) :-
 
 sleep(Seconds) :-
 	must_be(integer, Seconds),
-	sleep_expr(Seconds, Expr),
+	Ms is Seconds * 1000,
+	sleep_expr(Ms, Expr),
 	js_eval_(Expr, _, sleep/1).
 
-sleep_expr(Seconds, Expr) :-
-	Millis is Seconds * 1000,
-	once(phrase(format_("return new Promise((resolve) => { setTimeout(resolve, ~d) });", [Millis]), Expr)).
+delay(Ms) :-
+	must_be(number, Ms),
+	sleep_expr(Ms, Expr),
+	js_eval_(Expr, _, delay/1).
+
+sleep_expr(Ms0, Expr) :-
+	Ms is max(Ms0, 0),
+	once(phrase(format_("return new Promise((resolve) => { setTimeout(resolve, ~f) });", [Ms]), Expr)).
