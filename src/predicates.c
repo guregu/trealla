@@ -4878,14 +4878,14 @@ static bool fn_must_be_4(query *q)
 	if (!strcmp(src, "callable") && !is_callable(p1))
 		return throw_error2(q, p1, p1_ctx, "type_error", "callable", p3);
 	else if (!strcmp(src, "acyclic") && !is_acyclic_term(q, p1, p1_ctx))
-		return throw_error(q, p1, p1_ctx, "domain_error", "acyclic_term");
+		return throw_error2(q, p1, p1_ctx, "domain_error", "acyclic_term", p3);
 	else if (!strcmp(src, "character") && !is_character(p1))
 		return throw_error2(q, p1, p1_ctx, "type_error", "character", p3);
 	else if (!strcmp(src, "chars")) {
 		bool is_partial;
 
 		if (!check_list(q, p1, p1_ctx, &is_partial, NULL) && !is_partial)
-			return throw_error(q, p1, p1_ctx, "type_error", "list");
+			return throw_error2(q, p1, p1_ctx, "type_error", "list", p3);
 
 		if (has_vars(q, p1, p1_ctx))
 			return throw_error(q, p1, p1_ctx, "instantiation_error", "not_sufficiently_instantiated");
@@ -4926,7 +4926,7 @@ static bool fn_must_be_4(query *q)
 		bool is_partial;
 
 		if (!check_list(q, p1, p1_ctx, &is_partial, NULL))
-			return throw_error(q, p1, p1_ctx, "type_error", "list");
+			return throw_error2(q, p1, p1_ctx, "type_error", "list", p3);
 
 		cell *l = p1;
 		pl_idx_t l_ctx = p1_ctx;

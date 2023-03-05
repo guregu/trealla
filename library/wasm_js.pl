@@ -43,7 +43,7 @@ throw_if_error_result(_, _).
 % TODO: form encoding
 % TODO: content-type negotiation
 js_fetch(URL, Result, Opts) :-
-	must_be(chars, URL),
+	must_be(URL, chars, http_fetch/3, _),
 	( memberchk(as(As), Opts) -> true ; As = string ),
 	( memberchk(method(Method), Opts) -> true ; Method = get ),
 	( memberchk(body(Body), Opts) -> true ; Body = '' ),
@@ -102,8 +102,8 @@ consulted_url_module(URL, Module) :-
 	atom_chars(Module, URL).
 
 crypto_data_hash(Data, Hash, Options) :-
-	must_be(chars, Data),
-	must_be(list, Options),
+	must_be(Data, chars, crypto_data_hash/3, _),
+	must_be(Options, list, crypto_data_hash/3, _),
 	ignore(member(algorithm(Algo), Options)),
 	js_subtle_hash(Data, Hash, Algo).
 
@@ -126,16 +126,16 @@ subtle_digest_expr(Data, Algo, Expr) :-
 		[Algo, Data]), Expr)).
 
 sleep(Seconds) :-
-	must_be(integer, Seconds),
+	must_be(Seconds, integer, sleep/1, _),
+	must_be(Seconds, not_less_than_zero, sleep/1, _),
 	Ms is Seconds * 1000,
 	sleep_expr(Ms, Expr),
 	js_eval_(Expr, _, sleep/1).
 
 delay(Ms) :-
-	must_be(number, Ms),
+	must_be(Ms, not_less_than_zero, delay/1, _),
 	sleep_expr(Ms, Expr),
 	js_eval_(Expr, _, delay/1).
 
-sleep_expr(Ms0, Expr) :-
-	Ms is max(Ms0, 0),
+sleep_expr(Ms, Expr) :-
 	once(phrase(format_("return new Promise((resolve) => { setTimeout(resolve, ~f) });", [Ms]), Expr)).
