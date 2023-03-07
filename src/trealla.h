@@ -1,5 +1,6 @@
 #pragma once
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 
 #ifdef __wasi__
@@ -29,10 +30,16 @@ extern FILE *pl_stdin(prolog*);
 
 EXPORT(pl_query)
 extern bool pl_query(prolog*, const char *expr, pl_sub_query **q);
+EXPORT(pl_yield_at)
+extern bool pl_yield_at(pl_sub_query *q, uint64_t time_in_ms);
+EXPORT(pl_did_yield)
+extern bool pl_did_yield(pl_sub_query *q);
 EXPORT(pl_redo)
 extern bool pl_redo(pl_sub_query *q);
 EXPORT(pl_done)
 extern bool pl_done(pl_sub_query *q);	// only call if redo still active
+
+// TODO: delete
 EXPORT(query_did_yield)
 extern bool query_did_yield(pl_sub_query *q);
 

@@ -159,6 +159,27 @@ bool pl_redo(pl_sub_query *subq)
 	return false;
 }
 
+bool pl_yield_at(pl_sub_query *subq, uint64_t time_in_ms)
+{
+	if (!subq)
+		return false;
+
+	query *q = (query*)subq;
+	q->yield_at = get_time_in_usec() / 1000;
+	q->yield_at += time_in_ms > 0 ? time_in_ms : 1;
+	return true;
+}
+
+bool pl_did_yield(pl_sub_query *subq)
+{
+	if (!subq)
+		return false;
+
+	query *q = (query*)subq;
+	uint64_t now = get_time_in_usec() / 1000;
+	return now > q->yield_at;
+}
+
 bool pl_done(pl_sub_query *subq)
 {
 	if (!subq)
@@ -372,9 +393,10 @@ void load_builtins(prolog *pl)
 	}
 }
 
-void g_init()
+bool g_init(prolog *pl)
 {
 	char *ptr = getenv("TPL_LIBRARY_PATH");
+	bool error = false;
 
 	if (ptr) {
 		g_tpl_lib = strdup(ptr);
@@ -416,6 +438,9 @@ void pl_destroy(prolog *pl)
 		if (is_memory_stream(str))
 			SB_free(str->sb);
 
+		if (is_engine_stream(str))
+			destroy_query(str->engine);
+
 		if (!is_virtual_stream(str) && (i > 2) &&
 				((str->fp != stdin)
 				&& (str->fp != stdout)
@@ -450,7 +475,7 @@ prolog *pl_create()
 	// Wizer workaround: we need to avoid touching the environment until main
 	// is run, otherwise libc will cache the wrong environment.
 #else
-		g_init();
+		g_init(pl);
 #endif
 
 	if (!g_tpl_lib) {
@@ -468,7 +493,7 @@ prolog *pl_create()
 		} else
 			g_tpl_lib = strdup("../library");
 	}
-
+	
 	pl->pool = calloc(1, pl->pool_size=INITIAL_POOL_SIZE);
 	if (!pl->pool) return NULL;
 	bool error = false;
@@ -483,7 +508,7 @@ prolog *pl_create()
 		return NULL;
 	}
 
-	CHECK_SENTINEL(index_from_pool(pl, "dummy"), ERR_IDX);
+		CHECK_SENTINEL(index_from_pool(pl, "dummy"), ERR_IDX);
 	CHECK_SENTINEL(g_false_s = index_from_pool(pl, "false"), ERR_IDX);
 	CHECK_SENTINEL(g_true_s = index_from_pool(pl, "true"), ERR_IDX);
 	CHECK_SENTINEL(g_at_s = index_from_pool(pl, "@"), ERR_IDX);

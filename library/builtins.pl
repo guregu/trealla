@@ -440,6 +440,17 @@ open(F, M, S) :- open(F, M, S, []).
 
 :- help(open(+atom,+atom,--stream), [iso(true)]).
 
+engine_create(T, G, S) :- engine_create(T, G, S, []).
+
+:- help(engine_create(+term,+callable,--stream), [iso(false)]).
+
+engine_post(E, T, R) :-
+	engine_post(E, T),
+	engine_next(E, R).
+
+current_engine(E) :-
+	stream_property(E, engine(true)).
+
 samsort(L, R) :- msort(L, R).
 
 :- help(samsort(+list,?list), [iso(false)]).
