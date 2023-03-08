@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdint.h>
 
 #include "library.h"
 #include "module.h"
@@ -131,7 +132,7 @@ bool pl_eval(prolog *pl, const char *s)
 	return ok;
 }
 
-bool pl_query(prolog *pl, const char *s, pl_sub_query **subq, int32_t time_in_ms)
+bool pl_query(prolog *pl, const char *s, pl_sub_query **subq, unsigned int time_in_ms)
 {
 	if (!pl || !*s || !subq)
 		return false;
@@ -159,7 +160,7 @@ bool pl_redo(pl_sub_query *subq)
 	return false;
 }
 
-bool pl_yield_at(pl_sub_query *subq, int32_t time_in_ms)
+bool pl_yield_at(pl_sub_query *subq, unsigned int time_in_ms)
 {
 	if (!subq)
 		return false;
