@@ -4475,6 +4475,13 @@ static bool fn_trace_0(query *q)
 	return true;
 }
 
+static bool fn_notrace_0(query *q)
+{
+	q->trace = false;
+	return true;
+}
+
+
 static bool fn_statistics_0(query *q)
 {
 	fprintf(stdout,
@@ -7937,6 +7944,7 @@ builtins g_other_bifs[] =
 	{"listing", 1, fn_listing_1, "+predicateindicator", false, false, BLAH},
 	{"time", 1, fn_time_1, ":callable", false, false, BLAH},
 	{"trace", 0, fn_trace_0, NULL, false, false, BLAH},
+	{"notrace", 0, fn_notrace_0, NULL, false, false, BLAH},
 	{"help", 2, fn_help_2, "+predicateindicator,+atom", false, false, BLAH},
 	{"help", 1, fn_help_1, "+predicateindicator", false, false, BLAH},
 	{"help", 0, fn_help_0, NULL, false, false, BLAH},
