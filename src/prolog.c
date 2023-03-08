@@ -124,14 +124,14 @@ bool pl_eval(prolog *pl, const char *s)
 	pl->p = create_parser(pl->curr_m);
 	if (!pl->p) return false;
 	pl->p->command = true;
-	bool ok = run(pl->p, s, true, NULL);
+	bool ok = run(pl->p, s, true, NULL, 0);
 	if (get_status(pl)) pl->curr_m = pl->p->m;
 	destroy_parser(pl->p);
 	pl->p = NULL;
 	return ok;
 }
 
-bool pl_query(prolog *pl, const char *s, pl_sub_query **subq)
+bool pl_query(prolog *pl, const char *s, pl_sub_query **subq, int32_t time_in_ms)
 {
 	if (!pl || !*s || !subq)
 		return false;
@@ -140,7 +140,7 @@ bool pl_query(prolog *pl, const char *s, pl_sub_query **subq)
 	if (!pl->p) return false;
 	pl->p->command = true;
 	pl->is_query = true;
-	bool ok = run(pl->p, s, true, (query**)subq);
+	bool ok = run(pl->p, s, true, (query**)subq, time_in_ms);
 	if (get_status(pl)) pl->curr_m = pl->p->m;
 	return ok;
 }
@@ -159,7 +159,7 @@ bool pl_redo(pl_sub_query *subq)
 	return false;
 }
 
-bool pl_yield_at(pl_sub_query *subq, uint64_t time_in_ms)
+bool pl_yield_at(pl_sub_query *subq, int32_t time_in_ms)
 {
 	if (!subq)
 		return false;
@@ -176,8 +176,7 @@ bool pl_did_yield(pl_sub_query *subq)
 		return false;
 
 	query *q = (query*)subq;
-	uint64_t now = get_time_in_usec() / 1000;
-	return now > q->yield_at;
+	return q->yielded;
 }
 
 bool pl_done(pl_sub_query *subq)

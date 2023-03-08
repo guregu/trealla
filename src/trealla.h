@@ -29,9 +29,9 @@ EXPORT(pl_stdin)
 extern FILE *pl_stdin(prolog*);
 
 EXPORT(pl_query)
-extern bool pl_query(prolog*, const char *expr, pl_sub_query **q);
+extern bool pl_query(prolog*, const char *expr, pl_sub_query **q, int32_t time_in_ms);
 EXPORT(pl_yield_at)
-extern bool pl_yield_at(pl_sub_query *q, uint64_t time_in_ms);
+extern bool pl_yield_at(pl_sub_query *q, int32_t time_in_ms);
 EXPORT(pl_did_yield)
 extern bool pl_did_yield(pl_sub_query *q);
 EXPORT(pl_redo)

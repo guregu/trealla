@@ -1712,10 +1712,11 @@ bool start(query *q)
 		if (q->retry) {
 			Trace(q, q->st.curr_cell, q->st.curr_frame, FAIL);
 
-			if (q->yield_at) {
+			if (q->yield_at && q->current_m->name != "pseudojson") {
 				uint64_t now = get_time_in_usec() / 1000;
 
 				if (now > q->yield_at)  {
+					fprintf(stderr, "yielding...\n");
 					q->yield_at = 0;
 					do_yield(q, 0);
 					break;
