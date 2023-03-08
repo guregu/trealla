@@ -1752,7 +1752,7 @@ bool start(query *q)
 				continue;
 			}
 
-			if (q->yield_at && q->tot_goals % 10 == 0) {
+			if (q->yield_at && q->tot_goals % 10000 == 0) {
 				uint64_t now = get_time_in_usec() / 1000;
 
 				if (now > q->yield_at)  {
