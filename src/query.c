@@ -1712,17 +1712,6 @@ bool start(query *q)
 		if (q->retry) {
 			Trace(q, q->st.curr_cell, q->st.curr_frame, FAIL);
 
-			if (q->yield_at && q->current_m->name != "pseudojson") {
-				uint64_t now = get_time_in_usec() / 1000;
-
-				if (now > q->yield_at)  {
-					fprintf(stderr, "yielding...\n");
-					q->yield_at = 0;
-					do_yield(q, 0);
-					break;
-				}
-			}
-
 			if (!retry_choice(q))
 				break;
 		}
@@ -1761,6 +1750,16 @@ bool start(query *q)
 			if (q->retry == QUERY_SKIP) {
 				q->retry = QUERY_OK;
 				continue;
+			}
+
+			if (q->yield_at && q->tot_goals % 10 == 0) {
+				uint64_t now = get_time_in_usec() / 1000;
+
+				if (now > q->yield_at)  {
+					q->yield_at = 0;
+					do_yield(q, 0);
+					break;
+				}
 			}
 
 			if (!status && !q->is_oom) {
