@@ -56,11 +56,18 @@ size_t slicecpy(char *dst, size_t dstlen, const char *src, size_t len)
 
 bool do_yield(query *q, int msecs)
 {
+	q->yield_at = 0;
 	q->yielded = true;
 	q->tmo_msecs = get_time_in_usec() / 1000;
 	q->tmo_msecs += msecs > 0 ? msecs : 1;
 	check_heap_error(push_choice(q));
 	return false;
+}
+
+void do_yield_at(query *q, unsigned int time_in_ms)
+{
+	q->yield_at = get_time_in_usec() / 1000;
+	q->yield_at += time_in_ms > 0 ? time_in_ms : 1;
 }
 
 static void make_ref(cell *tmp, pl_idx_t off, unsigned var_nbr, pl_idx_t ctx)
@@ -2216,6 +2223,10 @@ bool do_retract(query *q, cell *p1, pl_idx_t p1_ctx, enum clause_type is_retract
 		return match;
 
 	db_entry *dbe = q->st.curr_dbe;
+
+	if (dbe->owner->m->pl != q->pl)
+		return throw_error(q, p1, p1_ctx, "permission_error", "modify,static_procedure");
+
 	retract_from_db(dbe);
 	bool last_match = (is_retract == DO_RETRACT) && !has_next_key(q);
 	stash_me(q, &dbe->cl, last_match);
@@ -2278,6 +2289,9 @@ static bool do_abolish(query *q, cell *c_orig, cell *c, bool hard)
 	if (!pr) return true;
 
 	if (!pr->is_dynamic)
+		return throw_error(q, c_orig, q->st.curr_frame, "permission_error", "modify,static_procedure");
+
+	if (pr->m->pl != q->pl)
 		return throw_error(q, c_orig, q->st.curr_frame, "permission_error", "modify,static_procedure");
 
 	for (db_entry *dbe = pr->head; dbe; dbe = dbe->next)
@@ -4442,7 +4456,8 @@ static bool fn_sys_elapsed_0(query *q)
 	elapsed -= q->st.timer_started;
 	if (!q->is_redo) fprintf(stdout, "   ");
 	if (q->is_redo) fprintf(stdout, " ");
-	fprintf(stdout, "%% Time elapsed %fs\n", (double)elapsed/1000/1000);
+	double lips = (1.0 / ((double)elapsed/1000/1000)) * q->tot_goals;
+	fprintf(stderr, "%% Time elapsed %fs, %llu Inferences, %.3f MLips)\n", (double)elapsed/1000/1000, (unsigned long long)q->tot_goals, lips/1000/1000);
 	if (q->is_redo) fprintf(stdout, "  ");
 	//else if (!q->redo) fprintf(stdout, "");
 	choice *ch = GET_CURR_CHOICE();
@@ -7577,6 +7592,7 @@ static void load_properties(module *m)
 	format_property(m, tmpbuf, sizeof(tmpbuf), "ignore", 1, "meta_predicate(ignore(0))"); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "call", 1, "meta_predicate(call(0))"); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "findall", 3, "meta_predicate(findall(?,0,-))"); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "engine_create", 4, "meta_predicate(engine_create(?,0,-,+))"); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "|", 2, "meta_predicate((:|+))"); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "time", 1, "meta_predicate(time(0))"); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "call_nth", 2, "meta_predicate(call_nth(0,?))"); SB_strcat(pr, tmpbuf);

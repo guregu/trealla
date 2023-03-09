@@ -467,11 +467,12 @@ int get_stream(query *q, cell *p1)
 	if (!(p1->flags & FLAG_INT_STREAM))
 		return -1;
 
-	stream *str = &q->pl->streams[get_smallint(p1)];
+	int n = get_smallint(p1);
+	stream *str = &q->pl->streams[n];
 	if (!is_live_stream(str))
 		return -1;
 
-	return get_smallint(p1);
+	return n;
 }
 
 static bool is_closed_stream(prolog *pl, cell *p1)
@@ -494,10 +495,10 @@ static void add_stream_properties(query *q, int n)
 	char tmpbuf[1024*8];
 	char *dst = tmpbuf;
 	*dst = '\0';
-	off_t pos = ftello(str->fp);
+	off_t pos = !str->is_map && !str->is_engine ? ftello(str->fp) : 0;
 	bool at_end_of_file = false;
 
-	if (!str->at_end_of_file && (n > 2)) {
+	if (!str->at_end_of_file && (n > 2) && !str->is_engine && !str->is_map) {
 		if (str->p) {
 			if (str->p->srcptr && *str->p->srcptr) {
 				int ch = get_char_utf8((const char**)&str->p->srcptr);
@@ -529,29 +530,38 @@ static void add_stream_properties(query *q, int n)
 
 	map_done(iter);
 
-	formatted(tmpbuf2, sizeof(tmpbuf2), str->filename, strlen(str->filename), false, false);
-	dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, file_name('%s')).\n", n, tmpbuf2);
-	dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, file_no(%u)).\n", n, fileno(str->fp));
-	dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, file(%llu)).\n", n, (unsigned long long)(size_t)str->fp);
-	dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, mode(%s)).\n", n, str->mode);
-	dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, type(%s)).\n", n, str->binary ? "binary" : "text");
-	dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, line_count(%d)).\n", n, str->p ? str->p->line_nbr : 1);
-	dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, position(%llu)).\n", n, (unsigned long long)(pos != -1 ? pos : 0));
-	dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, reposition(%s)).\n", n, (n < 3) || str->socket ? "false" : "true");
-	dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, end_of_stream(%s)).\n", n, str->at_end_of_file ? "past" : at_end_of_file ? "at" : "not");
-	dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, eof_action(%s)).\n", n, str->eof_action == eof_action_eof_code ? "eof_code" : str->eof_action == eof_action_error ? "error" : str->eof_action == eof_action_reset ? "reset" : "none");
+	if (!str->is_engine && !str->is_map) {
+		formatted(tmpbuf2, sizeof(tmpbuf2), str->filename, strlen(str->filename), false, false);
+		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, file_name('%s')).\n", n, tmpbuf2);
+		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, file_no(%u)).\n", n, fileno(str->fp));
 
-	if (!str->binary) {
-		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, bom(%s)).\n", n, str->bom ? "true" : "false");
-		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, encoding('%s')).\n", n, "UTF-8");
+		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, file(%llu)).\n", n, (unsigned long long)(size_t)str->fp);
+		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, mode(%s)).\n", n, str->mode);
+		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, type(%s)).\n", n, str->binary ? "binary" : "text");
+		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, line_count(%d)).\n", n, str->p ? str->p->line_nbr : 1);
+		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, position(%llu)).\n", n, (unsigned long long)(pos != -1 ? pos : 0));
+		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, reposition(%s)).\n", n, (n < 3) || str->socket ? "false" : "true");
+		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, end_of_stream(%s)).\n", n, str->at_end_of_file ? "past" : at_end_of_file ? "at" : "not");
+		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, eof_action(%s)).\n", n, str->eof_action == eof_action_eof_code ? "eof_code" : str->eof_action == eof_action_error ? "error" : str->eof_action == eof_action_reset ? "reset" : "none");
+
+		if (!str->binary) {
+			dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, bom(%s)).\n", n, str->bom ? "true" : "false");
+			dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, encoding('%s')).\n", n, "UTF-8");
+		}
+
+		if (!strcmp(str->mode, "read"))
+			dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, input).\n", n);
+		else
+			dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, output).\n", n);
+
+		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, newline(%s)).\n", n, NEWLINE_MODE);
 	}
 
-	if (!strcmp(str->mode, "read"))
-		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, input).\n", n);
-	else
-		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, output).\n", n);
+	if (str->is_engine)
+		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, engine(true)).\n", n);
+	else if (str->is_map)
+		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, map(true)).\n", n);
 
-	dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, newline(%s)).\n", n, NEWLINE_MODE);
 	parser *p = create_parser(q->st.m);
 	p->srcptr = tmpbuf;
 	p->consulting = true;
@@ -639,6 +649,30 @@ static bool do_stream_property(query *q)
 	if (!CMP_STR_TO_CSTR(q, p1, "mode")) {
 		cell tmp;
 		check_heap_error(make_cstring(&tmp, str->mode));
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+		unshare_cell(&tmp);
+		return ok;
+	}
+
+	if (!CMP_STR_TO_CSTR(q, p1, "engine")) {
+		cell tmp;
+		check_heap_error(make_cstring(&tmp, str->is_engine?"true":"false"));
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+		unshare_cell(&tmp);
+		return ok;
+	}
+
+	if (!CMP_STR_TO_CSTR(q, p1, "mutex")) {
+		cell tmp;
+		check_heap_error(make_cstring(&tmp, false?"true":"false"));
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+		unshare_cell(&tmp);
+		return ok;
+	}
+
+	if (!CMP_STR_TO_CSTR(q, p1, "map")) {
+		cell tmp;
+		check_heap_error(make_cstring(&tmp, str->is_map?"true":"false"));
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 		unshare_cell(&tmp);
 		return ok;
@@ -780,7 +814,7 @@ static void clear_streams_properties(query *q)
 static const char *s_properties =
 	"alias,file_name,mode,encoding,type,line_count,"			\
 	"position,reposition,end_of_stream,eof_action,"				\
-	"input,output,newline";
+	"input,output,newline,engine,map,mutex";
 
 static bool fn_iso_stream_property_2(query *q)
 {
@@ -1561,17 +1595,20 @@ static bool fn_iso_close_1(query *q)
 	if (!str->socket)
 		del_stream_properties(q, n);
 
-	if (str->is_map) {
+	if (is_map_stream(str)) {
 		map_destroy(str->keyval);
 		str->keyval = NULL;
-	} else if (str->is_memory) {
+	} else if (is_memory_stream(str)) {
 		SB_free(str->sb);
 		str->is_memory = false;
+	} else if (is_engine_stream(str)) {
+		destroy_query(str->engine);
+		str->engine = NULL;
 	} else
 		net_close(str);
 
 	map_destroy(str->alias);
-	str->alias = map_create((void*)fake_strcmp, (void*)keyfree, NULL);
+	str->alias = NULL; //map_create((void*)fake_strcmp, (void*)keyfree, NULL);
 	free(str->mode);
 	free(str->filename);
 	free(str->data);
@@ -6590,15 +6627,7 @@ static bool fn_map_create_2(query *q)
 			if (get_named_stream(q->pl, C_STR(q, name), C_STRLEN(q, name)) >= 0)
 				return throw_error(q, c, c_ctx, "permission_error", "open,source_sink");
 
-			if (!CMP_STR_TO_CSTR(q, name, "current_input")) {
-				q->pl->current_input = n;
-			} else if (!CMP_STR_TO_CSTR(q, name, "current_output")) {
-				q->pl->current_output = n;
-			} else if (!CMP_STR_TO_CSTR(q, name, "current_error")) {
-				q->pl->current_error = n;
-			} else {
-				map_set(str->alias, DUP_STR(q, name), NULL);
-			}
+			map_set(str->alias, DUP_STR(q, name), NULL);
 		} else {
 			return throw_error(q, c, c_ctx, "domain_error", "stream_option");
 		}
@@ -7086,6 +7115,207 @@ static bool fn_set_stream_2(query *q)
 	return false;
 }
 
+static bool fn_engine_create_4(query *q)
+{
+	GET_FIRST_ARG(xp1,any);
+	GET_NEXT_ARG(xp2,callable);
+	GET_NEXT_ARG(p3,var);
+	GET_NEXT_ARG(p4,list_or_nil);
+
+	int n = new_stream(q->pl);
+
+	if (n < 0)
+		return throw_error(q, q->st.curr_cell, q->st.curr_frame, "resource_error", "too_many_streams");
+
+	stream *str = &q->pl->streams[n];
+	if (!str->alias) str->alias = map_create((void*)fake_strcmp, (void*)keyfree, NULL);
+	LIST_HANDLER(p4);
+
+	while (is_list(p4)) {
+		cell *h = LIST_HEAD(p4);
+		cell *c = deref(q, h, p4_ctx);
+		pl_idx_t c_ctx = q->latest_ctx;
+
+		if (is_var(c))
+			return throw_error(q, c, q->latest_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
+
+		cell *name = c + 1;
+		name = deref(q, name, c_ctx);
+
+		if (!CMP_STR_TO_CSTR(q, c, "alias")) {
+			if (is_var(name))
+				return throw_error(q, name, q->latest_ctx, "instantiation_error", "stream_option");
+
+			if (!is_atom(name))
+				return throw_error(q, c, c_ctx, "domain_error", "stream_option");
+
+			if (get_named_stream(q->pl, C_STR(q, name), C_STRLEN(q, name)) >= 0)
+				return throw_error(q, c, c_ctx, "permission_error", "open,source_sink");
+
+			map_set(str->alias, DUP_STR(q, name), NULL);
+		} else {
+			return throw_error(q, c, c_ctx, "domain_error", "stream_option");
+		}
+
+		p4 = LIST_TAIL(p4);
+		p4 = deref(q, p4, p4_ctx);
+		p4_ctx = q->latest_ctx;
+
+		if (is_var(p4))
+			return throw_error(q, p4, p4_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
+	}
+
+	str->first_time = str->is_engine = true;
+	str->curr_yield = NULL;
+
+	str->engine = create_query(q->st.m, true);
+	str->engine->curr_engine = n;
+	str->engine->is_engine = true;
+	str->engine->trace = q->trace;
+
+	cell *p0 = deep_copy_to_heap(q, q->st.curr_cell, q->st.curr_frame, false);
+	unify(q, q->st.curr_cell, q->st.curr_frame, p0, q->st.curr_frame);
+	check_heap_error(p0);
+
+	query *saveq = q;
+	q = str->engine;
+
+	// Operating in engine from here...
+
+	GET_FIRST_ARG0(p1,any,p0);
+	GET_NEXT_ARG(p2,callable);
+
+	cell *tmp = clone_to_heap(q, true, p2, 1);
+	pl_idx_t nbr_cells = 1 + p2->nbr_cells;
+	make_call(q, tmp+nbr_cells);
+	check_heap_error(push_barrier(q));
+	q->st.curr_cell = tmp;
+	str->pattern = deep_clone_to_heap(q, p1, p1_ctx);
+
+	cell tmp2;
+	make_int(&tmp2, n);
+	tmp2.flags |= FLAG_INT_STREAM | FLAG_INT_HEX;
+	return unify(saveq, p3, p3_ctx, &tmp2, saveq->st.curr_frame);
+}
+
+static bool fn_engine_next_2(query *q)
+{
+	GET_FIRST_ARG(pstr,stream);
+	GET_NEXT_ARG(p1,any);
+	int n = get_stream(q, pstr);
+	stream *str = &q->pl->streams[n];
+
+	if (!str->is_engine)
+		return throw_error(q, pstr, pstr_ctx, "existence_error", "not_an_engine");
+
+	bool was_first_time = str->first_time;
+
+	if (str->first_time) {
+		str->first_time = false;
+		execute(str->engine, str->engine->st.curr_cell, MAX_ARITY);
+	}
+
+	if (str->curr_yield) {
+		cell *tmp = deep_copy_to_heap(q, str->curr_yield, 0, false);
+		str->curr_yield = NULL;
+		return unify(q, p1, p1_ctx, tmp, q->st.curr_frame);
+	}
+
+	if (!was_first_time) {
+		if (!query_redo(str->engine))
+			return false;
+	}
+
+	cell *tmp = deep_copy_to_heap(str->engine, str->pattern, 0, false);
+	return unify(q, p1, p1_ctx, tmp, q->st.curr_frame);
+}
+
+static bool fn_engine_yield_1(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+
+	if (!q->is_engine)
+		return throw_error(q, q->st.curr_cell, q->st.curr_frame, "permission_error", "not_an_engine");
+
+	stream *str = &q->pl->streams[q->curr_engine];
+
+	if (q->retry && str->curr_yield)
+		return do_yield(q, 0);
+	else if (q->retry)
+		return true;
+
+	str->curr_yield = deep_clone_to_heap(q, p1, p1_ctx);
+	return do_yield(q, 0);
+}
+
+static bool fn_engine_post_2(query *q)
+{
+	GET_FIRST_ARG(pstr,stream);
+	GET_NEXT_ARG(p1,any);
+	int n = get_stream(q, pstr);
+	stream *str = &q->pl->streams[n];
+
+	if (!str->is_engine)
+		return throw_error(q, pstr, pstr_ctx, "existence_error", "not_an_engine");
+
+	str->curr_yield = deep_clone_to_heap(q, p1, p1_ctx);
+	return true;
+}
+
+static bool fn_engine_fetch_1(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+
+	if (!q->is_engine)
+		return throw_error(q, q->st.curr_cell, q->st.curr_frame, "existence_error", "not_an_engine");
+
+	stream *str = &q->pl->streams[q->curr_engine];
+
+	if (!str->curr_yield)
+		return throw_error(q, q->st.curr_cell, q->st.curr_frame, "existence_error", "no_data");
+
+	cell *tmp = deep_copy_to_heap(q, str->curr_yield, 0, false);
+	str->curr_yield = NULL;
+	return unify(q, p1, p1_ctx, tmp, q->st.curr_frame);
+}
+
+static bool fn_engine_self_1(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+
+	if (!q->is_engine)
+		return false;
+
+	cell tmp2;
+	make_int(&tmp2, q->curr_engine);
+	tmp2.flags |= FLAG_INT_STREAM | FLAG_INT_HEX;
+	return unify(q, p1, p1_ctx, &tmp2, q->st.curr_frame);
+}
+
+static bool fn_is_engine_1(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	int n = get_stream(q, p1);
+
+	if (n < 0)
+		return false;
+
+	stream *str = &q->pl->streams[n];
+	return str->is_engine;
+}
+
+static bool fn_engine_destroy_1(query *q)
+{
+	GET_FIRST_ARG(pstr,stream);
+	int n = get_stream(q, pstr);
+	stream *str = &q->pl->streams[n];
+
+	if (!str->is_engine)
+		return throw_error(q, pstr, pstr_ctx, "existence_error", "not_an_engine");
+
+	return fn_iso_close_1(q);
+}
+
 builtins g_files_bifs[] =
 {
 	// ISO...
@@ -7212,6 +7442,24 @@ builtins g_files_bifs[] =
 	{"map_count", 2, fn_map_count_2, "+stream,-integer", false, false, BLAH},
 	{"map_list", 2, fn_map_list_2, "+stream,?list", false, false, BLAH},
 	{"map_close", 1, fn_map_close_1, "+stream", false, false, BLAH},
+
+	{"engine_create", 4, fn_engine_create_4, "+term,:callable,--stream,+list", false, false, BLAH},
+	{"engine_next", 2, fn_engine_next_2, "+stream,-term", false, false, BLAH},
+	{"is_engine", 1, fn_is_engine_1, "+term", false, false, BLAH},
+	{"engine_self", 1, fn_engine_self_1, "--stream", false, false, BLAH},
+	{"engine_yield", 1, fn_engine_yield_1, "+term", false, false, BLAH},
+	{"engine_post", 2, fn_engine_post_2, "+stream,+term", false, false, BLAH},
+	{"engine_fetch", 1, fn_engine_fetch_1, "-term", false, false, BLAH},
+	{"engine_destroy", 1, fn_engine_destroy_1, "+stream", false, false, BLAH},
+
+	{"mutex_create", 1, fn_iso_true_0, "+stream", false, false, BLAH},
+	{"mutex_create", 2, fn_iso_true_0, "+stream", false, false, BLAH},
+	{"with_mutex", 2, fn_iso_true_0, "+stream", false, false, BLAH},
+	{"mutex_lock", 1, fn_iso_true_0, "+stream", false, false, BLAH},
+	{"mutex_trylock", 1, fn_iso_true_0, "+stream", false, false, BLAH},
+	{"mutex_unlock", 1, fn_iso_true_0, "+stream", false, false, BLAH},
+	{"mutex_unlockall", 0, fn_iso_true_0, "+stream", false, false, BLAH},
+	{"mutex_destroy", 1, fn_iso_true_0, "+stream", false, false, BLAH},
 
 	{"$capture_output", 0, fn_sys_capture_output_0, NULL, false, false, BLAH},
 	{"$capture_output_to_chars", 1, fn_sys_capture_output_to_chars_1, "-chars", false, false, BLAH},

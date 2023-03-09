@@ -71,6 +71,8 @@ extern unsigned g_string_cnt, g_interned_cnt;
 
 #define STREAM_BUFLEN 1024
 
+#define YIELD_INTERVAL 10000	// Goal interval between yield checks
+
 #define MAX_OF(a,b) (a) > (b) ? (a) : (b)
 #define MIN_OF(a,b) (a) < (b) ? (a) : (b)
 
@@ -572,6 +574,7 @@ struct stream_ {
 	union {
 		FILE *fp;
 		map *keyval;
+		query *engine;
 	};
 
 	string_buffer sb_buf;
@@ -579,7 +582,14 @@ struct stream_ {
 	map *alias;
 	void *sslptr;
 	parser *p;
-	char srcbuf[STREAM_BUFLEN];
+
+	union {
+		char srcbuf[STREAM_BUFLEN];
+		struct {
+			cell *pattern, *curr_yield;
+		};
+	};
+
 	size_t data_len, alloc_nbytes;
 	int64_t i_empty;
 	double d_empty;
@@ -597,8 +607,10 @@ struct stream_ {
 	bool udp:1;
 	bool ssl:1;
 	bool pipe:1;
+	bool first_time:1;
 	bool is_memory:1;
 	bool is_map:1;
+	bool is_engine:1;
 };
 
 struct page_ {
@@ -649,9 +661,9 @@ struct query_ {
 	uint64_t tot_goals, tot_backtracks, tot_retries, tot_matches;
 	uint64_t tot_tcos, tot_frecovs, tot_srecovs;
 	uint64_t step, qid, tmo_msecs, cgen;
-	uint64_t get_started, autofail_n;
+	uint64_t get_started, autofail_n, yield_at;
 	uint64_t time_cpu_started, time_cpu_last_started;
-	unsigned max_depth, print_idx, tab_idx, varno, tab0_varno;
+	unsigned max_depth, print_idx, tab_idx, varno, tab0_varno, curr_engine;
 	pl_idx_t tmphp, latest_ctx, popp, variable_names_ctx;
 	pl_idx_t frames_size, slots_size, trails_size, choices_size;
 	pl_idx_t max_choices, max_frames, max_slots, max_trails;
@@ -686,6 +698,7 @@ struct query_ {
 	bool trace:1;
 	bool creep:1;
 	bool eval:1;
+	bool yield_after:1;
 	bool yielded:1;
 	bool is_task:1;
 	bool json:1;
@@ -704,6 +717,7 @@ struct query_ {
 	bool did_quote:1;
 	bool is_input:1;
 	bool was_space:1;
+	bool is_engine:1;
 };
 
 struct parser_ {

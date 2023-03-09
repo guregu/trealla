@@ -265,6 +265,20 @@ bool check_slot(query *q, unsigned cnt)
 	return true;
 }
 
+static bool can_view(query *q, size_t ugen, const db_entry *dbe)
+{
+	if (dbe->cl.is_deleted)
+		return false;
+
+	if (dbe->cl.dgen_created > ugen)
+		return false;
+
+	if (dbe->cl.dgen_erased && (dbe->cl.dgen_erased <= ugen))
+		return false;
+
+	return true;
+}
+
 static void setup_key(query *q)
 {
 	if (!q->pl->opt)
@@ -315,7 +329,7 @@ bool has_next_key(query *q)
 		const frame *f = GET_CURR_FRAME();
 
 		while (map_is_next(q->st.iter, (void**)&dbe)) {
-			if (!can_view(f->ugen, dbe)) {
+			if (!can_view(q, f->ugen, dbe)) {
 				db_entry *save_dbe = q->st.curr_dbe;
 				next_key(q);
 				q->st.curr_dbe = save_dbe;
@@ -1384,7 +1398,7 @@ bool match_rule(query *q, cell *p1, pl_idx_t p1_ctx, enum clause_type is_retract
 	for (; q->st.curr_dbe; q->st.curr_dbe = q->st.curr_dbe->next) {
 		CHECK_INTERRUPT();
 
-		if (!can_view(f->ugen, q->st.curr_dbe))
+		if (!can_view(q, f->ugen, q->st.curr_dbe))
 			continue;
 
 		clause *cl = &q->st.curr_dbe->cl;
@@ -1492,7 +1506,7 @@ bool match_clause(query *q, cell *p1, pl_idx_t p1_ctx, enum clause_type is_retra
 	for (; q->st.curr_dbe; q->st.curr_dbe = q->st.curr_dbe->next) {
 		CHECK_INTERRUPT();
 
-		if (!can_view(f->ugen, q->st.curr_dbe))
+		if (!can_view(q, f->ugen, q->st.curr_dbe))
 			continue;
 
 		clause *cl = &q->st.curr_dbe->cl;
@@ -1572,7 +1586,7 @@ static bool match_head(query *q)
 	for (; q->st.curr_dbe; next_key(q)) {
 		CHECK_INTERRUPT();
 
-		if (!can_view(f->ugen, q->st.curr_dbe))
+		if (!can_view(q, f->ugen, q->st.curr_dbe))
 			continue;
 
 		clause *cl = &q->st.curr_dbe->cl;
@@ -1716,7 +1730,9 @@ bool start(query *q)
 		q->before_hook_tp = q->st.tp;
 
 		if (is_builtin(q->st.curr_cell)) {
-			if (!q->st.curr_cell->fn_ptr) {		// ??
+			if (!q->st.curr_cell->fn_ptr
+				|| (q->st.curr_cell->fn_ptr == (void*)fn_iso_conjunction_2)) {
+				q->tot_goals--;
 				q->st.curr_cell++;
 				continue;
 			}
@@ -1736,6 +1752,15 @@ bool start(query *q)
 			if (q->retry == QUERY_SKIP) {
 				q->retry = QUERY_OK;
 				continue;
+			}
+
+			if (q->yield_at && q->tot_goals % YIELD_INTERVAL == 0) {
+				uint64_t now = get_time_in_usec() / 1000;
+
+				if (now > q->yield_at)  {
+					do_yield(q, 0);
+					break;
+				}
 			}
 
 			if (!status && !q->is_oom) {
@@ -2022,6 +2047,7 @@ query *create_query(module *m, bool is_task)
 
 	query *q = calloc(1, sizeof(query));
 	ensure(q);
+	q->flags.occurs_check = false;
 	q->qid = g_query_id++;
 	q->pl = m->pl;
 	q->st.prev_m = q->st.m = m;

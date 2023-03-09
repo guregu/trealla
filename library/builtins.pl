@@ -440,6 +440,22 @@ open(F, M, S) :- open(F, M, S, []).
 
 :- help(open(+atom,+atom,--stream), [iso(true)]).
 
+engine_create(T, G, S) :- engine_create(T, G, S, []).
+
+:- meta_predicate(engine_create(?,0,-)).
+:- help(engine_create(+term,+callable,--stream), [iso(false)]).
+
+engine_post(E, T, R) :-
+	engine_post(E, T),
+	engine_next(E, R).
+
+current_engine(E) :-
+	stream_property(E, engine(true)).
+
+mutex_property(M, P) :-
+	stream_property(M, mutex(true)),
+	stream_property(M, P).
+
 samsort(L, R) :- msort(L, R).
 
 :- help(samsort(+list,?list), [iso(false)]).

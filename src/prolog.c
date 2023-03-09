@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdint.h>
 
 #include "library.h"
 #include "module.h"
@@ -124,14 +125,14 @@ bool pl_eval(prolog *pl, const char *s)
 	pl->p = create_parser(pl->curr_m);
 	if (!pl->p) return false;
 	pl->p->command = true;
-	bool ok = run(pl->p, s, true, NULL);
+	bool ok = run(pl->p, s, true, NULL, 0);
 	if (get_status(pl)) pl->curr_m = pl->p->m;
 	destroy_parser(pl->p);
 	pl->p = NULL;
 	return ok;
 }
 
-bool pl_query(prolog *pl, const char *s, pl_sub_query **subq)
+bool pl_query(prolog *pl, const char *s, pl_sub_query **subq, unsigned int yield_time_in_ms)
 {
 	if (!pl || !*s || !subq)
 		return false;
@@ -140,7 +141,7 @@ bool pl_query(prolog *pl, const char *s, pl_sub_query **subq)
 	if (!pl->p) return false;
 	pl->p->command = true;
 	pl->is_query = true;
-	bool ok = run(pl->p, s, true, (query**)subq);
+	bool ok = run(pl->p, s, true, (query**)subq, yield_time_in_ms);
 	if (get_status(pl)) pl->curr_m = pl->p->m;
 	return ok;
 }
@@ -157,6 +158,25 @@ bool pl_redo(pl_sub_query *subq)
 
 	destroy_query(q);
 	return false;
+}
+
+bool pl_yield_at(pl_sub_query *subq, unsigned int time_in_ms)
+{
+	if (!subq)
+		return false;
+
+	query *q = (query*)subq;
+	do_yield_at(q, time_in_ms);
+	return true;
+}
+
+bool pl_did_yield(pl_sub_query *subq)
+{
+	if (!subq)
+		return false;
+
+	query *q = (query*)subq;
+	return q->yielded;
 }
 
 bool pl_done(pl_sub_query *subq)
@@ -372,8 +392,7 @@ void load_builtins(prolog *pl)
 	}
 }
 
-void g_init()
-{
+void g_init_lib() {
 	char *ptr = getenv("TPL_LIBRARY_PATH");
 
 	if (ptr) {
@@ -382,106 +401,12 @@ void g_init()
 	}
 }
 
-void pl_destroy(prolog *pl)
+static bool g_init(prolog *pl)
 {
-	if (!pl) return;
-
-	destroy_module(pl->system_m);
-	destroy_module(pl->user_m);
-
-	while (pl->modules)
-		destroy_module(pl->modules);
-
-	map_destroy(pl->fortab);
-	map_destroy(pl->biftab);
-	map_destroy(pl->symtab);
-	map_destroy(pl->keyval);
-	map_destroy(pl->help);
-	free(pl->pool);
-	free(pl->tabs);
-	pl->pool_offset = 0;
-
-	if (!--g_tpl_count)
-		g_destroy();
-
-	for (int i = 0; i < MAX_STREAMS; i++) {
-		stream *str = &pl->streams[i];
-
-		if (!is_live_stream(str))
-			continue;
-
-		if (is_map_stream(str))
-			map_destroy(str->keyval);
-
-		if (is_memory_stream(str))
-			SB_free(str->sb);
-
-		if (!is_virtual_stream(str) && (i > 2) &&
-				((str->fp != stdin)
-				&& (str->fp != stdout)
-				&& (str->fp != stderr))) {
-			fclose(str->fp);
-		}
-
-		if (str->p)
-				destroy_parser(str->p);
-
-		map_destroy(str->alias);
-		free(str->mode);
-		free(str->filename);
-		free(str->data);
-	}
-
-	memset(pl->streams, 0, sizeof(pl->streams));
-
-	free(pl);
-}
-
-prolog *pl_create()
-{
-	//printf("*** sizeof(cell) = %u bytes\n", (unsigned)sizeof(cell));
-	//assert(sizeof(cell) == 24);
-
-	prolog *pl = calloc(1, sizeof(prolog));
-
-	if (!g_tpl_count++)
-#ifdef __wasi__
-		;
-	// Wizer workaround: we need to avoid touching the environment until main
-	// is run, otherwise libc will cache the wrong environment.
-#else
-		g_init();
-#endif
-
-	if (!g_tpl_lib) {
-		g_tpl_lib = realpath(g_argv0, NULL);
-
-		if (g_tpl_lib) {
-			char *src = g_tpl_lib + strlen(g_tpl_lib) - 1;
-
-			while ((src != g_tpl_lib) && (*src != PATH_SEP_CHAR))
-				src--;
-
-			*src = '\0';
-			g_tpl_lib = realloc(g_tpl_lib, strlen(g_tpl_lib)+40);
-			strcat(g_tpl_lib, "/library");
-		} else
-			g_tpl_lib = strdup("../library");
-	}
-
-	pl->pool = calloc(1, pl->pool_size=INITIAL_POOL_SIZE);
-	if (!pl->pool) return NULL;
 	bool error = false;
-
+	pl->pool = calloc(1, pl->pool_size=INITIAL_POOL_SIZE);
 	CHECK_SENTINEL(pl->symtab = map_create((void*)fake_strcmp, (void*)keyfree, NULL), NULL);
-	CHECK_SENTINEL(pl->keyval = map_create((void*)fake_strcmp, (void*)keyvalfree, NULL), NULL);
 	map_allow_dups(pl->symtab, false);
-	map_allow_dups(pl->keyval, false);
-
-	if (error) {
-		free(pl->pool);
-		return NULL;
-	}
 
 	CHECK_SENTINEL(index_from_pool(pl, "dummy"), ERR_IDX);
 	CHECK_SENTINEL(g_false_s = index_from_pool(pl, "false"), ERR_IDX);
@@ -538,8 +463,108 @@ prolog *pl_create()
 	CHECK_SENTINEL(g_as_s = index_from_pool(pl, "as"), ERR_IDX);
 	CHECK_SENTINEL(g_colon_s = index_from_pool(pl, ":"), ERR_IDX);
 
-	if (error)
+	return error;
+}
+
+void pl_destroy(prolog *pl)
+{
+	if (!pl) return;
+
+	destroy_module(pl->system_m);
+	destroy_module(pl->user_m);
+
+	while (pl->modules)
+		destroy_module(pl->modules);
+
+	map_destroy(pl->fortab);
+	map_destroy(pl->biftab);
+	map_destroy(pl->symtab);
+	map_destroy(pl->keyval);
+	map_destroy(pl->help);
+	free(pl->pool);
+	free(pl->tabs);
+	pl->pool_offset = 0;
+
+	if (!--g_tpl_count)
+		g_destroy();
+
+	for (int i = 0; i < MAX_STREAMS; i++) {
+		stream *str = &pl->streams[i];
+
+		if (!is_live_stream(str))
+			continue;
+
+		if (is_map_stream(str))
+			map_destroy(str->keyval);
+
+		if (is_memory_stream(str))
+			SB_free(str->sb);
+
+		if (is_engine_stream(str))
+			destroy_query(str->engine);
+
+		if (!is_virtual_stream(str) && (i > 2) &&
+				((str->fp != stdin)
+				&& (str->fp != stdout)
+				&& (str->fp != stderr))) {
+			fclose(str->fp);
+		}
+
+		if (str->p)
+				destroy_parser(str->p);
+
+		map_destroy(str->alias);
+		free(str->mode);
+		free(str->filename);
+		free(str->data);
+	}
+
+	memset(pl->streams, 0, sizeof(pl->streams));
+
+	free(pl);
+}
+
+prolog *pl_create()
+{
+	//printf("*** sizeof(cell) = %u bytes\n", (unsigned)sizeof(cell));
+	//assert(sizeof(cell) == 24);
+
+	prolog *pl = calloc(1, sizeof(prolog));
+	if (!pl) return NULL;
+	bool error = false;
+
+	if (!g_tpl_count++) {
+#ifndef __wasi__
+		// We need to avoid touching the envrionment when using Wizer
+		// or it'll bake the build-time environment into the cached *prolog
+		g_init_lib();
+#endif
+		g_init(pl);
+	}
+
+	if (!g_tpl_lib) {
+		g_tpl_lib = realpath(g_argv0, NULL);
+
+		if (g_tpl_lib) {
+			char *src = g_tpl_lib + strlen(g_tpl_lib) - 1;
+
+			while ((src != g_tpl_lib) && (*src != PATH_SEP_CHAR))
+				src--;
+
+			*src = '\0';
+			g_tpl_lib = realloc(g_tpl_lib, strlen(g_tpl_lib)+40);
+			strcat(g_tpl_lib, "/library");
+		} else
+			g_tpl_lib = strdup("../library");
+	}
+
+	CHECK_SENTINEL(pl->keyval = map_create((void*)fake_strcmp, (void*)keyvalfree, NULL), NULL);
+	map_allow_dups(pl->keyval, false);
+
+	if (error) {
+		free(pl->pool);
 		return NULL;
+	}
 
 	pl->streams[0].fp = stdin;
 	CHECK_SENTINEL(pl->streams[0].alias = map_create((void*)fake_strcmp, (void*)keyfree, NULL), NULL);
