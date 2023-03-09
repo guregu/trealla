@@ -29,7 +29,7 @@ EXPORT(pl_stdin)
 extern FILE *pl_stdin(prolog*);
 
 EXPORT(pl_query)
-extern bool pl_query(prolog*, const char *expr, pl_sub_query **q, unsigned int time_in_ms);
+extern bool pl_query(prolog*, const char *expr, pl_sub_query **q, unsigned int yield_time_in_ms);
 EXPORT(pl_yield_at)
 extern bool pl_yield_at(pl_sub_query *q, unsigned int time_in_ms);
 EXPORT(pl_did_yield)

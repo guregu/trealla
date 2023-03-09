@@ -662,6 +662,14 @@ static bool do_stream_property(query *q)
 		return ok;
 	}
 
+	if (!CMP_STR_TO_CSTR(q, p1, "mutex")) {
+		cell tmp;
+		check_heap_error(make_cstring(&tmp, false?"true":"false"));
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+		unshare_cell(&tmp);
+		return ok;
+	}
+
 	if (!CMP_STR_TO_CSTR(q, p1, "map")) {
 		cell tmp;
 		check_heap_error(make_cstring(&tmp, str->is_map?"true":"false"));
@@ -806,7 +814,7 @@ static void clear_streams_properties(query *q)
 static const char *s_properties =
 	"alias,file_name,mode,encoding,type,line_count,"			\
 	"position,reposition,end_of_stream,eof_action,"				\
-	"input,output,newline,engine,map";
+	"input,output,newline,engine,map,mutex";
 
 static bool fn_iso_stream_property_2(query *q)
 {
@@ -7200,16 +7208,20 @@ static bool fn_engine_next_2(query *q)
 	if (!str->is_engine)
 		return throw_error(q, pstr, pstr_ctx, "existence_error", "not_an_engine");
 
+	bool was_first_time = str->first_time;
+
+	if (str->first_time) {
+		str->first_time = false;
+		execute(str->engine, str->engine->st.curr_cell, MAX_ARITY);
+	}
+
 	if (str->curr_yield) {
 		cell *tmp = deep_copy_to_heap(q, str->curr_yield, 0, false);
 		str->curr_yield = NULL;
 		return unify(q, p1, p1_ctx, tmp, q->st.curr_frame);
 	}
 
-	if (str->first_time) {
-		str->first_time = false;
-		execute(str->engine, str->engine->st.curr_cell, MAX_ARITY);
-	} else {
+	if (!was_first_time) {
 		if (!query_redo(str->engine))
 			return false;
 	}
@@ -7226,8 +7238,14 @@ static bool fn_engine_yield_1(query *q)
 		return throw_error(q, q->st.curr_cell, q->st.curr_frame, "permission_error", "not_an_engine");
 
 	stream *str = &q->pl->streams[q->curr_engine];
+
+	if (q->retry && str->curr_yield)
+		return do_yield(q, 0);
+	else if (q->retry)
+		return true;
+
 	str->curr_yield = deep_clone_to_heap(q, p1, p1_ctx);
-	return true;
+	return do_yield(q, 0);
 }
 
 static bool fn_engine_post_2(query *q)
@@ -7433,6 +7451,15 @@ builtins g_files_bifs[] =
 	{"engine_post", 2, fn_engine_post_2, "+stream,+term", false, false, BLAH},
 	{"engine_fetch", 1, fn_engine_fetch_1, "-term", false, false, BLAH},
 	{"engine_destroy", 1, fn_engine_destroy_1, "+stream", false, false, BLAH},
+
+	{"mutex_create", 1, fn_iso_true_0, "+stream", false, false, BLAH},
+	{"mutex_create", 2, fn_iso_true_0, "+stream", false, false, BLAH},
+	{"with_mutex", 2, fn_iso_true_0, "+stream", false, false, BLAH},
+	{"mutex_lock", 1, fn_iso_true_0, "+stream", false, false, BLAH},
+	{"mutex_trylock", 1, fn_iso_true_0, "+stream", false, false, BLAH},
+	{"mutex_unlock", 1, fn_iso_true_0, "+stream", false, false, BLAH},
+	{"mutex_unlockall", 0, fn_iso_true_0, "+stream", false, false, BLAH},
+	{"mutex_destroy", 1, fn_iso_true_0, "+stream", false, false, BLAH},
 
 	{"$capture_output", 0, fn_sys_capture_output_0, NULL, false, false, BLAH},
 	{"$capture_output_to_chars", 1, fn_sys_capture_output_to_chars_1, "-chars", false, false, BLAH},

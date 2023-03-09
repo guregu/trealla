@@ -14,6 +14,7 @@ bool push_catcher(query *q, enum q_retry type);
 bool do_retract(query *q, cell *p1, pl_idx_t p1_ctx, enum clause_type is_retract);
 bool do_read_term(query *q, stream *str, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx_t p2_ctx, char *src);
 bool do_yield(query *q, int msecs);
+void do_yield_at(query *q, unsigned int time_in_ms);
 
 bool query_redo(query *q);
 bool has_next_key(query *q);
@@ -67,7 +68,6 @@ bool call_builtin(query *q, cell *c, pl_idx_t c_ctx);
 bool call_userfun(query *q, cell *c, pl_idx_t c_ctx);
 void do_cleanup(query *q, cell *p1, pl_idx_t c_ctx);
 bool drop_barrier(query *q);
-bool is_in_ref_list(cell *c, pl_idx_t c_ctx, reflist *rlist);
 void collect_vars(query *q, cell *p1, pl_idx_t p1_ctx);
 bool check_list(query *q, cell *p1, pl_idx_t p1_ctx, bool *is_partial, pl_int_t *skip);
 bool parse_write_params(query *q, cell *c, pl_idx_t c_ctx, cell **vnames, pl_idx_t *vnames_ctx);

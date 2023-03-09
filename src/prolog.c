@@ -132,7 +132,7 @@ bool pl_eval(prolog *pl, const char *s)
 	return ok;
 }
 
-bool pl_query(prolog *pl, const char *s, pl_sub_query **subq, unsigned int time_in_ms)
+bool pl_query(prolog *pl, const char *s, pl_sub_query **subq, unsigned int yield_time_in_ms)
 {
 	if (!pl || !*s || !subq)
 		return false;
@@ -141,7 +141,7 @@ bool pl_query(prolog *pl, const char *s, pl_sub_query **subq, unsigned int time_
 	if (!pl->p) return false;
 	pl->p->command = true;
 	pl->is_query = true;
-	bool ok = run(pl->p, s, true, (query**)subq, time_in_ms);
+	bool ok = run(pl->p, s, true, (query**)subq, yield_time_in_ms);
 	if (get_status(pl)) pl->curr_m = pl->p->m;
 	return ok;
 }
@@ -166,8 +166,7 @@ bool pl_yield_at(pl_sub_query *subq, unsigned int time_in_ms)
 		return false;
 
 	query *q = (query*)subq;
-	q->yield_at = get_time_in_usec() / 1000;
-	q->yield_at += time_in_ms > 0 ? time_in_ms : 1;
+	do_yield_at(q, time_in_ms);
 	return true;
 }
 
@@ -393,15 +392,78 @@ void load_builtins(prolog *pl)
 	}
 }
 
-bool g_init(prolog *pl)
-{
+void g_init_lib() {
 	char *ptr = getenv("TPL_LIBRARY_PATH");
-	bool error = false;
 
 	if (ptr) {
 		g_tpl_lib = strdup(ptr);
 		convert_path(g_tpl_lib);
 	}
+}
+
+static bool g_init(prolog *pl)
+{
+	bool error = false;
+	pl->pool = calloc(1, pl->pool_size=INITIAL_POOL_SIZE);
+	CHECK_SENTINEL(pl->symtab = map_create((void*)fake_strcmp, (void*)keyfree, NULL), NULL);
+	map_allow_dups(pl->symtab, false);
+
+	CHECK_SENTINEL(index_from_pool(pl, "dummy"), ERR_IDX);
+	CHECK_SENTINEL(g_false_s = index_from_pool(pl, "false"), ERR_IDX);
+	CHECK_SENTINEL(g_true_s = index_from_pool(pl, "true"), ERR_IDX);
+	CHECK_SENTINEL(g_at_s = index_from_pool(pl, "@"), ERR_IDX);
+	CHECK_SENTINEL(g_conjunction_s = index_from_pool(pl, ","), ERR_IDX);
+	CHECK_SENTINEL(g_disjunction_s = index_from_pool(pl, ";"), ERR_IDX);
+	CHECK_SENTINEL(g_if_then_s = index_from_pool(pl, "->"), ERR_IDX);
+	CHECK_SENTINEL(g_soft_cut_s = index_from_pool(pl, "*->"), ERR_IDX);
+	CHECK_SENTINEL(g_negation_s = index_from_pool(pl, "\\+"), ERR_IDX);
+	CHECK_SENTINEL(g_dot_s = index_from_pool(pl, "."), ERR_IDX);
+	CHECK_SENTINEL(g_plus_s = index_from_pool(pl, "+"), ERR_IDX);
+	CHECK_SENTINEL(g_minus_s = index_from_pool(pl, "-"), ERR_IDX);
+	CHECK_SENTINEL(g_empty_s = index_from_pool(pl, ""), ERR_IDX);
+	CHECK_SENTINEL(g_anon_s = index_from_pool(pl, "_"), ERR_IDX);
+	CHECK_SENTINEL(g_dcg_s = index_from_pool(pl, "-->"), ERR_IDX);
+	CHECK_SENTINEL(g_call_s = index_from_pool(pl, "call"), ERR_IDX);
+	CHECK_SENTINEL(g_braces_s = index_from_pool(pl, "braces"), ERR_IDX);
+	CHECK_SENTINEL(g_unify_s = index_from_pool(pl, "="), ERR_IDX);
+	CHECK_SENTINEL(g_on_s = index_from_pool(pl, "on"), ERR_IDX);
+	CHECK_SENTINEL(g_off_s = index_from_pool(pl, "off"), ERR_IDX);
+	CHECK_SENTINEL(g_cut_s = index_from_pool(pl, "!"), ERR_IDX);
+	CHECK_SENTINEL(g_nil_s = index_from_pool(pl, "[]"), ERR_IDX);
+	CHECK_SENTINEL(g_braces_s = index_from_pool(pl, "{}"), ERR_IDX);
+	CHECK_SENTINEL(g_fail_s = index_from_pool(pl, "fail"), ERR_IDX);
+	CHECK_SENTINEL(g_neck_s = index_from_pool(pl, ":-"), ERR_IDX);
+	CHECK_SENTINEL(g_eof_s = index_from_pool(pl, "end_of_file"), ERR_IDX);
+	CHECK_SENTINEL(g_lt_s = index_from_pool(pl, "<"), ERR_IDX);
+	CHECK_SENTINEL(g_gt_s = index_from_pool(pl, ">"), ERR_IDX);
+	CHECK_SENTINEL(g_eq_s = index_from_pool(pl, "="), ERR_IDX);
+	CHECK_SENTINEL(g_once_s = index_from_pool(pl, "once"), ERR_IDX);
+	CHECK_SENTINEL(g_throw_s = index_from_pool(pl, "throw"), ERR_IDX);
+	CHECK_SENTINEL(g_error_s = index_from_pool(pl, "error"), ERR_IDX);
+	CHECK_SENTINEL(g_slash_s = index_from_pool(pl, "/"), ERR_IDX);
+	CHECK_SENTINEL(g_goal_expansion_s = index_from_pool(pl, "goal_expansion"), ERR_IDX);
+	CHECK_SENTINEL(g_term_expansion_s = index_from_pool(pl, "term_expansion"), ERR_IDX);
+	CHECK_SENTINEL(g_tm_s = index_from_pool(pl, "tm"), ERR_IDX);
+	CHECK_SENTINEL(g_float_s = index_from_pool(pl, "float"), ERR_IDX);
+
+	CHECK_SENTINEL(g_sys_elapsed_s = index_from_pool(pl, "$elapsed"), ERR_IDX);
+	CHECK_SENTINEL(g_sys_queue_s = index_from_pool(pl, "$queue"), ERR_IDX);
+	CHECK_SENTINEL(g_sys_var_s = index_from_pool(pl, "$VAR"), ERR_IDX);
+	CHECK_SENTINEL(g_sys_stream_property_s = index_from_pool(pl, "$stream_property"), ERR_IDX);
+	CHECK_SENTINEL(g_post_unify_hook_s = index_from_pool(pl, "$post_unify_hook"), ERR_IDX);
+	CHECK_SENTINEL(g_sys_record_key_s = index_from_pool(pl, "$record_key"), ERR_IDX);
+	CHECK_SENTINEL(g_sys_ne_s = index_from_pool(pl, "$ne"), ERR_IDX);
+	CHECK_SENTINEL(g_sys_incr_s = index_from_pool(pl, "$incr"), ERR_IDX);
+	CHECK_SENTINEL(g_sys_block_catcher_s = index_from_pool(pl, "$block_catcher"), ERR_IDX);
+	CHECK_SENTINEL(g_sys_soft_cut_s = index_from_pool(pl, "$soft_cut"), ERR_IDX);
+	CHECK_SENTINEL(g_sys_drop_barrier = index_from_pool(pl, "$drop_barrier"), ERR_IDX);
+	CHECK_SENTINEL(g_sys_cleanup_if_det_s = index_from_pool(pl, "$cleanup_if_det"), ERR_IDX);
+	CHECK_SENTINEL(g_sys_cut_if_det_s = index_from_pool(pl, "$cut_if_det"), ERR_IDX);
+	CHECK_SENTINEL(g_sys_table_s = index_from_pool(pl, "$table"), ERR_IDX);
+	CHECK_SENTINEL(g_as_s = index_from_pool(pl, "as"), ERR_IDX);
+	CHECK_SENTINEL(g_colon_s = index_from_pool(pl, ":"), ERR_IDX);
+
+	return error;
 }
 
 void pl_destroy(prolog *pl)
@@ -468,15 +530,17 @@ prolog *pl_create()
 	//assert(sizeof(cell) == 24);
 
 	prolog *pl = calloc(1, sizeof(prolog));
+	if (!pl) return NULL;
+	bool error = false;
 
-	if (!g_tpl_count++)
-#ifdef __wasi__
-		;
-	// Wizer workaround: we need to avoid touching the environment until main
-	// is run, otherwise libc will cache the wrong environment.
-#else
-		g_init(pl);
+	if (!g_tpl_count++) {
+#ifndef __wasi__
+		// We need to avoid touching the envrionment when using Wizer
+		// or it'll bake the build-time environment into the cached *prolog
+		g_init_lib();
 #endif
+		g_init(pl);
+	}
 
 	if (!g_tpl_lib) {
 		g_tpl_lib = realpath(g_argv0, NULL);
@@ -493,78 +557,14 @@ prolog *pl_create()
 		} else
 			g_tpl_lib = strdup("../library");
 	}
-	
-	pl->pool = calloc(1, pl->pool_size=INITIAL_POOL_SIZE);
-	if (!pl->pool) return NULL;
-	bool error = false;
 
-	CHECK_SENTINEL(pl->symtab = map_create((void*)fake_strcmp, (void*)keyfree, NULL), NULL);
 	CHECK_SENTINEL(pl->keyval = map_create((void*)fake_strcmp, (void*)keyvalfree, NULL), NULL);
-	map_allow_dups(pl->symtab, false);
 	map_allow_dups(pl->keyval, false);
 
 	if (error) {
 		free(pl->pool);
 		return NULL;
 	}
-
-		CHECK_SENTINEL(index_from_pool(pl, "dummy"), ERR_IDX);
-	CHECK_SENTINEL(g_false_s = index_from_pool(pl, "false"), ERR_IDX);
-	CHECK_SENTINEL(g_true_s = index_from_pool(pl, "true"), ERR_IDX);
-	CHECK_SENTINEL(g_at_s = index_from_pool(pl, "@"), ERR_IDX);
-	CHECK_SENTINEL(g_conjunction_s = index_from_pool(pl, ","), ERR_IDX);
-	CHECK_SENTINEL(g_disjunction_s = index_from_pool(pl, ";"), ERR_IDX);
-	CHECK_SENTINEL(g_if_then_s = index_from_pool(pl, "->"), ERR_IDX);
-	CHECK_SENTINEL(g_soft_cut_s = index_from_pool(pl, "*->"), ERR_IDX);
-	CHECK_SENTINEL(g_negation_s = index_from_pool(pl, "\\+"), ERR_IDX);
-	CHECK_SENTINEL(g_dot_s = index_from_pool(pl, "."), ERR_IDX);
-	CHECK_SENTINEL(g_plus_s = index_from_pool(pl, "+"), ERR_IDX);
-	CHECK_SENTINEL(g_minus_s = index_from_pool(pl, "-"), ERR_IDX);
-	CHECK_SENTINEL(g_empty_s = index_from_pool(pl, ""), ERR_IDX);
-	CHECK_SENTINEL(g_anon_s = index_from_pool(pl, "_"), ERR_IDX);
-	CHECK_SENTINEL(g_dcg_s = index_from_pool(pl, "-->"), ERR_IDX);
-	CHECK_SENTINEL(g_call_s = index_from_pool(pl, "call"), ERR_IDX);
-	CHECK_SENTINEL(g_braces_s = index_from_pool(pl, "braces"), ERR_IDX);
-	CHECK_SENTINEL(g_unify_s = index_from_pool(pl, "="), ERR_IDX);
-	CHECK_SENTINEL(g_on_s = index_from_pool(pl, "on"), ERR_IDX);
-	CHECK_SENTINEL(g_off_s = index_from_pool(pl, "off"), ERR_IDX);
-	CHECK_SENTINEL(g_cut_s = index_from_pool(pl, "!"), ERR_IDX);
-	CHECK_SENTINEL(g_nil_s = index_from_pool(pl, "[]"), ERR_IDX);
-	CHECK_SENTINEL(g_braces_s = index_from_pool(pl, "{}"), ERR_IDX);
-	CHECK_SENTINEL(g_fail_s = index_from_pool(pl, "fail"), ERR_IDX);
-	CHECK_SENTINEL(g_neck_s = index_from_pool(pl, ":-"), ERR_IDX);
-	CHECK_SENTINEL(g_eof_s = index_from_pool(pl, "end_of_file"), ERR_IDX);
-	CHECK_SENTINEL(g_lt_s = index_from_pool(pl, "<"), ERR_IDX);
-	CHECK_SENTINEL(g_gt_s = index_from_pool(pl, ">"), ERR_IDX);
-	CHECK_SENTINEL(g_eq_s = index_from_pool(pl, "="), ERR_IDX);
-	CHECK_SENTINEL(g_once_s = index_from_pool(pl, "once"), ERR_IDX);
-	CHECK_SENTINEL(g_throw_s = index_from_pool(pl, "throw"), ERR_IDX);
-	CHECK_SENTINEL(g_error_s = index_from_pool(pl, "error"), ERR_IDX);
-	CHECK_SENTINEL(g_slash_s = index_from_pool(pl, "/"), ERR_IDX);
-	CHECK_SENTINEL(g_goal_expansion_s = index_from_pool(pl, "goal_expansion"), ERR_IDX);
-	CHECK_SENTINEL(g_term_expansion_s = index_from_pool(pl, "term_expansion"), ERR_IDX);
-	CHECK_SENTINEL(g_tm_s = index_from_pool(pl, "tm"), ERR_IDX);
-	CHECK_SENTINEL(g_float_s = index_from_pool(pl, "float"), ERR_IDX);
-
-	CHECK_SENTINEL(g_sys_elapsed_s = index_from_pool(pl, "$elapsed"), ERR_IDX);
-	CHECK_SENTINEL(g_sys_queue_s = index_from_pool(pl, "$queue"), ERR_IDX);
-	CHECK_SENTINEL(g_sys_var_s = index_from_pool(pl, "$VAR"), ERR_IDX);
-	CHECK_SENTINEL(g_sys_stream_property_s = index_from_pool(pl, "$stream_property"), ERR_IDX);
-	CHECK_SENTINEL(g_post_unify_hook_s = index_from_pool(pl, "$post_unify_hook"), ERR_IDX);
-	CHECK_SENTINEL(g_sys_record_key_s = index_from_pool(pl, "$record_key"), ERR_IDX);
-	CHECK_SENTINEL(g_sys_ne_s = index_from_pool(pl, "$ne"), ERR_IDX);
-	CHECK_SENTINEL(g_sys_incr_s = index_from_pool(pl, "$incr"), ERR_IDX);
-	CHECK_SENTINEL(g_sys_block_catcher_s = index_from_pool(pl, "$block_catcher"), ERR_IDX);
-	CHECK_SENTINEL(g_sys_soft_cut_s = index_from_pool(pl, "$soft_cut"), ERR_IDX);
-	CHECK_SENTINEL(g_sys_drop_barrier = index_from_pool(pl, "$drop_barrier"), ERR_IDX);
-	CHECK_SENTINEL(g_sys_cleanup_if_det_s = index_from_pool(pl, "$cleanup_if_det"), ERR_IDX);
-	CHECK_SENTINEL(g_sys_cut_if_det_s = index_from_pool(pl, "$cut_if_det"), ERR_IDX);
-	CHECK_SENTINEL(g_sys_table_s = index_from_pool(pl, "$table"), ERR_IDX);
-	CHECK_SENTINEL(g_as_s = index_from_pool(pl, "as"), ERR_IDX);
-	CHECK_SENTINEL(g_colon_s = index_from_pool(pl, ":"), ERR_IDX);
-
-	if (error)
-		return NULL;
 
 	pl->streams[0].fp = stdin;
 	CHECK_SENTINEL(pl->streams[0].alias = map_create((void*)fake_strcmp, (void*)keyfree, NULL), NULL);

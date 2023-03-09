@@ -191,7 +191,7 @@ int main(int ac, char *av[], char * envp[])
 	bool ns = false, no_res = false, quiet = false;
 #ifdef __wasi__
     if (!initialized) init_func();
-	g_init(g_tpl); // "lazy loading" the environment
+	g_init_lib(); // "lazy loading" the environment
 	void *pl = g_tpl;
 #else
 	void *pl = pl_create();
@@ -413,7 +413,7 @@ int main(int ac, char *av[], char * envp[])
 
 extern void pl_global_init() {
 	if (!initialized) init_func();
-	g_init(g_tpl);
+	g_init_lib();
 }
 
 // WASI ports can use this as an argument to the pl_* APIs for a quickstart.

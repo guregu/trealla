@@ -15,7 +15,7 @@ void load_builtins(prolog *pl);
 void uuid_gen(prolog *pl, uuid *u);
 void keyvalfree(const void *key, const void *val, const void *p);
 void ptrfree(const void *key, const void *val, const void *p);
-bool g_init(prolog *pl);
+void g_init_lib();
 
 extern pl_idx_t g_empty_s, g_dot_s, g_cut_s, g_nil_s, g_true_s, g_fail_s;
 extern pl_idx_t g_anon_s, g_neck_s, g_eof_s, g_lt_s, g_gt_s, g_eq_s, g_false_s;

@@ -1730,7 +1730,9 @@ bool start(query *q)
 		q->before_hook_tp = q->st.tp;
 
 		if (is_builtin(q->st.curr_cell)) {
-			if (!q->st.curr_cell->fn_ptr) {		// ??
+			if (!q->st.curr_cell->fn_ptr
+				|| (q->st.curr_cell->fn_ptr == (void*)fn_iso_conjunction_2)) {
+				q->tot_goals--;
 				q->st.curr_cell++;
 				continue;
 			}
@@ -1752,11 +1754,10 @@ bool start(query *q)
 				continue;
 			}
 
-			if (q->yield_at && q->tot_goals % 10000 == 0) {
+			if (q->yield_at && q->tot_goals % YIELD_INTERVAL == 0) {
 				uint64_t now = get_time_in_usec() / 1000;
 
 				if (now > q->yield_at)  {
-					q->yield_at = 0;
 					do_yield(q, 0);
 					break;
 				}
@@ -2046,6 +2047,7 @@ query *create_query(module *m, bool is_task)
 
 	query *q = calloc(1, sizeof(query));
 	ensure(q);
+	q->flags.occurs_check = false;
 	q->qid = g_query_id++;
 	q->pl = m->pl;
 	q->st.prev_m = q->st.m = m;

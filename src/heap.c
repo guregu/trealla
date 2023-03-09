@@ -122,19 +122,6 @@ cell *alloc_on_heap(query *q, unsigned nbr_cells)
 	return c;
 }
 
-bool is_in_ref_list(cell *c, pl_idx_t c_ctx, reflist *rlist)
-{
-	while (rlist) {
-		if ((c->var_nbr == rlist->var_nbr)
-			&& (c_ctx == rlist->ctx))
-			return true;
-
-		rlist = rlist->next;
-	}
-
-	return false;
-}
-
 static bool is_in_ref_list2(cell *c, pl_idx_t c_ctx, reflist *rlist)
 {
 	while (rlist) {
@@ -208,7 +195,8 @@ static cell *deep_copy2_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx, bool copy_at
 	bool cyclic = false;
 	bool is_partial = false;
 
-	if (is_iso_list(p1) && !check_list(q, p1, p1_ctx, &is_partial, NULL))
+	if (q->flags.occurs_check && is_iso_list(p1)
+		&& !check_list(q, p1, p1_ctx, &is_partial, NULL))
 		is_partial = true;
 
 	if (!is_partial && is_iso_list(p1)) {
@@ -481,7 +469,8 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx, unsigned de
 	bool cyclic = false;
 	bool is_partial = false;
 
-	if (is_iso_list(p1) && !check_list(q, p1, p1_ctx, &is_partial, NULL))
+	if (q->flags.occurs_check && is_iso_list(p1)
+		&& !check_list(q, p1, p1_ctx, &is_partial, NULL))
 		is_partial = true;
 
 	if (!is_partial && is_iso_list(p1)) {
