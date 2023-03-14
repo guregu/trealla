@@ -32,6 +32,10 @@ json_value_(false, boolean(false)).
 json_value_(Cs, string(Cs)) :- json_string(Cs).
 json_value_(N, number(N)) :- json_number(N).
 json_value_(K:V0, string(K)-V) :-
+	var(V0), var(V),
+	freeze(V0, once(json_value_(V0, V))),
+	freeze(V, once(json_value_(V0, V))).
+json_value_(K:V0, string(K)-V) :-
 	once(json_value_(V0, V)),
 	json_field(K:V0).
 json_value_([], list([])).
@@ -48,12 +52,18 @@ json_value_({Fields}, pairs(L)) :-
 	once(maplist(json_value_, L0, L)).
 json_value_(null, null).
 
+json_bool(X) :- var(X), freeze(X, json_bool(X)), !.
 json_bool(true).
 json_bool(false).
 
-json_string(Cs) :- string(Cs).
+json_string(Cs) :-
+	string(Cs).
 
-json_number(N) :- number(N).
+json_number(N) :-
+ (  nonvar(N)
+ -> number(N)
+ ;  freeze(N, json_number(N))
+ ).
 
 json_field(K:V) :-
 	json_string(K),
@@ -65,6 +75,7 @@ json_object({Fields}) :-
 
 json_list(V) :- is_list(V).
 
+json(V) :- var(V).
 json(V) :- V == null.
 json(V) :- json_bool(V).
 json(V) :- json_string(V).

@@ -1,28 +1,59 @@
 
-:- module(wasm_js, [js_eval/1, js_eval/2, js_eval_json/2,
-	js_fetch/3, http_fetch/3, http_consult/1,
-	crypto_data_hash/3, sleep/1, delay/1]).
+:- module(wasm_js, [js_fetch/3, http_fetch/3, http_consult/1, crypto_data_hash/3,
+	await/1, await_all/1, future_all/2, future_any/2, wait/1]).
 
 :- use_module(library(lists)).
 :- use_module(library(error)).
 :- use_module(library(format)).
 :- use_module(library(pseudojson)).
 
-% Guest (Trealla) → Host (Javascript)
+:- dynamic('$task'/1).
 
-js_eval(Expr, Cs) :-
-	'$host_call'(Expr, Cs), !
-	; yield, '$host_resume'(Cs).
+future_all(Fs, F) :-
+	future(await_all(Fs), F).
 
-js_eval_json(Expr, Result) :-
-	js_eval_(Expr, Result, js_eval_json/2).
+future_any(Fs, F) :-
+	future(await_any(Fs, _, _), F).
 
-js_eval(Expr) :-
-	catch(
-		js_eval_(Expr, _, js_eval/1),
-		error(wasm_error(invalid_json, _), _),
-		true
+await_all(Fs) :-
+	repeat,
+	(  '$await_all'(Fs)
+	-> true
+	;  !, fail
 	).
+
+await_some(Fs, OK, Done) :-
+	repeat,
+	(  '$await_some'(Fs, OK, Done)
+	-> true
+	;  !, fail
+	).
+
+'$retract_tasks'(Fs) :-
+	maplist('$retract_task', Fs).
+'$retract_task'(F) :-
+	wasm:retractall('$task'(F)).
+
+task(Goal) :-
+	future(Goal, F),
+	wasm:assertz('$task'(F)).
+
+await(Goal) :-
+	repeat,
+	(  '$await'(Goal)
+	-> true
+	;  !, fail
+	).
+
+wait :-
+	repeat,
+	wasm:findall(T, '$task'(T), Ts),
+	(  '$await_some'(Ts, _OK, Done)
+	-> '$retract_tasks'(Done)
+	;  !, fail
+	).
+
+% Guest (Trealla) → Host (Javascript)
 
 js_eval_(Expr, Result, Context) :-
 	(  js_eval(Expr, Cs)
@@ -110,7 +141,7 @@ crypto_data_hash(Data, Hash, Options) :-
 hash_algo(sha256, "SHA-256").
 hash_algo(sha384, "SHA-384").
 hash_algo(sha512, "SHA-512").
-hash_algo(sha1, "SHA-1").
+hash_algo(sha1,   "SHA-1").
 
 js_subtle_hash(Data, Hash, Algo) :-
 	(  hash_algo(Algo, AlgoCs)
@@ -118,24 +149,9 @@ js_subtle_hash(Data, Hash, Algo) :-
 	;  domain_error(algorithm, Algo, crypto_data_hash/3)
 	),
 	subtle_digest_expr(Data, AlgoCs, Expr),
-	js_eval_json(Expr, Hash).
+	js_eval(Expr, Hash).
 
 subtle_digest_expr(Data, Algo, Expr) :-
 	once(phrase(format_(
 		"return crypto.subtle.digest(~q, new TextEncoder().encode(~q)).then(sum => [...new Uint8Array(sum)].map(c => c.toString(16).padStart(2, '0')).join(''));",
 		[Algo, Data]), Expr)).
-
-sleep(Seconds) :-
-	must_be(Seconds, integer, sleep/1, _),
-	must_be(Seconds, not_less_than_zero, sleep/1, _),
-	Ms is Seconds * 1000,
-	sleep_expr(Ms, Expr),
-	js_eval_(Expr, _, sleep/1).
-
-delay(Ms) :-
-	must_be(Ms, not_less_than_zero, delay/1, _),
-	sleep_expr(Ms, Expr),
-	js_eval_(Expr, _, delay/1).
-
-sleep_expr(Ms, Expr) :-
-	once(phrase(format_("return new Promise((resolve) => { setTimeout(resolve, ~f) });", [Ms]), Expr)).

@@ -662,10 +662,12 @@ bool find_exception_handler(query *q, char *ball)
 		return false;
 	}
 
-	if (!q->is_redo)
-		fprintf(stdout, "   ");
-	else
-		fprintf(stdout, "  ");
+	if (!q->pl->is_query) {
+		if (!q->is_redo)
+			fprintf(stdout, "   ");
+		else
+			fprintf(stdout, "  ");
+	}
 
 	if (!q->run_init/*!is_interned(e) || strcmp(C_STR(q, e), "error")*/)
 		fprintf(stdout, "throw(");

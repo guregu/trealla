@@ -4454,12 +4454,16 @@ static bool fn_sys_elapsed_0(query *q)
 {
 	uint64_t elapsed = get_time_in_usec();
 	elapsed -= q->st.timer_started;
-	if (!q->is_redo) fprintf(stdout, "   ");
-	if (q->is_redo) fprintf(stdout, " ");
+	if (!q->pl->is_query) {
+		if (!q->is_redo) fprintf(stderr, "   ");
+		if (q->is_redo) fprintf(stderr, " ");
+	}
 	double lips = (1.0 / ((double)elapsed/1000/1000)) * q->tot_goals;
 	fprintf(stderr, "%% Time elapsed %fs, %llu Inferences, %.3f MLips)\n", (double)elapsed/1000/1000, (unsigned long long)q->tot_goals, lips/1000/1000);
-	if (q->is_redo) fprintf(stdout, "  ");
-	//else if (!q->redo) fprintf(stdout, "");
+	if (!q->pl->is_query) {
+		if (q->is_redo) fprintf(stderr, "  ");
+		else if (!q->is_redo) fprintf(stderr, "");
+	}
 	choice *ch = GET_CURR_CHOICE();
 	ch->st.timer_started = get_time_in_usec();
 	return true;
@@ -5306,6 +5310,7 @@ static query *pop_task(module *m, query *task)
 	return task->next;
 }
 
+#ifndef WASI_TARGET_JS
 static bool fn_wait_0(query *q)
 {
 	while (q->st.m->tasks) {
@@ -5409,14 +5414,6 @@ static bool fn_await_0(query *q)
 	return true;
 }
 
-static bool fn_yield_0(query *q)
-{
-	if (q->retry)
-		return true;
-
-	return do_yield(q, 0);
-}
-
 static bool fn_task_n(query *q)
 {
 	pl_idx_t save_hp = q->st.hp;
@@ -5450,6 +5447,15 @@ static bool fn_task_n(query *q)
 	task->yielded = task->spawned = true;
 	push_task(q->st.m, task);
 	return true;
+}
+#endif
+
+static bool fn_yield_0(query *q)
+{
+	if (q->retry)
+		return true;
+
+	return do_yield(q, 0);
 }
 
 static bool fn_fork_0(query *q)
@@ -8077,6 +8083,7 @@ builtins g_other_bifs[] =
 	{"crypto_data_hash", 3, fn_crypto_data_hash_3, "?string,?string,?list", false, false, BLAH},
 #endif
 
+#ifndef WASI_TARGET_JS
 	{"task", 1, fn_task_n, ":callable", false, false, BLAH},
 	{"task", 2, fn_task_n, ":callable,+term,...", false, false, BLAH},
 	{"task", 3, fn_task_n, ":callable,+term,...", false, false, BLAH},
@@ -8088,8 +8095,9 @@ builtins g_other_bifs[] =
 
 	{"wait", 0, fn_wait_0, NULL, false, false, BLAH},
 	{"await", 0, fn_await_0, NULL, false, false, BLAH},
-	{"yield", 0, fn_yield_0, NULL, false, false, BLAH},
+#endif
 	{"fork", 0, fn_fork_0, NULL, false, false, BLAH},
+	{"yield", 0, fn_yield_0, NULL, false, false, BLAH},
 	{"send", 1, fn_send_1, "+term", false, false, BLAH},
 	{"recv", 1, fn_recv_1, "?term", false, false, BLAH},
 

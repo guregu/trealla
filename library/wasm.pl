@@ -38,7 +38,6 @@ js_ask(Input) :-
 		Error,
 		Status = error
 	),
-	notrace,
 	write(stdout, '\u0003'),
 	result_json(Status, Vars, Error, JSON),
 	write_result(JSON),
