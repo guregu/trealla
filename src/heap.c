@@ -7,6 +7,40 @@
 #include "heap.h"
 #include "query.h"
 
+struct heap_save {
+	cell *heap;
+	pl_idx_t size, hp;
+};
+
+#define push_tmp_heap(q) 								\
+	struct heap_save _s;								\
+	_s.heap = q->tmp_heap;								\
+	_s.size = q->tmph_size;								\
+	_s.hp = q->tmphp;									\
+	q->tmp_heap = NULL;									\
+	q->tmphp = 0;										\
+	if (!init_tmp_heap(q)) return NULL;
+
+#define pop_tmp_heap(q)									\
+	free(q->tmp_heap);									\
+	q->tmp_heap = _s.heap;								\
+	q->tmph_size = _s.size;								\
+	q->tmphp = _s.hp;
+
+struct reflist_ {
+	reflist *next;
+	pl_idx_t ctx;
+
+	union {
+		cell *ptr;
+		pl_idx_t var_nbr;
+	};
+};
+
+struct cycle_info_ {
+	reflist *r1, *r2;
+};
+
 static int accum_slot(const query *q, pl_idx_t slot_nbr, unsigned var_nbr)
 {
 	const void *vnbr;
@@ -20,7 +54,11 @@ static int accum_slot(const query *q, pl_idx_t slot_nbr, unsigned var_nbr)
 
 size_t alloc_grow(void **addr, size_t elem_size, size_t min_elements, size_t max_elements)
 {
-	assert(min_elements <= max_elements);
+	//assert(min_elements <= max_elements);
+
+	if (min_elements > max_elements)
+		max_elements = min_elements;
+
 	size_t elements = max_elements;
 	void *mem;
 
@@ -122,10 +160,10 @@ cell *alloc_on_heap(query *q, unsigned nbr_cells)
 	return c;
 }
 
-static bool is_in_ref_list2(cell *c, pl_idx_t c_ctx, reflist *rlist)
+bool is_in_ref_list(cell *c, pl_idx_t c_ctx, reflist *rlist)
 {
 	while (rlist) {
-		if ((c == rlist->ptr)
+		if (((c->var_nbr == rlist->var_nbr) || (c == rlist->ptr))
 			&& (c_ctx == rlist->ctx))
 			return true;
 
@@ -135,7 +173,7 @@ static bool is_in_ref_list2(cell *c, pl_idx_t c_ctx, reflist *rlist)
 	return false;
 }
 
-// FIXME: rewrite this using efficient sweep/mark methodology...
+// FIXME: rewrite this to be efficient...
 
 static cell *deep_copy2_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx, bool copy_attrs, cell *from, pl_idx_t from_ctx, cell *to, pl_idx_t to_ctx, unsigned depth, reflist *list)
 {
@@ -214,7 +252,7 @@ static cell *deep_copy2_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx, bool copy_at
 			c = deref(q, c, c_ctx);
 			c_ctx = q->latest_ctx;
 
-			if (is_in_ref_list2(c, c_ctx, list)) {
+			if (is_in_ref_list(c, c_ctx, list)) {
 				cell *tmp = alloc_on_tmp(q, 1);
 				if (!tmp) return NULL;
 				*tmp = *h;
@@ -239,7 +277,7 @@ static cell *deep_copy2_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx, bool copy_at
 			nlist.ptr = save_p1;
 			nlist.ctx = save_p1_ctx;
 
-			if (is_in_ref_list2(p1, p1_ctx, &nlist)) {
+			if (is_in_ref_list(p1, p1_ctx, &nlist)) {
 				cell *tmp = alloc_on_tmp(q, 1);
 				if (!tmp) return NULL;
 				tmp->tag = TAG_VAR;
@@ -281,7 +319,7 @@ static cell *deep_copy2_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx, bool copy_at
 		c_ctx = q->latest_ctx;
 		reflist nlist = {0};
 
-		if (is_in_ref_list2(c, c_ctx, list)) {
+		if (is_in_ref_list(c, c_ctx, list)) {
 			cell *tmp = alloc_on_tmp(q, 1);
 			if (!tmp) return NULL;
 			*tmp = *p1;
@@ -314,6 +352,7 @@ cell *deep_raw_copy_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx)
 	reflist nlist = {0};
 	nlist.ptr = p1;
 	nlist.ctx = p1_ctx;
+
 	q->vars = map_create(NULL, NULL, NULL);
 	if (!q->vars) return NULL;
 	cell *rec = deep_copy2_to_tmp(q, p1, p1_ctx, false, NULL, 0, NULL, 0, 0, &nlist);
@@ -440,6 +479,8 @@ cell *deep_copy_to_heap_with_replacement(query *q, cell *p1, pl_idx_t p1_ctx, bo
 	return tmp2;
 }
 
+// FIXME: rewrite this to be efficient...
+
 static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx, unsigned depth, reflist *list)
 {
 	if (depth >= MAX_DEPTH) {
@@ -487,7 +528,7 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx, unsigned de
 			cell *c = deref(q, h, h_ctx);
 			pl_idx_t c_ctx = q->latest_ctx;
 
-			if (is_in_ref_list2(c, c_ctx, list)) {
+			if (is_in_ref_list(c, c_ctx, list)) {
 				cell *tmp = alloc_on_tmp(q, 1);
 				if (!tmp) return NULL;
 				*tmp = *h;
@@ -510,7 +551,7 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx, unsigned de
 			nlist.ptr = save_p1;
 			nlist.ctx = save_p1_ctx;
 
-			if (is_in_ref_list2(p1, p1_ctx, &nlist)) {
+			if (is_in_ref_list(p1, p1_ctx, &nlist)) {
 				cell *tmp = alloc_on_tmp(q, 1);
 				if (!tmp) return NULL;
 				*tmp = *tmp_p1;
@@ -543,7 +584,7 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx, unsigned de
 		pl_idx_t c_ctx = q->latest_ctx;
 		reflist nlist = {0};
 
-		if (is_in_ref_list2(c, c_ctx, list)) {
+		if (is_in_ref_list(c, c_ctx, list)) {
 			cell *tmp = alloc_on_tmp(q, 1);
 			if (!tmp) return NULL;
 			*tmp = *p1;

@@ -96,6 +96,3 @@ http_handler(get("/", _), _, _, 200) :-
 - [Trealla Prolog](https://github.com/trealla-prolog/trealla): parent repository
 - [trealla-js](https://github.com/guregu/trealla-js): Trealla for Javascript
 - [trealla-prolog/go](https://github.com/trealla-prolog/go): Trealla for Go
-
-<<<<<<< HEAD
-![Trealla Logo](https://user-images.githubusercontent.com/131059/190109875-7eb65bf5-feef-41e1-b19c-7fbcab8887ae.png)

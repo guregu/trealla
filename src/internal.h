@@ -107,6 +107,9 @@ extern unsigned g_string_cnt, g_interned_cnt;
 #define is_iso_atom(c) ((is_interned(c) || is_cstring(c)) && !(c)->arity)
 #define is_iso_list(c) (is_interned(c) && ((c)->arity == 2) && ((c)->val_off == g_dot_s))
 
+#define get_list_head(c) ((c) + 1)
+#define get_list_tail(c) (get_list_head(c) + get_list_head(c)->nbr_cells)
+
 #define get_float(c) (c)->val_float
 #define set_float(c,v) (c)->val_float = (v)
 #define get_smallint(c) (c)->val_int
@@ -466,7 +469,7 @@ struct predicate_ {
 	bool is_var_in_first_arg:1;
 };
 
-#define BLAH false, false, {0}, {0}, 0, NULL, NULL, NULL, NULL
+#define BLAH false, false, {0}, {0}, 0, NULL, NULL, NULL, NULL, NULL
 #define MAX_FFI_ARGS 64
 
 struct builtins_ {
@@ -485,6 +488,7 @@ struct builtins_ {
 	const char *ret_name;
 	module *m;
 	char *desc;
+	char *help2;
 };
 
 typedef struct {
@@ -502,13 +506,9 @@ struct trail_ {
 	uint32_t var_nbr;
 };
 
-// It would be nice to find space in a cell to put *mgen* & *mark*
-// fields, which are used in cycle detection
-
 struct slot_ {
 	cell c;
-	uint32_t mgen;
-	bool mark:1;
+	uint64_t mgen;
 };
 
 // Where 'prev_offset' is the number of frames back
@@ -660,7 +660,7 @@ struct query_ {
 	bool ignores[MAX_IGNORES];
 	uint64_t tot_goals, tot_backtracks, tot_retries, tot_matches;
 	uint64_t tot_tcos, tot_frecovs, tot_srecovs;
-	uint64_t step, qid, tmo_msecs, cgen;
+	uint64_t step, qid, tmo_msecs, cgen, mgen;
 	uint64_t get_started, autofail_n, yield_at;
 	uint64_t time_cpu_started, time_cpu_last_started;
 	unsigned max_depth, print_idx, tab_idx, varno, tab0_varno, curr_engine;
@@ -671,7 +671,6 @@ struct query_ {
 	pl_idx_t cp, before_hook_tp;
 	pl_idx_t h_size, tmph_size, tot_heaps, tot_heapsize, undo_lo_tp, undo_hi_tp;
 	pl_idx_t q_size[MAX_QUEUES], tmpq_size[MAX_QUEUES], qp[MAX_QUEUES];
-	uint32_t mgen;
 	prolog_flags flags;
 	enum q_retry retry;
 	int8_t halt_code;

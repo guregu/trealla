@@ -27,7 +27,7 @@ void inner_cut(query *q, bool soft_cut);
 void set_var(query *q, const cell *c, pl_idx_t ctx, cell *v, pl_idx_t v_ctx);
 void reset_var(query *q, const cell *c, pl_idx_t c_ctx, cell *v, pl_idx_t v_ctx);
 bool execute(query *q, cell *cells, unsigned nbr_vars);
-bool fn_call_0(query *q, cell *p1);
+bool fn_call_0(query *q, cell *p1, pl_idx_t p1_ctx);
 void undo_me(query *q);
 void drop_choice(query *q);
 bool retry_choice(query *q);
@@ -120,30 +120,11 @@ bool fn_sys_cut_if_det_0(query *q);
 bool fn_sys_queuen_2(query *q);
 bool fn_iso_findall_3(query *q);
 
-#if 0
-bool fn_sys_bagof_3(query *q);
-cell *do_term_variables(query *q, cell *p1, pl_idx_t p1_ctx);
-#endif
-
 cell *convert_to_list(query *q, cell *c, pl_idx_t nbr_cells);
 
 inline static pl_idx_t queuen_used(const query *q) { return q->qp[q->st.qnbr]; }
 inline static cell *get_queuen(query *q) { return q->queue[q->st.qnbr]; }
 inline static cell *take_queuen(query *q) { cell *save = q->queue[q->st.qnbr]; q->queue[q->st.qnbr] = NULL; return save; }
-
-struct reflist_ {
-	reflist *next;
-	pl_idx_t ctx;
-
-	union {
-		cell *ptr;
-		pl_idx_t var_nbr;
-	};
-};
-
-struct cycle_info_ {
-	reflist *r1, *r2;
-};
 
 #define FEOF(str) feof(str->fp) && !str->ungetch
 

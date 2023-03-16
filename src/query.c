@@ -594,7 +594,7 @@ static void unwind_trail(query *q, const choice *ch)
 		init_cell(&e->c);
 		e->c.attrs = tr->attrs;
 		e->c.attrs_ctx = tr->attrs_ctx;
-		e->mark = false;
+		e->mgen = 0;
 	}
 }
 
@@ -615,7 +615,7 @@ bool try_me(query *q, unsigned nbr_vars)
 		slot *e = GET_SLOT(f, i);
 		//unshare_cell(&e->c);
 		init_cell(&e->c);
-		e->mark = false;
+		e->mgen = 0;
 	}
 
 	q->run_hook = false;
@@ -1230,7 +1230,7 @@ unsigned create_vars(query *q, unsigned cnt)
 	for (unsigned i = 0; i < cnt; i++) {
 		slot *e = GET_SLOT(f, f->actual_slots+i);
 		init_cell(&e->c);
-		e->mark = false;
+		e->mgen = 0;
 	}
 
 	f->actual_slots += cnt;
@@ -1252,23 +1252,17 @@ cell *get_var(query *q, cell *c, pl_idx_t c_ctx)
 		e = GET_SLOT(f, c->var_nbr);
 	}
 
-	if (is_empty(&e->c)) {
-		q->latest_ctx = c_ctx;
-		return c;
-	}
-
 	if (is_indirect(&e->c)) {
 		q->latest_ctx = e->c.var_ctx;
 		return e->c.val_ptr;
 	}
 
-	if (is_var(&e->c)) {
-		q->latest_ctx = e->c.var_ctx;
-		return &e->c;
-	}
-
 	q->latest_ctx = c_ctx;
-	return &e->c;
+
+	if (!is_empty(&e->c))
+		return &e->c;
+
+	return c;
 }
 
 void set_var(query *q, const cell *c, pl_idx_t c_ctx, cell *v, pl_idx_t v_ctx)
@@ -1314,9 +1308,6 @@ void set_var(query *q, const cell *c, pl_idx_t c_ctx, cell *v, pl_idx_t v_ctx)
 		share_cell(v);
 		e->c = *v;
 	}
-
-	if (q->flags.occurs_check != OCCURS_CHECK_FALSE)
-		e->mark = true;
 }
 
 void reset_var(query *q, const cell *c, pl_idx_t c_ctx, cell *v, pl_idx_t v_ctx)
@@ -1717,8 +1708,15 @@ bool start(query *q)
 		}
 
 		if (is_var(q->st.curr_cell)) {
-			if (!fn_call_0(q, q->st.curr_cell))
+			cell *p1 = deref(q, q->st.curr_cell, q->st.curr_frame);
+			pl_idx_t p1_ctx = q->latest_ctx;
+
+			if (!fn_call_0(q, p1, p1_ctx)) {
+				if (is_var(p1))
+					break;
+
 				continue;
+			}
 		}
 
 		q->tot_goals++;

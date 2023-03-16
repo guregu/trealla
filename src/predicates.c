@@ -2104,7 +2104,6 @@ static bool fn_iso_copy_term_2(query *q)
 
 		if (e1->c.attrs) {
 			check_heap_error(init_tmp_heap(q));
-			check_heap_error(q->vars = map_create(NULL, NULL, NULL));
 			frame *f = GET_CURR_FRAME();
 			q->varno = f->actual_slots;
 			q->tab_idx = 0;
@@ -4459,7 +4458,7 @@ static bool fn_sys_elapsed_0(query *q)
 		if (q->is_redo) fprintf(stderr, " ");
 	}
 	double lips = (1.0 / ((double)elapsed/1000/1000)) * q->tot_goals;
-	fprintf(stderr, "%% Time elapsed %fs, %llu Inferences, %.3f MLips)\n", (double)elapsed/1000/1000, (unsigned long long)q->tot_goals, lips/1000/1000);
+	fprintf(stderr, "%% Time elapsed %.3fs, %llu Inferences, %.3f MLips)\n", (double)elapsed/1000/1000, (unsigned long long)q->tot_goals, lips/1000/1000);
 	if (!q->pl->is_query) {
 		if (q->is_redo) fprintf(stderr, "  ");
 		else if (!q->is_redo) fprintf(stderr, "");
@@ -5326,7 +5325,7 @@ static bool fn_wait_0(query *q)
 			if (task->spawned) {
 				spawn_cnt++;
 
-				if (spawn_cnt >= g_cpu_count)
+				if (spawn_cnt >= /*g_cpu_count*/64)
 					break;
 			}
 
@@ -5373,7 +5372,7 @@ static bool fn_await_0(query *q)
 			if (task->spawned) {
 				spawn_cnt++;
 
-				if (spawn_cnt >= g_cpu_count)
+				if (spawn_cnt >= /*g_cpu_count*/64)
 					break;
 			}
 
@@ -5487,9 +5486,20 @@ static bool fn_send_1(query *q)
 
 static bool fn_recv_1(query *q)
 {
-	GET_FIRST_ARG(p1,var);
-	cell *c = pop_queue(q);
-	return unify(q, p1, p1_ctx, c, q->st.curr_frame);
+	GET_FIRST_ARG(p1,any);
+
+	while (true) {
+		CHECK_INTERRUPT();
+		cell *c = pop_queue(q);
+		if (!c) break;
+
+		if (unify(q, p1, p1_ctx, c, q->st.curr_frame))
+			return true;
+
+		check_heap_error(alloc_on_queuen(q, 0, c));
+	}
+
+	return false;
 }
 
 #ifndef __wasi__

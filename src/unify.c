@@ -5,17 +5,146 @@
 #include "query.h"
 #include "utf8.h"
 
-static bool is_in_ref_list(cell *c, pl_idx_t c_ctx, reflist *rlist)
-{
-	while (rlist) {
-		if ((c->var_nbr == rlist->var_nbr)
-			&& (c_ctx == rlist->ctx))
-			return true;
+static int compare_internal(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx_t p2_ctx, unsigned depth);
 
-		rlist = rlist->next;
+static int compare_lists(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx_t p2_ctx, unsigned depth)
+{
+	LIST_HANDLER(p1);
+	LIST_HANDLER(p2);
+	q->mgen++;
+
+	while (is_iso_list(p1) && is_iso_list(p2)) {
+		cell *h1 = LIST_HEAD(p1);
+		cell *h2 = LIST_HEAD(p2);
+
+		slot *e1 = NULL, *e2 = NULL;
+		int both = 0;
+
+		if (is_var(h1)) {
+			const frame *f1 = GET_FRAME(p1_ctx);
+			e1 = GET_SLOT(f1, h1->var_nbr);
+
+			if (e1->mgen == q->mgen)
+				both++;
+			else
+				e1->mgen = q->mgen;
+		}
+
+		if (is_var(h2)) {
+			const frame *f2 = GET_FRAME(p2_ctx);
+			e2 = GET_SLOT(f2, h2->var_nbr);
+
+			if (e2->mgen == q->mgen)
+				both++;
+			else
+				e2->mgen = q->mgen;
+		}
+
+		if (both == 2)
+			return 0;
+
+		h1 = deref(q, h1, p1_ctx);
+		pl_idx_t h1_ctx = q->latest_ctx;
+		h2 = deref(q, h2, p2_ctx);
+		pl_idx_t h2_ctx = q->latest_ctx;
+		uint64_t save_mgen = q->mgen;
+		int val = compare_internal(q, h1, h1_ctx, h2, h2_ctx, depth+1);
+		if (val) return val;
+		q->mgen = save_mgen;
+
+		if (e1) e1->mgen = 0;
+		if (e2) e2->mgen = 0;
+
+		p1 = LIST_TAIL(p1);
+		p2 = LIST_TAIL(p2);
+		both = 0;
+
+		if (is_var(p1)) {
+			const frame *f1 = GET_FRAME(p1_ctx);
+			e1 = GET_SLOT(f1, p1->var_nbr);
+
+			if (e1->mgen == q->mgen)
+				both++;
+			else
+				e1->mgen = q->mgen;
+		}
+
+		if (is_var(p2)) {
+			const frame *f2 = GET_FRAME(p2_ctx);
+			e2 = GET_SLOT(f2, p2->var_nbr);
+
+			if (e2->mgen == q->mgen)
+				both++;
+			else
+				e2->mgen = q->mgen;
+		}
+
+		if (both == 2)
+			return 0;
+
+		p1 = deref(q, p1, p1_ctx);
+		p1_ctx = q->latest_ctx;
+		p2 = deref(q, p2, p2_ctx);
+		p2_ctx = q->latest_ctx;
 	}
 
-	return false;
+	return compare_internal(q, p1, p1_ctx, p2, p2_ctx, depth+1);
+}
+
+static int compare_structs(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx_t p2_ctx, unsigned depth)
+{
+	int val = CMP_STR_TO_STR(q, p1, p2);
+	if (val) return val;
+
+	int arity = p1->arity;
+	p1 = p1 + 1;
+	p2 = p2 + 1;
+
+	while (arity--) {
+		slot *e1 = NULL, *e2 = NULL;
+		int both = 0;
+
+		if (is_var(p1)) {
+			const frame *f1 = GET_FRAME(p1_ctx);
+			e1 = GET_SLOT(f1, p1->var_nbr);
+
+			if (e1->mgen == q->mgen)
+				both++;
+			else
+				e1->mgen = q->mgen;
+		}
+
+		if (is_var(p2)) {
+			const frame *f2 = GET_FRAME(p2_ctx);
+			e2 = GET_SLOT(f2, p2->var_nbr);
+
+			if (e2->mgen == q->mgen)
+				both++;
+			else
+				e2->mgen = q->mgen;
+		}
+
+		cell *c1 = deref(q, p1, p1_ctx);
+		pl_idx_t c1_ctx = q->latest_ctx;
+		cell *c2 = deref(q, p2, p2_ctx);
+		pl_idx_t c2_ctx = q->latest_ctx;
+
+		if (both != 2) {
+			int val = compare_internal(q, c1, c1_ctx, c2, c2_ctx, depth+1);
+			if (val) return val;
+		}
+
+		if (e1)
+			e1->mgen = 0;
+
+		if (e2)
+			e2->mgen = 0;
+
+		p1 += p1->nbr_cells;
+		p2 += p2->nbr_cells;
+	}
+
+	return 0;
 }
 
 static int compare_internal(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx_t p2_ctx, unsigned depth)
@@ -39,9 +168,8 @@ static int compare_internal(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_id
 		return -1;
 	}
 
-	if (is_var(p2)) {
+	if (is_var(p2))
 		return 1;
-	}
 
 	if (is_bigint(p1) && is_bigint(p2))
 		return mp_int_compare(&p1->val_bigint->ival, &p2->val_bigint->ival);
@@ -53,9 +181,8 @@ static int compare_internal(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_id
 		return -mp_int_compare_value(&p2->val_bigint->ival, p1->val_int);
 
 	if (is_basic_integer(p1)) {
-		if (is_basic_integer(p2)) {
+		if (is_basic_integer(p2))
 			return p1->val_int < p2->val_int ? -1 : p1->val_int > p2->val_int ? 1 : 0;
-		}
 
 		if (is_float(p2))
 			return 1;
@@ -125,72 +252,10 @@ static int compare_internal(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_id
 		return compare_internal(q, p1, p1_ctx, p2, p2_ctx, depth+1);
 	}
 
-	int val = CMP_STR_TO_STR(q, p1, p2);
-	if (val) return val;
+	if (is_iso_list(p1) && is_iso_list(p2))
+		return compare_lists(q, p1, p1_ctx, p2, p2_ctx, depth+1);
 
-	int arity = p1->arity;
-	p1 = p1 + 1;
-	p2 = p2 + 1;
-
-	while (arity--) {
-		cell *c1 = deref(q, p1, p1_ctx);
-		pl_idx_t c1_ctx = q->latest_ctx;
-		cell *c2 = deref(q, p2, p2_ctx);
-		pl_idx_t c2_ctx = q->latest_ctx;
-		reflist r1 = {0}, r2 = {0};
-		bool cycle1 = false, cycle2 = false;
-
-		if (q->info1) {
-			if (is_var(p1)) {
-				if (is_in_ref_list(p1, p1_ctx, q->info1->r1)) {
-					c1 = p1;
-					c1_ctx = p1_ctx;
-					cycle1 = true;
-				} else {
-					r1.next = q->info1->r1;
-					r1.var_nbr = p1->var_nbr;
-					r1.ctx = p1_ctx;
-					q->info1->r1 = &r1;
-				}
-			}
-		}
-
-		if (q->info2) {
-			if (is_var(p2)) {
-				if (is_in_ref_list(p2, p2_ctx, q->info2->r2)) {
-					c2 = p2;
-					c2_ctx = p2_ctx;
-					cycle2 = true;
-				} else {
-					r2.next = q->info2->r2;
-					r2.var_nbr = p2->var_nbr;
-					r2.ctx = p2_ctx;
-					q->info2->r2 = &r2;
-				}
-			}
-		}
-
-		if (cycle1 && cycle2)
-			return 0;
-
-		int val = compare_internal(q, c1, c1_ctx, c2, c2_ctx, depth+1);
-		if (val) return val;
-
-		if (q->info1) {
-			if (is_var(p1))
-				q->info1->r1 = r1.next;		// restore
-		}
-
-		if (q->info2) {
-			if (is_var(p2))
-				q->info2->r2 = r2.next;		// restore
-		}
-
-		p1 += p1->nbr_cells;
-		p2 += p2->nbr_cells;
-	}
-
-	return 0;
+	return compare_structs(q, p1, p1_ctx, p2, p2_ctx, depth+1);
 }
 
 // FIXME: rewrite this to be efficient
@@ -198,19 +263,8 @@ static int compare_internal(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_id
 int compare(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx_t p2_ctx)
 {
 	q->cycle_error = false;
-	bool is_partial;
-
-	if (q->flags.occurs_check && is_iso_list(p1) && is_iso_list(p2)) {
-		if (check_list(q, p1, p1_ctx, &is_partial, NULL) && check_list(q, p2, p2_ctx, &is_partial, NULL))
-			return compare_internal(q, p1, p1_ctx, p2, p2_ctx, 0);
-	}
-
-	cycle_info info1 = {0}, info2 = {0};
-	q->info1 = q->flags.occurs_check ? &info1 : NULL;
-	q->info2 = q->flags.occurs_check ? &info2 : NULL;
-	int ok = compare_internal(q, p1, p1_ctx, p2, p2_ctx, 0);
-	q->info1 = q->info2 = NULL;
-	return ok;
+	q->mgen++;
+	return compare_internal(q, p1, p1_ctx, p2, p2_ctx, 0);
 }
 
 bool accum_var(query *q, const cell *c, pl_idx_t c_ctx)
@@ -449,88 +503,51 @@ static bool is_cyclic_term_internal(query *q, cell *p1, pl_idx_t p1_ctx);
 
 static bool is_cyclic_list_internal(query *q, cell *p1, pl_idx_t p1_ctx)
 {
-	cell *l = p1;
-	pl_idx_t l_ctx = p1_ctx;
-	bool ret_val = false;
-	LIST_HANDLER(l);
-	unsigned depth = 0;
+	LIST_HANDLER(p1);
+	q->mgen++;
 
-	while (is_iso_list(l)) {
-		cell *c = LIST_HEAD(l);
-		pl_idx_t c_ctx = l_ctx;
+	while (is_iso_list(p1)) {
+		q->mgen--;
+		cell *c = LIST_HEAD(p1);
 
 		if (is_var(c)) {
-			const frame *f = GET_FRAME(c_ctx);
+			const frame *f = GET_FRAME(p1_ctx);
 			slot *e = GET_SLOT(f, c->var_nbr);
 
-			if (e->mark) {
-				e->mark = false;
-				ret_val = true;
-				break;
-			}
+			if (e->mgen == q->mgen)
+				return true;
 
-			e->mark = true;
+			e->mgen = q->mgen;
+			c = deref(q, c, p1_ctx);
+			pl_idx_t c_ctx = q->latest_ctx;
 
-			c = deref(q, c, c_ctx);
-			c_ctx = q->latest_ctx;
+			if (is_cyclic_term_internal(q, c, c_ctx))
+				return true;
 
-			if (is_cyclic_term_internal(q, c, c_ctx)) {
-				e->mark = false;
-				ret_val = true;
-				break;
-			}
-
-			e->mark = false;
+			e->mgen = 0;
 		} else {
-			if (is_cyclic_term_internal(q, c, c_ctx)) {
-				ret_val = true;
-				break;
-			}
+			if (is_cyclic_term_internal(q, c, p1_ctx))
+				return true;
 		}
 
-		l = LIST_TAIL(l);
+		p1 = LIST_TAIL(p1);
 
-		if (is_var(l)) {
-			const frame *f = GET_FRAME(l_ctx);
-			slot *e = GET_SLOT(f, l->var_nbr);
-			l = deref(q, l, l_ctx);
-			l_ctx = q->latest_ctx;
+		if (is_var(p1)) {
+			const frame *f = GET_FRAME(p1_ctx);
+			slot *e = GET_SLOT(f, p1->var_nbr);
 
-			if (e->mark) {
-				ret_val = true;
-				break;
-			}
+			if (e->mgen == q->mgen)
+				return true;
 
-			e->mark = true;
+			e->mgen = q->mgen;
+			p1 = deref(q, p1, p1_ctx);
+			p1_ctx = q->latest_ctx;
 		}
 
-		depth++;
+		q->mgen++;
 	}
 
-	if (!ret_val)
-		ret_val = is_cyclic_term_internal(q, l, l_ctx);
-
-	l = p1;
-	l_ctx = p1_ctx;
-	unsigned depth2 = 0;
-
-	while (is_iso_list(l)) {
-		l = LIST_TAIL(l);
-
-		if (is_var(l)) {
-			const frame *f = GET_FRAME(l_ctx);
-			slot *e = GET_SLOT(f, l->var_nbr);
-			e->mark = false;
-		}
-
-		l = deref(q, l, l_ctx);
-		l_ctx = q->latest_ctx;
-
-		if (depth2++ >= depth)
-			break;
-	}
-
-	return ret_val;
+	return false;
 }
 
 static bool is_cyclic_term_internal(query *q, cell *p1, pl_idx_t p1_ctx)
@@ -541,32 +558,25 @@ static bool is_cyclic_term_internal(query *q, cell *p1, pl_idx_t p1_ctx)
 	if (is_iso_list(p1))
 		return is_cyclic_list_internal(q, p1, p1_ctx);
 
-	pl_idx_t nbr_cells = p1->nbr_cells - 1;
 	unsigned arity = p1->arity;
+	const frame *f = GET_FRAME(p1_ctx);
 	p1++;
 
 	while (arity--) {
 		if (is_var(p1)) {
-			const frame *f = GET_FRAME(p1_ctx);
 			slot *e = GET_SLOT(f, p1->var_nbr);
+
+			if (e->mgen == q->mgen)
+				return true;
+
+			e->mgen = q->mgen;
 			cell *c = deref(q, p1, p1_ctx);
 			pl_idx_t c_ctx = q->latest_ctx;
 
-			if (!is_var(c)) {
-				if (e->mark) {
-					e->mark = false;
-					return true;
-				}
+			if (is_cyclic_term_internal(q, c, c_ctx))
+				return true;
 
-				e->mark = true;
-
-				if (is_cyclic_term_internal(q, c, c_ctx)) {
-					e->mark = false;
-					return true;
-				}
-
-				e->mark = false;
-			}
+			e->mgen = 0;
 		} else {
 			if (is_cyclic_term_internal(q, p1, p1_ctx))
 				return true;
@@ -580,11 +590,13 @@ static bool is_cyclic_term_internal(query *q, cell *p1, pl_idx_t p1_ctx)
 
 bool is_cyclic_term(query *q, cell *p1, pl_idx_t p1_ctx)
 {
+	q->mgen++;
 	return is_cyclic_term_internal(q, p1, p1_ctx);
 }
 
 bool is_acyclic_term(query *q, cell *p1, pl_idx_t p1_ctx)
 {
+	q->mgen++;
 	return !is_cyclic_term_internal(q, p1, p1_ctx);
 }
 
@@ -987,48 +999,81 @@ static bool unify_lists(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx_t 
 		return false;
 	}
 
-	cell *save_p1 = p1, *save_p2 = p2;
-	pl_idx_t save_p1_ctx = p1_ctx, save_p2_ctx = p2_ctx;
 	LIST_HANDLER(p1);
 	LIST_HANDLER(p2);
+	q->mgen++;
 
 	while (is_iso_list(p1) && is_iso_list(p2)) {
 		cell *h1 = LIST_HEAD(p1);
+		cell *h2 = LIST_HEAD(p2);
+		slot *e1 = NULL, *e2 = NULL;
+
+		if (is_var(h1) && (h1 != h2)) {
+			const frame *f1 = GET_FRAME(p1_ctx);
+			e1 = GET_SLOT(f1, h1->var_nbr);
+
+			if (e1->mgen == q->mgen)
+				p1 = NULL;
+			else
+				e1->mgen = q->mgen;
+		}
+
+		if (is_var(h2) && (h1 != h2)) {
+			const frame *f2 = GET_FRAME(p2_ctx);
+			e2 = GET_SLOT(f2, h2->var_nbr);
+
+			if (e2->mgen == q->mgen)
+				p2 = NULL;
+			else
+				e2->mgen = q->mgen;
+		}
+
+		if (!p1 || !p2)
+			break;
+
 		h1 = deref(q, h1, p1_ctx);
 		pl_idx_t h1_ctx = q->latest_ctx;
-		cell *h2 = LIST_HEAD(p2);
 		h2 = deref(q, h2, p2_ctx);
 		pl_idx_t h2_ctx = q->latest_ctx;
-
-		if ((h1 == save_p1) && (h1_ctx == save_p1_ctx)) {
-			p1 = NULL;
-			break;
-		}
-
-		if ((h2 == save_p2) && (h2_ctx == save_p2_ctx)) {
-			p2 = NULL;
-			break;
-		}
+		uint64_t save_mgen = q->mgen;
 
 		if (!unify_internal(q, h1, h1_ctx, h2, h2_ctx, depth+1))
 			return false;
 
+		q->mgen = save_mgen;
+		if (e1) e1->mgen = 0;
+		if (e2) e2->mgen = 0;
+
 		p1 = LIST_TAIL(p1);
+		p2 = LIST_TAIL(p2);
+
+		if (is_var(p1)) {
+			const frame *f1 = GET_FRAME(p1_ctx);
+			e1 = GET_SLOT(f1, p1->var_nbr);
+
+			if (e1->mgen == q->mgen)
+				p1 = NULL;
+			else
+				e1->mgen = q->mgen;
+		}
+
+		if (is_var(p2)) {
+			const frame *f2 = GET_FRAME(p2_ctx);
+			e2 = GET_SLOT(f2, p2->var_nbr);
+
+			if (e2->mgen == q->mgen)
+				p2 = NULL;
+			else
+				e2->mgen = q->mgen;
+		}
+
+		if (!p1 || !p2)
+			break;
+
 		p1 = deref(q, p1, p1_ctx);
 		p1_ctx = q->latest_ctx;
-		p2 = LIST_TAIL(p2);
 		p2 = deref(q, p2, p2_ctx);
 		p2_ctx = q->latest_ctx;
-
-		if ((p1 == save_p1) && (p1_ctx == save_p1_ctx)) {
-			p1 = NULL;
-			break;
-		}
-
-		if ((p2 == save_p2) && (p2_ctx == save_p2_ctx)) {
-			p2 = NULL;
-			break;
-		}
 	}
 
 	if (!p1 && !p2)
@@ -1067,54 +1112,37 @@ static bool unify_structs(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx_
 		pl_idx_t c1_ctx = q->latest_ctx;
 		cell *c2 = deref(q, p2, p2_ctx);
 		pl_idx_t c2_ctx = q->latest_ctx;
-		reflist r1 = {0}, r2 = {0};
+		slot *e1 = NULL, *e2 = NULL;
+		int both = 0;
 
-		if (q->info1) {
-			int both = 0;
+		if (is_var(p1)) {
+			const frame *f1 = GET_FRAME(p1_ctx);
+			e1 = GET_SLOT(f1, p1->var_nbr);
 
-			if (is_var(p1)) {
-				if (is_in_ref_list(p1, p1_ctx, q->info1->r1)) {
-					//c1 = p1;
-					//c1_ctx = p1_ctx;
-					both++;
-				} else {
-					r1.next = q->info1->r1;
-					r1.var_nbr = p1->var_nbr;
-					r1.ctx = p1_ctx;
-					q->info1->r1 = &r1;
-				}
-			}
-
-			if (is_var(p2)) {
-				if (is_in_ref_list(p2, p2_ctx, q->info2->r2)) {
-					//c2 = p2;
-					//c2_ctx = p2_ctx;
-					both++;
-				} else {
-					r2.next = q->info2->r2;
-					r2.var_nbr = p2->var_nbr;
-					r2.ctx = p2_ctx;
-					q->info2->r2 = &r2;
-				}
-			}
-
-			if (both == 2) {
-				return true;
-			}
+			if (e1->mgen == q->mgen)
+				both++;
+			else
+				e1->mgen = q->mgen;
 		}
+
+		if (is_var(p2)) {
+			const frame *f2 = GET_FRAME(p2_ctx);
+			e2 = GET_SLOT(f2, p2->var_nbr);
+
+			if (e2->mgen == q->mgen)
+				both++;
+			else
+				e2->mgen = q->mgen;
+		}
+
+		if (both == 2)
+			return true;
 
 		if (!unify_internal(q, c1, c1_ctx, c2, c2_ctx, depth+1))
 			return false;
 
-		if (q->info1) {
-			if (is_var(p1))
-				q->info1->r1 = r1.next;		// restore
-		}
-
-		if (q->info2) {
-			if (is_var(p2))
-				q->info2->r2 = r2.next;		// restore
-		}
+		if (e1) e1->mgen = 0;
+		if (e2) e2->mgen = 0;
 
 		p1 += p1->nbr_cells;
 		p2 += p2->nbr_cells;
@@ -1193,7 +1221,7 @@ static bool unify_internal(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx
 	if (is_string(p2) && is_list(p1))
 		return unify_string_to_list(q, p2, p2_ctx, p1, p1_ctx);
 
-	if (q->lists_ok && is_iso_list(p1) && is_iso_list(p2))
+	if (is_iso_list(p1) && is_iso_list(p2))
 		return unify_lists(q, p1, p1_ctx, p2, p2_ctx, depth+1);
 
 	if (p1->arity || p2->arity)
@@ -1202,29 +1230,9 @@ static bool unify_internal(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx
 	return g_disp[p1->tag].fn(q, p1, p2);
 }
 
-// FIXME: rewrite this to be efficient
-
 bool unify(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx_t p2_ctx)
 {
 	q->cycle_error = false;
-
-	if (q->flags.occurs_check && is_iso_list(p1) && is_iso_list(p2)) {
-		bool is_partial;
-
-		if (check_list(q, p1, p1_ctx, &is_partial, NULL) && check_list(q, p2, p2_ctx, &is_partial, NULL)) {
-			q->lists_ok = true;
-			bool ok = unify_lists(q, p1, p1_ctx, p2, p2_ctx, 0);
-			q->lists_ok = false;
-			return ok;
-		}
-	} else
-		q->lists_ok = true;
-
-	cycle_info info1 = {0}, info2 = {0};
-	q->info1 = q->flags.occurs_check ? &info1 : NULL;
-	q->info2 = q->flags.occurs_check ? &info2 : NULL;
-	bool ok = unify_internal(q, p1, p1_ctx, p2, p2_ctx, 0);
-	q->info1 = q->info2 = NULL;
-	q->lists_ok = false;
-	return ok;
+	q->mgen++;
+	return unify_internal(q, p1, p1_ctx, p2, p2_ctx, 0);
 }

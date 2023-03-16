@@ -218,6 +218,8 @@ void ptrfree(const void *key, const void *val, const void *p)
 	builtins *ptr = (void*)val;
 
 	if (ptr->via_directive) {
+		free((void*)ptr->help2);
+		free((void*)ptr->desc);
 		free((void*)ptr->name);
 		free((void*)ptr);
 	}
@@ -254,29 +256,6 @@ builtins *get_help(prolog *pl, const char *name, unsigned arity, bool *found, bo
 	return NULL;
 }
 
-builtins *get_module_help(module *m, const char *name, unsigned arity, bool *found, bool *evaluable)
-{
-	miter *iter = map_find_key(m->pl->help, name);
-	builtins *ptr;
-
-	while (map_next_key(iter, (void**)&ptr)) {
-		if (ptr->m != m)
-			continue;
-
-		if (ptr->arity == arity) {
-			if (found) *found = true;
-			if (evaluable) *evaluable = ptr->evaluable;
-			map_done(iter);
-			return ptr;
-		}
-	}
-
-	if (found) *found = false;
-	if (evaluable) *evaluable = false;
-	map_done(iter);
-	return NULL;
-}
-
 builtins *get_builtin(prolog *pl, const char *name, size_t len, unsigned arity, bool *found, bool *evaluable)
 {
 	// TODO: use 'len' in comparison
@@ -296,15 +275,6 @@ builtins *get_builtin(prolog *pl, const char *name, size_t len, unsigned arity, 
 	if (evaluable) *evaluable = false;
 	map_done(iter);
 	return NULL;
-}
-
-builtins *get_builtin_term(module *m, cell *c, bool *found, bool *evaluable)
-{
-	prolog *pl = m->pl;
-	const char *name = C_STR(m, c);
-	size_t len = C_STRLEN(m, c);
-	unsigned arity = c->arity;
-	return get_builtin(pl, name, len, arity, found, evaluable);
 }
 
 builtins *get_fn_ptr(void *fn)
@@ -472,13 +442,13 @@ void pl_destroy(prolog *pl)
 
 	destroy_module(pl->system_m);
 	destroy_module(pl->user_m);
+	map_destroy(pl->biftab);
+	map_destroy(pl->symtab);
 
 	while (pl->modules)
 		destroy_module(pl->modules);
 
 	map_destroy(pl->fortab);
-	map_destroy(pl->biftab);
-	map_destroy(pl->symtab);
 	map_destroy(pl->keyval);
 	map_destroy(pl->help);
 	free(pl->pool);
@@ -520,7 +490,7 @@ void pl_destroy(prolog *pl)
 	}
 
 	memset(pl->streams, 0, sizeof(pl->streams));
-
+	free(pl->pool);
 	free(pl);
 }
 
