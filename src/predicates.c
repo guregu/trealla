@@ -7384,19 +7384,41 @@ static bool fn_sys_host_resume_1(query *q) {
 #ifdef WASI_IMPORTS
 	GET_FIRST_ARG(p1,var);
 
-	char *reply = {0};
+	if (!q->retry)
+		q->st.cnt = 0;
+
+	// fprintf(stderr, "retrying... %d\n", q->st.cnt);
+
+	// Need to yield after a redo so the host has a chance to re-evaluate the RPC
+	if (q->retry && ++q->st.cnt % 2 != 0) {
+		// fprintf(stderr, "yielding...\n");
+		check_heap_error(push_choice(q));
+		do_yield(q, 0);
+		return false;
+	}
+
+	char *reply;
 	size_t reply_len;
-	bool ok = host_resume((int32_t)q, &reply, &reply_len);
-	if (!ok) {
+	int status = host_resume((int32_t)q, &reply, &reply_len);
+	if (status == WASM_HOST_CALL_ERROR || status == WASM_HOST_CALL_FAIL) {
+		free(reply);
+		return false;
+	}
+	
+	if (status == WASM_HOST_CALL_CHOICE) {
+		check_heap_error(push_choice(q), free(reply));
+	} else if (status != WASM_HOST_CALL_OK) {
+		free(reply);
+		// TODO: throw
 		return false;
 	}
 
 	cell tmp;
 	check_heap_error(make_stringn(&tmp, reply, reply_len), free(reply));
 	free(reply);
-	ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
+	status = unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 	unshare_cell(&tmp);
-	return ok;
+	return status;
 #else
 	return false;
 #endif

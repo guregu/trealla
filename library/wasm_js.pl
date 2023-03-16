@@ -9,6 +9,8 @@
 
 :- dynamic('$task'/1).
 
+js_eval(Expr) :- js_eval(Expr, _).
+
 future_all(Fs, F) :-
 	future(await_all(Fs), F).
 
@@ -29,11 +31,6 @@ await_some(Fs, OK, Done) :-
 	;  !, fail
 	).
 
-'$retract_tasks'(Fs) :-
-	maplist('$retract_task', Fs).
-'$retract_task'(F) :-
-	wasm:retractall('$task'(F)).
-
 task(Goal) :-
 	future(Goal, F),
 	wasm:assertz('$task'(F)).
@@ -53,10 +50,15 @@ wait :-
 	;  !, fail
 	).
 
+'$retract_tasks'(Fs) :-
+	maplist('$retract_task', Fs).
+'$retract_task'(F) :-
+	wasm:retractall('$task'(F)).
+
 % Guest (Trealla) → Host (Javascript)
 
 js_eval_(Expr, Result, Context) :-
-	(  js_eval(Expr, Cs)
+	(  js_eval_json(Expr, Cs)
 	-> true
 	;  throw(error(wasm_error(host_call_failed), Context))
 	),

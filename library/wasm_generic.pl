@@ -6,22 +6,30 @@
 
 host_call(Expr, Cs) :-
 	'$host_call'(Expr, Cs), !
-	; yield, '$host_resume'(Cs).
+	; host_resume_(Cs).
+
+host_resume_(Goal) :-
+	yield,
+	'$host_resume'(Goal).
+
+% host_resume_(Cs) :-
+% 	yield,
+% 	(  '$host_resume'(Cs0)
+% 	-> (Cs = Cs0 ; host_resume_(Cs))
+% 	;  !, fail
+% 	).
 
 host_rpc(Goal) :-
 	unique_variable_names(Goal, Vars0),
-	wasm:term_json(Vars0, Goal, ArgValue),
+	once(wasm:term_json(Vars0, Goal, ArgValue)),
 	json_value(JSON, ArgValue),
 	json_chars(JSON, Req),
 	host_call(Req, Resp),
 	read_term_from_chars(Resp, Reply, [variable_names(Vars1)]),
-	!,
 	host_rpc_eval(Reply, Goal, Vars0, Vars1).
 
-host_rpc_eval(throw(Ball), _, _, _) :- !, throw(Ball).
-host_rpc_eval(true, _, _, _) :- !.
-host_rpc_eval(fail, _, _, _) :- !, fail.
-host_rpc_eval(false, _, _, _) :- !, fail.
+host_rpc_eval(throw(Ball), _, _, _) :- throw(Ball).
+host_rpc_eval(true, _, _, _).
 host_rpc_eval(call(G), _, Vs0, Vs1) :-
 	union(Vs0, Vs1, _),
 	call(G).
