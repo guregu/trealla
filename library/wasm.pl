@@ -6,7 +6,7 @@
 	ASCII START OF TEXT (0x02), stdout text as-is, then ASCII END OF TEXT (0x03), then a JSON response, then a line break.
 
 	{
-		"result": "success" | "failure" | "error",
+		"status": "success" | "failure" | "error",
 		"answer": { "X": "<substitution for X>", ... },
 		"error": "<throw/1 exception term>"
 	}
@@ -56,10 +56,10 @@ write_result(JSON) :-
 	'$put_chars'(stdout, Cs),
 	nl.
 
-result_json(success, Vars, _, pairs([string("result")-string("success"), string("answer")-Solution])) :-
+result_json(success, Vars, _, pairs([string("status")-string("success"), string("answer")-Solution])) :-
 	once(solution_json(Vars, Solution)).
-result_json(failure, _, _, pairs([string("result")-string("failure")])).
-result_json(error, Vars, Error, pairs([string("result")-string("error"), string("error")-ErrorJS])) :-
+result_json(failure, _, _, pairs([string("status")-string("failure")])).
+result_json(error, Vars, Error, pairs([string("status")-string("error"), string("error")-ErrorJS])) :-
 	once(term_json(Vars, Error, ErrorJS)).
 
 solution_json([], pairs([])).
