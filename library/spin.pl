@@ -56,8 +56,8 @@ spin:term_expansion( :->(Head0, Body0), :-(spin:Head, Body) ) :-
     path_term(Path0, p(Path, Q)),
     path_query_body(p(Path, Q), Body0, Query, Body),
     Term =.. [Verb, Path, Query],
-    Head = http_handler(Term, Headers, ReqBody, Status),
-    format("~w :- ~w.~n", [Head, Body]).
+    Head = http_handler(Term, Headers, ReqBody, Status).
+    %format("~w :- ~w.~n", [Head, Body]).
 
 http_handle_request(URI, Method) :-
 	assertz(current_http_uri(URI)),
@@ -66,7 +66,6 @@ http_handle_request(URI, Method) :-
 	fail.
 http_handle_request(RawURI, Method) :-
 	findall(K:V, current_http_header(K, V), Headers),
-	trace,
 	uri_handle(RawURI, Method, Handle),
 	% split_string(URI, "/", "", Split),
 	% format(http_body, "PATH: ~w", [Path]),

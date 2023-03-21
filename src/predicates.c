@@ -5285,17 +5285,17 @@ static bool fn_is_stream_1(query *q)
 	return is_stream(p1);
 }
 
-static void push_task(module *m, query *task)
+static void push_task(query *q, query *task)
 {
-	task->next = m->tasks;
+	task->next = q->tasks;
 
-	if (m->tasks)
-		m->tasks->prev = task;
+	if (q->tasks)
+		q->tasks->prev = task;
 
-	m->tasks = task;
+	q->tasks = task;
 }
 
-static query *pop_task(module *m, query *task)
+static query *pop_task(query *q, query *task)
 {
 	if (task->prev)
 		task->prev->next = task->next;
@@ -5303,8 +5303,8 @@ static query *pop_task(module *m, query *task)
 	if (task->next)
 		task->next->prev = task->prev;
 
-	if (task == m->tasks)
-		m->tasks = task->next;
+	if (task == q->tasks)
+		q->tasks = task->next;
 
 	return task->next;
 }
@@ -5312,10 +5312,10 @@ static query *pop_task(module *m, query *task)
 #ifndef WASI_TARGET_JS
 static bool fn_wait_0(query *q)
 {
-	while (q->st.m->tasks) {
+	while (q->tasks) {
 		CHECK_INTERRUPT();
 		uint64_t now = get_time_in_usec() / 1000;
-		query *task = q->st.m->tasks;
+		query *task = q->tasks;
 		unsigned spawn_cnt = 0;
 		bool did_something = false;
 
@@ -5329,7 +5329,7 @@ static bool fn_wait_0(query *q)
 					break;
 			}
 
-			if (task->tmo_msecs) {
+			if (task->tmo_msecs && !task->error) {
 				if (now <= task->tmo_msecs) {
 					task = task->next;
 					continue;
@@ -5338,9 +5338,9 @@ static bool fn_wait_0(query *q)
 				task->tmo_msecs = 0;
 			}
 
-			if (!task->yielded || !task->st.curr_cell) {
+			if (!task->yielded || !task->st.curr_cell || task->error) {
 				query *save = task;
-				task = pop_task(q->st.m, task);
+				task = pop_task(q, task);
 				destroy_query(save);
 				continue;
 			}
@@ -5359,10 +5359,10 @@ static bool fn_wait_0(query *q)
 
 static bool fn_await_0(query *q)
 {
-	while (q->st.m->tasks) {
+	while (q->tasks) {
 		CHECK_INTERRUPT();
 		pl_uint_t now = get_time_in_usec() / 1000;
-		query *task = q->st.m->tasks;
+		query *task = q->tasks;
 		unsigned spawn_cnt = 0;
 		bool did_something = false;
 
@@ -5376,7 +5376,7 @@ static bool fn_await_0(query *q)
 					break;
 			}
 
-			if (task->tmo_msecs) {
+			if (task->tmo_msecs && !task->error) {
 				if (now <= task->tmo_msecs) {
 					task = task->next;
 					continue;
@@ -5385,9 +5385,9 @@ static bool fn_await_0(query *q)
 				task->tmo_msecs = 0;
 			}
 
-			if (!task->yielded || !q->st.curr_cell) {
+			if (!task->yielded || !task->st.curr_cell || task->error) {
 				query *save = task;
-				task = pop_task(q->st.m, task);
+				task = pop_task(q, task);
 				destroy_query(save);
 				continue;
 			}
@@ -5406,7 +5406,7 @@ static bool fn_await_0(query *q)
 			break;
 	}
 
-	if (!q->st.m->tasks)
+	if (!q->tasks)
 		return false;
 
 	check_heap_error(push_choice(q));
@@ -5444,7 +5444,7 @@ static bool fn_task_n(query *q)
 	cell *tmp = clone_to_heap(q, false, tmp2, 0);
 	query *task = create_sub_query(q, tmp);
 	task->yielded = task->spawned = true;
-	push_task(q->st.m, task);
+	push_task(q, task);
 	return true;
 }
 #endif
@@ -5462,14 +5462,14 @@ static bool fn_fork_0(query *q)
 	cell *curr_cell = q->st.curr_cell + q->st.curr_cell->nbr_cells;
 	query *task = create_sub_query(q, curr_cell);
 	task->yielded = true;
-	push_task(q->st.m, task);
+	push_task(q, task);
 	return false;
 }
 
 static bool fn_send_1(query *q)
 {
 	GET_FIRST_ARG(p1,nonvar);
-	query *dstq = q->parent ? q->parent : q;
+	query *dstq = q->parent && !q->parent->done ? q->parent : q;
 	check_heap_error(init_tmp_heap(q));
 	cell *c = deep_clone_to_tmp(q, p1, p1_ctx);
 	check_heap_error(c);
@@ -5501,6 +5501,30 @@ static bool fn_recv_1(query *q)
 
 	return false;
 }
+
+#ifndef WASI_TARGET_TS
+static bool fn_sys_cancel_future_1(query *q)
+{
+	GET_FIRST_ARG(p1,integer);
+	uint64_t future = get_smalluint(p1);
+
+	for (query *task = q->tasks; task; task = task->next) {
+		if (task->future == future) {
+			task->error = true;
+			break;
+		}
+	}
+
+	return true;
+}
+
+static bool fn_sys_set_future_1(query *q)
+{
+	GET_FIRST_ARG(p1,integer);
+	q->future = get_smalluint(p1);
+	return true;
+}
+#endif
 
 #ifndef __wasi__
 static bool fn_pid_1(query *q)
@@ -8097,7 +8121,7 @@ builtins g_other_bifs[] =
 	{"$load_ops", 0, fn_sys_load_ops_0, NULL, false, false, BLAH},
 	{"$list", 1, fn_sys_list_1, "-list", false, false, BLAH},
 	{"$queue", 1, fn_sys_queue_1, "+term", false, false, BLAH},
-	{"$incr", 2, fn_sys_incr_2, "@var", false, false, BLAH},
+	{"$incr", 2, fn_sys_incr_2, "@var,+integer", false, false, BLAH},
 	{"$choice", 0, fn_sys_choice_0, NULL, false, false, BLAH},
 	{"$alarm", 1, fn_sys_alarm_1, "+integer", false, false, BLAH},
 	{"$put_attributes", 2, fn_sys_put_attributes_2, "@var,+list", false, false, BLAH},
@@ -8127,6 +8151,8 @@ builtins g_other_bifs[] =
 
 	{"wait", 0, fn_wait_0, NULL, false, false, BLAH},
 	{"await", 0, fn_await_0, NULL, false, false, BLAH},
+	{"$cancel_future", 1, fn_sys_cancel_future_1, "+integer", false, false, BLAH},
+	{"$set_future", 1, fn_sys_set_future_1, "+integer", false, false, BLAH},
 #endif
 	{"fork", 0, fn_fork_0, NULL, false, false, BLAH},
 	{"yield", 0, fn_yield_0, NULL, false, false, BLAH},

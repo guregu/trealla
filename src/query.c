@@ -36,7 +36,7 @@ static const unsigned INITIAL_NBR_CHOICES = 8000;
 static const unsigned INITIAL_NBR_CELLS = 1000;
 
 unsigned g_string_cnt = 0, g_interned_cnt = 0;
-int g_tpl_interrupt = 0;
+volatile int g_tpl_interrupt = 0;
 
 typedef enum { CALL, EXIT, REDO, NEXT, FAIL } box_t;
 
@@ -884,7 +884,7 @@ static void commit_me(query *q)
 	bool last_match = implied_first_cut || cl->is_first_cut || !has_next_key(q);
 	bool recursive = is_tail_recursive(q->st.curr_cell);
 	bool vars_ok = f->actual_slots == cl->nbr_vars;
-	bool choices = any_choices(q, f);
+	bool choices = false;//any_choices(q, f);
 	bool slots_ok = are_slots_ok(q, f);
 	bool tco;
 
@@ -1943,7 +1943,7 @@ bool execute(query *q, cell *cells, unsigned nbr_vars)
 	q->cycle_error = false;
 	q->is_redo = false;
 
-	// There is initially a frame (hence fp=0 is valid), so
+	// There is an initially frame (hence fp=0 is valid), so
 	// this points to the next available frame...
 	q->st.fp = 1;
 
@@ -1992,6 +1992,8 @@ void purge_dirty_list(query *q)
 
 void destroy_query(query *q)
 {
+	q->done = true;
+
 	for (page *a = q->pages; a;) {
 		for (pl_idx_t i = 0; i < a->max_hp_used; i++) {
 			cell *c = a->heap + i;
@@ -2027,6 +2029,26 @@ void destroy_query(query *q)
 
 	for (pl_idx_t i = 0; i < q->st.sp; i++, e++)
 		unshare_cell(&e->c);
+#endif
+
+	while (q->tasks) {
+		query *task = q->tasks->next;
+		destroy_query(q->tasks);
+		q->tasks = task;
+	}
+
+#if 0
+	module *m = find_module(q->pl, "concurrent");
+
+	if (m) {
+		predicate *pr = find_functor(m, "$future", 1);
+
+		if (pr) {
+			for (db_entry *dbe = pr->head; dbe; dbe = dbe->next) {
+				retract_from_db(dbe);
+			}
+		}
+	}
 #endif
 
 	mp_int_clear(&q->tmp_ival);
@@ -2094,26 +2116,17 @@ query *create_sub_query(query *q, cell *curr_cell)
 	subq->is_task = true;
 	subq->p = q->p;
 
-	cell *tmp = clone_to_heap(subq, 0, curr_cell, 1);
+	cell *tmp = clone_to_heap(subq, false, curr_cell, 1);
 	pl_idx_t nbr_cells = tmp->nbr_cells;
 	make_end(tmp+nbr_cells);
 	subq->st.curr_cell = tmp;
 
 	frame *fsrc = GET_FRAME(q->st.curr_frame);
 	frame *fdst = subq->frames;
-	fdst->actual_slots = fsrc->actual_slots;
+	fdst->initial_slots = fdst->actual_slots = fsrc->actual_slots;
+	fdst->ugen = ++q->pl->ugen;
 
-	for (unsigned i = 0; i < fsrc->actual_slots; i++) {
-		slot *e = GET_SLOT(fsrc, i);
-		cell *c = deref(q, &e->c, e->c.var_ctx);
-		cell tmp = (cell){0};
-		tmp.tag = TAG_VAR;
-		tmp.var_nbr = i;
-		tmp.val_off = g_anon_s;
-		set_var(subq, &tmp, 0, c, q->latest_ctx);
-	}
-
-	subq->st.sp = fsrc->actual_slots;
+	subq->st.sp = fdst->actual_slots;
 	return subq;
 }
 

@@ -653,6 +653,7 @@ struct query_ {
 	slot *save_e;
 	db_entry *dirty_list;
 	cycle_info *info1, *info2;
+	query *tasks;
 	map *vars;
 	cell accum;
 	mpz_t tmp_ival;
@@ -662,7 +663,7 @@ struct query_ {
 	uint64_t tot_tcos, tot_frecovs, tot_srecovs;
 	uint64_t step, qid, tmo_msecs, cgen, mgen;
 	uint64_t get_started, autofail_n, yield_at;
-	uint64_t time_cpu_started, time_cpu_last_started;
+	uint64_t time_cpu_started, time_cpu_last_started, future;
 	unsigned max_depth, print_idx, tab_idx, varno, tab0_varno, curr_engine;
 	pl_idx_t tmphp, latest_ctx, popp, variable_names_ctx;
 	pl_idx_t frames_size, slots_size, trails_size, choices_size;
@@ -675,6 +676,7 @@ struct query_ {
 	enum q_retry retry;
 	int8_t halt_code;
 	int8_t quoted;
+	bool done:1;
 	bool parens:1;
 	bool last_thing_was_symbol:1;
 	bool in_attvar_print:1;
@@ -774,7 +776,6 @@ struct module_ {
 	module *used[MAX_MODULES];
 	module *next, *orig;
 	prolog *pl;
-	query *tasks;
 	const char *filename, *name;
 	predicate *head, *tail;
 	parser *p;
