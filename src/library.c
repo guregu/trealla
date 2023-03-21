@@ -62,8 +62,10 @@ extern unsigned char library_curl_pl[];
 extern unsigned int library_curl_pl_len;
 
 #ifdef WASI_TARGET_SPIN
-	extern unsigned char library_spin_pl[];
-	extern unsigned int library_spin_pl_len;
+extern unsigned char library_spin_pl[];
+extern unsigned int library_spin_pl_len;
+extern unsigned char library_httprouter_pl[];
+extern unsigned int library_httprouter_pl_len;
 #endif
 
 library g_libs[] = {
@@ -93,6 +95,7 @@ library g_libs[] = {
 	 {"si", library_si_pl, &library_si_pl_len},
 #ifdef WASI_TARGET_SPIN
 	 {"spin", library_spin_pl, &library_spin_pl_len},
+	 {"httprouter", library_httprouter_pl, &library_httprouter_pl_len},
 #endif
 	 {"sqlite3", library_sqlite3_pl, &library_sqlite3_pl_len},
 	 {"ugraphs", library_ugraphs_pl, &library_ugraphs_pl_len},

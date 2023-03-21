@@ -451,7 +451,6 @@ void pl_destroy(prolog *pl)
 	map_destroy(pl->fortab);
 	map_destroy(pl->keyval);
 	map_destroy(pl->help);
-	free(pl->pool);
 	free(pl->tabs);
 	pl->pool_offset = 0;
 
@@ -632,6 +631,7 @@ prolog *pl_create()
 #endif
 #ifdef WASI_TARGET_SPIN
 			|| !strcmp(lib->name, "spin")
+			|| !strcmp(lib->name, "httprouter")
 #endif
 			) {
 			size_t len = *lib->len;

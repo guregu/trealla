@@ -6,12 +6,14 @@
 #include "internal.h"
 #include "query.h"
 #include "heap.h"
+#include "prolog.h"
 
 #ifdef WASI_TARGET_SPIN
 #include "wasi.h"
 #include "spin.h"
 #include "wasi-outbound-http.h"
 #include "key-value.h"
+#include "outbound-pg.h"
 
 #define check_kv_error(p, ret) {															\
 		if (ret.is_err) {																	\
@@ -118,13 +120,14 @@ static bool fn_sys_wasi_kv_exists_2(query *q)
 	GET_FIRST_ARG(p1,smallint);
 	GET_NEXT_ARG(p2,atom_or_list);
 
-	dup_string(key, p2);
-
 	const key_value_store_t store = p1->val_int;
+
+	dup_string(key, p2);
 	COMPONENT(key_value_string) kv_key = {
 		.ptr = key,
 		.len = key_len
 	};
+
 	COMPONENT(key_value_expected_bool_error) ret;
 
 	key_value_exists(store, &kv_key, &ret);
@@ -138,18 +141,20 @@ static bool fn_sys_wasi_kv_set_3(query *q) {
 	GET_NEXT_ARG(p2,atom_or_list);
 	GET_NEXT_ARG(p3,atom_or_list);
 
-	dup_string(key, p2);
-	dup_string(val, p3);
-
 	const key_value_store_t store = p1->val_int;
+
+	dup_string(key, p2);
 	COMPONENT(key_value_string) kv_key = {
 		.ptr = key,
 		.len = key_len
 	};
+
+	dup_string(val, p3);
 	COMPONENT(key_value_list_u8) kv_val = {
 		.ptr = (uint8_t*)val,
 		.len = val_len
 	};
+
 	COMPONENT(key_value_expected_unit_error) ret;
 
 	key_value_set(store, &kv_key, &kv_val, &ret);
@@ -297,6 +302,340 @@ static bool fn_sys_wasi_outbound_http_5(query *q)
 
 	return true;
 }
+
+#define check_pg_error(p, ret) 													\
+	if (ret.is_err) { 															\
+		pl_idx_t kind = 0;														\
+		char *msg; 																\
+		switch (ret.val.err.tag) {												\
+		case OUTBOUND_PG_PG_ERROR_CONNECTION_FAILED:							\
+			kind = index_from_pool(q->pl, "connection_failed");					\
+			COMPONENT_DUP_STR(msg, ret.val.err.val.connection_failed);			\
+			break; 																\
+		case OUTBOUND_PG_PG_ERROR_BAD_PARAMETER:								\
+			kind = index_from_pool(q->pl, "bad_parameter");						\
+			COMPONENT_DUP_STR(msg, ret.val.err.val.bad_parameter);				\
+			break;																\
+		case OUTBOUND_PG_PG_ERROR_QUERY_FAILED:									\
+			kind = index_from_pool(q->pl, "query_failed");						\
+			COMPONENT_DUP_STR(msg, ret.val.err.val.query_failed);				\
+			break; 																\
+		case OUTBOUND_PG_PG_ERROR_VALUE_CONVERSION_FAILED:						\
+			kind = index_from_pool(q->pl, "value_conversion_failed");			\
+			COMPONENT_DUP_STR(msg, ret.val.err.val.value_conversion_failed);	\
+			break; 																\
+		case OUTBOUND_PG_PG_ERROR_OTHER_ERROR: 									\
+			kind = index_from_pool(q->pl, "other_error");						\
+			COMPONENT_DUP_STR(msg, ret.val.err.val.other_error);				\
+			break; 																\
+		} 																		\
+		cell *tmp = alloc_on_heap(q, 3); 										\
+		make_struct(tmp, g_error_s, NULL, 2, 2); 								\
+		make_atom(tmp+1, kind);													\
+		make_string(tmp+2, msg); 												\
+		bool ok = unify(q, p, p##_ctx, tmp, q->st.curr_frame);					\
+		free(msg); 																\
+		return ok; 																\
+	}
+
+#define PG_ATOM_INDICES() \
+	pl_idx_t row_idx = index_from_pool(q->pl, "row");			\
+	pl_idx_t boolean_idx = index_from_pool(q->pl, "boolean");	\
+	pl_idx_t int8_idx = index_from_pool(q->pl, "int8");			\
+	pl_idx_t int16_idx = index_from_pool(q->pl, "int16");		\
+	pl_idx_t int32_idx = index_from_pool(q->pl, "int32");		\
+	pl_idx_t int64_idx = index_from_pool(q->pl, "int64");		\
+	pl_idx_t uint8_idx = index_from_pool(q->pl, "uint8");		\
+	pl_idx_t uint16_idx = index_from_pool(q->pl, "uint16");		\
+	pl_idx_t uint32_idx = index_from_pool(q->pl, "uint32");		\
+	pl_idx_t uint64_idx = index_from_pool(q->pl, "uint64");		\
+	pl_idx_t float32_idx = index_from_pool(q->pl, "float32");	\
+	pl_idx_t float64_idx = index_from_pool(q->pl, "float64");	\
+	pl_idx_t string_idx = index_from_pool(q->pl, "string");		\
+	pl_idx_t binary_idx = index_from_pool(q->pl, "binary");		\
+	pl_idx_t null_idx = index_from_pool(q->pl, "null");			\
+	pl_idx_t other_idx = index_from_pool(q->pl, "other");
+
+#define make_pg_params(p, params)													\
+	{																				\
+		cell *_##p##_head = p;														\
+		LIST_HANDLER(p);															\
+		while (is_iso_list(p) && !g_tpl_interrupt) {								\
+			cell *c = LIST_HEAD(p);													\
+			params.len++;															\
+			if (!is_structure(c)) {													\
+				return throw_error(q, c, q->latest_ctx, "type_error", "compound");	\
+			}																		\
+			p = LIST_TAIL(p);														\
+		}																			\
+		p = _##p##_head;															\
+		params.ptr = calloc(params.len, sizeof(outbound_pg_parameter_value_t));		\
+		size_t i = 0;																\
+		while (is_iso_list(p) && !g_tpl_interrupt) {								\
+			cell *c = LIST_HEAD(p);													\
+			c = deref(q, c, p##_ctx);												\
+			cell *v = deref(q, c+1, p##_ctx);										\
+			pl_idx_t v_ctx = q->latest_ctx;											\
+			outbound_pg_parameter_value_t *value = &params.ptr[i];					\
+			if (c->val_off == boolean_idx) {										\
+				value->tag = OUTBOUND_PG_PARAMETER_VALUE_BOOLEAN;					\
+				value->val.boolean = v->val_off == g_true_s;						\
+			} else if (c->val_off == int8_idx) {									\
+				value->tag = OUTBOUND_PG_PARAMETER_VALUE_INT8;						\
+				value->val.int8 = v->val_int;										\
+			} else if (c->val_off == int16_idx) {									\
+				value->tag = OUTBOUND_PG_PARAMETER_VALUE_INT16;						\
+				value->val.int16 = v->val_int;										\
+			} else if (c->val_off == int32_idx) {									\
+				value->tag = OUTBOUND_PG_PARAMETER_VALUE_INT32;						\
+				value->val.int32 = v->val_int;										\
+			} else if (c->val_off == int64_idx) {									\
+				value->tag = OUTBOUND_PG_PARAMETER_VALUE_INT64;						\
+				value->val.int64 = v->val_int;										\
+			} else if (c->val_off == uint8_idx) {									\
+				value->tag = OUTBOUND_PG_PARAMETER_VALUE_INT8;						\
+				value->val.uint8 = v->val_uint;										\
+			} else if (c->val_off == uint16_idx) {									\
+				value->tag = OUTBOUND_PG_PARAMETER_VALUE_INT16;						\
+				value->val.uint16 = v->val_uint;									\
+			} else if (c->val_off == uint32_idx) {									\
+				value->tag = OUTBOUND_PG_PARAMETER_VALUE_INT32;						\
+				value->val.uint32 = v->val_uint;									\
+			} else if (c->val_off == uint64_idx) {									\
+				value->tag = OUTBOUND_PG_PARAMETER_VALUE_INT64;						\
+				value->val.uint64 = v->val_uint;									\
+			} else if (c->val_off == float32_idx) {									\
+				value->tag = OUTBOUND_PG_PARAMETER_VALUE_FLOATING32;				\
+				value->val.floating32 = v->val_float;								\
+			} else if (c->val_off == float64_idx) {									\
+				value->tag = OUTBOUND_PG_PARAMETER_VALUE_FLOATING64;				\
+				value->val.floating64 = v->val_float;								\
+			} else if (c->val_off == string_idx) {									\
+				dup_string(str, v);													\
+				value->tag = OUTBOUND_PG_PARAMETER_VALUE_STR;						\
+				value->val.str.ptr = str;											\
+				value->val.str.len = str_len;										\
+			} else if (c->val_off == binary_idx) {									\
+				dup_string(str, v);													\
+				value->tag = OUTBOUND_PG_PARAMETER_VALUE_BINARY;					\
+				value->val.binary.ptr = str;										\
+				value->val.binary.len = str_len;									\
+			} else if (c->val_off == null_idx) {									\
+				value->tag = OUTBOUND_PG_PARAMETER_VALUE_DB_NULL;					\
+			}																		\
+			p = LIST_TAIL(p);														\
+			i++;																	\
+		}																			\
+		p = _##p##_head;															\
+	}
+
+static bool fn_sys_outbound_pg_query_5(query *q)
+{
+	GET_FIRST_ARG(p1,any); 			// addr
+	GET_NEXT_ARG(p2,any);			// stmt
+	GET_NEXT_ARG(p3,list_or_nil); 	// params
+	GET_NEXT_ARG(p4,var);			// rows
+	GET_NEXT_ARG(p5,var);			// column info
+
+	dup_string(addr, p1);
+	COMPONENT(outbound_pg_string) address = {
+		.ptr = addr,
+		.len = addr_len
+	};
+	dup_string(stmt, p2);
+	COMPONENT(outbound_pg_string) statement = {
+		.ptr = stmt,
+		.len = stmt_len
+	};
+	COMPONENT(outbound_pg_list_parameter_value) params = {0};
+	COMPONENT(outbound_pg_expected_row_set_pg_error) ret = {0};
+
+	PG_ATOM_INDICES();
+	make_pg_params(p3, params);
+
+	outbound_pg_query(&address, &statement, &params, &ret);
+	check_pg_error(p4, ret);
+
+	for (size_t i = 0; i < ret.val.ok.rows.len; i++) {
+		outbound_pg_row_t row = ret.val.ok.rows.ptr[i];
+		cell *tmp;
+		tmp = alloc_on_heap(q, 1 + row.len*2);
+		check_heap_error(tmp);
+		pl_idx_t nbr_cells = 0;
+		make_struct(tmp+nbr_cells++, row_idx, NULL, row.len, row.len*2);
+		for (size_t i = 0; i < row.len; i++) {
+			outbound_pg_db_value_t col = row.ptr[i];
+			switch (col.tag) {
+			case OUTBOUND_PG_DB_VALUE_BOOLEAN:
+				make_struct(tmp+nbr_cells++, boolean_idx, NULL, 1, 1);
+				make_atom(tmp+nbr_cells++, col.val.boolean ? g_true_s : g_false_s);
+				break;
+			case OUTBOUND_PG_DB_VALUE_INT8:
+				make_struct(tmp+nbr_cells++, int8_idx, NULL, 1, 1);
+				make_int(tmp+nbr_cells++, col.val.int8);
+				break;
+			case OUTBOUND_PG_DB_VALUE_INT16:
+				make_struct(tmp+nbr_cells++, int16_idx, NULL, 1, 1);
+				make_int(tmp+nbr_cells++, col.val.int16);
+				break;
+			case OUTBOUND_PG_DB_VALUE_INT32:
+				make_struct(tmp+nbr_cells++, int32_idx, NULL, 1, 1);
+				make_int(tmp+nbr_cells++, col.val.int32);
+				break;
+			case OUTBOUND_PG_DB_VALUE_INT64:
+				make_struct(tmp+nbr_cells++, int64_idx, NULL, 1, 1);
+				make_int(tmp+nbr_cells++, col.val.int64);
+				break;
+			case OUTBOUND_PG_DB_VALUE_UINT8:
+				make_struct(tmp+nbr_cells++, uint8_idx, NULL, 1, 1);
+				make_uint(tmp+nbr_cells++, col.val.uint8);
+				break;
+			case OUTBOUND_PG_DB_VALUE_UINT16:
+				make_struct(tmp+nbr_cells++, uint16_idx, NULL, 1, 1);
+				make_uint(tmp+nbr_cells++, col.val.uint16);
+				break;
+			case OUTBOUND_PG_DB_VALUE_UINT32:
+				make_struct(tmp+nbr_cells++, uint32_idx, NULL, 1, 1);
+				make_uint(tmp+nbr_cells++, col.val.uint32);
+				break;
+			case OUTBOUND_PG_DB_VALUE_UINT64:
+				make_struct(tmp+nbr_cells++, uint64_idx, NULL, 1, 1);
+				make_uint(tmp+nbr_cells++, col.val.uint64);
+				break;
+			case OUTBOUND_PG_DB_VALUE_FLOATING32:
+				make_struct(tmp+nbr_cells++, float32_idx, NULL, 1, 1);
+				make_float(tmp+nbr_cells++, col.val.floating32);
+				break;
+			case OUTBOUND_PG_DB_VALUE_FLOATING64:
+				make_struct(tmp+nbr_cells++, float64_idx, NULL, 1, 1);
+				make_float(tmp+nbr_cells++, col.val.floating64);
+				break;
+			case OUTBOUND_PG_DB_VALUE_STR:
+				make_struct(tmp+nbr_cells++, string_idx, NULL, 1, 1);
+				make_stringn(tmp+nbr_cells++, col.val.str.ptr, col.val.str.len);
+				break;
+			case OUTBOUND_PG_DB_VALUE_BINARY:
+				make_struct(tmp+nbr_cells++, binary_idx, NULL, 1, 1);
+				make_stringn(tmp+nbr_cells++, col.val.binary.ptr, col.val.binary.len);
+				break;
+			case OUTBOUND_PG_DB_VALUE_DB_NULL:
+				make_struct(tmp+nbr_cells++, null_idx, NULL, 1, 1);
+				make_atom(tmp+nbr_cells++, g_nil_s);
+				break;
+			}
+		}
+
+		if (i == 0)
+			allocate_list(q, tmp);
+		else
+			append_list(q, tmp);
+	}
+
+	cell *rows = end_list(q);
+	check_heap_error(rows);
+
+	// Column info
+	for (size_t i = 0; i < ret.val.ok.columns.len; i++) {
+		outbound_pg_column_t col = ret.val.ok.columns.ptr[i];
+		
+		cell *tmp = alloc_on_heap(q, 3);
+		check_heap_error(tmp);
+		pl_idx_t type_idx = 0;
+		pl_idx_t nbr_cells = 0;
+		make_struct(tmp+nbr_cells++, g_minus_s, NULL, 2, 2);
+		SET_OP(tmp, OP_YFX);
+		make_stringn(tmp+nbr_cells++, col.name.ptr, col.name.len);
+		switch (col.data_type) {
+		case OUTBOUND_PG_DB_DATA_TYPE_BOOLEAN:
+			type_idx = boolean_idx;
+			break;
+		case OUTBOUND_PG_DB_DATA_TYPE_INT8:
+			type_idx = int8_idx;
+			break;
+		case OUTBOUND_PG_DB_DATA_TYPE_INT16:
+			type_idx = int16_idx;
+			break;
+		case OUTBOUND_PG_DB_DATA_TYPE_INT32:
+			type_idx = int32_idx;
+			break;
+		case OUTBOUND_PG_DB_DATA_TYPE_INT64:
+			type_idx = int64_idx;
+			break;
+		case OUTBOUND_PG_DB_DATA_TYPE_UINT8:
+			type_idx = uint8_idx;
+			break;
+		case OUTBOUND_PG_DB_DATA_TYPE_UINT16:
+			type_idx = uint16_idx;
+			break;
+		case OUTBOUND_PG_DB_DATA_TYPE_UINT32:
+			type_idx = uint32_idx;
+			break;
+		case OUTBOUND_PG_DB_DATA_TYPE_UINT64:
+			type_idx = uint64_idx;
+			break;
+		case OUTBOUND_PG_DB_DATA_TYPE_FLOATING32:
+			type_idx = float32_idx;
+			break;
+		case OUTBOUND_PG_DB_DATA_TYPE_FLOATING64:
+			type_idx = float64_idx;
+			break;
+		case OUTBOUND_PG_DB_DATA_TYPE_STR:
+			type_idx = string_idx;
+			break;
+		case OUTBOUND_PG_DB_DATA_TYPE_BINARY:
+			type_idx = binary_idx;
+			break;
+		case OUTBOUND_PG_DB_DATA_TYPE_OTHER:
+			type_idx = other_idx;
+			break;
+		}
+		make_atom(tmp+nbr_cells++, type_idx);
+
+		if (i == 0)
+			allocate_list(q, tmp);
+		else
+			append_list(q, tmp);
+	}
+
+	cell *cols = end_list(q);
+	check_heap_error(cols);
+
+	bool ok1 = unify(q, p4, p4_ctx, rows, q->st.curr_frame);
+	bool ok2 = unify(q, p5, p5_ctx, cols, q->st.curr_frame);
+	return ok1 && ok2;
+}
+
+static bool fn_sys_outbound_pg_execute_4(query *q)
+{
+	GET_FIRST_ARG(p1,any); 			// addr
+	GET_NEXT_ARG(p2,any);			// stmt
+	GET_NEXT_ARG(p3,list_or_nil); 	// params
+	GET_NEXT_ARG(p4,var);			// error or affected rows count
+
+	dup_string(addr, p1);
+	COMPONENT(outbound_pg_string) address = {
+		.ptr = addr,
+		.len = addr_len
+	};
+	dup_string(stmt, p2);
+	COMPONENT(outbound_pg_string) statement = {
+		.ptr = stmt,
+		.len = stmt_len
+	};
+	COMPONENT(outbound_pg_list_parameter_value) params = {0};
+	COMPONENT(outbound_pg_expected_u64_pg_error) ret = {0};
+
+	PG_ATOM_INDICES();
+	make_pg_params(p3, params);
+
+	outbound_pg_execute(&address, &statement, &params, &ret);
+	check_pg_error(p4, ret);
+
+	cell *tmp = alloc_on_heap(q, 2);
+	make_struct(tmp, g_true_s, NULL, 1, 1);
+	make_uint(tmp+1, ret.val.ok);
+	return unify(q, p4, p4_ctx, tmp, q->st.curr_frame);
+}
 #endif
 
 builtins g_contrib_bifs[] =
@@ -310,8 +649,12 @@ builtins g_contrib_bifs[] =
 	{"$wasi_kv_exists", 2, fn_sys_wasi_kv_exists_2, "+store,+string", false, false, BLAH},
 	{"$wasi_kv_set", 3, fn_sys_wasi_kv_set_3, "+store,+string,+string", false, false, BLAH},
 	{"$wasi_kv_delete", 2, fn_sys_wasi_kv_delete_2, "+store,+string", false, false, BLAH},
+	{"$outbound_pg_query", 5, fn_sys_outbound_pg_query_5, "+string,+string,+list,-list,-list", false, false, BLAH},
+	{"$outbound_pg_execute", 4, fn_sys_outbound_pg_execute_4, "+string,+string,+list,-compound", false, false, BLAH},
 #endif
 	{0}
 };
 
 #undef check_kv_error
+#undef check_pg_error
+

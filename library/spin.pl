@@ -12,11 +12,15 @@
 		store_get/3, store_exists/2,
 		store_keys/2,
 		store_set/3, store_delete/2,
-		http_fetch/3
+		http_fetch/3,
+		postgres_open/3,
+		postgres_execute/4,
+		postgres_query/5
 	]).
 
 :- use_module(library(pseudojson)).
 :- use_module(library(error)).
+:- use_module(library(httprouter)).
 
 :- dynamic(current_http_uri/1).
 :- dynamic(current_http_method/1).
@@ -44,16 +48,30 @@ http_handle_request(URI, Method) :-
 	fail.
 http_handle_request(RawURI, Method) :-
 	findall(K:V, current_http_header(K, V), Headers),
-	uri_params(RawURI, URI, Params),
+	trace,
+	uri_handle(RawURI, Method, Handle),
+	% split_string(URI, "/", "", Split),
+	% format(http_body, "PATH: ~w", [Path]),
 	once(read_body(Body)),
 	% get("/index.pl", ["a"-"..."])
-	Handle =.. [Method, URI, Params],
+	% Handle =.. [Method, URI, Params],
 	http_handle_(Handle, Headers, Body, Status),
 	map_set(http_headers, "status", Status).
 
 uri_params(RawURI, URI, Params) :-
 	once(phrase(uri(URI, Params0), RawURI)),
 	keysort(Params0, Params).
+
+uri_term("/", []) :- !.
+uri_term(URI, Split) :-
+	URI \= "/",
+	atom_chars(A, URI),
+	split_string(A, '/', [], Split).
+
+uri_handle(RawURI, Method, X) :-
+	uri_params(RawURI, URI, Params),
+	uri_term(URI, Path),
+	X =.. [Method, Path, Params].
 
 read_body([]) :- \+current_http_body(_).
 read_body([]) :- current_http_body([]).
@@ -75,7 +93,7 @@ http_handle_(Handle, Headers, Body, Status) :-
 		Error,
 		(
 			Status = 500,
-			write(http_body, 'Internal server error'),
+			format(http_body, "Internal server error. Unhandled exception: ~w", [Error]),
 			format(stderr, "Unhandled exception: ~w in ~w", [Error, Handle])
 		)
 	),
@@ -234,3 +252,50 @@ term_canon(Term, Cs) :-
 canon_term([], []).
 canon_term(Cs, Term) :-
 	catch(read_term_from_chars(Cs, Term, []), error(syntax_error(_), _), Term = key(Cs)).
+
+postgres_open(Addr, pg(Cs), Options) :-
+	must_be(chars, Addr),
+	must_be(list, Options),
+	once(phrase(pg_conn(Addr, Options), Cs)).
+
+postgres_execute(PG, Stmt, Params, Result) :-
+	(  nonvar(PG), PG = pg(Addr)
+	-> true
+	;  throw(error(domain_error(postgres_connection, PG), postgres_execute/4))
+	),
+	'$outbound_pg_execute'(Addr, Stmt, Params, Result),
+	(  Result = error(Kind, Msg)
+	-> throw(error(postgres_error(Kind, Msg), postgres_execute/4))
+	;  true
+	).
+
+postgres_query(PG, Stmt, Params, Rows, Cols) :-
+	(  nonvar(PG), PG = pg(Addr)
+	-> true
+	;  throw(error(domain_error(postgres_connection, PG), postgres_query/5))
+	),
+	'$outbound_pg_query'(Addr, Stmt, Params, Rows, Cols),
+	(  Rows = error(Kind, Msg)
+	-> throw(error(postgres_error(Kind, Msg), postgres_query/5))
+	;  true
+	).
+
+pg_conn(Addr, Opts) -->
+	"host=",
+	Addr,
+	" ",
+	pg_opts(Opts).
+
+pg_opts([Opt|Os]) -->
+	(  pg_opt(Opt)
+	-> []
+	;  { throw(error(domain_error(postgres_option, Opt), postgres_open/2)) }
+	),
+	" ",
+	pg_opts(Os).
+pg_opts([]) --> [].
+
+pg_opt(port(P)) --> "port=", { number_chars(P, Cs) }, Cs.
+pg_opt(user(U)) --> "user=", U.
+pg_opt(password(Cs)) --> "password=", Cs.
+pg_opt(dbname(Cs)) --> "dbname=", Cs.

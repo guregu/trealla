@@ -18,7 +18,13 @@ extern int32_t host_resume(int32_t subquery, char **reply, size_t *reply_size);
 #endif
 
 #ifdef __wasi__
+
 #define COMPONENT(type) __attribute__((cleanup(type##_free))) type##_t
 #define COMPONENT_CSTR(s) ( s.ptr == NULL || s.len == 0 ? s.ptr : \
 	s.ptr[s.len] != 0 ? s.ptr = realloc(s.ptr, s.len+1), s.ptr[s.len] = 0, s.ptr : s.ptr )
+#define COMPONENT_DUP_STR(str, c)	\
+	str = malloc(c.len+1);			\
+	str[c.len] = 0;					\
+	memcpy(str, c.ptr, c.len);
+
 #endif
