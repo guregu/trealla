@@ -631,7 +631,6 @@ prolog *pl_create()
 #endif
 #ifdef WASI_TARGET_SPIN
 			|| !strcmp(lib->name, "spin")
-			|| !strcmp(lib->name, "httprouter")
 #endif
 			) {
 			size_t len = *lib->len;

@@ -141,9 +141,7 @@ SRCOBJECTS += src/wasm/spin.o \
 	src/wasm/wasi-outbound-http.o \
 	src/wasm/key-value.o \
 	src/wasm/outbound-pg.o
-
-LIBOBJECTS += library/spin.o \
-	library/httprouter.o
+LIBOBJECTS += library/spin.o
 endif
 
 ifdef ISOCLINE
