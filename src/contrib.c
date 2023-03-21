@@ -456,85 +456,92 @@ static bool fn_sys_outbound_pg_query_5(query *q)
 	outbound_pg_query(&address, &statement, &params, &ret);
 	check_pg_error(p4, ret);
 
-	for (size_t i = 0; i < ret.val.ok.rows.len; i++) {
-		outbound_pg_row_t row = ret.val.ok.rows.ptr[i];
-		cell *tmp;
-		tmp = alloc_on_heap(q, 1 + row.len*2);
-		check_heap_error(tmp);
-		pl_idx_t nbr_cells = 0;
-		make_struct(tmp+nbr_cells++, row_idx, NULL, row.len, row.len*2);
-		for (size_t i = 0; i < row.len; i++) {
-			outbound_pg_db_value_t col = row.ptr[i];
-			switch (col.tag) {
-			case OUTBOUND_PG_DB_VALUE_BOOLEAN:
-				make_struct(tmp+nbr_cells++, boolean_idx, NULL, 1, 1);
-				make_atom(tmp+nbr_cells++, col.val.boolean ? g_true_s : g_false_s);
-				break;
-			case OUTBOUND_PG_DB_VALUE_INT8:
-				make_struct(tmp+nbr_cells++, int8_idx, NULL, 1, 1);
-				make_int(tmp+nbr_cells++, col.val.int8);
-				break;
-			case OUTBOUND_PG_DB_VALUE_INT16:
-				make_struct(tmp+nbr_cells++, int16_idx, NULL, 1, 1);
-				make_int(tmp+nbr_cells++, col.val.int16);
-				break;
-			case OUTBOUND_PG_DB_VALUE_INT32:
-				make_struct(tmp+nbr_cells++, int32_idx, NULL, 1, 1);
-				make_int(tmp+nbr_cells++, col.val.int32);
-				break;
-			case OUTBOUND_PG_DB_VALUE_INT64:
-				make_struct(tmp+nbr_cells++, int64_idx, NULL, 1, 1);
-				make_int(tmp+nbr_cells++, col.val.int64);
-				break;
-			case OUTBOUND_PG_DB_VALUE_UINT8:
-				make_struct(tmp+nbr_cells++, uint8_idx, NULL, 1, 1);
-				make_uint(tmp+nbr_cells++, col.val.uint8);
-				break;
-			case OUTBOUND_PG_DB_VALUE_UINT16:
-				make_struct(tmp+nbr_cells++, uint16_idx, NULL, 1, 1);
-				make_uint(tmp+nbr_cells++, col.val.uint16);
-				break;
-			case OUTBOUND_PG_DB_VALUE_UINT32:
-				make_struct(tmp+nbr_cells++, uint32_idx, NULL, 1, 1);
-				make_uint(tmp+nbr_cells++, col.val.uint32);
-				break;
-			case OUTBOUND_PG_DB_VALUE_UINT64:
-				make_struct(tmp+nbr_cells++, uint64_idx, NULL, 1, 1);
-				make_uint(tmp+nbr_cells++, col.val.uint64);
-				break;
-			case OUTBOUND_PG_DB_VALUE_FLOATING32:
-				make_struct(tmp+nbr_cells++, float32_idx, NULL, 1, 1);
-				make_float(tmp+nbr_cells++, col.val.floating32);
-				break;
-			case OUTBOUND_PG_DB_VALUE_FLOATING64:
-				make_struct(tmp+nbr_cells++, float64_idx, NULL, 1, 1);
-				make_float(tmp+nbr_cells++, col.val.floating64);
-				break;
-			case OUTBOUND_PG_DB_VALUE_STR:
-				make_struct(tmp+nbr_cells++, string_idx, NULL, 1, 1);
-				make_stringn(tmp+nbr_cells++, col.val.str.ptr, col.val.str.len);
-				break;
-			case OUTBOUND_PG_DB_VALUE_BINARY:
-				make_struct(tmp+nbr_cells++, binary_idx, NULL, 1, 1);
-				make_stringn(tmp+nbr_cells++, col.val.binary.ptr, col.val.binary.len);
-				break;
-			case OUTBOUND_PG_DB_VALUE_DB_NULL:
-				make_struct(tmp+nbr_cells++, null_idx, NULL, 1, 1);
-				make_atom(tmp+nbr_cells++, g_nil_s);
-				break;
+	cell *rows;
+	cell tmpr;
+	if (ret.val.ok.rows.len == 0) {
+		make_atom(&tmpr, g_nil_s);
+		rows = &tmpr;
+	} else {
+		for (size_t i = 0; i < ret.val.ok.rows.len; i++) {
+			outbound_pg_row_t row = ret.val.ok.rows.ptr[i];
+			cell *tmp;
+			tmp = alloc_on_heap(q, 1 + row.len*2);
+			check_heap_error(tmp);
+			pl_idx_t nbr_cells = 0;
+			make_struct(tmp+nbr_cells++, row_idx, NULL, row.len, row.len*2);
+			for (size_t i = 0; i < row.len; i++) {
+				outbound_pg_db_value_t col = row.ptr[i];
+				switch (col.tag) {
+				case OUTBOUND_PG_DB_VALUE_BOOLEAN:
+					make_struct(tmp+nbr_cells++, boolean_idx, NULL, 1, 1);
+					make_atom(tmp+nbr_cells++, col.val.boolean ? g_true_s : g_false_s);
+					break;
+				case OUTBOUND_PG_DB_VALUE_INT8:
+					make_struct(tmp+nbr_cells++, int8_idx, NULL, 1, 1);
+					make_int(tmp+nbr_cells++, col.val.int8);
+					break;
+				case OUTBOUND_PG_DB_VALUE_INT16:
+					make_struct(tmp+nbr_cells++, int16_idx, NULL, 1, 1);
+					make_int(tmp+nbr_cells++, col.val.int16);
+					break;
+				case OUTBOUND_PG_DB_VALUE_INT32:
+					make_struct(tmp+nbr_cells++, int32_idx, NULL, 1, 1);
+					make_int(tmp+nbr_cells++, col.val.int32);
+					break;
+				case OUTBOUND_PG_DB_VALUE_INT64:
+					make_struct(tmp+nbr_cells++, int64_idx, NULL, 1, 1);
+					make_int(tmp+nbr_cells++, col.val.int64);
+					break;
+				case OUTBOUND_PG_DB_VALUE_UINT8:
+					make_struct(tmp+nbr_cells++, uint8_idx, NULL, 1, 1);
+					make_uint(tmp+nbr_cells++, col.val.uint8);
+					break;
+				case OUTBOUND_PG_DB_VALUE_UINT16:
+					make_struct(tmp+nbr_cells++, uint16_idx, NULL, 1, 1);
+					make_uint(tmp+nbr_cells++, col.val.uint16);
+					break;
+				case OUTBOUND_PG_DB_VALUE_UINT32:
+					make_struct(tmp+nbr_cells++, uint32_idx, NULL, 1, 1);
+					make_uint(tmp+nbr_cells++, col.val.uint32);
+					break;
+				case OUTBOUND_PG_DB_VALUE_UINT64:
+					make_struct(tmp+nbr_cells++, uint64_idx, NULL, 1, 1);
+					make_uint(tmp+nbr_cells++, col.val.uint64);
+					break;
+				case OUTBOUND_PG_DB_VALUE_FLOATING32:
+					make_struct(tmp+nbr_cells++, float32_idx, NULL, 1, 1);
+					make_float(tmp+nbr_cells++, col.val.floating32);
+					break;
+				case OUTBOUND_PG_DB_VALUE_FLOATING64:
+					make_struct(tmp+nbr_cells++, float64_idx, NULL, 1, 1);
+					make_float(tmp+nbr_cells++, col.val.floating64);
+					break;
+				case OUTBOUND_PG_DB_VALUE_STR:
+					make_struct(tmp+nbr_cells++, string_idx, NULL, 1, 1);
+					make_stringn(tmp+nbr_cells++, col.val.str.ptr, col.val.str.len);
+					break;
+				case OUTBOUND_PG_DB_VALUE_BINARY:
+					make_struct(tmp+nbr_cells++, binary_idx, NULL, 1, 1);
+					make_stringn(tmp+nbr_cells++, col.val.binary.ptr, col.val.binary.len);
+					break;
+				case OUTBOUND_PG_DB_VALUE_DB_NULL:
+					make_struct(tmp+nbr_cells++, null_idx, NULL, 1, 1);
+					make_atom(tmp+nbr_cells++, g_nil_s);
+					break;
+				}
 			}
-		}
 
-		if (i == 0)
-			allocate_list(q, tmp);
-		else
-			append_list(q, tmp);
+			if (i == 0)
+				allocate_list(q, tmp);
+			else
+				append_list(q, tmp);
+		}
+		rows = end_list(q);
+		check_heap_error(rows);
 	}
 
-	cell *rows = end_list(q);
-	check_heap_error(rows);
-
-	// Column info
+	// Column info.
+	bool has_cols = false;
 	for (size_t i = 0; i < ret.val.ok.columns.len; i++) {
 		outbound_pg_column_t col = ret.val.ok.columns.ptr[i];
 		
@@ -595,10 +602,18 @@ static bool fn_sys_outbound_pg_query_5(query *q)
 			allocate_list(q, tmp);
 		else
 			append_list(q, tmp);
+		has_cols = true;
 	}
 
-	cell *cols = end_list(q);
-	check_heap_error(cols);
+	cell *cols;
+	cell tmpc;
+	if (has_cols) {
+		cols = end_list(q);
+		check_heap_error(cols);
+	} else {
+		make_atom(&tmpc, g_nil_s);
+		cols = &tmpc;
+	}
 
 	bool ok1 = unify(q, p4, p4_ctx, rows, q->st.curr_frame);
 	bool ok2 = unify(q, p5, p5_ctx, cols, q->st.curr_frame);
