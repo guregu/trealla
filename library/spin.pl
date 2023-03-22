@@ -1,31 +1,35 @@
 :- module(spin, [
-		http_handler/4,
-		current_http_uri/1, current_http_method/1, current_http_body/1,
-		current_http_param/2, current_http_header/2,
-		http_header_set/2,
-		http_body_output/1,
-		html_content/0, html_content/1,
-		text_content/0, text_content/1,
-		prolog_content/0, prolog_content/1,
-		store_open/1, store_open/2,
-		store_close/1,
-		store_get/3, store_exists/2,
-		store_keys/2,
-		store_set/3, store_delete/2,
-		http_fetch/3,
-		postgres_open/3,
-		postgres_execute/4,
-		postgres_query/5,
-		op(399, fx, '/'),
-		op(702, xfx, '?'),
-    	op(701, xfy, '&'),
-    	op(1200, xfx, ':->')
-	]).
+	% Inbound HTTP
+	http_handler/4,
+	current_http_uri/1, current_http_method/1, current_http_body/1,
+	current_http_param/2, current_http_header/2,
+	http_header_set/2,
+	http_body_output/1,
+	html_content/0, html_content/1,
+	text_content/0, text_content/1,
+	prolog_content/0, prolog_content/1,
+	% Outbound HTTP
+	http_fetch/3,
+	% Key-value store
+	store_open/1, store_open/2,
+	store_close/1,
+	store_get/3, store_exists/2,
+	store_keys/2,
+	store_set/3, store_delete/2,
+	% PostgreSQL
+	postgres_open/3,
+	postgres_execute/4,
+	postgres_query/5,
+	op(399, fx, /),
+	op(702, xfx, ?),
+	op(701, xfy, &),
+	op(1200, xfx, :->)
+]).
 
-:- op(702, xfx, '?').
-:- op(701, xfy, '&').
-:- op(1200, xfx, ':->').
-:- op(399, fx, '/').
+:- op(399, fx, /).
+:- op(702, xfx, ?).
+:- op(701, xfy, &).
+:- op(1200, xfx, :->).
 
 :- use_module(library(pseudojson)).
 :- use_module(library(error)).
@@ -45,33 +49,19 @@ init :-
 
 :- initialization(init).
 
-consult_init :- getenv('INIT', File), try_consult(File), !.
-consult_init :- try_consult(init), !.
+consult_init :- getenv('INIT', File), try_consult(File).
+consult_init :- try_consult(init).
 consult_init :- try_consult(lib).
-
-spin:term_expansion( :->(Head0, Body0), :-(spin:Head, Body) ) :-
-    head_handler(Head0, H),
-    handler_parts(H, Verb, Path0, Headers, ReqBody0, Status),
-    once(head_body(ReqBody0, ReqBody)),
-    path_term(Path0, p(Path, Q)),
-    path_query_body(p(Path, Q), Body0, Query, Body),
-    Term =.. [Verb, Path, Query],
-    Head = http_handler(Term, Headers, ReqBody, Status).
-    %format("~w :- ~w.~n", [Head, Body]).
 
 http_handle_request(URI, Method) :-
 	assertz(current_http_uri(URI)),
 	assertz(current_http_method(Method)),
-	consult_init,
+	once(consult_init),
 	fail.
 http_handle_request(RawURI, Method) :-
 	findall(K:V, current_http_header(K, V), Headers),
 	uri_handle(RawURI, Method, Handle),
-	% split_string(URI, "/", "", Split),
-	% format(http_body, "PATH: ~w", [Path]),
 	once(read_body(Body)),
-	% get("/index.pl", ["a"-"..."])
-	% Handle =.. [Method, URI, Params],
 	http_handle_(Handle, Headers, Body, Status),
 	map_set(http_headers, "status", Status).
 
@@ -117,41 +107,6 @@ http_handle_(Handle, Headers, Body, Status) :-
 	!.
 http_handle_(_, _, _, 404) :-
 	write(http_body, 'Not found\n').
-
-http_fetch(URL, Result, Options) :-
-	must_be(chars, URL),
-	setup_call_cleanup(
-		(
-			map_create(RequestMap, []),
-			map_create(RequestHeaders, []),
-			map_create(ResponseMap, []),
-			map_create(ResponseHeaders, [])
-		),
-		http_fetch_(URL, Options, RequestMap, RequestHeaders, ResponseMap, ResponseHeaders, Result),
-		(
-			map_close(RequestMap),
-			map_close(RequestHeaders),
-			map_close(ResponseMap),
-			map_close(ResponseHeaders)
-		)
-	).
-
-http_fetch_(URL, Options, RequestMap, RequestHeaders, ResponseMap, ResponseHeaders, Result) :-
-	outbound_request_options(Options, RequestMap, RequestHeaders),
-	'$wasi_outbound_http'(URL, RequestMap, RequestHeaders, ResponseMap, ResponseHeaders),
-	spin_http_result(ResponseMap, ResponseHeaders, Result).
-
-outbound_request_options(Options, Map, HeaderMap) :-
-	( memberchk(method(Method), Options) ; Method = get ),
-	must_be(atom, Method),
-	map_set(Map, method, Method),
-	(  memberchk(body(Body), Options), Body \= []
-	-> must_be(chars, Body), map_set(Map, body, Body)
-	;  true
-	),
-	( memberchk(headers(Headers), Options) ; Headers = [] ),
-	must_be(list, Headers),
-	maplist(map_set_kv(HeaderMap), Headers).
 
 map_set_kv(Map, Key:Value) :-
 	map_set(Map, Key, Value).
@@ -227,6 +182,49 @@ param_value([]) --> [].
 
 form([V|Vs]) --> param(V), params(Vs).
 
+/*
+	Outgoing HTTP
+*/
+
+http_fetch(URL, Result, Options) :-
+	must_be(chars, URL),
+	setup_call_cleanup(
+		(
+			map_create(RequestMap, []),
+			map_create(RequestHeaders, []),
+			map_create(ResponseMap, []),
+			map_create(ResponseHeaders, [])
+		),
+		http_fetch_(URL, Options, RequestMap, RequestHeaders, ResponseMap, ResponseHeaders, Result),
+		(
+			map_close(RequestMap),
+			map_close(RequestHeaders),
+			map_close(ResponseMap),
+			map_close(ResponseHeaders)
+		)
+	).
+
+http_fetch_(URL, Options, RequestMap, RequestHeaders, ResponseMap, ResponseHeaders, Result) :-
+	outbound_request_options(Options, RequestMap, RequestHeaders),
+	'$wasi_outbound_http'(URL, RequestMap, RequestHeaders, ResponseMap, ResponseHeaders),
+	spin_http_result(ResponseMap, ResponseHeaders, Result).
+
+outbound_request_options(Options, Map, HeaderMap) :-
+	( memberchk(method(Method), Options) ; Method = get ),
+	must_be(atom, Method),
+	map_set(Map, method, Method),
+	(  memberchk(body(Body), Options), Body \= []
+	-> must_be(chars, Body), map_set(Map, body, Body)
+	;  true
+	),
+	( memberchk(headers(Headers), Options) ; Headers = [] ),
+	must_be(list, Headers),
+	maplist(map_set_kv(HeaderMap), Headers).
+
+/*
+	Key-value store
+*/
+
 store_open(Handle) :- store_open(default, Handle).
 store_open(Name, Handle) :- '$wasi_kv_open'(Name, Handle).
 
@@ -269,6 +267,10 @@ term_canon(Term, Cs) :-
 canon_term([], []).
 canon_term(Cs, Term) :-
 	catch(read_term_from_chars(Cs, Term, []), error(syntax_error(_), _), Term = key(Cs)).
+
+/*
+	PostgreSQL
+*/
 
 postgres_open(Addr, pg(Cs), Options) :-
 	must_be(chars, Addr),
@@ -317,32 +319,44 @@ pg_opt(user(U)) --> "user=", U.
 pg_opt(password(Cs)) --> "password=", Cs.
 pg_opt(dbname(Cs)) --> "dbname=", Cs.
 
+/*
+	Fancy HTTP handlers
+*/
+
+% Very rough at the moment, experimental mode.
+
+spin:term_expansion((Head0 :-> Body0), (Head :- Body)) :-
+	head_handler(Head0, H),
+	handler_parts(H, Verb, Path0, Headers, ReqBody0, Status),
+	once(head_body(ReqBody0, ReqBody)),
+	path_term(Path0, p(Path, Q)),
+	path_query_body(p(Path, Q), Body0, Query, Body),
+	Term =.. [Verb, Path, Query],
+	Head = http_handler(Term, Headers, ReqBody, Status).
 
 head_handler((Req -> H0), [V, P, _, Req, S]) :-
-    !,
-    H0 =.. [V, P, S].
+	!,
+	H0 =.. [V, P, S].
 head_handler(H0, H) :-
-    H0 \= (_ -> _),
-    H0 =.. H.
+	H0 \= (_ -> _),
+	H0 =.. H.
 
 head_body(X, X) :- var(X), !.
 head_body(json(Value), json(Value)) :- !.
 head_body({JSON}, json(pairs(Ps))) :-
-    functor(JSON, Func, 2),
-    ( Func = ',' ; Func = ':'),
-    json_value({JSON}, pairs(Ps0)),
-    keysort(Ps0, Ps),
-    !.
+	functor(JSON, Func, 2),
+	( Func = ',' ; Func = ':'),
+	json_value({JSON}, pairs(Ps0)),
+	keysort(Ps0, Ps),
+	!.
 head_body({JSON}, json(Value)) :-
-    ( functor(JSON, _, 0) ; string(JSON) ),
-    json_value(JSON, Value),
-    !.
+	( functor(JSON, _, 0) ; string(JSON) ),
+	json_value(JSON, Value),
+	!.
 head_body(text(Cs), text(Cs)) :- !.
 head_body(Cs, text(Cs)) :- nonvar(Cs), string(Cs), !.
 head_body(form(Form), form(Form)) :- !.
 head_body(X, X).
-
-% decompose_head((Req -> H), ) :- 
 
 handler_parts([V, P, S],       V, P, _, _, S).
 handler_parts([V, P, R, S],    V, P, _, R, S).
@@ -350,23 +364,23 @@ handler_parts([V, P, H, R, S], V, P, H, R, S).
 
 path_query_body(p(_, []), Body, [], Body).
 path_query_body(p(P, Q), Body0, Query, (
-    path_match(p(P, Query), p(P, Q)), Body0
+	path_match(p(P, Query), p(P, Q)), Body0
 )) :- Q \= [].
 
 path_match(X, Y) :-
-    path_term(X, p(P, Q1)),
-    path_term(Y, p(P, Q2)),
-    intersection(Q1, Q2, Q2).
+	path_term(X, p(P, Q1)),
+	path_term(Y, p(P, Q2)),
+	intersection(Q1, Q2, Q2).
 
 path_term(p(P, Q), p(P, Q)).
 path_term(Path?Query, p(P, Q)) :-
-    !,
-    path_list(Path, P),
-    query_list(Query, Q0),
-    keysort(Q0, Q).
+	!,
+	path_list(Path, P),
+	query_list(Query, Q0),
+	keysort(Q0, Q).
 path_term(Path, p(P, [])) :-
-    Path \= ?(_, _),
-    path_list(Path, P).
+	Path \= ?(_, _),
+	path_list(Path, P).
 
 path(X) :- var(X), !.
 path(X) :- atom(X), !.
@@ -375,34 +389,29 @@ path(X/Y) :- (atom(Y), ! ; var(Y)), path(X).
 
 path_list(Path, P) :-
 	path(Path),
-    % path(Path0),
-	% (  Path0 = /(Path)
-	% -> true
-	% ;  Path = Path0
-	% ),
-    path_list_(Path, P0),
-    reverse(P0, P).
+	path_list_(Path, P0),
+	reverse(P0, P).
 path_list_(/, []) :- !.
 path_list_(/X, [X]) :- path(X), !.
 path_list_(X, [X]) :- atom(X), ! ; var(X).
 path_list_(X/Y, [Y|T]) :- !, path_list_(X, T).
 
 query_list(Query, Q) :-
-    query_list_(Query, Q).
+	query_list_(Query, Q).
 query_list_(X0 & Y, [X|T]) :-
-    !,
-    query_value(X0, X),
-    query_list_(Y, T).
+	!,
+	query_value(X0, X),
+	query_list_(Y, T).
 query_list_(X0, [X]) :-
-    once(query_value(X0, X)).
+	once(query_value(X0, X)).
 
 query_value(X=Y0, X-Y) :-
-    ( atom(X) ; var(X) ),
-    atom(Y0),
-    atom_chars(Y0, Y).
+	( atom(X) ; var(X) ),
+	atom(Y0),
+	atom_chars(Y0, Y).
 query_value(X=Y, X-Y) :-
-    ( atom(X) ; var(X) ),
-    ( string(Y) ; var(Y) ).
+	( atom(X) ; var(X) ),
+	( string(Y) ; var(Y) ).
 query_value(X, X-[]) :-
-    X \= &(_, _),
-    (atom(X) ; var(X)).
+	X \= &(_, _),
+	(atom(X) ; var(X)).
