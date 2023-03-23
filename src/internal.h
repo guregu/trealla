@@ -403,8 +403,8 @@ struct cell_ {
 		};
 
 		struct {
-			cell *val_ret;				// used with TAG_EMPTY returns
-			uint64_t cgen;				// choice generation
+			cell *val_ret;				// used with TAG_EMPTY saves
+			uint64_t cgen;				// choice generation on call
 		};
 	};
 };
@@ -520,8 +520,7 @@ struct slot_ {
 struct frame_ {
 	cell *prev_cell;
 	uint64_t ugen, cgen;
-	pl_idx_t prev_offset, base, overflow, hp;
-	uint32_t initial_slots, actual_slots;
+	pl_idx_t prev_offset, base, overflow, hp, initial_slots, actual_slots;
 	uint16_t mid;
 	bool is_last:1;
 };
@@ -553,8 +552,7 @@ struct prolog_state_ {
 struct choice_ {
 	prolog_state st;
 	uint64_t cgen, frame_cgen, ugen;
-	pl_idx_t overflow;
-	uint32_t initial_slots, actual_slots;
+	pl_idx_t overflow, initial_slots, actual_slots;
 	bool is_tail_rec:1;
 	bool catchme_retry:1;
 	bool catchme_exception:1;
@@ -835,7 +833,7 @@ extern pl_idx_t g_anon_s, g_neck_s, g_eof_s, g_lt_s, g_false_s, g_once_s;
 extern pl_idx_t g_gt_s, g_eq_s, g_sys_elapsed_s, g_sys_queue_s, g_braces_s;
 extern pl_idx_t g_sys_stream_property_s, g_unify_s, g_on_s, g_off_s, g_sys_var_s;
 extern pl_idx_t g_call_s, g_braces_s, g_plus_s, g_minus_s, g_post_unify_hook_s;
-extern pl_idx_t g_sys_soft_cut_s;
+extern pl_idx_t g_sys_soft_inner_cut_s;
 
 extern unsigned g_cpu_count;
 
