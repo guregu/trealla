@@ -18,6 +18,7 @@
 	store_set/3, store_delete/2,
 	% PostgreSQL
 	postgres_open/3,
+	postgres_open_url/2,
 	postgres_execute/4,
 	postgres_query/5,
 	op(399, fx, /),
@@ -277,6 +278,8 @@ postgres_open(Addr, pg(Cs), Options) :-
 	must_be(list, Options),
 	once(phrase(pg_conn(Addr, Options), Cs)).
 
+postgres_open_url(URL, pg(URL)).
+
 postgres_execute(PG, Stmt, Params, Result) :-
 	(  nonvar(PG), PG = pg(Addr)
 	-> true
@@ -325,7 +328,7 @@ pg_opt(dbname(Cs)) --> "dbname=", Cs.
 
 % Very rough at the moment, experimental mode.
 
-spin:term_expansion((Head0 :-> Body0), (Head :- Body)) :-
+user:term_expansion((Head0 :-> Body0), (spin:Head :- Body)) :-
 	head_handler(Head0, H),
 	handler_parts(H, Verb, Path0, Headers, ReqBody0, Status),
 	once(head_body(ReqBody0, ReqBody)),

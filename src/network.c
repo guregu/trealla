@@ -338,7 +338,7 @@ size_t net_write(const void *ptr, size_t nbytes, stream *str)
 		return SSL_write((SSL*)str->sslptr, ptr, nbytes);
 #endif
 
-	if (str->is_memory) {
+	if (is_memory_stream(str)) {
 		SB_fwrite(str->sb, ptr, nbytes);
 		return nbytes;
 	} else

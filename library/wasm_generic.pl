@@ -12,13 +12,6 @@ host_resume_(Goal) :-
 	yield,
 	'$host_resume'(Goal).
 
-% host_resume_(Cs) :-
-% 	yield,
-% 	(  '$host_resume'(Cs0)
-% 	-> (Cs = Cs0 ; host_resume_(Cs))
-% 	;  !, fail
-% 	).
-
 host_rpc(Goal) :-
 	unique_variable_names(Goal, Vars0),
 	once(wasm:term_json(Vars0, Goal, ArgValue)),
