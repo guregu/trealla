@@ -210,7 +210,7 @@ wit:
 	sed -i '' -e 's/<spin-http.h>/"spin-http.h"/' ./src/wasm/spin-http.c
 	sed -i '' -e 's/<wasi-outbound-http.h>/"wasi-outbound-http.h"/' ./src/wasm/wasi-outbound-http.c
 	sed -i '' -e 's/<key-value.h>/"key-value.h"/' ./src/wasm/key-value.c
-	sed -i '' -e 's/<key-value.h>/"outbound-pg.h"/' ./src/wasm/outbound-pg.c
+	sed -i '' -e 's/<outbound-pg.h>/"outbound-pg.h"/' ./src/wasm/outbound-pg.c
 
 test:
 	./tests/run.sh

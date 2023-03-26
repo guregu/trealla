@@ -1,8 +1,11 @@
 :- module(spin, [
 	% Inbound HTTP
+	% Request routing
 	http_handler/4,
+	% Request info
 	current_http_uri/1, current_http_method/1, current_http_body/1,
 	current_http_param/2, current_http_header/2,
+	% Response output
 	http_header_set/2,
 	http_body_output/1,
 	html_content/0, html_content/1,
@@ -41,7 +44,7 @@
 :- dynamic(current_http_header/2).
 :- dynamic(current_http_param/2).
 
-:- dynamic(http_handler/4).
+% :- dynamic(http_handler/4).
 :- multifile([http_handler/4]).
 
 init :-
@@ -50,18 +53,11 @@ init :-
 
 :- initialization(init).
 
-consult_init :- getenv('INIT', File), try_consult(File).
-consult_init :- try_consult(init).
-consult_init :- try_consult(lib).
-
 http_handle_request(URI, Method) :-
 	assertz(current_http_uri(URI)),
 	assertz(current_http_method(Method)),
-	once(consult_init),
-	fail.
-http_handle_request(RawURI, Method) :-
 	findall(K:V, current_http_header(K, V), Headers),
-	uri_handle(RawURI, Method, Handle),
+	uri_handle(URI, Method, Handle),
 	once(read_body(Body)),
 	http_handle_(Handle, Headers, Body, Status),
 	map_set(http_headers, "status", Status).
@@ -328,7 +324,9 @@ pg_opt(dbname(Cs)) --> "dbname=", Cs.
 
 % Very rough at the moment, experimental mode.
 
-user:term_expansion((Head0 :-> Body0), (spin:Head :- Body)) :-
+user:term_expansion(Term, (spin:Head :- Body)) :-
+	nonvar(Term),
+	Term = (Head0 :-> Body0),
 	head_handler(Head0, H),
 	handler_parts(H, Verb, Path0, Headers, ReqBody0, Status),
 	once(head_body(ReqBody0, ReqBody)),

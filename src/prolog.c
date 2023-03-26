@@ -525,7 +525,11 @@ prolog *pl_create()
 			g_tpl_lib = realloc(g_tpl_lib, strlen(g_tpl_lib)+40);
 			strcat(g_tpl_lib, "/library");
 		} else
+#ifdef __wasi__
+			g_tpl_lib = strdup("/library");
+#else
 			g_tpl_lib = strdup("../library");
+#endif
 	}
 
 	CHECK_SENTINEL(pl->keyval = map_create((void*)fake_strcmp, (void*)keyvalfree, NULL), NULL);

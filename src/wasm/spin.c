@@ -51,12 +51,28 @@ bool spin_http_method_lookup(const char *name, uint8_t *id)
 // The response headers are read from a map stream with the alias "http_headers".
 extern void spin_http_handle_http_request(spin_http_request_t *request, spin_http_response_t *response) {
 	pl_global_init();
-	prolog* pl = pl_global();
+	prolog *pl = pl_global();
+
+	// We need to consult the init file before we run the query,
+	// so it has a chance to run term_expansion/2 first.
+	char *init = getenv("INIT");
+	if (init == NULL)
+		init = "init";
+	if (!pl_consult(pl, init)) {
+		fprintf(stderr, "Error: failed to load init file: %s. Do you need to set the INIT environment variable?\n", init);
+		char msg[256];
+		int msg_len = snprintf(msg, sizeof(msg), "Failed to initialize server: failed to consult '%s'.", init);
+		response->status = 503;
+		response->body.is_some = true;
+		response->body.val.ptr = strdup(msg);
+		response->body.val.len = msg_len;
+		return;
+	}
 
 	// s will be the query sent to Prolog
 	SB(s);
 
-	SB_strcat(s, "spin:assertz(current_http_uri(\"");
+	SB_strcat(s, "use_module(library(spin)), spin:assertz(current_http_uri(\"");
 	SB_strcatn(s, request->uri.ptr, request->uri.len);
 	SB_strcat(s, "\")), ");
 
