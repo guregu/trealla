@@ -85,7 +85,7 @@ extern unsigned g_string_cnt, g_interned_cnt;
 #define GET_CURR_FRAME() GET_FRAME(q->st.curr_frame)
 
 #define GET_SLOT(f,i) ((i) < (f)->initial_slots ? 			\
-	(q->slots+(f)->base+(i)) : 							\
+	(q->slots+(f)->base+(i)) : 								\
 	(q->slots+(f)->overflow+((i)-(f)->initial_slots)) 		\
 	)
 
@@ -113,11 +113,11 @@ extern unsigned g_string_cnt, g_interned_cnt;
 #define get_float(c) (c)->val_float
 #define set_float(c,v) (c)->val_float = (v)
 #define get_smallint(c) (c)->val_int
-#define set_smallint(c,v) { (c)->val_int = (v); }
+#define set_smallint(c,v) (c)->val_int = (v)
 #define get_smalluint(c) (c)->val_uint
-#define set_smalluint(c,v) { (c)->val_uint = (v); }
+#define set_smalluint(c,v) (c)->val_uint = (v)
 
-#define neg_bigint(c) (c)->val_bigint->ival.sign = MP_NEG;
+#define neg_bigint(c) (c)->val_bigint->ival.sign = MP_NEG
 #define neg_smallint(c) (c)->val_int = -llabs((c)->val_int)
 #define neg_float(c) (c)->val_float = -fabs((c)->val_float)
 
@@ -279,6 +279,7 @@ enum {
 	FLAG_MANAGED=1<<10,					// any ref-counted object
 	FLAG_TAIL_REC=1<<11,
 	FLAG_EVALUABLE=1<<12,
+	FLAG_PROCESSED=1<<12,				// used by bagof
 
 	FLAG_END=1<<13
 };
@@ -551,7 +552,7 @@ struct prolog_state_ {
 
 struct choice_ {
 	prolog_state st;
-	uint64_t cgen, frame_cgen, ugen;
+	uint64_t cgen, frame_cgen, ugen, pins;
 	pl_idx_t overflow, initial_slots, actual_slots;
 	bool is_tail_rec:1;
 	bool catchme_retry:1;
@@ -564,6 +565,8 @@ struct choice_ {
 	bool register_term:1;
 	bool block_catcher:1;
 	bool catcher:1;
+	bool fail_on_retry:1;
+	bool succeed_on_retry:1;
 };
 
 enum { eof_action_eof_code, eof_action_error, eof_action_reset };
@@ -646,7 +649,7 @@ struct query_ {
 	choice *choices;
 	trail *trails;
 	cell *tmp_heap, *last_arg, *variable_names, *ball, *suspect;
-	cell *queue[MAX_QUEUES];
+	cell *queue[MAX_QUEUES], *tmpq[MAX_QUEUES];
 	page *pages;
 	slot *save_e;
 	db_entry *dirty_list;
@@ -679,7 +682,7 @@ struct query_ {
 	bool last_thing_was_symbol:1;
 	bool in_attvar_print:1;
 	bool lists_ok:1;
-	bool autofail:1;
+	bool fail_on_retry:1;
 	bool noretry:1;
 	bool is_oom:1;
 	bool is_redo:1;
@@ -837,15 +840,15 @@ extern pl_idx_t g_sys_soft_inner_cut_s;
 
 extern unsigned g_cpu_count;
 
-#define share_cell(c) if (is_managed(c)) share_cell_(c)
-#define unshare_cell(c) if (is_managed(c)) unshare_cell_(c)
-
 inline static void init_cell(cell *c)
 {
 	c->tag = TAG_EMPTY;
 	c->flags = 0;
 	c->attrs = NULL;
 }
+
+#define share_cell(c) if (is_managed(c)) share_cell_(c)
+#define unshare_cell(c) if (is_managed(c)) unshare_cell_(c)
 
 inline static void share_cell_(const cell *c)
 {

@@ -2,9 +2,9 @@
 
 #include "builtins.h"
 
-query *create_query(module *m, bool sub_query);
-query *create_sub_query(query *q, cell *curr_cell);
-void destroy_query(query *q);
+query *query_create(module *m, bool sub_query);
+query *query_create_subquery(query *q, cell *curr_cell);
+void query_destroy(query *q);
 
 bool push_choice(query *q);
 bool push_barrier(query *q);
@@ -16,6 +16,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx_t p1_ctx, cell *p2, pl
 bool do_yield(query *q, int msecs);
 void do_yield_at(query *q, unsigned int time_in_ms);
 
+cell *do_term_variables(query *q, cell *p1, pl_idx_t p1_ctx);
 bool query_redo(query *q);
 bool has_next_key(query *q);
 void next_key(query *q);
@@ -24,25 +25,22 @@ void purge_dirty_list(query *q);
 bool check_slot(query *q, unsigned cnt);
 void cut_me(query *q);
 void inner_cut(query *q, bool soft_cut);
-void set_var(query *q, const cell *c, pl_idx_t ctx, cell *v, pl_idx_t v_ctx);
-void reset_var(query *q, const cell *c, pl_idx_t c_ctx, cell *v, pl_idx_t v_ctx);
 bool execute(query *q, cell *cells, unsigned nbr_vars);
 bool fn_call_0(query *q, cell *p1, pl_idx_t p1_ctx);
 void undo_me(query *q);
 void drop_choice(query *q);
-bool retry_choice(query *q);
+int retry_choice(query *q);
 void term_assign_vars(parser *p, unsigned start, bool rebase);
 bool start(query *q);
 bool match_rule(query *q, cell *p1, pl_idx_t p1_ctx, enum clause_type is_retract);
 bool match_clause(query *q, cell *p1, pl_idx_t p1_ctx, enum clause_type retract);
-bool try_me(query *q, unsigned vars);
+void try_me(query *q, unsigned vars);
 void call_attrs(query *q, cell *attrs);
 void stash_me(query *q, const clause *cl, bool last_match);
 bool do_post_unification_hook(query *q, bool is_builtin);
 bool check_redo(query *q);
 void dump_vars(query *q, bool partial);
 int check_interrupt(query *q);
-void add_trail(query *q, pl_idx_t c_ctx, unsigned c_var_nbr, cell *attrs, pl_idx_t attrs_ctx);
 bool make_slice(query *q, cell *d, const cell *orig, size_t off, size_t n);
 
 bool find_exception_handler(query *q, char *e);
@@ -56,8 +54,6 @@ char *chars_list_to_string(query *q, cell *p_chars, pl_idx_t p_chars_ctx, size_t
 cell *string_to_chars_list(query *q, cell *p, pl_idx_t p_ctx);
 
 unsigned create_vars(query *q, unsigned nbr);
-void share_predicate(query *q, predicate *pr);
-void unshare_predicate(query *q, predicate *pr);
 cell *skip_max_list(query *q, cell *head, pl_idx_t *head_ctx, pl_int_t max, pl_int_t *skip, cell *tmp);
 bool is_cyclic_term(query *q, cell *p1, pl_idx_t p1_ctx);
 bool is_acyclic_term(query *q, cell *p1, pl_idx_t p1_ctx);
@@ -73,7 +69,6 @@ bool check_list(query *q, cell *p1, pl_idx_t p1_ctx, bool *is_partial, pl_int_t 
 bool parse_write_params(query *q, cell *c, pl_idx_t c_ctx, cell **vnames, pl_idx_t *vnames_ctx);
 bool has_vars(query *q, cell *p1, pl_idx_t p1_ctx);
 bool accum_var(query *q, const cell *c, pl_idx_t c_ctx);
-bool check_frame(query *q);
 
 int compare(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx_t p2_ctx);
 bool unify(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx_t p2_ctx);
@@ -90,7 +85,7 @@ bool print_canonical_to_stream(query *q, stream *str, cell *c, pl_idx_t c_ctx, i
 
 void dump_term(query *q, const char *s, const cell *c);
 
-bool fn_sys_drop_barrier(query *q);
+bool fn_sys_drop_barrier_0(query *q);
 bool fn_iso_throw_1(query *q);
 bool fn_sys_call_cleanup_3(query *q);
 bool fn_iso_catch_3(query *q);
@@ -121,6 +116,7 @@ bool fn_sys_cleanup_if_det_0(query *q);
 bool fn_sys_cut_if_det_0(query *q);
 bool fn_sys_queuen_2(query *q);
 bool fn_iso_findall_3(query *q);
+bool fn_iso_bagof_3(query *q);
 
 cell *convert_to_list(query *q, cell *c, pl_idx_t nbr_cells);
 
@@ -209,4 +205,3 @@ inline static void drop_queuen(query *q)
 	init_queuen(q);
 	q->st.qnbr--;
 }
-
