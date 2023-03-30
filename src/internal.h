@@ -552,9 +552,8 @@ struct prolog_state_ {
 
 struct choice_ {
 	prolog_state st;
-	uint64_t cgen, frame_cgen, ugen, pins;
+	uint64_t cgen, frame_cgen, ugen;
 	pl_idx_t overflow, initial_slots, actual_slots;
-	bool is_tail_rec:1;
 	bool catchme_retry:1;
 	bool catchme_exception:1;
 	bool barrier:1;
@@ -562,7 +561,6 @@ struct choice_ {
 	bool soft_cut:1;
 	bool did_cleanup:1;
 	bool register_cleanup:1;
-	bool register_term:1;
 	bool block_catcher:1;
 	bool catcher:1;
 	bool fail_on_retry:1;
@@ -691,7 +689,6 @@ struct query_ {
 	bool do_dump_vars:1;
 	bool is_dump_vars:1;
 	bool status:1;
-	bool resume:1;
 	bool no_tco:1;
 	bool check_unique:1;
 	bool has_vars:1;
