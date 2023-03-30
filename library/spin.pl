@@ -324,9 +324,9 @@ pg_opt(dbname(Cs)) --> "dbname=", Cs.
 
 % Very rough at the moment, experimental mode.
 
-user:term_expansion(Term, (spin:Head :- Body)) :-
-	nonvar(Term),
-	Term = (Head0 :-> Body0),
+user:term_expansion(Term0, (spin:Head :- Body)) :-
+	nonvar(Term0),
+	Term0 = (Head0 :-> Body0),
 	head_handler(Head0, H),
 	handler_parts(H, Verb, Path0, Headers, ReqBody0, Status),
 	once(head_body(ReqBody0, ReqBody)),
