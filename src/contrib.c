@@ -14,6 +14,7 @@
 #include "wasi-outbound-http.h"
 #include "key-value.h"
 #include "outbound-pg.h"
+#include "outbound-redis.h"
 
 #define check_kv_error(p, ret) {															\
 		if (ret.is_err) {																	\
@@ -159,6 +160,38 @@ static bool fn_sys_wasi_kv_set_3(query *q) {
 
 	key_value_set(store, &kv_key, &kv_val, &ret);
 	check_kv_error(p1, ret);
+
+	return true;
+}
+
+
+static bool fn_sys_redis_set_3(query *q) {
+	GET_FIRST_ARG(p1,atom_or_list); // address
+	GET_NEXT_ARG(p2,atom_or_list); // key
+	GET_NEXT_ARG(p3,atom_or_list); // value
+
+	dup_string(address, p1);
+	COMPONENT(outbound_redis_string) addr = {
+		.ptr = address,
+		.len = address_len
+	};
+
+	dup_string(key, p2);
+	COMPONENT(outbound_redis_string) kv_key = {
+		.ptr = key,
+		.len = key_len
+	};
+
+	dup_string(val, p3);
+	COMPONENT(outbound_redis_payload) kv_val = {
+		.ptr = (uint8_t*)val,
+		.len = val_len
+	};
+
+	outbound_redis_set(&addr, &kv_key, &kv_val);
+
+	//COMPONENT(outbound_redis_expected_unit_error) ret;
+
 
 	return true;
 }
@@ -666,6 +699,8 @@ builtins g_contrib_bifs[] =
 	{"$wasi_kv_delete", 2, fn_sys_wasi_kv_delete_2, "+store,+string", false, false, BLAH},
 	{"$outbound_pg_query", 5, fn_sys_outbound_pg_query_5, "+string,+string,+list,-list,-list", false, false, BLAH},
 	{"$outbound_pg_execute", 4, fn_sys_outbound_pg_execute_4, "+string,+string,+list,-compound", false, false, BLAH},
+
+	{"$wasi_redis_set", 3, fn_sys_redis_set_3, "+address,+string,+string", false, false, BLAH},
 #endif
 	{0}
 };
