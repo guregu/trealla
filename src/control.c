@@ -146,6 +146,21 @@ bool fn_iso_call_n(query *q)
 {
 	q->tot_goals--;
 	GET_FIRST_ARG(p1,callable);
+
+	if ((p1->val_off == g_colon_s) && (p1->arity == 2)) {
+		cell *pm = p1 + 1;
+		pm = deref(q, pm, p1_ctx);
+
+		if (!is_atom(pm) && !is_var(pm))
+			return throw_error(q, pm, p1_ctx, "type_error", "callable");
+
+		module *m = find_module(q->pl, C_STR(q, pm));
+		if (m) q->st.m = m;
+		p1 += 2;
+		p1 = deref(q, p1, p1_ctx);
+		p1_ctx = q->latest_ctx;
+	}
+
 	check_heap_error(init_tmp_heap(q));
 	check_heap_error(deep_clone_to_tmp(q, p1, p1_ctx));
 	unsigned arity = p1->arity;
@@ -167,7 +182,6 @@ bool fn_iso_call_n(query *q)
 		convert_to_literal(q->st.m, tmp2);
 	}
 
-	const char *functor = C_STR(q, tmp2);
 	bool found = false;
 
 	if ((tmp2->match = search_predicate(q->st.m, tmp2, NULL)) != NULL) {
@@ -179,6 +193,7 @@ bool fn_iso_call_n(query *q)
 	}
 
 	if (arity <= 2) {
+		const char *functor = C_STR(q, tmp2);
 		unsigned specifier;
 
 		if (search_op(q->st.m, functor, &specifier, false))
@@ -213,11 +228,27 @@ bool fn_iso_call_1(query *q)
 	} else
 		tmp2 = p1;
 
+	bool found = false;
+
+	if ((tmp2->match = search_predicate(q->st.m, tmp2, NULL)) != NULL) {
+		tmp2->flags &= ~FLAG_BUILTIN;
+	} else if ((tmp2->fn_ptr = get_builtin_term(q->st.m, tmp2, &found, NULL)), found) {
+		tmp2->flags |= FLAG_BUILTIN;
+	} else {
+		tmp2->flags &= ~FLAG_BUILTIN;
+	}
+
 	if (check_body_callable(q->st.m->p, tmp2) != NULL)
 		return throw_error(q, tmp2, q->st.curr_frame, "type_error", "callable");
 
 	cell *tmp = clone_to_heap(q, true, tmp2, 2);
 	check_heap_error(tmp);
+
+	if (is_cstring(tmp)) {
+		share_cell(tmp);
+		convert_to_literal(q->st.m, tmp);
+	}
+
 	pl_idx_t nbr_cells = 1+tmp2->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, fn_sys_drop_barrier_0, 0, 0);
 	make_call(q, tmp+nbr_cells);
@@ -241,11 +272,27 @@ bool fn_iso_once_1(query *q)
 	} else
 		tmp2 = p1;
 
+	bool found = false;
+
+	if ((tmp2->match = search_predicate(q->st.m, tmp2, NULL)) != NULL) {
+		tmp2->flags &= ~FLAG_BUILTIN;
+	} else if ((tmp2->fn_ptr = get_builtin_term(q->st.m, tmp2, &found, NULL)), found) {
+		tmp2->flags |= FLAG_BUILTIN;
+	} else {
+		tmp2->flags &= ~FLAG_BUILTIN;
+	}
+
 	if (check_body_callable(q->st.m->p, tmp2) != NULL)
 		return throw_error(q, tmp2, q->st.curr_frame, "type_error", "callable");
 
 	cell *tmp = clone_to_heap(q, true, tmp2, 2);
 	check_heap_error(tmp);
+
+	if (is_cstring(tmp)) {
+		share_cell(tmp);
+		convert_to_literal(q->st.m, tmp);
+	}
+
 	pl_idx_t nbr_cells = 1+tmp2->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_sys_inner_cut_s, fn_sys_inner_cut_0, 0, 0);
 	make_call(q, tmp+nbr_cells);
@@ -269,11 +316,27 @@ bool fn_ignore_1(query *q)
 	} else
 		tmp2 = p1;
 
+	bool found = false;
+
+	if ((tmp2->match = search_predicate(q->st.m, tmp2, NULL)) != NULL) {
+		tmp2->flags &= ~FLAG_BUILTIN;
+	} else if ((tmp2->fn_ptr = get_builtin_term(q->st.m, tmp2, &found, NULL)), found) {
+		tmp2->flags |= FLAG_BUILTIN;
+	} else {
+		tmp2->flags &= ~FLAG_BUILTIN;
+	}
+
 	if (check_body_callable(q->st.m->p, tmp2) != NULL)
 		return throw_error(q, tmp2, q->st.curr_frame, "type_error", "callable");
 
 	cell *tmp = clone_to_heap(q, true, tmp2, 2);
 	check_heap_error(tmp);
+
+	if (is_cstring(tmp)) {
+		share_cell(tmp);
+		convert_to_literal(q->st.m, tmp);
+	}
+
 	pl_idx_t nbr_cells = 1+tmp2->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_sys_inner_cut_s, fn_sys_inner_cut_0, 0, 0);
 	make_call(q, tmp+nbr_cells);
