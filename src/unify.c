@@ -907,9 +907,6 @@ static bool unify_internal(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx
 
 static bool unify_string_to_list(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx_t p2_ctx)
 {
-	if (p1->arity != p2->arity)
-		return false;
-
 	LIST_HANDLER(p1);
 	LIST_HANDLER(p2);
 
@@ -1017,7 +1014,7 @@ static bool unify_lists(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx_t 
 		slot *e1 = NULL, *e2 = NULL;
 		int both = 0;
 
-		if (is_var(h1) && (h1 != h2)) {
+		if (is_var(h1)) {
 			const frame *f1 = GET_FRAME(p1_ctx);
 			e1 = GET_SLOT(f1, h1->var_nbr);
 
@@ -1027,7 +1024,7 @@ static bool unify_lists(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx_t 
 				e1->vgen = q->vgen;
 		}
 
-		if (is_var(h2) && (h1 != h2)) {
+		if (is_var(h2)) {
 			const frame *f2 = GET_FRAME(p2_ctx);
 			e2 = GET_SLOT(f2, h2->var_nbr);
 
@@ -1100,7 +1097,7 @@ static bool unify_structs(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx_
 	p1++; p2++;
 
 	while (arity--) {
-		slot *e1 = NULL, *e2 = NULL;
+		slot *e1, *e2;
 		pl_idx_t c1_ctx, c2_ctx;
 		cell *c1 , *c2;
 		int both = 0;
@@ -1117,6 +1114,7 @@ static bool unify_structs(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx_
 			c1 = deref(q, p1, p1_ctx);
 			c1_ctx = q->latest_ctx;
 		} else {
+			e1 = NULL;
 			c1 = p1;
 			c1_ctx = p1_ctx;
 		}
@@ -1133,6 +1131,7 @@ static bool unify_structs(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx_
 			c2 = deref(q, p2, p2_ctx);
 			c2_ctx = q->latest_ctx;
 		} else {
+			e2 = NULL;
 			c2 = p2;
 			c2_ctx = p2_ctx;
 		}
@@ -1215,17 +1214,18 @@ static bool unify_internal(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx
 	if (is_string(p1) && is_string(p2))
 		return unify_cstrings(q, p1, p2);
 
-	if (is_string(p1) && is_list(p2))
+	if (is_string(p1) && is_iso_list(p2))
 		return unify_string_to_list(q, p1, p1_ctx, p2, p2_ctx);
 
-	if (is_string(p2) && is_list(p1))
+	if (is_string(p2) && is_iso_list(p1))
 		return unify_string_to_list(q, p2, p2_ctx, p1, p1_ctx);
 
-	if (is_iso_list(p1) && is_iso_list(p2))
-		return unify_lists(q, p1, p1_ctx, p2, p2_ctx, depth+1);
-
-	if (p1->arity || p2->arity)
-		return unify_structs(q, p1, p1_ctx, p2, p2_ctx, depth+1);
+	if (p1->arity || p2->arity) {
+		if (is_iso_list(p1) && is_iso_list(p2))
+			return unify_lists(q, p1, p1_ctx, p2, p2_ctx, depth+1);
+		else
+			return unify_structs(q, p1, p1_ctx, p2, p2_ctx, depth+1);
+	}
 
 	return g_disp[p1->tag].fn(q, p1, p2);
 }

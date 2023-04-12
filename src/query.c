@@ -42,7 +42,7 @@ typedef enum { CALL, EXIT, REDO, NEXT, FAIL } box_t;
 
 #define YIELD_INTERVAL 10000	// Goal interval between yield checks
 #define REDUCE_PRESSURE 1
-#define PRESSURE_FACTOR 16
+#define PRESSURE_FACTOR 4
 #define TRACE_MEM 0
 
 #define init_cell(c) { 				\
@@ -175,14 +175,14 @@ static void check_pressure(query *q)
 #if TRACE_MEM
 		printf("*** q->st.fp=%u, q->frames_size=%u\n", (unsigned)q->st.fp, (unsigned)q->frames_size);
 #endif
-		q->frames_size = alloc_grow((void**)&q->frames, sizeof(frame), q->st.fp, q->frames_size / INITIAL_NBR_FRAMES);
+		q->frames_size = alloc_grow((void**)&q->frames, sizeof(frame), q->st.fp, INITIAL_NBR_FRAMES);
 	}
 
 	if ((q->slots_size > (INITIAL_NBR_SLOTS*PRESSURE_FACTOR)) && (q->st.sp < INITIAL_NBR_SLOTS)) {
 #if TRACE_MEM
 		printf("*** q->st.sp=%u, q->slots_size=%u\n", (unsigned)q->st.sp, (unsigned)q->slots_size);
 #endif
-		q->slots_size = alloc_grow((void**)&q->slots, sizeof(slot), q->st.sp, q->slots_size / INITIAL_NBR_SLOTS);
+		q->slots_size = alloc_grow((void**)&q->slots, sizeof(slot), q->st.sp, INITIAL_NBR_SLOTS);
 	}
 #endif
 }
@@ -861,7 +861,6 @@ static void commit_me(query *q)
 		q->st.m = q->st.curr_dbe->owner->m;
 	}
 
-	cell *body = get_body(cl->cells);
 	bool implied_first_cut = q->check_unique && !q->has_vars && cl->is_unique && !q->st.iter;
 	bool last_match = implied_first_cut || cl->is_first_cut || !has_next_key(q);
 	bool tco = false;
@@ -897,9 +896,9 @@ static void commit_me(query *q)
 		ch->cgen = f->cgen;
 	}
 
-	q->st.iter = NULL;
-	q->st.curr_cell = body;
+	q->st.curr_cell = get_body(cl->cells);
 	q->in_commit = false;
+	q->st.iter = NULL;
 }
 
 void stash_me(query *q, const clause *cl, bool last_match)
@@ -1556,18 +1555,6 @@ bool start(query *q)
 	bool done = false;
 
 	while (!done && !q->error) {
-#ifndef _WIN32
-		if (g_tpl_interrupt == SIGALRM) {
-			g_tpl_interrupt = 0;
-			bool ok = throw_error(q, q->st.curr_cell, q->st.curr_frame, "time_limit_exceeded", "timed_out");
-
-			if (ok == false)
-				q->retry = true;
-
-			continue;
-		}
-#endif
-
 		if (g_tpl_interrupt) {
 			int ok = check_interrupt(q);
 
@@ -1683,9 +1670,7 @@ bool start(query *q)
 			Trace(q, save_cell, save_ctx, EXIT);
 			proceed(q);
 		} else {
-			if (!is_callable(q->st.curr_cell)) {
-				throw_error(q, q->st.curr_cell, q->st.curr_frame, "type_error", "callable");
-			} else if ((match_head(q) != true) && !q->is_oom) {
+			if (!match_head(q) && !q->is_oom) {
 				q->retry = QUERY_RETRY;
 				q->tot_backtracks++;
 				continue;
