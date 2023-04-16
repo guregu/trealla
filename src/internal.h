@@ -507,7 +507,7 @@ struct trail_ {
 
 struct slot_ {
 	cell c;
-	uint64_t vgen, vgen2;	// visit generation
+	uint32_t vgen, vgen2;	// visit generation
 };
 
 // Where 'prev_offset' is the number of frames back
@@ -658,7 +658,7 @@ struct query_ {
 	bool ignores[MAX_IGNORES];
 	uint64_t tot_goals, tot_backtracks, tot_retries, tot_matches;
 	uint64_t tot_tcos, tot_frecovs, tot_srecovs;
-	uint64_t step, qid, tmo_msecs, cgen, vgen;
+	uint64_t step, qid, tmo_msecs, cgen;
 	uint64_t get_started, autofail_n, yield_at;
 	uint64_t time_cpu_started, time_cpu_last_started, future;
 	unsigned max_depth, print_idx, tab_idx, varno, tab0_varno, curr_engine;
@@ -670,6 +670,7 @@ struct query_ {
 	pl_idx_t q_size[MAX_QUEUES], tmpq_size[MAX_QUEUES], qp[MAX_QUEUES];
 	prolog_flags flags;
 	enum q_retry retry;
+	uint32_t vgen;
 	int8_t halt_code;
 	int8_t quoted;
 	bool done:1;
@@ -830,7 +831,7 @@ extern pl_idx_t g_anon_s, g_neck_s, g_eof_s, g_lt_s, g_false_s, g_once_s;
 extern pl_idx_t g_gt_s, g_eq_s, g_sys_elapsed_s, g_sys_queue_s, g_braces_s;
 extern pl_idx_t g_sys_stream_property_s, g_unify_s, g_on_s, g_off_s, g_sys_var_s;
 extern pl_idx_t g_call_s, g_braces_s, g_plus_s, g_minus_s, g_post_unify_hook_s;
-extern pl_idx_t g_sys_soft_inner_cut_s;
+extern pl_idx_t g_sys_soft_prune_s;
 
 extern unsigned g_cpu_count;
 

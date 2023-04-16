@@ -183,6 +183,7 @@ static void check_pressure(query *q)
 		printf("*** q->st.sp=%u, q->slots_size=%u\n", (unsigned)q->st.sp, (unsigned)q->slots_size);
 #endif
 		q->slots_size = alloc_grow((void**)&q->slots, sizeof(slot), q->st.sp, INITIAL_NBR_SLOTS);
+		q->vgen = 0;
 	}
 #endif
 }
@@ -449,8 +450,6 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx_t key_ctx)
 	const db_entry *dbe;
 
 	while (map_next_key(iter, (void*)&dbe)) {
-		CHECK_INTERRUPT();
-
 #if DEBUGIDX
 		DUMP_TERM("   got, key = ", dbe->cl.cells, q->st.curr_frame);
 #endif
@@ -489,7 +488,6 @@ static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx_t l_ctx, boo
 	LIST_HANDLER(l);
 
 	while (is_list(l) && (q->st.m->flags.double_quote_chars || allow_codes)) {
-		CHECK_INTERRUPT();
 		cell *h = LIST_HEAD(l);
 		cell *c = deref(q, h, l_ctx);
 		q->suspect = c;
@@ -573,7 +571,6 @@ static void unwind_trail(query *q, const choice *ch)
 		e->c.tag = TAG_EMPTY;
 		e->c.attrs = tr->attrs;
 		e->c.attrs_ctx = tr->attrs_ctx;
-		//e->vgen = 0;
 	}
 }
 
@@ -594,7 +591,7 @@ void try_me(query *q, unsigned nbr_vars)
 	for (unsigned i = 0; i < nbr_vars; i++, e++) {
 		//unshare_cell(&e->c);
 		init_cell(&e->c);
-		//e->vgen = 0;
+		e->vgen2 = e->vgen = 0;
 	}
 
 	q->run_hook = false;
@@ -953,7 +950,7 @@ bool push_choice(query *q)
 
 // A barrier is used when making a call, it sets a
 // new choice generation so that normal cuts are contained.
-// An '$inner_cut' though will also remove the barrier...
+// An '$prune_me' though will also remove the barrier...
 
 bool push_barrier(query *q)
 {
@@ -1040,7 +1037,7 @@ void cut_me(query *q)
 		q->st.tp = 0;
 }
 
-void inner_cut(query *q, bool soft_cut)
+void prune_me(query *q, bool soft_cut)
 {
 	frame *f = GET_CURR_FRAME();
 
@@ -1064,7 +1061,7 @@ void inner_cut(query *q, bool soft_cut)
 			ch--;
 		}
 
-		// An inner cut can break through a barrier...
+		// An prune can break through a barrier...
 
 		if (ch->cgen < f->cgen) {
 			f->cgen = ch->cgen;
@@ -1206,7 +1203,7 @@ unsigned create_vars(query *q, unsigned cnt)
 	for (unsigned i = 0; i < cnt; i++) {
 		slot *e = GET_SLOT(f, f->actual_slots+i);
 		init_cell(&e->c);
-		//e->vgen = 0;
+		e->vgen2 = e->vgen = 0;
 	}
 
 	f->actual_slots += cnt;
@@ -1271,8 +1268,6 @@ bool match_rule(query *q, cell *p1, pl_idx_t p1_ctx, enum clause_type is_retract
 	check_heap_error(check_slot(q, MAX_ARITY));
 
 	for (; q->st.curr_dbe; q->st.curr_dbe = q->st.curr_dbe->next) {
-		CHECK_INTERRUPT();
-
 		if (!can_view(q, f->ugen, q->st.curr_dbe))
 			continue;
 
@@ -1379,8 +1374,6 @@ bool match_clause(query *q, cell *p1, pl_idx_t p1_ctx, enum clause_type is_retra
 	check_heap_error(check_slot(q, MAX_ARITY));
 
 	for (; q->st.curr_dbe; q->st.curr_dbe = q->st.curr_dbe->next) {
-		CHECK_INTERRUPT();
-
 		if (!can_view(q, f->ugen, q->st.curr_dbe))
 			continue;
 
@@ -1459,8 +1452,6 @@ static bool match_head(query *q)
 	check_heap_error(check_slot(q, MAX_ARITY));
 
 	for (; q->st.curr_dbe; next_key(q)) {
-		CHECK_INTERRUPT();
-
 		if (!can_view(q, f->ugen, q->st.curr_dbe))
 			continue;
 
@@ -1522,7 +1513,6 @@ static bool consultall(query *q, cell *l, pl_idx_t l_ctx)
 	LIST_HANDLER(l);
 
 	while (is_list(l)) {
-		CHECK_INTERRUPT();
 		cell *h = LIST_HEAD(l);
 		h = deref(q, h, l_ctx);
 		pl_idx_t h_ctx = q->latest_ctx;

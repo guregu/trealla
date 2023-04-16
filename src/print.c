@@ -42,7 +42,6 @@ char *chars_list_to_string(query *q, cell *p_chars, pl_idx_t p_chars_ctx, size_t
 	LIST_HANDLER(p_chars);
 
 	while (is_list(p_chars)) {
-		CHECK_INTERRUPT();
 		cell *h = LIST_HEAD(p_chars);
 		h = deref(q, h, p_chars_ctx);
 
@@ -96,7 +95,10 @@ bool needs_quoting(module *m, const char *src, int srclen)
 		slen -= len_char_utf8(s);
 		int ch = get_char_utf8(&s);
 
-		if (((ch < 256) && strchr(g_solo, ch)) || iswspace(ch))
+		if (((ch < 256) && strchr(g_solo, ch))
+			|| iswspace(ch)
+			|| (ch == 0xA0)
+			)
 			return true;
 	}
 
@@ -111,7 +113,8 @@ bool needs_quoting(module *m, const char *src, int srclen)
 #ifdef __APPLE__
 			|| iswideogram(ch)
 #endif
-			|| (ch == '_'))
+			|| (ch == '_')
+			)
 			alphas++;
 		else if ((ch < 256) && iswgraph(ch) && (ch != '%'))
 			graphs++;
@@ -530,7 +533,6 @@ static ssize_t print_iso_list(query *q, char *save_dst, char *dst, size_t dstlen
 	LIST_HANDLER(c);
 
 	while (is_iso_list(c)) {
-		CHECK_INTERRUPT();
 		cell *save_c = c;
 		pl_idx_t save_c_ctx = c_ctx;
 
@@ -682,7 +684,6 @@ static ssize_t print_canonical_list(query *q, char *save_dst, char *dst, size_t 
 	unsigned print_list = 0;
 
 	while (is_iso_list(c)) {
-		CHECK_INTERRUPT();
 		cell *save_c = c;
 		pl_idx_t save_c_ctx = c_ctx;
 
@@ -845,7 +846,7 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx_t 
 	if (is_float(c)) {
 		char tmpbuf[256];
 		sprintf(tmpbuf, "%.*g", 17, get_float(c));
-		reformat_float(q, tmpbuf, c->val_float);
+		if (!q->json) reformat_float(q, tmpbuf, c->val_float);
 		dst += snprintf(dst, dstlen, "%s", tmpbuf);
 		q->last_thing_was_symbol = false;
 		q->was_space = false;
@@ -1026,7 +1027,6 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx_t 
 #endif
 
 			for (c++; arity--; c += c->nbr_cells) {
-				CHECK_INTERRUPT();
 				cell *tmp = running ? deref(q, c, c_ctx) : c;
 				pl_idx_t tmp_ctx = running ? q->latest_ctx : 0;
 

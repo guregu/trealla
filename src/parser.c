@@ -1666,7 +1666,7 @@ static cell *insert_call_here(parser *p, cell *c, cell *p1)
 	p1 = p->cl->cells + p1_idx;
 	p1->tag = TAG_INTERNED;
 	p1->flags = FLAG_BUILTIN;
-	p1->fn_ptr = get_fn_ptr(fn_iso_call_n);
+	p1->fn_ptr = get_fn_ptr(fn_iso_call_1);
 	p1->val_off = g_call_s;
 	p1->nbr_cells = 2;
 	p1->arity = 1;
@@ -1755,7 +1755,7 @@ void term_to_body(parser *p)
 	p->cl->cells->nbr_cells = p->cl->cidx - 1;	// Drops TAG_END
 }
 
-cell *check_body_callable(parser *p, cell *c)
+cell *check_body_callable(cell *c)
 {
 	if ((c->arity == 2) && (is_xfx(c) || is_xfy(c))) {
 		if ((c->val_off == g_conjunction_s)
@@ -1766,14 +1766,16 @@ cell *check_body_callable(parser *p, cell *c)
 			cell *lhs = c + 1;
 			cell *tmp;
 
-			if ((tmp = check_body_callable(p, lhs)) != NULL)
+			if ((tmp = check_body_callable(lhs)) != NULL)
 				return tmp;
 
 			cell *rhs = lhs + lhs->nbr_cells;
 
-			if ((tmp = check_body_callable(p, rhs)) != NULL)
+			if ((tmp = check_body_callable(rhs)) != NULL)
 				return tmp;
 		}
+
+		return NULL;
 	}
 
 	return !is_callable(c) && !is_var(c) ? c : NULL;
@@ -1840,6 +1842,9 @@ static int get_hex(const char **srcptr, unsigned n, bool *error)
 			v += 10 + (ch - 'A');
 		else
 			v += ch - '0';
+
+		if (!n)
+			break;
 	}
 
 	if (n && ((orig_n == 4) || (orig_n == 8))) {
@@ -1853,9 +1858,8 @@ static int get_hex(const char **srcptr, unsigned n, bool *error)
 
 const char *g_escapes = "\e\a\f\b\t\v\r\n\x20\x7F\'\\\"`";
 const char *g_anti_escapes = "eafbtvrnsd'\\\"`";
-#define ALLOW_UNICODE_ESCAPE true
 
-static int get_escape(const char **_src, bool *error, bool number)
+static int get_escape(parser *p, const char **_src, bool *error, bool number)
 {
 	const char *src = *_src;
 	int ch = *src++;
@@ -1864,30 +1868,27 @@ static int get_escape(const char **_src, bool *error, bool number)
 	if (ptr)
 		ch = g_escapes[ptr-g_anti_escapes];
 	else if ((isdigit(ch) || (ch == 'x')
-#if ALLOW_UNICODE_ESCAPE
 		|| (ch == 'u') || (ch == 'U')
-#endif
 		)
 		&& !number) {
 		bool unicode = false;
 
 		if (ch == 'x')
 			ch = get_hex(&src, UINT_MAX, error);
-#if ALLOW_UNICODE_ESCAPE
 		else if (ch == 'U') {
 			ch = get_hex(&src, 8, error);
 			unicode = true;
 		} else if (ch == 'u') {
 			ch = get_hex(&src, 4, error);
 			unicode = true;
-		}
-#endif
-		else {
+		} else {
 			src--;
 			ch = get_octal(&src);
 		}
 
-		if (!unicode && (*src++ != '\\')) {
+		if (!p->error && (*src != '\\') && unicode && p->flags.json)
+			src--;
+		else if (!unicode && (*src++ != '\\')) {
 			//if (DUMP_ERRS || !p->do_read_term)
 			//	fprintf(stdout, "Error: syntax error, closing \\ missing\n");
 			*_src = src;
@@ -2035,7 +2036,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 				return false;
 			}
 
-			v = get_escape(&s, &p->error, true);
+			v = get_escape(p, &s, &p->error, true);
 		} else if ((*s == '\'') && s[1] == '\'') {
 			s++;
 			v = *s++;
@@ -2142,6 +2143,26 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 	}
 
 	read_integer(p, &v2, 10, s, &s);
+
+	if (p->flags.json && s && ((*s == 'e') || (*s == 'E')) && isdigit(s[1])) {
+		p->v.tag = TAG_DOUBLE;
+		errno = 0;
+		pl_flt_t v = strtod(tmpptr, &tmpptr);
+
+		if ((int)v && (errno == ERANGE)) {
+			if (DUMP_ERRS || !p->do_read_term)
+				fprintf(stdout, "Error: syntax error, float overflow %g, %s:%d\n", v, get_loaded(p->m, p->m->filename), p->line_nbr);
+
+			p->error_desc = "float_overflow";
+			p->error = true;
+			return false;
+		}
+
+		set_float(&p->v, neg?-v:v);
+		*srcptr = tmpptr;
+		mp_int_clear(&v2);
+		return true;
+	}
 
 	if (s && (*s == '.') && isdigit(s[1])) {
 		p->v.tag = TAG_DOUBLE;
@@ -2282,7 +2303,10 @@ char *eat_space(parser *p)
 			if (p->comment && (src[0] == '*') && (src[1] == '/')) {
 				p->comment = false;
 				src += 2;
-				p->srcptr = (char*)src;
+
+				if (!is_number(&p->v))	// For number_chars
+					p->srcptr = (char*)src;
+
 				done = false;
 				continue;
 			}
@@ -2295,6 +2319,9 @@ char *eat_space(parser *p)
 
 			if (!*src && p->comment && p->fp) {
 				if (p->no_fp || getline(&p->save_line, &p->n_line, p->fp) == -1) {
+					if (DUMP_ERRS || !p->do_read_term)
+						fprintf(stdout, "Error: syntax error, parsing number1, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
+
 					p->error = true;
 					return NULL;
 				}
@@ -2409,7 +2436,7 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 		int ch = get_char_utf8(&src);
 
 		if ((ch == '\\') && p->flags.character_escapes) {
-			ch = get_escape(&src, &p->error, false);
+			ch = get_escape(p, &src, &p->error, false);
 
 			if (p->error) {
 				if (DUMP_ERRS || !p->do_read_term)
@@ -2519,7 +2546,8 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 			p->error = true;
 			return false;
 		}
-		return eat_comment(p);
+
+		return true; //eat_comment(p);
 	}
 
 	// Quoted...
@@ -2590,7 +2618,7 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 
 				if ((ch == '\\') && p->flags.character_escapes) {
 					int ch2 = *src;
-					ch = get_escape(&src, &p->error, false);
+					ch = get_escape(p, &src, &p->error, false);
 
 					if (!p->error) {
 						if (ch2 == '\n') {
