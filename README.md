@@ -55,7 +55,7 @@ Currently requires wit-bindgen v0.2.0.
 
 - [x] Inbound HTTP (via `http_handler/4` multifile predicate)
 - [x] Outbound HTTP (via `http_fetch/3`)
-- [ ] Outbound PostgreSQL
+- [x] Outbound PostgreSQL
 - [ ] Inbound Redis
 - [ ] Outbound Redis
 - [x] [Key-value store](https://developer.fermyon.com/spin/kv-store)
