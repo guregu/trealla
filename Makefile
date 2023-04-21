@@ -24,7 +24,7 @@ CFLAGS += -std=c11 -Isrc/wasm \
 	-D_WASI_EMULATED_PROCESS_CLOCKS
 LDFLAGS += -lwasi-emulated-mman -lwasi-emulated-signal \
 	-lwasi-emulated-process-clocks -Wl,--stack-first \
-	-Wl,-zstack-size=8388608 -Wl,--initial-memory=100663296
+	-Wl,-zstack-size=8388608 -Wl,--initial-memory=12582912
 NOFFI = 1
 NOSSL = 1
 ifdef WASI_CC
@@ -189,7 +189,7 @@ libtpl-spin.wasm:
 
 libtpl: libtpl.wasm
 	$(WIZER) --wasm-bulk-memory true --allow-wasi --dir . -o libtpl-wizened.wasm libtpl.wasm
-	$(WASMOPT) --enable-bulk-memory libtpl-wizened.wasm -o libtpl.wasm -O4
+	$(WASMOPT) --enable-bulk-memory --enable-tail-call --enable-simd libtpl-wizened.wasm -o libtpl.wasm -O4
 	rm libtpl-wizened.wasm
 
 libtpl-js: libtpl-js.wasm

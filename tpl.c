@@ -374,14 +374,21 @@ int main(int ac, char *av[], char * envp[])
 
 		g_tpl_interrupt = 0;
 
-#if 1
+#if 0
 		pl_eval(pl, src);
 #else
 		pl_sub_query *subq;
-		pl_query(pl, src, &subq);
-
+		char *out, *err;
+		int32_t out_len, err_len;
+		pl_query_captured(pl, src, &subq, &out, &out_len, &err, &err_len, 0);
 		do {
-		} while (pl_redo(subq));
+			printf("x: %s\ny: %s\n", out, err);
+			free(out);
+			free(err);
+		} while (pl_redo_captured(subq, &out, &out_len, &err, &err_len));
+		if (out) free(out);
+		if (err) free(err);
+		// pl_done(subq);
 #endif
 
 		free(line);

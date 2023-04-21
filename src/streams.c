@@ -5617,7 +5617,6 @@ static bool fn_directory_files_2(query *q)
 		filename = DUP_STR(q, p1);
 
 	struct stat st = {0};
-
 	if (stat(filename, &st)) {
 		free(filename);
 		return throw_error(q, p1, p1_ctx, "existence_error", "directory");

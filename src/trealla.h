@@ -39,6 +39,14 @@ extern bool pl_redo(pl_sub_query *q);
 EXPORT(pl_done)
 extern bool pl_done(pl_sub_query *q);	// only call if redo still active
 
+EXPORT(pl_query_captured)
+extern bool pl_query_captured(prolog *pl, const char *s, pl_sub_query **subq,
+    char **stdout_str, int32_t *stdout_len, char **stderr_str, int32_t *stderr_len,
+    unsigned int yield_time_in_ms);
+EXPORT(pl_redo_captured)
+extern bool pl_redo_captured(pl_sub_query *q, char **stdout_str, int32_t *stdout_len,
+    char **stderr_str, int32_t *stderr_len);
+
 // TODO: delete
 EXPORT(query_did_yield)
 extern bool query_did_yield(pl_sub_query *q);

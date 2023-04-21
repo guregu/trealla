@@ -143,7 +143,118 @@ bool pl_query(prolog *pl, const char *s, pl_sub_query **subq, unsigned int yield
 	pl->is_query = true;
 	bool ok = run(pl->p, s, true, (query**)subq, yield_time_in_ms);
 	if (get_status(pl)) pl->curr_m = pl->p->m;
+	if (!ok) {
+		parser_destroy(pl->p);
+	}
 	return ok;
+}
+
+bool pl_query_captured(prolog *pl, const char *s, pl_sub_query **subq,
+	char **stdout_str, int32_t *stdout_len,
+	char **stderr_str, int32_t *stderr_len,
+	unsigned int yield_time_in_ms)
+{
+	if (!pl || !*s || !subq)
+		return false;
+
+	stream* stdout_stream = &pl->streams[1];
+	SB_init(stdout_stream->sb);
+	stdout_stream->is_memory = true;
+
+	stream* stderr_stream = &pl->streams[2];
+	SB_init(stderr_stream->sb);
+	stderr_stream->is_memory = true;
+
+	pl->p = parser_create(pl->curr_m);
+	if (!pl->p) {
+		return false;
+	}
+	pl->p->command = true;
+	pl->is_query = true;
+	bool ok = run(pl->p, s, true, (query**)subq, yield_time_in_ms);
+	if (get_status(pl)) pl->curr_m = pl->p->m;
+
+	if (!ok) {
+		parser_destroy(pl->p);
+		// SB_free(stdout_stream->sb);
+		// stdout_stream->is_memory = false;
+		// SB_free(stderr_stream->sb);
+		// stderr_stream->is_memory = false;
+	}
+
+	if (stdout_str && stdout_len) {
+		*stdout_len = SB_strlen(stdout_stream->sb);
+		*stdout_str = SB_cstr(stdout_stream->sb);
+	}
+	if (stderr_str && stderr_len) {
+		// *stderr_len = 0;
+		// *stderr_str = 0;
+		*stderr_len = SB_strlen(stderr_stream->sb);
+		*stderr_str = SB_cstr(stderr_stream->sb);
+	}
+
+	// if (!ok) {
+	// 	SB_free(stdout_stream->sb);
+	// 	stdout_stream->is_memory = false;
+	// 	SB_free(stderr_stream->sb);
+	// 	stderr_stream->is_memory = false;
+	// }
+
+	return ok;
+}
+
+bool pl_redo_captured(pl_sub_query *subq,
+	char **stdout_str, int32_t *stdout_len,
+	char **stderr_str, int32_t *stderr_len)
+{
+	if (!subq)
+		return false;
+
+	query *q = (query*)subq;
+
+	stream* stdout_stream = &q->pl->streams[1];
+	SB_init(stdout_stream->sb);
+	stdout_stream->is_memory = true;
+
+	stream* stderr_stream = &q->pl->streams[2];
+	SB_init(stderr_stream->sb);
+	stderr_stream->is_memory = true;
+
+	bool ok = query_redo(q);
+	if (stdout_str && stdout_len) {
+		size_t len = SB_strlen(stdout_stream->sb);
+		if (len) {
+			*stdout_len = len;
+			*stdout_str = SB_cstr(stdout_stream->sb);
+			// *stdout_len = strlen(*stdout_str);
+		} else {
+			*stdout_len = 0;
+			*stdout_str = 0;
+		}
+	}
+	if (stderr_str && stderr_len) {
+		size_t len = SB_strlen(stderr_stream->sb);
+		if (len) {
+			*stderr_len = len;
+			*stderr_str = SB_cstr(stderr_stream->sb);
+		} else {
+			*stderr_len = 0;
+			*stderr_str = 0;
+		}
+	}
+
+	if (ok) {
+		return true;
+	}
+
+	stdout_stream->is_memory = false;
+	SB_free(stdout_stream->sb);
+	stderr_stream->is_memory = false;
+	SB_free(stderr_stream->sb);
+
+	parser_destroy(q->p);
+	query_destroy(q);
+	return false;
 }
 
 bool pl_redo(pl_sub_query *subq)
@@ -156,6 +267,7 @@ bool pl_redo(pl_sub_query *subq)
 	if (query_redo(q))
 		return true;
 
+	parser_destroy(q->p);
 	query_destroy(q);
 	return false;
 }
@@ -185,6 +297,15 @@ bool pl_done(pl_sub_query *subq)
 		return false;
 
 	query *q = (query*)subq;
+
+	stream *stdout_stream = &q->pl->streams[1];
+	stream *stderr_stream = &q->pl->streams[2];
+	stdout_stream->is_memory = false;
+	SB_free(stdout_stream->sb);
+	stderr_stream->is_memory = false;
+	SB_free(stderr_stream->sb);
+
+	parser_destroy(q->p);
 	query_destroy(q);
 	return true;
 }
