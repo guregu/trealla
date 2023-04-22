@@ -383,11 +383,7 @@ int main(int ac, char *av[], char * envp[])
 		pl_query_captured(pl, src, &subq, &out, &out_len, &err, &err_len, 0);
 		do {
 			printf("x: %s\ny: %s\n", out, err);
-			free(out);
-			free(err);
 		} while (pl_redo_captured(subq, &out, &out_len, &err, &err_len));
-		if (out) free(out);
-		if (err) free(err);
 		// pl_done(subq);
 #endif
 
