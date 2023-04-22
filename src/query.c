@@ -45,12 +45,6 @@ typedef enum { CALL, EXIT, REDO, NEXT, FAIL } box_t;
 #define PRESSURE_FACTOR 4
 #define TRACE_MEM 0
 
-#define init_cell(c) { 				\
-	(c)->tag = TAG_EMPTY;			\
-	(c)->flags = 0;					\
-	(c)->attrs = NULL;				\
-}
-
 // Note: when in commit there is a provisional choice point
 // that we should skip over, hence the '1' ...
 
@@ -91,7 +85,7 @@ static void trace_call(query *q, cell *c, pl_idx_t c_ctx, box_t box)
 	if (c->fn_ptr && !c->fn_ptr->fn)
 		return;
 
-#if 0
+#if 1
 	if (is_builtin(c))
 		return;
 #endif
@@ -562,8 +556,10 @@ size_t scan_is_chars_list(query *q, cell *l, pl_idx_t l_ctx, bool allow_codes)
 	return scan_is_chars_list2(q, l, l_ctx, allow_codes, &has_var, &is_partial);
 }
 
-static void unwind_trail(query *q, const choice *ch)
+static void unwind_trail(query *q)
 {
+	const choice *ch = GET_CURR_CHOICE();
+
 	while (q->st.tp > ch->st.tp) {
 		const trail *tr = q->trails + --q->st.tp;
 		const frame *f = GET_FRAME(tr->var_ctx);
@@ -578,8 +574,7 @@ static void unwind_trail(query *q, const choice *ch)
 void undo_me(query *q)
 {
 	q->tot_retries++;
-	const choice *ch = GET_CURR_CHOICE();
-	unwind_trail(q, ch);
+	unwind_trail(q);
 }
 
 void try_me(query *q, unsigned nbr_vars)
@@ -654,9 +649,9 @@ void drop_choice(query *q)
 int retry_choice(query *q)
 {
 	while (q->cp) {
+		unwind_trail(q);
 		pl_idx_t curr_choice = --q->cp;
 		const choice *ch = GET_CHOICE(curr_choice);
-		unwind_trail(q, ch);
 		q->st = ch->st;
 		q->save_m = NULL;
 		trim_heap(q);
@@ -886,7 +881,7 @@ static void commit_me(query *q)
 		f->is_last = true;
 		unshare_predicate(q, q->st.pr);
 		drop_choice(q);
-		trim_trail(q);
+		//trim_trail(q);
 	} else {
 		choice *ch = GET_CURR_CHOICE();
 		ch->st.curr_dbe = q->st.curr_dbe;
