@@ -51,6 +51,8 @@ query(Query, Status) :-
 	).
 
 write_result(JSON) :-
+	% hack to get Go interop to work:
+	set_output(stdout),
 	json_value(JS, JSON),
 	json_chars(JS, Cs),
 	'$put_chars'(stdout, Cs),
