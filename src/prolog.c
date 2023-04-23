@@ -194,13 +194,6 @@ bool pl_done(pl_sub_query *subq)
 
 	query *q = (query*)subq;
 
-	stream *stdout_stream = &q->pl->streams[1];
-	stream *stderr_stream = &q->pl->streams[2];
-	stdout_stream->is_memory = false;
-	SB_free(stdout_stream->sb);
-	stderr_stream->is_memory = false;
-	SB_free(stderr_stream->sb);
-
 	parser_destroy(q->p);
 	query_destroy(q);
 	return true;
