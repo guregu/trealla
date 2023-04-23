@@ -133,7 +133,7 @@ cell *alloc_on_heap(query *q, unsigned nbr_cells)
 		unsigned n = MAX_OF(q->h_size, nbr_cells);
 		a->heap = calloc(a->h_size=n, sizeof(cell));
 		if (!a->heap) { free(a); return NULL; }
-		a->nbr = q->st.curr_page++;
+		a->nbr = q->st.pp++;
 		q->pages = a;
 	}
 
@@ -144,7 +144,7 @@ cell *alloc_on_heap(query *q, unsigned nbr_cells)
 		unsigned n = MAX_OF(q->h_size, nbr_cells);
 		a->heap = calloc(a->h_size=n, sizeof(cell));
 		if (!a->heap) { free(a); return NULL; }
-		a->nbr = q->st.curr_page++;
+		a->nbr = q->st.pp++;
 		q->pages = a;
 		q->st.hp = 0;
 	}
@@ -157,6 +157,43 @@ cell *alloc_on_heap(query *q, unsigned nbr_cells)
 		q->pages->max_hp_used = q->pages->hp;
 
 	return c;
+}
+
+void trim_heap(query *q)
+{
+	// q->pages is a push-down stack and points to the
+	// most recent page of heap allocations...
+
+	for (page *a = q->pages; a;) {
+		if (a->nbr < q->st.pp)
+			break;
+
+		for (pl_idx_t i = 0; i < a->hp; i++) {
+			cell *c = a->heap + i;
+			unshare_cell(c);
+			init_cell(c);
+		}
+
+		page *save = a;
+		q->pages = a = a->next;
+		free(save->heap);
+		free(save);
+	}
+
+#define DEBUG_TRIM 0
+
+	const page *a = q->pages;
+
+	if (DEBUG_TRIM) printf("*** %u : %u -> %u\n", a->nbr, q->st.hp, a->hp);
+
+	for (pl_idx_t i = q->st.hp; a && (i < a->hp); i++) {
+		cell *c = a->heap + i;
+		if (DEBUG_TRIM) if (is_managed(c)) printf("*** got one\n");
+		unshare_cell(c);
+		init_cell(c);
+	}
+
+	if (DEBUG_TRIM) printf("\n");
 }
 
 bool is_in_ref_list(const cell *c, pl_idx_t c_ctx, const reflist *rlist)
@@ -449,6 +486,7 @@ cell *deep_copy_to_heap(query *q, cell *p1, pl_idx_t p1_ctx, bool copy_attrs)
 
 cell *deep_copy_to_heap_with_replacement(query *q, cell *p1, pl_idx_t p1_ctx, bool copy_attrs, cell *from, pl_idx_t from_ctx, cell *to, pl_idx_t to_ctx)
 {
+	if (q->vars) map_destroy(q->vars);
 	q->vars = map_create(NULL, NULL, NULL);
 	if (!q->vars) return NULL;
 	const frame *f = GET_CURR_FRAME();

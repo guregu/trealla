@@ -85,7 +85,7 @@ static void trace_call(query *q, cell *c, pl_idx_t c_ctx, box_t box)
 	if (c->fn_ptr && !c->fn_ptr->fn)
 		return;
 
-#if 1
+#if 0
 	if (is_builtin(c))
 		return;
 #endif
@@ -565,7 +565,7 @@ static void unwind_trail(query *q)
 		const frame *f = GET_FRAME(tr->var_ctx);
 		slot *e = GET_SLOT(f, tr->var_nbr);
 		unshare_cell(&e->c);
-		e->c.tag = TAG_EMPTY;
+		init_cell(&e->c);
 		e->c.attrs = tr->attrs;
 		e->c.attrs_ctx = tr->attrs_ctx;
 	}
@@ -595,39 +595,6 @@ void try_me(query *q, unsigned nbr_vars)
 	q->has_vars = false;
 	q->no_tco = false;
 	q->tot_matches++;
-}
-
-static void trim_heap(query *q)
-{
-	// q->pages is a push-down stack and points to the
-	// most recent page of heap allocations...
-
-	for (page *a = q->pages; a;) {
-		if (a->nbr < q->st.curr_page)
-			break;
-
-		for (pl_idx_t i = 0; i < a->max_hp_used; i++) {
-			cell *c = a->heap + i;
-			unshare_cell(c);
-			init_cell(c);
-		}
-
-		page *save = a;
-		q->pages = a = a->next;
-		free(save->heap);
-		free(save);
-	}
-
-#if 0
-	const page *a = q->pages;
-	const choice *ch = GET_CURR_CHOICE();
-
-	for (pl_idx_t i = ch->st.hp; a && (i < a->max_hp_used) && (i < q->st.hp); i++) {
-		cell *c = a->heap + i;
-		unshare_cell(c);
-		init_cell(c);
-	}
-#endif
 }
 
 void drop_choice(query *q)
@@ -675,10 +642,10 @@ int retry_choice(query *q)
 		if (ch->register_cleanup && q->noretry)
 			q->noretry = false;
 
-		return true;
+		return 1;
 	}
 
-	return false;
+	return 0;
 }
 
 static frame *push_frame(query *q, clause *cl)
@@ -1892,8 +1859,9 @@ void query_destroy(query *q)
 #else
 	slot *e = q->slots;
 
-	for (pl_idx_t i = 0; i < q->st.sp; i++, e++)
+	for (pl_idx_t i = 0; i < q->st.sp; i++, e++) {
 		unshare_cell(&e->c);
+	}
 #endif
 
 	while (q->tasks) {
