@@ -189,7 +189,7 @@ libtpl-spin.wasm:
 
 libtpl: libtpl.wasm
 	$(WIZER) --wasm-bulk-memory true --allow-wasi --dir . -o libtpl-wizened.wasm libtpl.wasm
-	$(WASMOPT) --enable-bulk-memory --enable-tail-call --enable-simd libtpl-wizened.wasm -o libtpl.wasm -O4
+	$(WASMOPT) --enable-bulk-memory libtpl-wizened.wasm -o libtpl.wasm -O4
 	rm libtpl-wizened.wasm
 
 libtpl-js: libtpl-js.wasm
