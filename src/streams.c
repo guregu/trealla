@@ -43,8 +43,6 @@
 
 #define MAX_ARGS 128
 
-static bool do_read_term(query *q, stream *str, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx_t p2_ctx, char *src);
-
 #ifdef __wasi__
 #include <limits.h>
 #include <unistd.h>
@@ -445,8 +443,6 @@ static int new_stream(prolog *pl)
 		stream *str = &pl->streams[i];
 		if (!is_live_stream(str) && !str->ignore) {
 			memset(str, 0, sizeof(stream));
-			if (pl->streams[i].p) parser_destroy(pl->streams[i].p);
-			memset(&pl->streams[i], 0, sizeof(stream));
 			return i;
 		}
 	}
@@ -1563,11 +1559,8 @@ static bool fn_iso_close_1(query *q)
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
 	stream *str = &q->pl->streams[n];
-
-	if (str->p) {
-		parser_destroy(str->p);
-		str->p = NULL;
-	}
+	parser_destroy(str->p);
+	str->p = NULL;
 
 	if ((str->fp == stdin)
 		|| (str->fp == stdout)
@@ -1596,11 +1589,6 @@ static bool fn_iso_close_1(query *q)
 	if (map_get(str->alias, "user_error", NULL)) {
 		stream *str2 = &q->pl->streams[2];
 		map_set(str2->alias, strdup("user_error"), NULL);
-	}
-
-	if (str->p) {
-		parser_destroy(str->p);
-		str->p = NULL;
 	}
 
 	if (!str->socket)
@@ -1794,10 +1782,7 @@ static bool fn_iso_read_1(query *q)
 
 	cell tmp;
 	make_atom(&tmp, g_nil_s);
-	bool ok = do_read_term(q, str, p1, p1_ctx, &tmp, q->st.curr_frame, NULL);
-	parser_destroy(str->p);
-	str->p = NULL;
-	return ok;
+	return do_read_term(q, str, p1, p1_ctx, &tmp, q->st.curr_frame, NULL);
 }
 
 static bool fn_iso_read_2(query *q)
@@ -1819,10 +1804,7 @@ static bool fn_iso_read_2(query *q)
 
 	cell tmp;
 	make_atom(&tmp, g_nil_s);
-	bool ok = do_read_term(q, str, p1, p1_ctx, &tmp, q->st.curr_frame, NULL);
-	parser_destroy(str->p);
-	str->p = NULL;
-	return ok;
+	return do_read_term(q, str, p1, p1_ctx, &tmp, q->st.curr_frame, NULL);
 }
 
 static bool parse_read_params(query *q, stream *str, cell *c, pl_idx_t c_ctx, cell **vars, pl_idx_t *vars_ctx, cell **varnames, pl_idx_t *varnames_ctx, cell **sings, pl_idx_t *sings_ctx)
@@ -1894,7 +1876,7 @@ static bool parse_read_params(query *q, stream *str, cell *c, pl_idx_t c_ctx, ce
 	return true;
 }
 
-static bool do_read_term(query *q, stream *str, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx_t p2_ctx, char *src)
+bool do_read_term(query *q, stream *str, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx_t p2_ctx, char *src)
 {
 	if (!str->p) {
 		str->p = parser_create(q->st.m);
@@ -2327,10 +2309,7 @@ static bool fn_iso_read_term_2(query *q)
 		return throw_error(q, &tmp, q->st.curr_frame, "permission_error", "input,binary_stream");
 	}
 
-	bool ok = do_read_term(q, str, p1, p1_ctx, p2, p2_ctx, NULL);
-	parser_destroy(str->p);
-	str->p = NULL;
-	return ok;
+	return do_read_term(q, str, p1, p1_ctx, p2, p2_ctx, NULL);
 }
 
 static bool fn_iso_read_term_3(query *q)
@@ -2351,10 +2330,7 @@ static bool fn_iso_read_term_3(query *q)
 		return throw_error(q, &tmp, q->st.curr_frame, "permission_error", "input,binary_stream");
 	}
 
-	bool ok = do_read_term(q, str, p1, p1_ctx, p2, p2_ctx, NULL);
-	parser_destroy(str->p);
-	str->p = NULL;
-	return ok;
+	return do_read_term(q, str, p1, p1_ctx, p2, p2_ctx, NULL);
 }
 
 static bool fn_iso_write_1(query *q)
@@ -4097,26 +4073,26 @@ static bool fn_sys_read_term_from_chars_4(query *q)
 
 	if (!src || !*src) {
 		parser_destroy(str->p);
-		str->p = NULL;
 		cell tmp;
 		make_atom(&tmp, g_eof_s);
 		return unify(q, p_term, p_term_ctx, &tmp, q->st.curr_frame);
 	}
 
 	bool ok = do_read_term(q, str, p_term, p_term_ctx, p_opts, p_opts_ctx, NULL);
-	parser_destroy(str->p);
-	str->p = NULL;
 
 	if (ok != true) {
 		if (!is_string(p_chars))
 			free(src);
 
+		parser_destroy(str->p);
+		str->p = NULL;
 		return false;
 	}
 
 	char *rest = str->p->srcptr = eat_space(str->p);
 
 	if (str->p->error) {
+		parser_destroy(str->p);
 		return throw_error(q, q->st.curr_cell, q->st.curr_frame, "syntax_error", str->p->error_desc?str->p->error_desc:"read_term");
 	}
 
@@ -4134,6 +4110,8 @@ static bool fn_sys_read_term_from_chars_4(query *q)
 	} else {
 		make_atom(&tmp, g_nil_s);
 	}
+
+	parser_destroy(str->p);
 
 	if (!is_string(p_chars))
 		free(src);
@@ -4191,7 +4169,6 @@ static bool fn_read_term_from_chars_3(query *q)
 
 	if (!src || !*src) {
 		parser_destroy(str->p);
-		str->p = NULL;
 		free(save_src);
 		cell tmp;
 		make_atom(&tmp, g_eof_s);
@@ -4207,9 +4184,8 @@ static bool fn_read_term_from_chars_3(query *q)
 		strcat(src, ".");
 
 	bool ok = do_read_term(q, str, p_term, p_term_ctx, p_opts, p_opts_ctx, NULL);
-	parser_destroy(str->p);
-	str->p = NULL;
 	free(save_src);
+	parser_destroy(str->p);
 
 	if (ok != true)
 		return false;
@@ -4252,7 +4228,6 @@ static bool fn_read_term_from_atom_3(query *q)
 
 	bool ok = do_read_term(q, str, p_term, p_term_ctx, p_opts, p_opts_ctx, src);
 	parser_destroy(str->p);
-	str->p = NULL;
 	free(src);
 	return ok;
 }

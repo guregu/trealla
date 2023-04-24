@@ -523,6 +523,7 @@ void pl_destroy(prolog *pl)
 
 		if (str->p)
 			parser_destroy(str->p);
+		str->p = NULL;
 
 		map_destroy(str->alias);
 		free(str->mode);
