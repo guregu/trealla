@@ -14,7 +14,6 @@
 #include "parser.h"
 #include "prolog.h"
 #include "query.h"
-#include "utf8.h"
 
 #if USE_OPENSSL
 #include "openssl/sha.h"
@@ -685,10 +684,8 @@ static bool fn_iso_number_chars_2(query *q)
 		return throw_error(q, p1, p1_ctx, "instantiation_error", "not_sufficiently_instantiated");
 
 	if (!is_var(p2) && !any_vars) {
-		char *tmpbuf = malloc(cnt+1+1);
-		check_heap_error(tmpbuf);
-		char *dst = tmpbuf;
-		*dst = '\0';
+		SB(pr);
+		SB_check(pr, cnt+1+1);
 		LIST_HANDLER(p2);
 
 		while (is_list(p2)) {
@@ -696,7 +693,7 @@ static bool fn_iso_number_chars_2(query *q)
 			head = deref(q, head, p2_ctx);
 
 			if (!is_atom(head)) {
-				free(tmpbuf);
+				SB_free(pr);
 				return throw_error(q, head, q->latest_ctx, "type_error", "atom");
 			}
 
@@ -706,18 +703,16 @@ static bool fn_iso_number_chars_2(query *q)
 			if (!ch)
 				return throw_error(q, head, q->latest_ctx, "type_error", "character");
 
-			*dst++ = ch;
+			SB_putchar(pr, ch);
 			cell *tail = LIST_TAIL(p2);
 			p2 = deref(q, tail, p2_ctx);
 			p2_ctx = q->latest_ctx;
 		}
 
 		if (!is_nil(p2)) {
-			free(tmpbuf);
+			SB_free(pr);
 			return throw_error(q, orig_p2, p2_ctx, "type_error", "list");
 		}
-
-		*dst = '\0';
 
 		int n = q->pl->current_input;
 		stream *str = &q->pl->streams[n];
@@ -729,25 +724,25 @@ static bool fn_iso_number_chars_2(query *q)
 		reset(p);
 		p->error = false;
 		p->flags = q->st.m->flags;
-		p->srcptr = tmpbuf;
+		p->srcptr = SB_cstr(pr);
 		p->do_read_term = true;
 		bool ok = get_token(p, true, false);
 		p->do_read_term = false;
 
 		if (q->did_throw) {
 			p->srcptr = NULL;
-			free(tmpbuf);
+			SB_free(pr);
 			return ok;
 		}
 
 		if (!is_number(&p->v) || *p->srcptr) {
 			p->srcptr = NULL;
-			free(tmpbuf);
+			SB_free(pr);
 			return throw_error(q, orig_p2, p2_ctx, "syntax_error", p->error&&p->error_desc?p->error_desc:"number");
 		}
 
 		p->srcptr = NULL;
-		free(tmpbuf);
+		SB_free(pr);
 		cell tmp = p->v;
 		bool ok2 = unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 		unshare_cell(&tmp);
@@ -1231,10 +1226,8 @@ static bool fn_iso_number_codes_2(query *q)
 		return throw_error(q, p1, p1_ctx, "instantiation_error", "not_sufficiently_instantiated");
 
 	if (!is_var(p2) && !any_vars) {
-		char *tmpbuf = malloc((cnt*6)+1+1);
-		check_heap_error(tmpbuf);
-		char *dst = tmpbuf;
-		*dst = '\0';
+		SB(pr);
+		SB_check(pr, (cnt*6)+1+1);
 		LIST_HANDLER(p2);
 
 		while (is_list(p2)) {
@@ -1242,30 +1235,27 @@ static bool fn_iso_number_codes_2(query *q)
 			head = deref(q, head, p2_ctx);
 
 			if (!is_integer(head)) {
-				free(tmpbuf);
+				SB_free(pr);
 				return throw_error(q, head, q->latest_ctx, "type_error", "integer");
 			}
 
 			int val = get_smallint(head);
 
 			if (val < 0) {
-				free(tmpbuf);
+				SB_free(pr);
 				return throw_error(q, head, q->latest_ctx, "representation_error", "character_code");
 			}
 
-			dst += put_char_utf8(dst, val);
-
+			SB_putchar(pr, val);
 			cell *tail = LIST_TAIL(p2);
 			p2 = deref(q, tail, p2_ctx);
 			p2_ctx = q->latest_ctx;
 		}
 
 		if (!is_nil(p2)) {
-			free(tmpbuf);
+			SB_free(pr);
 			return throw_error(q, orig_p2, p2_ctx, "type_error", "list");
 		}
-
-		*dst = '\0';
 
 		int n = q->pl->current_input;
 		stream *str = &q->pl->streams[n];
@@ -1277,25 +1267,25 @@ static bool fn_iso_number_codes_2(query *q)
 		reset(p);
 		p->error = false;
 		p->flags = q->st.m->flags;
-		p->srcptr = tmpbuf;
+		p->srcptr = SB_cstr(pr);
 		p->do_read_term = true;
 		bool ok = get_token(p, true, false);
 		p->do_read_term = false;
 
 		if (q->did_throw) {
 			p->srcptr = NULL;
-			free(tmpbuf);
+			SB_free(pr);
 			return ok;
 		}
 
 		if (!is_number(&p->v) || *p->srcptr) {
 			p->srcptr = NULL;
-			free(tmpbuf);
+			SB_free(pr);
 			return throw_error(q, orig_p2, p2_ctx, "syntax_error", p->error?p->error_desc:"number");
 		}
 
 		p->srcptr = NULL;
-		free(tmpbuf);
+		SB_free(pr);
 		cell tmp = p->v;
 		bool ok2 = unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 		unshare_cell(&tmp);
@@ -6030,7 +6020,7 @@ static bool fn_hex_chars_2(query *q)
 	mpz_t v2;
 	mp_int_init(&v2);
 	mp_small val;
-	read_integer(q->p, &v2, 16, s, &s);
+	read_integer(q->p, &v2, 16, &s);
 	free(src);
 	cell tmp = {0};
 
@@ -6083,7 +6073,7 @@ static bool fn_octal_chars_2(query *q)
 	mpz_t v2;
 	mp_int_init(&v2);
 	mp_small val;
-	read_integer(q->p, &v2, 16, s, &s);
+	read_integer(q->p, &v2, 16, &s);
 	free(src);
 	cell tmp = {0};
 
@@ -6351,12 +6341,6 @@ static bool fn_sys_legacy_predicate_property_2(query *q)
 
 	if (pr && !pr->is_dynamic) {
 		make_atom(&tmp, index_from_pool(q->pl, "static"));
-		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame) == true)
-			return true;
-	}
-
-	if (pr && pr->is_tabled) {
-		make_atom(&tmp, index_from_pool(q->pl, "tabled"));
 		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame) == true)
 			return true;
 	}
@@ -7553,6 +7537,158 @@ static bool fn_sre_subst_4(query *q)
 	return ok;
 }
 
+static bool fn_parse_csv_line_2(query *q)
+{
+	GET_FIRST_ARG(p1,atom);
+	GET_NEXT_ARG(p2,var);
+	return do_parse_csv_line(q, ',', '"', false, false, is_string(p1), 0, NULL, C_STR(q,p1), p2, p2_ctx);
+}
+
+static bool fn_parse_csv_line_3(query *q)
+{
+	GET_FIRST_ARG(p1,atom);
+	GET_NEXT_ARG(p2,var);
+	GET_NEXT_ARG(p3,list_or_nil);
+	bool trim = false, numbers = false, use_strings = is_string(p1), do_assert = false;
+	const char *functor = NULL;
+	int sep = ',', quote = '"';
+	LIST_HANDLER(p3);
+
+	while (is_list(p3)) {
+		cell *h = LIST_HEAD(p3);
+		h = deref(q,h,p3_ctx);
+
+		if (is_structure(h) && (h->arity == 1)) {
+			cell *c = h + 1;
+
+			if (!strcmp("trim", C_STR(q, h)) && is_atom(c) && (c->val_off == g_true_s))
+				trim = true;
+			else if (!strcmp("numbers", C_STR(q, h)) && is_atom(c) && (c->val_off == g_true_s))
+				numbers = true;
+			else if (!strcmp("strings", C_STR(q, h)) && is_atom(c) && (c->val_off == g_true_s))
+				use_strings = true;
+			else if (!strcmp("strings", C_STR(q, h)) && is_atom(c) && (c->val_off == g_false_s))
+				use_strings = false;
+			else if (!strcmp("assert", C_STR(q, h)) && is_atom(c) && (c->val_off == g_true_s))
+				do_assert = true;
+			else if (!strcmp("functor", C_STR(q, h)) && is_atom(c))
+				functor = C_STR(q, c);
+			else if (!strcmp("sep", C_STR(q, h)) && is_atom(c) && (C_STRLEN_UTF8(c) == 1))
+				sep = peek_char_utf8(C_STR(q, c));
+			else if (!strcmp("quote", C_STR(q, h)) && is_atom(c) && (C_STRLEN_UTF8(c) == 1))
+				quote = peek_char_utf8(C_STR(q, c));
+		}
+
+		p3 = LIST_TAIL(p3);
+		p3 = deref(q,p3,p3_ctx);
+		p3_ctx = q->latest_ctx;
+	}
+
+	return do_parse_csv_line(q, sep, quote, trim, numbers, use_strings, 0, functor, C_STR(q,p1), !do_assert||!functor ? p2 : NULL, p2_ctx);
+}
+
+static bool fn_parse_csv_file_2(query *q)
+{
+	GET_FIRST_ARG(p1,atom);
+	GET_NEXT_ARG(p3,list_or_nil);
+	bool trim = false, numbers = false, use_strings = is_string(p1);
+	bool header = false, do_assert = true, comments = false;
+	const char *functor = NULL;
+	int sep = ',', quote = '"', comment = '#';
+	unsigned arity = 0;
+	LIST_HANDLER(p3);
+
+	while (is_list(p3)) {
+		cell *h = LIST_HEAD(p3);
+		h = deref(q,h,p3_ctx);
+
+		if (is_structure(h) && (h->arity == 1)) {
+			cell *c = h + 1;
+
+			if (!strcmp("trim", C_STR(q, h)) && is_atom(c) && (c->val_off == g_true_s))
+				trim = true;
+			else if (!strcmp("numbers", C_STR(q, h)) && is_atom(c) && (c->val_off == g_true_s))
+				numbers = true;
+			else if (!strcmp("comments", C_STR(q, h)) && is_atom(c) && (c->val_off == g_true_s))
+				comments = true;
+			else if (!strcmp("header", C_STR(q, h)) && is_atom(c) && (c->val_off == g_true_s))
+				header = true;
+			else if (!strcmp("strings", C_STR(q, h)) && is_atom(c) && (c->val_off == g_true_s))
+				use_strings = true;
+			else if (!strcmp("strings", C_STR(q, h)) && is_atom(c) && (c->val_off == g_false_s))
+				use_strings = false;
+			else if (!strcmp("arity", C_STR(q, h)) && is_smallint(c))
+				arity = get_smallint(c);
+			else if (!strcmp("functor", C_STR(q, h)) && is_atom(c))
+				functor = C_STR(q, c);
+			else if (!strcmp("comment", C_STR(q, h)) && is_atom(c) && (C_STRLEN_UTF8(c) == 1))
+				comment = peek_char_utf8(C_STR(q, c));
+			else if (!strcmp("sep", C_STR(q, h)) && is_atom(c) && (C_STRLEN_UTF8(c) == 1))
+				sep = peek_char_utf8(C_STR(q, c));
+			else if (!strcmp("quote", C_STR(q, h)) && is_atom(c) && (C_STRLEN_UTF8(c) == 1))
+				quote = peek_char_utf8(C_STR(q, c));
+		}
+
+		p3 = LIST_TAIL(p3);
+		p3 = deref(q,p3,p3_ctx);
+		p3_ctx = q->latest_ctx;
+	}
+
+	if (!functor)
+		return throw_error(q, p3, p3_ctx, "domain_error", "missing_functor");
+
+	q->p->fp = fopen(C_STR(q, p1), "r");
+	if (!q->p->fp) return throw_error(q, p1, p1_ctx, "existence_error", "source_sink");
+	unsigned line_nbr = 0;
+	pl_idx_t save_hp = q->st.hp;
+	frame *f = GET_CURR_FRAME();
+	frame save_f = *f;
+	ssize_t len;
+
+	while ((len = getline(&q->p->save_line, &q->p->n_line, q->p->fp)) != -1) {
+		char *line = q->p->save_line;
+		line_nbr++;
+
+		if (line[len-1] == '\n')
+			len--;
+
+		if (line[len-1] == '\r')
+			len--;
+
+		line[len] = '\0';
+
+		if (header) {
+			header = false;
+			continue;
+		}
+
+		if ((comments && (line[0] == comment)) || !line[0])
+			continue;
+
+		if (!do_parse_csv_line(q, sep, quote, trim, numbers, use_strings, arity, functor, line, NULL, 0)) {
+			fprintf(stderr, "Error: line %u\n", line_nbr);
+			free(q->p->save_line);
+			q->p->save_line = NULL;
+			fclose(q->p->fp);
+			q->p->fp = NULL;
+			return false;
+		}
+
+		*f = save_f;
+		q->st.hp = save_hp;
+	}
+
+	free(q->p->save_line);
+	q->p->save_line = NULL;
+	fclose(q->p->fp);
+	q->p->fp = NULL;
+
+	if (!q->pl->quiet)
+		printf("%% Parsed %u lines\n", line_nbr);
+
+	return true;
+}
+
 void format_property(module *m, char *tmpbuf, size_t buflen, const char *name, unsigned arity, const char *type)
 {
 	char *dst = tmpbuf;
@@ -7990,6 +8126,10 @@ builtins g_other_bifs[] =
 	{"load_all_modules", 0, fn_load_all_modules_0, NULL, false, false, BLAH},
 
 	// Miscellaneous...
+
+	{"parse_csv_line", 2, fn_parse_csv_line_2, "+atom,-list", false, false, BLAH},
+	{"parse_csv_line", 3, fn_parse_csv_line_3, "+atom,-list,+list", false, false, BLAH},
+	{"parse_csv_file", 2, fn_parse_csv_file_2, "+atom,+list", false, false, BLAH},
 
 	{"abort", 0, fn_abort_0, NULL, false, false, BLAH},
 	{"sort", 4, fn_sort_4, "+integer,+atom,+list,?list", false, false, BLAH},

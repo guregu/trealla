@@ -12,7 +12,6 @@
 #include "parser.h"
 #include "prolog.h"
 #include "query.h"
-#include "utf8.h"
 
 #ifdef __wasi__
 #define WARN_FP stderr
@@ -169,7 +168,6 @@ void parser_destroy(parser *p)
 {
 	if (!p) return;
 	SB_free(p->token);
-	free(p->tmpbuf);
 	free(p->save_line);
 	clear_rule(p->cl);
 	free(p->cl);
@@ -831,8 +829,6 @@ static void directives(parser *p, cell *d)
 			} else if (!strcmp(dirname, "encoding")) {
 			} else if (!strcmp(dirname, "public")) {
 			} else if (!strcmp(dirname, "export")) {
-			} else if (!strcmp(dirname, "table") && false) {
-				set_table_in_db(p->m, C_STR(p, c_name), arity);
 			} else if (!strcmp(dirname, "discontiguous")) {
 				set_discontiguous_in_db(p->m, C_STR(p, c_name), arity);
 			} else if (!strcmp(dirname, "multifile")) {
@@ -901,8 +897,6 @@ static void directives(parser *p, cell *d)
 				;
 			else if (!strcmp(dirname, "export"))
 				;
-			else if (!strcmp(dirname, "table") && false)
-				set_table_in_db(m, C_STR(p, c_name), arity);
 			else if (!strcmp(dirname, "dynamic")) {
 				predicate * pr = find_predicate(p->m, &tmp);
 
@@ -1918,12 +1912,9 @@ static int get_escape(parser *p, const char **_src, bool *error, bool number)
 #define isbdigit(ch) (((ch) >= '0') && ((ch) <= '1'))
 #define isodigit(ch) (((ch) >= '0') && ((ch) <= '7'))
 
-void read_integer(parser *p, mp_int v2, int base, const char *src,  const char **srcptr)
+void read_integer(parser *p, mp_int v2, int base, const char **srcptr)
 {
-	if (!p->tmpbuf)
-		p->tmpbuf = malloc(p->tmpbuf_size=256);
-
-	char *dst = p->tmpbuf;
+	const char *src = *srcptr;
 	int spaces = 0;
 
 	while (*src) {
@@ -1949,13 +1940,8 @@ void read_integer(parser *p, mp_int v2, int base, const char *src,  const char *
 		}
 
 		spaces = 0;
-		*dst++ = *src++;
-
-		if ((size_t)(dst - p->tmpbuf) >= (p->tmpbuf_size-1)) {
-			size_t offset = dst - p->tmpbuf;
-			p->tmpbuf = realloc(p->tmpbuf, p->tmpbuf_size*=2);
-			dst = p->tmpbuf + offset;
-		}
+		SB_putchar(p->token, *src);
+		src++;
 
 		int last_ch = *src;
 
@@ -1970,14 +1956,13 @@ void read_integer(parser *p, mp_int v2, int base, const char *src,  const char *
 		}
 	}
 
-	*dst = '\0';
-
 	if ((base != 16) && !isdigit(src[-1]))
 		src--;
 	else if ((base == 16) && !isxdigit(src[-1]))
 		src--;
 
-	mp_int_read_cstring(v2, base, (char*)p->tmpbuf, NULL);
+	mp_int_read_cstring(v2, base, (char*)SB_cstr(p->token), NULL);
+	SB_free(p->token);
 	*srcptr = src;
 }
 
@@ -2077,7 +2062,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 	if ((*s == '0') && (s[1] == 'b')) {
 		s += 2;
 
-		read_integer(p, &v2, 2, s, &s);
+		read_integer(p, &v2, 2, &s);
 
 		if (mp_int_to_int(&v2, &val) == MP_RANGE) {
 			p->v.val_bigint = malloc(sizeof(bigint));
@@ -2100,7 +2085,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 	if ((*s == '0') && (s[1] == 'o')) {
 		s += 2;
 
-		read_integer(p, &v2, 8, s, &s);
+		read_integer(p, &v2, 8, &s);
 
 		if (mp_int_to_int(&v2, &val) == MP_RANGE) {
 			p->v.val_bigint = malloc(sizeof(bigint));
@@ -2123,7 +2108,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 	if ((*s == '0') && (s[1] == 'x')) {
 		s += 2;
 
-		read_integer(p, &v2, 16, s, &s);
+		read_integer(p, &v2, 16, &s);
 
 		if (mp_int_to_int(&v2, &val) == MP_RANGE) {
 			p->v.val_bigint = malloc(sizeof(bigint));
@@ -2143,7 +2128,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 		return true;
 	}
 
-	read_integer(p, &v2, 10, s, &s);
+	read_integer(p, &v2, 10, &s);
 
 	if (p->flags.json && s && ((*s == 'e') || (*s == 'E')) && isdigit(s[1])) {
 		p->v.tag = TAG_DOUBLE;
@@ -2518,7 +2503,7 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 		const char *dst = SB_cstr(p->token);
 
 		if ((dst[0] != '0') && (dst[1] != 'x')) {
-			if ((strchr(p->tmpbuf, '.') || strchr(p->tmpbuf, 'e') || strchr(dst, 'E')) && !strchr(p->tmpbuf, '\'')) {
+			if ((strchr(dst, '.') || strchr(dst, 'e') || strchr(dst, 'E')) && !strchr(dst, '\'')) {
 				if (!valid_float(SB_cstr(p->token))) {
 					if (DUMP_ERRS || !p->do_read_term)
 						fprintf(stdout, "Error: syntax error, float, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);

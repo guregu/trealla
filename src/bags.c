@@ -53,17 +53,12 @@ bool fn_iso_findall_3(query *q)
 		nbr_cells += safe_copy_cells(tmp+nbr_cells, p1, p1->nbr_cells);
 		make_struct(tmp+nbr_cells++, g_fail_s, fn_iso_fail_0, 0, 0);
 		make_call(q, tmp+nbr_cells);
-		check_heap_error(push_barrier(q));
+		check_heap_error(push_barrier(q));		// Creates choice-point
 		q->st.curr_cell = tmp;
 		return true;
 	}
 
 	if (!queuen_used(q)) {
-		//if (q->st.end_findall) {
-		//	q->st.end_findall = false;
-		//	return false;
-		//}
-
 		drop_queuen(q);
 		cell tmp;
 		make_atom(&tmp, g_nil_s);
@@ -74,21 +69,16 @@ bool fn_iso_findall_3(query *q)
 
 	pl_idx_t nbr_cells = queuen_used(q);
 	cell *solns = take_queuen(q);
-	init_queuen(q);
 
 	// Now grab matching solutions
-
-	//check_heap_error(push_choice(q), free(solns));
-	//choice *ch = GET_CURR_CHOICE();
-	//ch->st.end_findall = true;
 
 	try_me(q, MAX_ARITY);
 
 	for (cell *c = solns; nbr_cells; nbr_cells -= c->nbr_cells, c += c->nbr_cells) {
-		check_heap_error(init_tmp_heap(q), free(solns));
+		check_heap_error(init_tmp_heap(q), free(solns), drop_queuen(q));
 		cell *tmp = deep_copy_to_tmp(q, c, q->st.fp, false);
-		check_heap_error(tmp, free(solns));
-		check_heap_error(alloc_on_queuen(q, q->st.qnbr, tmp), free(solns));
+		check_heap_error(tmp, free(solns), drop_queuen(q));
+		check_heap_error(alloc_on_queuen(q, q->st.qnbr, tmp), free(solns), drop_queuen(q));
 	}
 
 	// Return matching solutions
@@ -97,13 +87,5 @@ bool fn_iso_findall_3(query *q)
 	cell *l = convert_to_list(q, get_queuen(q), queuen_used(q));
 	drop_queuen(q);
 	check_heap_error(l);
-	bool ok = unify(q, xp3, xp3_ctx, l, q->st.curr_frame);
-	//const frame *f = GET_CURR_FRAME();
-
-	//if (!ok || !f->overflow || is_ground(l)) {
-	//	q->st.end_findall = false;
-	//	drop_choice(q);
-	//}
-
-	return ok;
+	return unify(q, xp3, xp3_ctx, l, q->st.curr_frame);
 }

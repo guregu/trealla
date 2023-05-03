@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <inttypes.h>
 #include <unistd.h>
+#include "utf8.h"
 
 #ifndef USE_OPENSSL
 #define USE_OPENSSL 0
@@ -455,8 +456,6 @@ struct predicate_ {
 	bool is_reload:1;
 	bool is_prebuilt:1;
 	bool is_public:1;
-	bool is_tabled:1;
-	bool is_memoed:1;
 	bool is_dynamic:1;
 	bool is_meta_predicate:1;
 	bool is_multifile:1;
@@ -544,7 +543,6 @@ struct prolog_state_ {
 	bool arg1_is_ground:1;
 	bool arg2_is_ground:1;
 	bool arg3_is_ground:1;
-	bool end_findall:1;
 };
 
 struct choice_ {
@@ -732,8 +730,8 @@ struct parser_ {
 	cell v;
 	string_buffer token_buf;
 	prolog_flags flags;
-	char *save_line, *srcptr, *error_desc, *tmpbuf;
-	size_t token_size, n_line, pos_start, tmpbuf_size;
+	char *save_line, *srcptr, *error_desc;
+	size_t token_size, n_line, pos_start;
 	unsigned depth, read_term;
 	unsigned nesting_parens, nesting_braces, nesting_brackets;
 	int quote_char, line_nbr, line_nbr_start;
