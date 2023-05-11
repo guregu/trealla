@@ -209,7 +209,7 @@ size_t formatted(char *dst, size_t dstlen, const char *src, int srclen, bool dq,
 		if ((ch == '\'') && dq)
 			ptr = 0;
 
-		if (ch && ptr) {
+		if (ch && ptr && (!json || ch != '`')) {
 			if (dstlen) {
 				*dst++ = '\\';
 				*dst++ = g_anti_escapes[ptr-g_escapes];
