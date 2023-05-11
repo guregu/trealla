@@ -28,10 +28,10 @@ static void msleep(int ms)
 
 static const unsigned INITIAL_NBR_QUEUE_CELLS = 1000;
 static const unsigned INITIAL_NBR_HEAP_CELLS = 16000;
-static const unsigned INITIAL_NBR_FRAMES = 32000;
-static const unsigned INITIAL_NBR_SLOTS = 256000;
-static const unsigned INITIAL_NBR_TRAILS = 256000;
-static const unsigned INITIAL_NBR_CHOICES = 32000;
+static const unsigned INITIAL_NBR_FRAMES = 8000;
+static const unsigned INITIAL_NBR_SLOTS = 64000;
+static const unsigned INITIAL_NBR_TRAILS = 64000;
+static const unsigned INITIAL_NBR_CHOICES = 8000;
 static const unsigned INITIAL_NBR_CELLS = 1000;
 
 unsigned g_string_cnt = 0, g_interned_cnt = 0;
@@ -578,14 +578,15 @@ void undo_me(query *q)
 
 void try_me(query *q, unsigned nbr_vars)
 {
-	frame *f = GET_FRAME(q->st.fp);
+	frame *f = GET_NEW_FRAME();
 	f->initial_slots = f->actual_slots = nbr_vars;
 	f->base = q->st.sp;
 	slot *e = GET_SLOT(f, 0);
 
-	for (unsigned i = 0; i < nbr_vars; i++, e++) {
+	while (nbr_vars--) {
 		init_cell(&e->c);
-		e->vgen2 = e->vgen = 0;
+		e->vgen = e->vgen2 = 0;
+		e++;
 	}
 
 	q->run_hook = false;
@@ -647,7 +648,7 @@ int retry_choice(query *q)
 	return 0;
 }
 
-static frame *push_frame(query *q, clause *cl)
+static frame *push_frame(query *q, unsigned nbr_vars)
 {
 	const frame *curr_f = GET_CURR_FRAME();
 	const cell *next_cell = q->st.curr_cell + q->st.curr_cell->nbr_cells;
@@ -670,7 +671,7 @@ static frame *push_frame(query *q, clause *cl)
 	f->overflow = 0;
 	f->hp = q->st.hp;
 
-	q->st.sp += cl->nbr_vars;
+	q->st.sp += nbr_vars;
 	q->st.curr_frame = new_frame;
 	return f;
 }
@@ -841,7 +842,7 @@ static void commit_me(query *q)
 	if (q->pl->opt && tco)
 		reuse_frame(q, cl);
 	else
-		f = push_frame(q, cl);
+		f = push_frame(q, cl->nbr_vars);
 
 	if (last_match) {
 		f->is_last = true;
@@ -1826,10 +1827,10 @@ void query_destroy(query *q)
 	q->done = true;
 
 	for (page *a = q->pages; a;) {
-		for (pl_idx_t i = 0; i < a->max_hp_used; i++) {
-			cell *c = a->heap + i;
+		cell *c = a->heap;
+
+		for (pl_idx_t i = 0; i < a->max_hp_used; i++, c++)
 			unshare_cell(c);
-		}
 
 		page *save = a;
 		a = a->next;
@@ -1838,30 +1839,18 @@ void query_destroy(query *q)
 	}
 
 	for (int i = 0; i < MAX_QUEUES; i++) {
-		for (pl_idx_t j = 0; j < q->qp[i]; j++) {
-			cell *c = q->queue[i]+j;
+		cell *c = q->queue[i];
+
+		for (pl_idx_t j = 0; j < q->qp[i]; j++, c++)
 			unshare_cell(c);
-		}
 
 		free(q->queue[i]);
 	}
 
-#if 0
-	for (pl_idx_t i = 0; i < q->st.fp; i++) {
-		const frame *f = GET_FRAME(i);
-
-		for (pl_idx_t j = 0; j < f->actual_slots; j++) {
-			slot *e = GET_SLOT(f, j);
-			unshare_cell(&e->c);
-		}
-	}
-#else
 	slot *e = q->slots;
 
-	for (pl_idx_t i = 0; i < q->st.sp; i++, e++) {
+	for (pl_idx_t i = 0; i < q->st.sp; i++, e++)
 		unshare_cell(&e->c);
-	}
-#endif
 
 	while (q->tasks) {
 		query *task = q->tasks->next;

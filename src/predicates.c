@@ -69,7 +69,7 @@ void do_yield_at(query *q, unsigned int time_in_ms)
 	q->yield_at += time_in_ms > 0 ? time_in_ms : 1;
 }
 
-static void make_ref(cell *tmp, pl_idx_t off, unsigned var_nbr, pl_idx_t ctx)
+void make_ref(cell *tmp, pl_idx_t off, unsigned var_nbr, pl_idx_t ctx)
 {
 	*tmp = (cell){0};
 	tmp->tag = TAG_VAR;
@@ -1845,6 +1845,12 @@ static bool fn_iso_univ_2(query *q)
 			cell *tmp2 = alloc_on_tmp(q, h->nbr_cells);
 			check_heap_error(tmp2);
 			copy_cells(tmp2, h, h->nbr_cells);
+
+			if (is_cstring(tmp2) && is_string(save_p2)) {
+				share_cell(tmp2);
+				convert_to_literal(q->st.m, tmp2);
+			}
+
 			p2 = LIST_TAIL(p2);
 			arity++;
 		}
@@ -1859,7 +1865,7 @@ static bool fn_iso_univ_2(query *q)
 		cell *tmp2 = get_tmp_heap(q, 0);
 		pl_idx_t nbr_cells = tmp_heap_used(q);
 
-		if (is_cstring(tmp2) && !is_string(tmp2)) {
+		if (is_cstring(tmp2) && !is_string(save_p2)) {
 			share_cell(tmp2);
 			convert_to_literal(q->st.m, tmp2);
 		}
@@ -7541,7 +7547,8 @@ static bool fn_parse_csv_line_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p2,var);
-	return do_parse_csv_line(q, ',', '"', false, false, is_string(p1), 0, NULL, C_STR(q,p1), p2, p2_ctx);
+	csv params = {.sep=',', .quote='"', .arity=0, .trim=false, .numbers=false, .use_strings=is_string(p1), .functor=NULL};
+	return do_parse_csv_line(q, &params, C_STR(q,p1), p2, p2_ctx);
 }
 
 static bool fn_parse_csv_line_3(query *q)
@@ -7552,6 +7559,7 @@ static bool fn_parse_csv_line_3(query *q)
 	bool trim = false, numbers = false, use_strings = is_string(p1), do_assert = false;
 	const char *functor = NULL;
 	int sep = ',', quote = '"';
+	unsigned arity = 0;
 	LIST_HANDLER(p3);
 
 	while (is_list(p3)) {
@@ -7569,10 +7577,12 @@ static bool fn_parse_csv_line_3(query *q)
 				use_strings = true;
 			else if (!strcmp("strings", C_STR(q, h)) && is_atom(c) && (c->val_off == g_false_s))
 				use_strings = false;
-			else if (!strcmp("assert", C_STR(q, h)) && is_atom(c) && (c->val_off == g_true_s))
-				do_assert = true;
+			else if (!strcmp("arity", C_STR(q, h)) && is_smallint(c))
+				arity = get_smallint(c);
 			else if (!strcmp("functor", C_STR(q, h)) && is_atom(c))
 				functor = C_STR(q, c);
+			else if (!strcmp("assert", C_STR(q, h)) && is_atom(c) && (c->val_off == g_true_s))
+				do_assert = true;
 			else if (!strcmp("sep", C_STR(q, h)) && is_atom(c) && (C_STRLEN_UTF8(c) == 1))
 				sep = peek_char_utf8(C_STR(q, c));
 			else if (!strcmp("quote", C_STR(q, h)) && is_atom(c) && (C_STRLEN_UTF8(c) == 1))
@@ -7584,19 +7594,25 @@ static bool fn_parse_csv_line_3(query *q)
 		p3_ctx = q->latest_ctx;
 	}
 
-	return do_parse_csv_line(q, sep, quote, trim, numbers, use_strings, 0, functor, C_STR(q,p1), !do_assert||!functor ? p2 : NULL, p2_ctx);
+	csv params = {.sep=sep, .quote=quote, .arity=arity, .trim=trim, .numbers=numbers, .use_strings=use_strings, .functor=functor};
+	return do_parse_csv_line(q, &params, C_STR(q,p1), !do_assert||!functor ? p2 : NULL, p2_ctx);
 }
 
 static bool fn_parse_csv_file_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p3,list_or_nil);
-	bool trim = false, numbers = false, use_strings = is_string(p1);
+	bool trim = false, numbers = false, use_strings = false;
 	bool header = false, do_assert = true, comments = false;
 	const char *functor = NULL;
 	int sep = ',', quote = '"', comment = '#';
 	unsigned arity = 0;
 	LIST_HANDLER(p3);
+
+	const char *ext = strrchr(C_STR(q, p1), '.');
+
+	if (ext && !strcmp(ext, ".tsv"))
+		sep = '\t';
 
 	while (is_list(p3)) {
 		cell *h = LIST_HEAD(p3);
@@ -7644,29 +7660,22 @@ static bool fn_parse_csv_file_2(query *q)
 	frame *f = GET_CURR_FRAME();
 	frame save_f = *f;
 	ssize_t len;
+	csv params = {.sep=sep, .quote=quote, .arity=arity, .trim=trim, .numbers=numbers, .use_strings=use_strings, .functor=functor};
 
 	while ((len = getline(&q->p->save_line, &q->p->n_line, q->p->fp)) != -1) {
 		char *line = q->p->save_line;
 		line_nbr++;
-
-		if (line[len-1] == '\n')
-			len--;
-
-		if (line[len-1] == '\r')
-			len--;
-
-		line[len] = '\0';
 
 		if (header) {
 			header = false;
 			continue;
 		}
 
-		if ((comments && (line[0] == comment)) || !line[0])
+		if ((comments && (line[0] == comment)) || !line[0] || (line[0] == '\r') || (line[0] == '\n'))
 			continue;
 
-		if (!do_parse_csv_line(q, sep, quote, trim, numbers, use_strings, arity, functor, line, NULL, 0)) {
-			fprintf(stderr, "Error: line %u\n", line_nbr);
+		if (!do_parse_csv_line(q, &params, line, NULL, 0)) {
+			//fprintf(stderr, "Error: line %u\n", line_nbr);
 			free(q->p->save_line);
 			q->p->save_line = NULL;
 			fclose(q->p->fp);
@@ -7998,7 +8007,8 @@ static void load_ops(query *q)
 
 builtins g_iso_bifs[] =
 {
-	{",", 2, fn_iso_conjunction_2, ":callable,:callable", true, false, BLAH},
+	//{",", 2, fn_iso_conjunction_2, ":callable,:callable", true, false, BLAH},
+	{",", 2, NULL, ":callable,:callable", true, false, BLAH},
 	{";", 2, fn_iso_disjunction_2, ":callable,:callable", true, false, BLAH},
 	{"!", 0, fn_iso_cut_0, NULL, true, false, BLAH},
 	{":", 2, fn_iso_invoke_2, "+atom,:callable", true, false, BLAH},

@@ -328,7 +328,7 @@ size_t sprint_int(char *dst, size_t dstlen, pl_int_t n, int base)
 		else
 			dst++;
 
-		// NOTE: according to the man pages...
+		// NOTE: according to the man pages:
 		//
 		//		"Trying to take the absolute value of
 		// 		the most negative integer is not defined."
@@ -537,7 +537,7 @@ static ssize_t print_iso_list(query *q, char *save_dst, char *dst, size_t dstlen
 
 		if (q->max_depth && (print_list >= q->max_depth)) {
 			dst--;
-			dst += snprintf(dst, dstlen, "%s", ",...]");
+			dst += snprintf(dst, dstlen, "%s", "|...]");
 			q->last_thing_was_symbol = false;
 			return dst - save_dst;
 		}
@@ -688,7 +688,7 @@ static ssize_t print_canonical_list(query *q, char *save_dst, char *dst, size_t 
 
 		if (q->max_depth && (print_list >= q->max_depth)) {
 			dst--;
-			dst += snprintf(dst, dstlen, "%s", ",...)");
+			dst += snprintf(dst, dstlen, "%s", "|...)");
 			q->last_thing_was_symbol = false;
 			break;
 		}
@@ -891,7 +891,7 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx_t 
 
 		while (is_list(l)) {
 			if (q->max_depth && (cnt++ >= q->max_depth)) {
-				dst += snprintf(dst, dstlen, "%s", "...");
+				dst += snprintf(dst, dstlen, "%s", "|...");
 				break;
 			}
 
@@ -991,7 +991,7 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx_t 
 
 			if (is_blob(c) && q->max_depth && (len_str >= q->max_depth) && (src_len > 128)) {
 				dst--;
-				dst += snprintf(dst, dstlen, "%s", ",...");
+				dst += snprintf(dst, dstlen, "%s", "...");
 			}
 
 			q->last_thing_was_symbol = false;
@@ -1020,24 +1020,9 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx_t 
 			dst += snprintf(dst, dstlen, "%s", braces&&!q->ignore_ops?"{":"(");
 			q->parens = true;
 
-#if 0
-			cell *save_c = c;
-			pl_idx_t save_ctx = c_ctx;
-#endif
-
 			for (c++; arity--; c += c->nbr_cells) {
 				cell *tmp = running ? deref(q, c, c_ctx) : c;
 				pl_idx_t tmp_ctx = running ? q->latest_ctx : 0;
-
-#if 0
-				if ((tmp == save_c) && (tmp_ctx == save_ctx)) {
-					dst += print_variable(q, dst, dstlen, c, c_ctx, running);
-					q->last_thing_was_symbol = false;
-					q->was_space = false;
-					return dst - save_dst;
-				}
-#endif
-
 				bool parens = false;
 
 				if (!braces && is_interned(tmp) && !q->ignore_ops) {
@@ -1166,7 +1151,7 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx_t 
 		return dst - save_dst;
 	}
 
-	// Infix...
+	// Infix..
 
 	cell *lhs = c + 1;
 	cell *rhs = lhs + lhs->nbr_cells;
@@ -1181,7 +1166,7 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx_t 
 	unsigned rhs_pri_2 = is_interned(rhs) && !rhs->arity ? search_op(q->st.m, C_STR(q, rhs), NULL, false) : 0;
 	unsigned my_priority = search_op(q->st.m, src, NULL, false);
 
-	// Print LHS...
+	// Print LHS..
 
 	bool lhs_parens = lhs_pri_1 >= my_priority;
 	if ((lhs_pri_1 == my_priority) && is_yfx(c)) lhs_parens = false;
@@ -1231,7 +1216,7 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx_t 
 		q->was_space = true;
 	}
 
-	// Print OP...
+	// Print OP..
 
 	q->last_thing_was_symbol = is_symbol;
 	space = iswalpha(*src);
@@ -1259,7 +1244,7 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx_t 
 		q->was_space = true;
 	}
 
-	// Print RHS...
+	// Print RHS..
 
 	bool rhs_parens = rhs_pri_1 >= my_priority;
 	space = is_number(rhs) && is_negative(rhs);
@@ -1272,16 +1257,13 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx_t 
 		&& !rhs_parens;
 
 	if (rhs_is_symbol && strcmp(C_STR(q, rhs), "!"))
-		{ space = true; }
+		space = true;
 
-	if ((rhs_pri_1 == my_priority) && is_xfy(c)) rhs_parens = false;
-	if (rhs_pri_2 > 0) rhs_parens = true;
+	if ((rhs_pri_1 == my_priority) && is_xfy(c))
+		rhs_parens = false;
 
-#if 0
-	if (is_structure(rhs) && (rhs_pri_1 <= my_priority)
-		&& ((rhs->val_off == g_plus_s) || (rhs->val_off == g_minus_s)))
-		{ rhs_parens = false; space = true; }
-#endif
+	if (rhs_pri_2 > 0)
+		rhs_parens = true;
 
 	if (!q->was_space && space) {
 		dst += snprintf(dst, dstlen, "%s", " ");
