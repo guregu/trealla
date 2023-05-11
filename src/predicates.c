@@ -8007,8 +8007,10 @@ static void load_ops(query *q)
 
 builtins g_iso_bifs[] =
 {
-	//{",", 2, fn_iso_conjunction_2, ":callable,:callable", true, false, BLAH},
-	{",", 2, NULL, ":callable,:callable", true, false, BLAH},
+	{"true", 0, fn_iso_true_0, NULL, true, false, BLAH},
+	{"fail", 0, fn_iso_fail_0, NULL, true, false, BLAH},
+
+	{",", 2, fn_iso_conjunction_2, ":callable,:callable", true, false, BLAH},
 	{";", 2, fn_iso_disjunction_2, ":callable,:callable", true, false, BLAH},
 	{"!", 0, fn_iso_cut_0, NULL, true, false, BLAH},
 	{":", 2, fn_iso_invoke_2, "+atom,:callable", true, false, BLAH},
@@ -8048,8 +8050,6 @@ builtins g_iso_bifs[] =
 	{"throw", 1, fn_iso_throw_1, "+term", true, false, BLAH},
 	{"once", 1, fn_iso_once_1, ":callable", true, false, BLAH},
 	{"repeat", 0, fn_iso_repeat_0, NULL, true, false, BLAH},
-	{"true", 0, fn_iso_true_0, NULL, true, false, BLAH},
-	{"fail", 0, fn_iso_fail_0, NULL, true, false, BLAH},
 	{"false", 0, fn_iso_fail_0, NULL, true, false, BLAH},
 	{"atom", 1, fn_iso_atom_1, "+term", true, false, BLAH},
 	{"atomic", 1, fn_iso_atomic_1, "+term", true, false, BLAH},

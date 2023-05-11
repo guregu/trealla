@@ -1508,19 +1508,10 @@ bool start(query *q)
 
 	while (!done && !q->error) {
 		if (g_tpl_interrupt) {
-			int ok = check_interrupt(q);
-
-			if (!q->st.curr_cell)
-				break;
-
-			switch (ok) {
-				case 1:
-					return true;
-				case -1:
-					q->retry = true;
-					continue;
-				default:
-					continue;
+			switch (check_interrupt(q)) {
+				case 1: return true;
+				case -1: q->retry = true; continue;
+				default: continue;
 			}
 		}
 
@@ -1558,12 +1549,6 @@ bool start(query *q)
 		q->tot_goals++;
 
 		if (is_builtin(q->st.curr_cell)) {
-			if (!q->st.curr_cell->fn_ptr || !q->st.curr_cell->fn_ptr->fn) {
-				q->tot_goals--;
-				q->st.curr_cell++;
-				continue;
-			}
-
 			bool status;
 
 #if USE_FFI
@@ -1612,16 +1597,7 @@ bool start(query *q)
 
 			Trace(q, save_cell, save_ctx, EXIT);
 			proceed(q);
-		} else if (is_iso_list(q->st.curr_cell)) {
-			if (consultall(q, q->st.curr_cell, q->st.curr_frame) != true) {
-				q->retry = QUERY_RETRY;
-				q->tot_backtracks++;
-				continue;
-			}
-
-			Trace(q, save_cell, save_ctx, EXIT);
-			proceed(q);
-		} else {
+		} else if (!is_iso_list(q->st.curr_cell)) {
 			if (!match_head(q) && !q->is_oom) {
 				q->retry = QUERY_RETRY;
 				q->tot_backtracks++;
@@ -1630,8 +1606,16 @@ bool start(query *q)
 
 			if (q->run_hook && !q->in_hook)
 				do_post_unification_hook(q, false);
-
+		} else {
 			//Trace(q, save_cell, save_ctx, EXIT);
+			if (consultall(q, q->st.curr_cell, q->st.curr_frame) != true) {
+				q->retry = QUERY_RETRY;
+				q->tot_backtracks++;
+				continue;
+			}
+
+			Trace(q, save_cell, save_ctx, EXIT);
+			proceed(q);
 		}
 
 		q->run_hook = false;
