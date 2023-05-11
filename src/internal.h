@@ -940,3 +940,5 @@ inline static int fake_strcmp(const void *ptr1, const void *ptr2, const void *pa
 		str = NULL;															\
 	} else																	\
 		return throw_error(q, p, p##_ctx, "type_error", "chars");
+
+int get_named_stream(prolog *pl, const char *name, size_t len);
