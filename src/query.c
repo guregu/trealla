@@ -354,13 +354,24 @@ bool has_next_key(query *q)
 	if (!next)
 		return false;
 
+	if (next->next || !q->st.arg1_is_ground)
+		return true;
+
 	// Attempt look-ahead on 1st arg...
 
 	cl = &next->cl;
+	cell *darg1 = cl->cells->val_off == g_neck_s ? cl->cells + 1+1 : cl->cells + 1;
 
-	if (q->st.arg1_is_ground && !next->next && q->pl->opt
-		&& (q->st.key->arity == 1) && is_atomic(cl->cells+1)) {
-		if (compare(q, q->st.key, q->st.curr_frame, cl->cells, q->st.curr_frame)) {
+	if (is_var(darg1))
+		return true;
+
+	cell *karg1 = deref(q, q->st.key + 1, q->st.curr_frame);
+
+	//DUMP_TERM("key", q->st.key, q->st.curr_frame, 1);
+	//DUMP_TERM("next", cl->cells, q->st.curr_frame, 0);
+
+	if (q->pl->opt && is_atomic(karg1)) {
+		if (compare(q, karg1, q->st.curr_frame, darg1, q->st.curr_frame)) {
 			return false;
 		}
 	}
@@ -391,7 +402,7 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx_t key_ctx)
 
 		q->st.curr_dbe = pr->head;
 
-		if (!key->arity || pr->is_multifile)
+		if (!key->arity || pr->is_multifile || pr->is_dynamic)
 			return true;
 
 		setup_key(q);
@@ -743,7 +754,7 @@ static void share_predicate(query *q, predicate *pr)
 	pr->ref_cnt++;
 }
 
-static void unshare_predicate(query *q, predicate *pr)
+void unshare_predicate(query *q, predicate *pr)
 {
 	if (!pr)
 		return;
@@ -1253,10 +1264,18 @@ bool match_rule(query *q, cell *p1, pl_idx_t p1_ctx, enum clause_type is_retract
 			if (needs_true) {
 				p1_body = deref(q, p1_body, p1_ctx);
 				pl_idx_t p1_body_ctx = q->latest_ctx;
-				cell tmp = (cell){0};
+				cell tmp;
 				tmp.tag = TAG_INTERNED;
+				tmp.arity = 0;
 				tmp.nbr_cells = 1;
+				tmp.flags = FLAG_BUILTIN;
 				tmp.val_off = g_true_s;
+				static builtins *s_fn_ptr = NULL;
+
+				if (!s_fn_ptr)
+					s_fn_ptr = get_fn_ptr(fn_iso_true_0);
+
+				tmp.fn_ptr = s_fn_ptr;
 				ok = unify(q, p1_body, p1_body_ctx, &tmp, q->st.curr_frame);
 			} else
 				ok = true;

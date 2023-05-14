@@ -899,8 +899,10 @@ static const char *dump_key(const void *k, const void *v, const void *p)
 
 bool set_op(module *m, const char *name, unsigned specifier, unsigned priority)
 {
+	//printf("*** %s set_op %s / %u / %u\n", m->name, name, specifier, priority);
 	miter *iter = map_find_key(m->ops, name);
 	op_table *ptr;
+	m->did_set_op = true;
 
 	while (map_next_key(iter, (void**)&ptr)) {
 		if (IS_INFIX(ptr->specifier) != IS_INFIX(specifier))
@@ -909,14 +911,12 @@ bool set_op(module *m, const char *name, unsigned specifier, unsigned priority)
 		if (!priority) {
 			ptr->specifier = 0;
 			ptr->priority = 0;
-			m->loaded_ops = false;
 			map_done(iter);
 			return true;
 		}
 
 		ptr->priority = priority;
 		ptr->specifier = specifier;
-		m->loaded_ops = false;
 		map_done(iter);
 		return true;
 	}
@@ -931,14 +931,12 @@ bool set_op(module *m, const char *name, unsigned specifier, unsigned priority)
 		if (!priority) {
 			ptr->specifier = 0;
 			ptr->priority = 0;
-			m->loaded_ops = false;
 			map_done(iter);
 			return true;
 		}
 
 		ptr->priority = priority;
 		ptr->specifier = specifier;
-		m->loaded_ops = false;
 		map_done(iter);
 		return true;
 	}
@@ -948,7 +946,6 @@ bool set_op(module *m, const char *name, unsigned specifier, unsigned priority)
 	tmp->name = set_known(m, name);
 	tmp->priority = priority;
 	tmp->specifier = specifier;
-	m->loaded_ops = false;
 	m->user_ops = true;
 	map_app(m->ops, tmp->name, tmp);
 
@@ -1634,6 +1631,9 @@ module *load_text(module *m, const char *src, const char *filename)
 static bool unload_realfile(module *m, const char *filename)
 {
 	for (predicate *pr = m->head; pr; pr = pr->next) {
+		if (pr->is_multifile || pr->is_dynamic)
+			continue;
+
 		for (db_entry *dbe = pr->head; dbe; dbe = dbe->next) {
 			if (dbe->cl.dgen_erased)
 				continue;

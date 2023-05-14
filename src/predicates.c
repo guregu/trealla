@@ -1840,16 +1840,21 @@ static bool fn_iso_univ_2(query *q)
 		cell *save_p2 = p2;
 		LIST_HANDLER(p2);
 
+		// Because we will reset the heap pointer later we have
+		// to undo what the deep_clone_to_heap did above...
+
+		if (is_string(p2))
+			unshare_cell(p2);
+
 		while (is_list(p2)) {
 			cell *h = LIST_HEAD(p2);
+
+			if (is_cstring(h) && is_string(save_p2))
+				convert_to_literal(q->st.m, h);
+
 			cell *tmp2 = alloc_on_tmp(q, h->nbr_cells);
 			check_heap_error(tmp2);
 			copy_cells(tmp2, h, h->nbr_cells);
-
-			if (is_cstring(tmp2) && is_string(save_p2)) {
-				share_cell(tmp2);
-				convert_to_literal(q->st.m, tmp2);
-			}
 
 			p2 = LIST_TAIL(p2);
 			arity++;
@@ -2205,6 +2210,15 @@ bool do_retract(query *q, cell *p1, pl_idx_t p1_ctx, enum clause_type is_retract
 	if (dbe->owner->m->pl != q->pl)
 		return throw_error(q, p1, p1_ctx, "permission_error", "modify,static_procedure");
 
+	if (dbe->owner->is_multifile
+		&& (is_retract == DO_RETRACTALL)
+		&& strcmp(q->st.m->filename, dbe->filename)
+		&& !strcmp(q->st.m->filename, "user")
+		) {
+		//printf("*** RETRACT? %s : %s/%u multifile=%d, dynamic=%d, m->filename=%s\n", dbe->filename, C_STR(q->st.m, &dbe->owner->key), dbe->owner->key.arity, dbe->owner->is_multifile, dbe->owner->is_dynamic, q->st.m->filename);
+		return true;
+	}
+
 	retract_from_db(dbe);
 	bool last_match = (is_retract == DO_RETRACT) && !has_next_key(q);
 	stash_me(q, &dbe->cl, last_match);
@@ -2274,6 +2288,16 @@ static bool do_abolish(query *q, cell *c_orig, cell *c, bool hard)
 
 	for (db_entry *dbe = pr->head; dbe; dbe = dbe->next)
 		retract_from_db(dbe);
+
+	if (!pr->ref_cnt)
+		pr->ref_cnt++;
+
+	while (pr->dirty_list) {
+		db_entry *dbe = pr->dirty_list;
+		pr->dirty_list = dbe->dirty;
+		dbe->dirty = q->dirty_list;
+		q->dirty_list = dbe;
+	}
 
 	purge_predicate_dirty_list(q, pr);
 	map_destroy(pr->idx2);
@@ -7912,7 +7936,7 @@ static void load_flags(query *q)
 
 static void load_ops(query *q)
 {
-	if (q->st.m->loaded_ops)
+	if (!q->st.m->did_set_op)
 		return;
 
 	cell tmp;
@@ -7922,13 +7946,13 @@ static void load_ops(query *q)
 	if (do_abolish(q, &tmp, &tmp, false) != true)
 		return;
 
-	q->st.m->loaded_ops = true;
+	q->st.m->did_set_op = false;
 	SB_alloc(pr, 1024*8);
 	miter *iter = map_first(q->st.m->ops);
 	op_table *ptr;
 
 	while (map_next(iter, (void**)&ptr)) {
-		char specifier[80], name[256];
+		char specifier[80], name[1024];
 
 		if (!ptr->specifier)
 			continue;
@@ -7955,21 +7979,18 @@ static void load_ops(query *q)
 		else
 			snprintf(name, sizeof(name), "%s", ptr->name);
 
-		char tmpbuf[1024];
-
-		if (quote)
-			snprintf(tmpbuf, sizeof(tmpbuf), "'$current_op'( '%s', %s, %u).\n", name, specifier, ptr->priority);
-		else
-			snprintf(tmpbuf, sizeof(tmpbuf), "'$current_op'( (%s), %s, %u).\n", name, specifier, ptr->priority);
-
-		SB_strcat(pr, tmpbuf);
+		if (quote) {
+			SB_sprintf(pr, "'$current_op'( '%s', %s, %u).\n", name, specifier, ptr->priority);
+		} else {
+			SB_sprintf(pr, "'$current_op'( (%s), %s, %u).\n", name, specifier, ptr->priority);
+		}
 	}
 
 	map_done(iter);
 	iter = map_first(q->st.m->defops);
 
 	while (map_next(iter, (void**)&ptr)) {
-		char specifier[80], name[256];
+		char specifier[80], name[1024];
 
 		if (!ptr->specifier)
 			continue;
@@ -7990,11 +8011,7 @@ static void load_ops(query *q)
 			strcpy(specifier, "xfx");
 
 		formatted(name, sizeof(name), ptr->name, strlen(ptr->name), false, false);
-		char tmpbuf[1024];
-
-		snprintf(tmpbuf, sizeof(tmpbuf), "'$current_op'('%s', %s, %u).\n",
-			name, specifier, ptr->priority);
-		SB_strcat(pr, tmpbuf);
+		SB_sprintf(pr, "'$current_op'('%s', %s, %u).\n", name, specifier, ptr->priority);
 	}
 
 	parser *p = parser_create(q->st.m);
@@ -8002,6 +8019,7 @@ static void load_ops(query *q)
 	p->consulting = true;
 	tokenize(p, false, false);
 	parser_destroy(p);
+	//printf("*** %s load_ops %s\n", q->st.m->name, SB_cstr(pr));
 	SB_free(pr);
 }
 

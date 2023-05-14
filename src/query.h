@@ -49,6 +49,7 @@ bool check_redo(query *q);
 void dump_vars(query *q, bool partial);
 int check_interrupt(query *q);
 bool make_slice(query *q, cell *d, const cell *orig, size_t off, size_t n);
+void unshare_predicate(query *q, predicate *pr);
 
 bool find_exception_handler(query *q, char *e);
 bool throw_error(query *q, cell *c, pl_idx_t c_ctx, const char *err_type, const char *expected);
@@ -127,6 +128,8 @@ bool fn_iso_findall_3(query *q);
 bool fn_iso_bagof_3(query *q);
 
 cell *convert_to_list(query *q, cell *c, pl_idx_t nbr_cells);
+
+builtins *get_fn_ptr(void *fn);
 
 #define FEOF(str) feof(str->fp) && !str->ungetch
 
