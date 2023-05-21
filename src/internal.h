@@ -46,6 +46,7 @@ typedef uint32_t pl_idx_t;
 #include "cdebug.h"
 #include "stringbuf.h"
 #include "imath/imath.h"
+#include "imath/imrat.h"
 #include "sre/re.h"
 
 #if defined(_WIN32) || defined(__wasi__)
@@ -98,6 +99,7 @@ extern unsigned g_string_cnt, g_interned_cnt;
 #define is_basic_integer(c) ((c)->tag == TAG_INTEGER)
 #define is_integer(c) (((c)->tag == TAG_INTEGER) && !((c)->flags & FLAG_INT_STREAM))
 #define is_float(c) ((c)->tag == TAG_DOUBLE)
+#define is_rational(c) ((c)->tag == TAG_RATIONAL)
 #define is_indirect(c) ((c)->tag == TAG_PTR)
 #define is_blob(c) ((c)->tag == TAG_BLOB)
 #define is_end(c) ((c)->tag == TAG_END)
@@ -166,7 +168,7 @@ extern unsigned g_string_cnt, g_interned_cnt;
 #define is_callable(c) (is_interned(c) || (is_cstring(c) && !is_string(c)))
 #define is_structure(c) (is_interned(c) && (c)->arity)
 #define is_compound(c) (is_structure(c) || is_string(c))
-#define is_number(c) (is_integer(c) || is_float(c))
+#define is_number(c) (is_integer(c) || is_float(c) || is_rational(c))
 #define is_atomic(c) (is_atom(c) || is_number(c))
 #define is_nonvar(c) !is_var(c)
 
@@ -178,7 +180,7 @@ typedef struct {
 
 typedef struct {
 	int64_t refcnt;
-	mpz_t ival;
+	union { mpz_t ival; mpq_t irat; };
 } bigint;
 
 typedef struct {
@@ -247,9 +249,10 @@ enum {
 	TAG_CSTR=3,
 	TAG_INTEGER=4,
 	TAG_DOUBLE=5,
-	TAG_PTR=6,
-	TAG_BLOB=7,
-	TAG_END=8
+	TAG_RATIONAL=6,
+	TAG_PTR=7,
+	TAG_BLOB=8,
+	TAG_END=9
 };
 
 enum {
@@ -652,6 +655,7 @@ struct query_ {
 	map *vars;
 	cell accum;
 	mpz_t tmp_ival;
+	mpq_t tmp_irat;
 	prolog_state st;
 	bool ignores[MAX_IGNORES];
 	uint64_t tot_goals, tot_backtracks, tot_retries, tot_matches;
@@ -776,7 +780,7 @@ struct module_ {
 	FILE *fp;
 	map *index, *nbs, *ops, *defops;
 	loaded_file *loaded_files;
-	unsigned id, idx_used, indexing_threshold, arity, max_depth;
+	unsigned id, idx_used, arity;
 	int if_depth;
 	prolog_flags flags;
 	bool ifs_blocked[MAX_IF_DEPTH];
@@ -785,7 +789,6 @@ struct module_ {
 	bool prebuilt:1;
 	bool make_public:1;
 	bool loaded_properties:1;
-	bool did_set_op:1;
 	bool loading:1;
 	bool error:1;
 	bool ignore_vars:1;
@@ -842,6 +845,8 @@ inline static void share_cell_(const cell *c)
 		(c)->val_strb->refcnt++;
 	else if (is_bigint(c))
 		(c)->val_bigint->refcnt++;
+	else if (is_rational(c))
+		(c)->val_bigint->refcnt++;
 	else if (is_blob(c))
 		(c)->val_blob->refcnt++;
 }
@@ -857,6 +862,12 @@ inline static void unshare_cell_(cell *c)
 	} else if (is_bigint(c)) {
 		if (--(c)->val_bigint->refcnt == 0)	{
 			mp_int_clear(&(c)->val_bigint->ival);
+			free((c)->val_bigint);
+			c->flags = 0;
+		}
+	} else if (is_rational(c)) {
+		if (--(c)->val_bigint->refcnt == 0)	{
+			mp_rat_clear(&(c)->val_bigint->irat);
 			free((c)->val_bigint);
 			c->flags = 0;
 		}

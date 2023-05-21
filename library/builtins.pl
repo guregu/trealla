@@ -42,6 +42,18 @@ subsumes_term(G, S) :-
 
 :- help(subsumes_term(+term,+term), [iso(true)]).
 
+% definition taken from the SWI-Prolog documentation
+variant(Term1, Term2) :-
+	% avoid trouble in any shared variables
+	copy_term(Term1, Term1Copy),
+	copy_term(Term2, Term2Copy),
+	% ground and compare the term copies
+	numbervars(Term1Copy, 0, N),
+	numbervars(Term2Copy, 0, N),
+	Term1Copy == Term2Copy.
+
+:- help(variant(+term,+term), [iso(false)]).
+
 forall(Cond, Action) :-
 	\+ (Cond, \+ Action).
 
@@ -385,13 +397,13 @@ directory_exists(F) :- exists_directory(F).
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-current_key(K) :- var(K), '$record_key'(K,_).
-recorda(K, V) :- nonvar(K), nonvar(V), asserta('$record_key'(K,V)).
-recordz(K, V) :- nonvar(K), nonvar(V), assertz('$record_key'(K,V)).
-recorded(K, V) :- nonvar(K), '$record_key'(K,V).
-recorda(K, V, R) :- nonvar(K), nonvar(V), asserta('$record_key'(K,V), R).
-recordz(K, V, R) :- nonvar(K), nonvar(V), assertz('$record_key'(K,V), R).
-recorded(K, V, R) :- nonvar(K), clause('$record_key'(K,V), _, R).
+current_key(K) :- var(K), '$record_global_key'(K,_).
+recorda(K, V) :- nonvar(K), nonvar(V), asserta('$record_global_key'(K,V)).
+recordz(K, V) :- nonvar(K), nonvar(V), assertz('$record_global_key'(K,V)).
+recorded(K, V) :- nonvar(K), '$record_global_key'(K,V).
+recorda(K, V, R) :- nonvar(K), nonvar(V), asserta('$record_global_key'(K,V), R).
+recordz(K, V, R) :- nonvar(K), nonvar(V), assertz('$record_global_key'(K,V), R).
+recorded(K, V, R) :- nonvar(K), clause('$record_global_key'(K,V), _, R).
 
 :- help(current_key(-term), [iso(false)]).
 :- help(recorda(+term,+term), [iso(false)]).
@@ -652,24 +664,24 @@ pretty(PI) :-
 
 nb_setval(K, _) :-
 	must_be(K, atom, nb_setval/2, _),
-	user:retract('$global_key'(K, _)),
+	user:retract('$bb_global_key'(K, _)),
 	fail.
 nb_setval(K, V) :-
 	must_be(K, atom, nb_setval/2, _),
-	user:assertz('$global_key'(K, V)).
+	user:assertz('$bb_global_key'(K, V)).
 
 :- help(nb_setval(+atom,+term), [iso(false)]).
 
 nb_getval(K, V) :-
 	must_be(K, atom, nb_getval/2, _),
-	user:catch('$global_key'(K, V), _, throw(error(existence_error(var, K), nb_getval/2))),
+	user:catch('$bb_global_key'(K, V), _, throw(error(existence_error(var, K), nb_getval/2))),
 	!.
 
 :- help(nb_getval(+atom,?term), [iso(false)]).
 
 nb_delete(K) :-
 	must_be(K, atom, nb_delete/1, _),
-	user:retract('$global_key'(K, _)),
+	user:retract('$bb_global_key'(K, _)),
 	!.
 nb_delete(_).
 
@@ -677,7 +689,7 @@ nb_delete(_).
 
 nb_current(K, V) :-
 	can_be(K, atom, nb_current/2, _),
-	user:clause('$global_key'(K, V), true).
+	user:clause('$bb_global_key'(K, V), true).
 
 :- help(nb_current(+atom,+term), [iso(false)]).
 
@@ -694,41 +706,41 @@ nb_current(K, V) :-
 
 b_setval(K, _) :-
 	must_be(K, atom, b_setval/2, _),
-	\+ user:clause('$global_key'(K, _), _),
-	user:asserta('$global_key'(K, [])),
+	\+ user:clause('$bb_global_key'(K, _), _),
+	user:asserta('$bb_global_key'(K, [])),
 	fail.
 b_setval(K, V) :-
 	must_be(K, atom, b_setval/2, _),
-	user:asserta('$global_key'(K, V)).
+	user:asserta('$bb_global_key'(K, V)).
 b_setval(K, _) :-
-	user:retract('$global_key'(K, _)),
+	user:retract('$bb_global_key'(K, _)),
 	!, fail.
 
 :- help(b_setval(+atom,+term), [iso(false)]).
 
 b_setval0(K, _) :-
 	must_be(K, atom, b_setval0/2, _),
-	\+ user:clause('$global_key'(K, _), _), asserta('$global_key'(K, 0)),
+	\+ user:clause('$bb_global_key'(K, _), _), asserta('$bb_global_key'(K, 0)),
 	fail.
 b_setval0(K, V) :-
 	must_be(K, atom, b_setval0/2, _),
-	user:asserta('$global_key'(K, V)).
+	user:asserta('$bb_global_key'(K, V)).
 b_setval0(K, _) :-
-	user:retract('$global_key'(K, _)),
+	user:retract('$bb_global_key'(K, _)),
 	!, fail.
 
 :- help(b_setval0(+atom,+term), [iso(false)]).
 
 b_getval(K, V) :-
 	must_be(K, atom, b_getval/2, _),
-	user:catch('$global_key'(K, V), _, throw(error(existence_error(var, K), b_getval/2))),
+	user:catch('$bb_global_key'(K, V), _, throw(error(existence_error(var, K), b_getval/2))),
 	!.
 
 :- help(b_getval(+atom,?term), [iso(false)]).
 
 b_delete(K) :-
 	must_be(K, atom, b_delete/1, _),
-	user:retractall('$global_key'(K, _)),
+	user:retractall('$bb_global_key'(K, _)),
 	!.
 b_delete(_).
 
@@ -739,21 +751,21 @@ b_delete(_).
 
 bb_b_put(K, _) :-
 	must_be(K, atom, bb_b_put/2, _),
-	\+ user:clause('$global_key'(K, _), _),
-	user:asserta('$global_key'(K, [])),
+	\+ user:clause('$bb_global_key'(K, _), _),
+	user:asserta('$bb_global_key'(K, [])),
 	fail.
 bb_b_put(K, V) :-
 	must_be(K, atom, bb_b_put/2, _),
-	user:asserta('$global_key'(K, V)).
+	user:asserta('$bb_global_key'(K, V)).
 bb_b_put(K, _) :-
-	user:retract('$global_key'(K, _)),
+	user:retract('$bb_global_key'(K, _)),
 	!, fail.
 
 :- help(bb_b_put(+atom,+term), [iso(false)]).
 
 bb_b_del(K) :-
 	must_be(K, atom, bb_b_del/1, _),
-	user:retract('$global_key'(K, _)),
+	user:retract('$bb_global_key'(K, _)),
 	!.
 bb_b_del(_).
 
@@ -761,39 +773,39 @@ bb_b_del(_).
 
 bb_put(K, _) :-
 	must_be(K, atom, bb_put/2, _),
-	user:retract('$global_key'(K, _)),
+	user:retract('$bb_global_key'(K, _)),
 	fail.
 bb_put(K, V) :-
 	must_be(K, atom, bb_put/2, _),
-	user:assertz('$global_key'(K, V)).
+	user:assertz('$bb_global_key'(K, V)).
 
 :- help(bb_put(+atom,+term), [iso(false)]).
 
 bb_get(K, V) :-
 	must_be(K, atom, bb_get/2, _),
-	user:catch('$global_key'(K, V), _, throw(error(existence_error(var, K), bb_get/2))),
+	user:catch('$bb_global_key'(K, V), _, fail),
 	!.
 
 :- help(bb_get(+atom,?term), [iso(false)]).
 
 bb_delete(K, V) :-
 	must_be(K, atom, bb_delete/2, _),
-	user:retract('$global_key'(K, V)),
+	user:catch(user:retract('$bb_global_key'(K, V)), _, fail),
 	!.
 
 :- help(bb_delete(+atom,+term), [iso(false)]).
 
 bb_update(K, O, V) :-
 	must_be(K, atom, bb_update/3, _),
-	user:retract('$global_key'(K, O)),
-	user:assertz('$global_key'(K, V)),
+	user:catch(user:retract('$bb_global_key'(K, O)), _, true),
+	user:assertz('$bb_global_key'(K, V)),
 	!.
 
 :- help(bb_update(+atom,+term,+term), [iso(false)]).
 
 bb_del(K) :-
 	must_be(K, atom, bb_del/1, _),
-	user:retractall('$global_key'(K, _)),
+	user:retractall('$bb_global_key'(K, _)),
 	!.
 bb_del(_).
 
@@ -807,8 +819,9 @@ bb_del(_).
 
 current_op(A, B, C) :- var(A), var(B), var(C),
 	!,
+	retractall('$op'(_,_,_)),
 	'$load_ops',
-	'$current_op'(C, B, A).
+	'$op'(C, B, A).
 current_op(_, _, C) :- nonvar(C), \+ atom(C),
 	!, throw(error(type_error(atom,C), current_op/3)).
 current_op(_, B, _) :- nonvar(B), \+ atom(B),
@@ -826,8 +839,9 @@ current_op(A, _, _) :- nonvar(A),
 	\+ (A =< 1200),
 	!, throw(error(domain_error(operator_priority, A), current_op/3)).
 current_op(A, B, C) :-
+	retractall('$op'(_,_,_)),
 	'$load_ops',
-	'$current_op'(C, B, A).
+	'$op'(C, B, A).
 
 :- help(current_op(?integer,?atom,?atom), [iso(true)]).
 

@@ -10,7 +10,6 @@
 #define MAX_FFI 1000
 
 #define CHECK_CALC()								\
-	clr_accum(&q->accum);							\
 	errno = 0;										\
 													\
 	if (!q->eval) {									\
@@ -86,6 +85,7 @@ void make_call(query *q, cell *tmp);
 void make_call_return(query *q, cell *tmp, cell *ret);
 void make_end(cell *tmp);
 void make_atom(cell *tmp, pl_idx_t offset);
+cell *make_nil(void);
 void make_smalln(cell *tmp, const char *s, size_t n);
 bool make_cstringn(cell *tmp, const char *s, size_t n);
 bool make_stringn(cell *tmp, const char *s, size_t n);
@@ -202,7 +202,7 @@ inline static void set_var(query *q, const cell *c, pl_idx_t c_ctx, cell *v, pl_
 	cell *c_attrs = is_empty(&e->c) ? e->c.attrs : NULL, *v_attrs = NULL;
 	pl_idx_t c_attrs_ctx = c_attrs ? e->c.attrs_ctx : 0;
 
-	if (c_attrs || (q->cp && (c_ctx < q->st.fp)) || is_managed(v))
+	//if (c_attrs || q->cp || (c_ctx < q->st.fp) || is_managed(v))
 		add_trail(q, c_ctx, c->var_nbr, c_attrs, c_attrs_ctx);
 
 	if (c_attrs && is_var(v)) {
@@ -245,7 +245,7 @@ inline static void reset_var(query *q, const cell *c, pl_idx_t c_ctx, cell *v, p
 	const frame *f = GET_FRAME(c_ctx);
 	slot *e = GET_SLOT(f, c->var_nbr);
 
-	if ((q->cp && (c_ctx < q->st.fp)) || is_managed(v))
+	//if (q->cp || (c_ctx < q->st.fp) || is_managed(v))
 		add_trail(q, c_ctx, c->var_nbr, NULL, 0);
 
 	if (is_structure(v)) {

@@ -773,6 +773,33 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx_t 
 		return dst - save_dst;
 	}
 
+	if (is_rational(c)) {
+		int radix = 10;
+
+		if (!dstlen)
+			dst += mp_int_string_len(&c->val_bigint->irat.num, radix) - 1;
+		else {
+			size_t len = mp_int_string_len(&c->val_bigint->irat.num, radix) - 1;
+			mp_int_to_string(&c->val_bigint->irat.num, radix, dst, len+1);
+			dst += strlen(dst);
+		}
+
+		dst += snprintf(dst, dstlen, " div ");
+
+		if (!dstlen)
+			dst += mp_int_string_len(&c->val_bigint->irat.den, radix) - 1;
+		else {
+			size_t len = mp_int_string_len(&c->val_bigint->irat.den, radix) - 1;
+			mp_int_to_string(&c->val_bigint->irat.den, radix, dst, len+1);
+			dst += strlen(dst);
+		}
+
+		if (dstlen) *dst = 0;
+		q->last_thing_was_symbol = false;
+		q->was_space = false;
+		return dst - save_dst;
+	}
+
 	if (is_bigint(c)) {
 		int radix = 10;
 
@@ -918,18 +945,23 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx_t 
 
 	const char *src = !is_ref(c) ? C_STR(q, c) : "_";
 	size_t src_len = !is_ref(c) ? C_STRLEN(q, c) : 1;
-	int optype = GET_OP(c);
-	unsigned specifier = 0, pri = 0;
+	unsigned specifier = 0, pri = 0, spec = 0;
+	unsigned my_priority = search_op(q->st.m, src, &specifier, false);
+	bool is_op = IS_OP(c);
 
-	if (!optype && !is_var(c)
-		&& (pri = search_op(q->st.m, src, &specifier, true) && (c->arity == 1))) {
-		if (IS_PREFIX(specifier)) {
-			SET_OP(c, specifier);
-			optype = specifier;
+	if (!is_op && !is_var(c) && (c->arity == 1)
+		&& (pri = search_op(q->st.m, src, &spec, true))) {
+		if (IS_PREFIX(spec)) {
+			SET_OP(c, spec);
+			specifier = spec;
+			my_priority = pri;
 		}
 	}
 
-	if (q->ignore_ops || !optype || !c->arity) {
+	if (!specifier)
+		CLR_OP(c);
+
+	if (q->ignore_ops || !IS_OP(c) || !c->arity) {
 		int quote = ((running <= 0) || q->quoted) && !is_var(c) && needs_quoting(q->st.m, src, src_len);
 		int dq = 0, braces = 0;
 		if (is_string(c)) dq = quote = 1;
@@ -1165,7 +1197,6 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx_t 
 	unsigned lhs_pri_2 = is_interned(lhs) && !lhs->arity ? search_op(q->st.m, C_STR(q, lhs), NULL, false) : 0;
 	unsigned rhs_pri_1 = is_interned(rhs) ? search_op(q->st.m, C_STR(q, rhs), NULL, is_prefix(rhs)) : 0;
 	unsigned rhs_pri_2 = is_interned(rhs) && !rhs->arity ? search_op(q->st.m, C_STR(q, rhs), NULL, false) : 0;
-	unsigned my_priority = search_op(q->st.m, src, NULL, false);
 
 	// Print LHS..
 

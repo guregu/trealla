@@ -178,6 +178,15 @@ void make_atom(cell *tmp, pl_idx_t offset)
 	tmp->val_off = offset;
 }
 
+cell *make_nil(void)
+{
+	static cell tmp = {0};
+	tmp.tag = TAG_INTERNED;
+	tmp.nbr_cells = 1;
+	tmp.val_off = g_nil_s;
+	return &tmp;
+}
+
 void make_smalln(cell *tmp, const char *s, size_t n)
 {
 	*tmp = (cell){0};
@@ -496,11 +505,8 @@ static bool fn_iso_atom_chars_2(query *q)
 		return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 	}
 
-	if (is_var(p2) && !C_STRLEN(q, p1)) {
-		cell tmp;
-		make_atom(&tmp, g_nil_s);
-		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	}
+	if (is_var(p2) && !C_STRLEN(q, p1))
+		return unify(q, p2, p2_ctx, make_nil(), q->st.curr_frame);
 
 	if (is_var(p2)) {
 		cell tmp;
@@ -788,11 +794,8 @@ static bool fn_iso_atom_codes_2(query *q)
 		return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 	}
 
-	if (is_var(p2) && !C_STRLEN(q, p1)) {
-		cell tmp;
-		make_atom(&tmp, g_nil_s);
-		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	}
+	if (is_var(p2) && !C_STRLEN(q, p1))
+		return unify(q, p2, p2_ctx, make_nil(), q->st.curr_frame);
 
 	// Verify the list
 
@@ -906,11 +909,8 @@ static bool fn_string_codes_2(query *q)
 		return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 	}
 
-	if (is_var(p2) && !C_STRLEN(q, p1)) {
-		cell tmp;
-		make_atom(&tmp, g_nil_s);
-		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	}
+	if (is_var(p2) && !C_STRLEN(q, p1))
+		return unify(q, p2, p2_ctx, make_nil(), q->st.curr_frame);
 
 	// Verify the list
 
@@ -1015,11 +1015,8 @@ static bool fn_hex_bytes_2(query *q)
 	if (is_iso_list(p2) && !check_list(q, p2, p2_ctx, &is_partial, NULL) && !is_partial)
 		return throw_error(q, p2, p2_ctx, "type_error", "list");
 
-	if (is_nil(p2)) {
-		cell tmp;
-		make_atom(&tmp, g_nil_s);
-		return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
-	}
+	if (is_nil(p2))
+		return unify(q, p1, p1_ctx, make_nil(), q->st.curr_frame);
 
 	// Verify the list
 
@@ -1150,11 +1147,8 @@ static bool fn_hex_bytes_2(query *q)
 	if (!is_nil(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "hex_encoding");
 
-	if (first) {
-		cell tmp;
-		make_atom(&tmp, g_nil_s);
-		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	}
+	if (first)
+		return unify(q, p2, p2_ctx, make_nil(), q->st.curr_frame);
 
 	cell *l = end_list(q);
 	check_heap_error(l);
@@ -1840,12 +1834,6 @@ static bool fn_iso_univ_2(query *q)
 		cell *save_p2 = p2;
 		LIST_HANDLER(p2);
 
-		// Because we will reset the heap pointer later we have
-		// to undo what the deep_clone_to_heap did above...
-
-		if (is_string(p2))
-			unshare_cell(p2);
-
 		while (is_list(p2)) {
 			cell *h = LIST_HEAD(p2);
 
@@ -1887,7 +1875,6 @@ static bool fn_iso_univ_2(query *q)
 		if (arity > MAX_ARITY)
 			return throw_error(q, tmp2, q->st.curr_frame, "representation_error", "max_arity");
 
-		q->st.hp = save_hp;
 		check_heap_error(tmp = alloc_on_heap(q, nbr_cells));
 		safe_copy_cells(tmp, tmp2, nbr_cells);
 		tmp->nbr_cells = nbr_cells;
@@ -1985,11 +1972,8 @@ static bool fn_iso_term_variables_2(query *q)
 	if (is_iso_list(p2) && !check_list(q, p2, p2_ctx, &is_partial, NULL) && !is_partial)
 		return throw_error(q, p2, p2_ctx, "type_error", "list");
 
-	if (!is_var(p1) && (is_atom(p1) || is_number(p1))) {
-		cell tmp;
-		make_atom(&tmp, g_nil_s);
-		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	}
+	if (!is_var(p1) && (is_atom(p1) || is_number(p1)))
+		return unify(q, p2, p2_ctx, make_nil(), q->st.curr_frame);
 
 	cell *tmp = do_term_variables(q, p1, p1_ctx);
 	check_heap_error(tmp);
@@ -2061,11 +2045,8 @@ static bool fn_term_singletons_2(query *q)
 	if (is_iso_list(p2) && !check_list(q, p2, p2_ctx, &is_partial, NULL) && !is_partial)
 		return throw_error(q, p2, p2_ctx, "type_error", "list");
 
-	if (!is_var(p1) && (is_atom(p1) || is_number(p1))) {
-		cell tmp;
-		make_atom(&tmp, g_nil_s);
-		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	}
+	if (!is_var(p1) && (is_atom(p1) || is_number(p1)))
+		return unify(q, p2, p2_ctx, make_nil(), q->st.curr_frame);
 
 	cell *tmp = do_term_singletons(q, p1, p1_ctx);
 	check_heap_error(tmp);
@@ -2275,9 +2256,9 @@ static bool fn_iso_retractall_1(query *q)
 	return true;
 }
 
-static bool do_abolish(query *q, cell *c_orig, cell *c, bool hard)
+static bool do_abolish(query *q, cell *c_orig, cell *c_pi, bool hard)
 {
-	predicate *pr = search_predicate(q->st.m, c, NULL);
+	predicate *pr = search_predicate(q->st.m, c_pi, NULL);
 	if (!pr) return true;
 
 	if (!pr->is_dynamic)
@@ -2945,11 +2926,8 @@ static bool fn_iso_current_prolog_flag_2(query *q)
 		make_atom(&tmp, index_from_pool(q->pl, g_version));
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 	} else if (!CMP_STR_TO_CSTR(q, p1, "argv")) {
-		if (g_avc >= g_ac) {
-			cell tmp;
-			make_atom(&tmp, g_nil_s);
-			return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-		}
+		if (g_avc >= g_ac)
+			return unify(q, p2, p2_ctx, make_nil(), q->st.curr_frame);
 
 		int i = g_avc;
 		cell tmp;
@@ -3255,11 +3233,8 @@ static bool fn_iso_sort_2(query *q)
 	if (is_iso_list(p2) && !check_list(q, p2, p2_ctx, &is_partial, &skip2) && !is_partial)
 		return throw_error(q, p2, p2_ctx, "type_error", "list");
 
-	if (is_nil(p1)) {
-		cell tmp;
-		make_atom(&tmp, g_nil_s);
-		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	}
+	if (is_nil(p1))
+		return unify(q, p2, p2_ctx, make_nil(), q->st.curr_frame);
 
 	if (!is_list_or_nil(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "list");
@@ -3298,11 +3273,8 @@ static bool fn_iso_msort_2(query *q)
 	if (is_iso_list(p2) && !check_list(q, p2, p2_ctx, &is_partial, &skip2) && !is_partial)
 		return throw_error(q, p2, p2_ctx, "type_error", "list");
 
-	if (is_nil(p1)) {
-		cell tmp;
-		make_atom(&tmp, g_nil_s);
-		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	}
+	if (is_nil(p1))
+		return unify(q, p2, p2_ctx, make_nil(), q->st.curr_frame);
 
 	if (!is_list_or_nil(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "list");
@@ -3352,11 +3324,8 @@ static bool fn_iso_keysort_2(query *q)
 			return throw_error(q, tmp_h, tmp_h_ctx, "type_error", "pair");
 	}
 
-	if (is_nil(p1)) {
-		cell tmp;
-		make_atom(&tmp, g_nil_s);
-		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	}
+	if (is_nil(p1))
+		return unify(q, p2, p2_ctx, make_nil(), q->st.curr_frame);
 
 	if (skip1 && skip2 && (skip2 > skip1))
 		return false;
@@ -3482,11 +3451,8 @@ static bool fn_sort_4(query *q)
 			return throw_error(q, tmp_h, tmp_h_ctx, "type_error", "pair");
 	}
 
-	if (is_nil(p3)) {
-		cell tmp;
-		make_atom(&tmp, g_nil_s);
-		return unify(q, p4, p4_ctx, &tmp, q->st.curr_frame);
-	}
+	if (is_nil(p3))
+		return unify(q, p4, p4_ctx, make_nil(), q->st.curr_frame);
 
 	if (skip1 && skip2 && (skip2 > skip1))
 		return false;
@@ -4532,7 +4498,6 @@ static bool fn_statistics_2(query *q)
 		q->time_cpu_last_started = now;
 		make_int(&tmp, elapsed/1000);
 		append_list(q, &tmp);
-		make_atom(&tmp, g_nil_s);
 		cell *l = end_list(q);
 		check_heap_error(l);
 		return unify(q, p2, p2_ctx, l, q->st.curr_frame);
@@ -4720,11 +4685,8 @@ static bool fn_split_string_4(query *q)
 	cell *l = NULL;
 	int nbr = 1, in_list = 0;
 
-	if (!*start) {
-		cell tmp;
-		make_atom(&tmp, g_nil_s);
-		return unify(q, p4, p4_ctx, &tmp, q->st.curr_frame);
-	}
+	if (!*start)
+		return unify(q, p4, p4_ctx, make_nil(), q->st.curr_frame);
 
 	// FIXME: sep & pad are not a single char...
 
@@ -4775,13 +4737,10 @@ static bool fn_split_4(query *q)
 	GET_NEXT_ARG(p4,any);
 
 	if (is_nil(p1) || !C_STRLEN(q, p1)) {
-		cell tmp;
-		make_atom(&tmp, g_nil_s);
-
-		if (!unify(q, p3, p3_ctx, &tmp, q->st.curr_frame))
+		if (!unify(q, p3, p3_ctx, make_nil(), q->st.curr_frame))
 			return false;
 
-		return unify(q, p4, p4_ctx, &tmp, q->st.curr_frame);
+		return unify(q, p4, p4_ctx, make_nil(), q->st.curr_frame);
 	}
 
 	const char *start = C_STR(q, p1), *ptr;
@@ -4819,9 +4778,7 @@ static bool fn_split_4(query *q)
 	if (!unify(q, p3, p3_ctx, p1, p1_ctx))
 		return false;
 
-	cell tmp;
-	make_atom(&tmp, g_nil_s);
-	return unify(q, p4, p4_ctx, &tmp, q->st.curr_frame);
+	return unify(q, p4, p4_ctx, make_nil(), q->st.curr_frame);
 }
 
 static bool fn_sys_is_partial_string_1(query *q)
@@ -5011,7 +4968,7 @@ static bool fn_must_be_2(query *q)
 	else if (!strcmp(src, "nonvar") && is_var(p1))
 		return throw_error(q, p1, p1_ctx, "instantiation_error", "instantiated");
 
-	if (strcmp(src, "ground") && strcmp(src, "acyclic") && is_var(p1))
+	if (strcmp(src, "var") && strcmp(src, "ground") && strcmp(src, "acyclic") && is_var(p1))
 		return throw_error(q, p1, p1_ctx, "instantiation_error", "not_sufficiently_instantiated");
 
 	if (!strcmp(src, "callable")) {
@@ -6759,11 +6716,8 @@ static bool fn_sys_list_attributed_1(query *q)
 			append_list(q, &v);
 	}
 
-	if (first) {
-		cell tmp;
-		make_atom(&tmp, g_nil_s);
-		return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
-	}
+	if (first)
+		return unify(q, p1, p1_ctx, make_nil(), q->st.curr_frame);
 
 	cell *l = end_list(q);
 	return unify(q, p1, p1_ctx, l, 0);
@@ -7936,17 +7890,6 @@ static void load_flags(query *q)
 
 static void load_ops(query *q)
 {
-	if (!q->st.m->did_set_op)
-		return;
-
-	cell tmp;
-	make_atom(&tmp, index_from_pool(q->pl, "$current_op"));
-	tmp.arity = 3;
-
-	if (do_abolish(q, &tmp, &tmp, false) != true)
-		return;
-
-	q->st.m->did_set_op = false;
 	SB_alloc(pr, 1024*8);
 	miter *iter = map_first(q->st.m->ops);
 	op_table *ptr;
@@ -7954,7 +7897,7 @@ static void load_ops(query *q)
 	while (map_next(iter, (void**)&ptr)) {
 		char specifier[80], name[1024];
 
-		if (!ptr->specifier)
+		if (!ptr->priority || !ptr->specifier)
 			continue;
 
 		if (ptr->specifier == OP_FX)
@@ -7980,9 +7923,9 @@ static void load_ops(query *q)
 			snprintf(name, sizeof(name), "%s", ptr->name);
 
 		if (quote) {
-			SB_sprintf(pr, "'$current_op'( '%s', %s, %u).\n", name, specifier, ptr->priority);
+			SB_sprintf(pr, "'$op'( '%s', %s, %u).\n", name, specifier, ptr->priority);
 		} else {
-			SB_sprintf(pr, "'$current_op'( (%s), %s, %u).\n", name, specifier, ptr->priority);
+			SB_sprintf(pr, "'$op'( (%s), %s, %u).\n", name, specifier, ptr->priority);
 		}
 	}
 
@@ -8011,7 +7954,7 @@ static void load_ops(query *q)
 			strcpy(specifier, "xfx");
 
 		formatted(name, sizeof(name), ptr->name, strlen(ptr->name), false, false);
-		SB_sprintf(pr, "'$current_op'('%s', %s, %u).\n", name, specifier, ptr->priority);
+		SB_sprintf(pr, "'$op'('%s', %s, %u).\n", name, specifier, ptr->priority);
 	}
 
 	parser *p = parser_create(q->st.m);

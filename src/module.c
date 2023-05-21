@@ -304,9 +304,6 @@ static int index_cmpkey_(const void *ptr1, const void *ptr2, const void *param, 
 	const cell *p1 = (const cell*)ptr1;
 	const cell *p2 = (const cell*)ptr2;
 
-	if (m->max_depth && (depth > m->max_depth))
-		return 0;
-
 	if (is_smallint(p1)) {
 		if (is_smallint(p2)) {
 			if (get_smallint(p1) < get_smallint(p2))
@@ -317,6 +314,8 @@ static int index_cmpkey_(const void *ptr1, const void *ptr2, const void *param, 
 				return 0;
 		} else if (is_bigint(p2)) {
 			return -mp_int_compare_value(&p2->val_bigint->ival, p1->val_int);
+		} else if (is_rational(p2)) {
+			return -mp_rat_compare_value(&p2->val_bigint->irat, p1->val_int, 1);
 		} else if (!is_var(p2))
 			return -1;
 	} else if (is_bigint(p1)) {
@@ -324,6 +323,20 @@ static int index_cmpkey_(const void *ptr1, const void *ptr2, const void *param, 
 			return mp_int_compare(&p1->val_bigint->ival, &p2->val_bigint->ival);
 		} else if (is_smallint(p2)) {
 			return mp_int_compare_value(&p1->val_bigint->ival, p2->val_int);
+		} else if (!is_var(p2))
+			return -1;
+	} else if (is_rational(p1)) {
+		if (is_rational(p2)) {
+			return mp_rat_compare(&p1->val_bigint->irat, &p2->val_bigint->irat);
+		} else if (is_bigint(p2)) {
+			mpq_t tmp;
+			mp_int_init_copy(&tmp.num, &p2->val_bigint->ival);
+			mp_int_init_value(&tmp.den, 1);
+			int ok = mp_rat_compare(&p1->val_bigint->irat, &tmp);
+			mp_rat_clear(&tmp);
+			return ok;
+		} else if (is_smallint(p2)) {
+			return mp_rat_compare_value(&p1->val_bigint->irat, p2->val_int, 1);
 		} else if (!is_var(p2))
 			return -1;
 	} else if (is_float(p1)) {
@@ -372,7 +385,7 @@ static int index_cmpkey_(const void *ptr1, const void *ptr2, const void *param, 
 			p1++; p2++;
 
 			while (arity--) {
-				if (!depth && (is_var(p1) || is_var(p2))) {
+				if (is_var(p1) || is_var(p2)) {
 					if (map_is_find(l))
 						break;
 
@@ -902,7 +915,6 @@ bool set_op(module *m, const char *name, unsigned specifier, unsigned priority)
 	//printf("*** %s set_op %s / %u / %u\n", m->name, name, specifier, priority);
 	miter *iter = map_find_key(m->ops, name);
 	op_table *ptr;
-	m->did_set_op = true;
 
 	while (map_next_key(iter, (void**)&ptr)) {
 		if (IS_INFIX(ptr->specifier) != IS_INFIX(specifier))
@@ -1176,8 +1188,6 @@ static void optimize_rule(module *m, db_entry *dbe_orig)
 	if (pr->key.arity > 2)
 		p3 = p2 + p2->nbr_cells;
 
-	m->max_depth = 1;
-
 	for (db_entry *dbe = dbe_orig->next; dbe; dbe = dbe->next) {
 		if (dbe->cl.dgen_erased)
 			continue;
@@ -1209,8 +1219,6 @@ static void optimize_rule(module *m, db_entry *dbe_orig)
 			break;
 		}
 	}
-
-	m->max_depth = 0;
 
 	if (!matched)
 		cl->is_unique = true;
@@ -1357,7 +1365,7 @@ static void assert_commit(module *m, db_entry *dbe, predicate *pr, bool append)
 	if (!pr->idx) {
 		bool sys = C_STR(m, &pr->key)[0] == '$';
 
-		if (pr->cnt < (!pr->is_dynamic || sys ? m->indexing_threshold : 50))
+		if (pr->cnt < 1500)
 			return;
 
 		pr->idx = map_create(index_cmpkey, NULL, m);
@@ -1373,15 +1381,15 @@ static void assert_commit(module *m, db_entry *dbe, predicate *pr, bool append)
 		for (db_entry *cl2 = pr->head; cl2; cl2 = cl2->next) {
 			cell *c = get_head(cl2->cl.cells);
 
-			if (!cl2->cl.dgen_erased) {
-				map_app(pr->idx, c, cl2);
+			if (cl2->cl.dgen_erased)
+				continue;
 
-				cell *arg1 = c->arity ? c + 1 : NULL;
-				cell *arg2 = arg1 ? arg1 + arg1->nbr_cells : NULL;
+			map_app(pr->idx, c, cl2);
 
-				if (pr->idx2 && arg2) {
-					map_app(pr->idx2, arg2, cl2);
-				}
+			if (pr->idx2) {
+				cell *arg1 = c + 1;
+				cell *arg2 = arg1 + arg1->nbr_cells;
+				map_app(pr->idx2, arg2, cl2);
 			}
 		}
 
@@ -2019,7 +2027,6 @@ module *module_create(prolog *pl, const char *name)
 	m->id = ++pl->next_mod_id;
 	m->defops = map_create((void*)fake_strcmp, NULL, NULL);
 	map_allow_dups(m->defops, false);
-	m->indexing_threshold = 1500;
 	pl->modmap[m->id] = m;
 
 	if (strcmp(name, "system")) {
