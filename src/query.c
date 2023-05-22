@@ -596,7 +596,7 @@ void try_me(query *q, unsigned nbr_vars)
 
 	while (nbr_vars--) {
 		init_cell(&e->c);
-		e->vgen = e->vgen2 = 0;
+		//e->vgen = e->vgen2 = 0;
 		e++;
 	}
 
@@ -1900,6 +1900,7 @@ query *query_create(module *m, bool is_task)
 	q->flags = m->flags;
 	q->get_started = get_time_in_usec();
 	q->time_cpu_last_started = q->time_cpu_started = cpu_time_in_usec();
+	q->ops_dirty = true;
 	q->st.prob = 1.0;
 	mp_int_init(&q->tmp_ival);
 	mp_rat_init(&q->tmp_irat);

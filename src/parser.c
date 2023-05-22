@@ -125,13 +125,10 @@ cell *get_logical_body(cell *c)
 
 void clear_rule(clause *cl)
 {
-	if (!cl)
-		return;
+	cell *c = cl->cells;
 
-	for (pl_idx_t i = 0; i < cl->cidx; i++) {
-		cell *c = cl->cells + i;
+	for (pl_idx_t i = 0; i < cl->cidx; i++, c++) {
 		unshare_cell(c);
-		init_cell(c);
 	}
 
 	cl->cidx = 0;
@@ -167,9 +164,15 @@ void parser_destroy(parser *p)
 {
 	if (!p) return;
 	SB_free(p->token);
-	free(p->save_line);
-	clear_rule(p->cl);
-	free(p->cl);
+
+	if (p->save_line)
+		free(p->save_line);
+
+	if (p->cl) {
+		clear_rule(p->cl);
+		free(p->cl);
+	}
+
 	free(p);
 }
 

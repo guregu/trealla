@@ -10,18 +10,6 @@
 #include "prolog.h"
 #include "query.h"
 
-static bool is_ground(cell *c)
-{
-	pl_idx_t nbr_cells = c->nbr_cells;
-
-	for (pl_idx_t i = 0; i < nbr_cells; i++, c++) {
-		if (is_var(c))
-			return false;
-	}
-
-	return true;
-}
-
 bool fn_iso_findall_3(query *q)
 {
 	GET_FIRST_ARG(xp1,any);
@@ -36,9 +24,17 @@ bool fn_iso_findall_3(query *q)
 		if (is_iso_list(xp3) && !check_list(q, xp3, xp3_ctx, &is_partial, NULL) && !is_partial)
 			return throw_error(q, xp3, xp3_ctx, "type_error", "list");
 
-		cell *p0 = deep_copy_to_heap(q, q->st.curr_cell, q->st.curr_frame, true);
-		check_heap_error(p0);
-		unify(q, q->st.curr_cell, q->st.curr_frame, p0, q->st.curr_frame);
+		cell *p0;
+
+		if (is_compound(xp1) && !is_iso_list(xp1)) {
+			p0 = deep_copy_to_heap(q, q->st.curr_cell, q->st.curr_frame, false);
+			check_heap_error(p0);
+			unify(q, q->st.curr_cell, q->st.curr_frame, p0, q->st.curr_frame);
+		} else {
+			p0 = deep_clone_to_heap(q, q->st.curr_cell, q->st.curr_frame);
+			check_heap_error(p0);
+		}
+
 		GET_FIRST_ARG0(p1,any,p0);
 		GET_NEXT_ARG(p2,any);
 
@@ -52,7 +48,7 @@ bool fn_iso_findall_3(query *q)
 		nbr_cells += safe_copy_cells(tmp+nbr_cells, p1, p1->nbr_cells);
 		make_struct(tmp+nbr_cells++, g_fail_s, fn_iso_fail_0, 0, 0);
 		make_call(q, tmp+nbr_cells);
-		check_heap_error(push_barrier(q));		// Creates choice-point
+		check_heap_error(push_barrier(q));
 		q->st.curr_cell = tmp;
 		return true;
 	}
@@ -66,23 +62,24 @@ bool fn_iso_findall_3(query *q)
 
 	pl_idx_t nbr_cells = queuen_used(q);
 	cell *solns = take_queuen(q);
+	drop_queuen(q);
 
-	// Now grab matching solutions
+	// Now grab matching solutions with fresh variables...
 
 	try_me(q, MAX_ARITY);
+	check_heap_error(init_tmp_heap(q), free(solns));
 
 	for (cell *c = solns; nbr_cells; nbr_cells -= c->nbr_cells, c += c->nbr_cells) {
-		check_heap_error(init_tmp_heap(q), free(solns), drop_queuen(q));
-		cell *tmp = deep_copy_to_tmp(q, c, q->st.fp, false);
-		check_heap_error(tmp, free(solns), drop_queuen(q));
-		check_heap_error(alloc_on_queuen(q, q->st.qnbr, tmp), free(solns), drop_queuen(q));
+		cell *tmp = alloc_on_tmp(q, 1);
+		check_heap_error(tmp, free(solns));
+		make_struct(tmp, g_dot_s, NULL, 2, c->nbr_cells);
+		tmp = deep_copy_to_tmp(q, c, q->st.fp, false);
+		check_heap_error(tmp, free(solns));
 	}
 
-	// Return matching solutions
-
-	free(solns);
-	cell *l = convert_to_list(q, get_queuen(q), queuen_used(q));
-	drop_queuen(q);
+	cell *l = end_list(q);
 	check_heap_error(l);
+	fix_list(l);
+	free(solns);
 	return unify(q, xp3, xp3_ctx, l, q->st.curr_frame);
 }
