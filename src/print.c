@@ -758,9 +758,9 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx_t 
 		int n = get_stream(q, c);
 		stream *str = &q->pl->streams[n];
 		if (is_map_stream(str))
-			dst += snprintf(dst, dstlen, "'<$map_stream>'(%p)", c);
+			dst += snprintf(dst, dstlen, "'<$map_stream>'(%d)", n);
 		else
-			dst += snprintf(dst, dstlen, "'<$closed_stream>'(%p)", c);
+			dst += snprintf(dst, dstlen, "'<$closed_stream>'(%d)", n);
 		q->last_thing_was_symbol = false;
 		q->was_space = false;
 		return dst - save_dst;

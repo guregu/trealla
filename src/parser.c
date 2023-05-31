@@ -265,7 +265,8 @@ static void do_op(parser *p, cell *c, bool make_public)
 		specifier = OP_YFX;
 	else {
 		if (DUMP_ERRS || !p->do_read_term)
-		fprintf(stdout, "Error: unknown op spec tag, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
+			fprintf(stdout, "Error: unknown op spec tag, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
+
 		free(spec);
 		return;
 	}
@@ -1247,7 +1248,7 @@ static bool reduce(parser *p, pl_idx_t start_idx, bool last_op)
 
 			if (off > end_idx) {
 				if (DUMP_ERRS || !p->do_read_term)
-					fprintf(stdout, "Error: syntax error, missing operand to '%s', %s:%d\n", C_STR(p, c), get_loaded(p->m, p->m->filename), p->line_nbr);
+					fprintf(stdout, "Error: syntax error, missing operand, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
 
 				p->error_desc = "operand_missing";
 				p->error = true;
@@ -1264,7 +1265,7 @@ static bool reduce(parser *p, pl_idx_t start_idx, bool last_op)
 
 		if (is_xf(rhs) && (rhs->priority == c->priority) && !is_quoted(rhs)) {
 			if (DUMP_ERRS || !p->do_read_term)
-					fprintf(stdout, "Error: syntax error, operator clash, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
+				fprintf(stdout, "Error: syntax error, operator clash, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
 
 			p->error_desc = "operator_clash";
 			p->error = true;
@@ -1273,7 +1274,7 @@ static bool reduce(parser *p, pl_idx_t start_idx, bool last_op)
 
 		if (is_prefix(rhs) && !rhs->arity && (rhs->priority > c->priority)) {
 			if (DUMP_ERRS || !p->do_read_term)
-					fprintf(stdout, "Error: syntax error, operator clash, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
+				fprintf(stdout, "Error: syntax error, operator clash, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
 
 			p->error_desc = "operator_clash";
 			p->error = true;
@@ -1297,7 +1298,7 @@ static bool reduce(parser *p, pl_idx_t start_idx, bool last_op)
 
 		if (is_infix(rhs) && !rhs->arity && !is_quoted(rhs)) {
 			if (DUMP_ERRS || !p->do_read_term)
-					fprintf(stdout, "Error: syntax error, operator clash, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
+				fprintf(stdout, "Error: syntax error, operator clash, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
 
 			p->error_desc = "operator_clash";
 			p->error = true;
@@ -1310,7 +1311,7 @@ static bool reduce(parser *p, pl_idx_t start_idx, bool last_op)
 
 		if (nolhs || (off > end_idx)) {
 			if (DUMP_ERRS || !p->do_read_term)
-				fprintf(stdout, "Error: syntax error, missing operand to '%s', %s:%d\n", C_STR(p, c), get_loaded(p->m, p->m->filename), p->line_nbr);
+				fprintf(stdout, "Error: syntax error, missing operand, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
 
 			p->error_desc = "operand_missing";
 			p->error = true;
@@ -1321,7 +1322,7 @@ static bool reduce(parser *p, pl_idx_t start_idx, bool last_op)
 
 		if (is_infix(lhs) && !lhs->arity && !is_quoted(lhs)) {
 			if (DUMP_ERRS || !p->do_read_term)
-					fprintf(stdout, "Error: syntax error, operator clash, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
+				fprintf(stdout, "Error: syntax error, operator clash, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
 
 			p->error_desc = "operator_clash";
 			p->error = true;
@@ -2349,33 +2350,6 @@ char *eat_space(parser *p)
 	return (char*)src;
 }
 
-static bool eat_comment(parser *p)
-{
-	char *src = p->srcptr;
-
-	if (*src != '/')
-		return true;
-
-	src++;
-
-	if (*src != '*')
-		return true;
-
-	src++;
-
-	while (*src) {
-		if ((src[0] == '*') && (src[1] == '/')) {
-			src += 2;
-			p->srcptr = src;
-			return true;
-		}
-
-		src++;
-	}
-
-	return true;
-}
-
 static bool check_space_before_function(parser *p, int ch, const char *src)
 {
 	if (iswspace(ch) && SB_strcmp(p->token, ".")) {
@@ -2559,7 +2533,7 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 			return false;
 		}
 
-		return true; //eat_comment(p);
+		return true;
 	}
 
 	// Quoted...
@@ -2944,7 +2918,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 					p->error = true;
 				}
 
-				term_assign_vars(p, p->read_term, false);
+				term_assign_vars(p, p->read_term_slots, false);
 				xref_rule(p->m, p->cl, NULL);
 				term_to_body(p);
 
