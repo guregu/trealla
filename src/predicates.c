@@ -5597,7 +5597,7 @@ static bool fn_crypto_data_hash_3(query *q)
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p2,atom_or_var);
 	GET_NEXT_ARG(p3,list_or_nil);
-	bool is_sha384 = false, is_sha512 = false;
+	bool is_sha384 = false, is_sha512 = false, is_sha1 = false;
 	bool is_sha256 = true;
 	LIST_HANDLER(p3);
 
@@ -5616,17 +5616,20 @@ static bool fn_crypto_data_hash_3(query *q)
 					cell tmp;
 					make_atom(&tmp, index_from_pool(q->pl, "sha256"));
 					unify(q, arg, arg_ctx, &tmp, q->st.curr_frame);
-					is_sha384 = is_sha512 = false;
+					is_sha384 = is_sha512 = is_sha1 = false;
 					is_sha256 = true;
 				} else if (!CMP_STR_TO_CSTR(q, arg, "sha256")) {
-					is_sha384 = is_sha512 = false;
+					is_sha384 = is_sha512 = is_sha1 = false;
 					is_sha256 = true;
 				} else if (!CMP_STR_TO_CSTR(q, arg, "sha384")) {
-					is_sha256 = is_sha512 = false;
+					is_sha256 = is_sha512 = is_sha1 = false;
 					is_sha384 = true;
 				} else if (!CMP_STR_TO_CSTR(q, arg, "sha512")) {
-					is_sha384 = is_sha256 = false;
+					is_sha384 = is_sha256 = is_sha1 = false;
 					is_sha512 = true;
+				} else if (!CMP_STR_TO_CSTR(q, arg, "sha1")) {
+					is_sha384 = is_sha256 = is_sha512 = false;
+					is_sha1 = true;
 				} else
 					return throw_error(q, arg, arg_ctx, "domain_error", "algorithm");
 			} else
@@ -5667,6 +5670,15 @@ static bool fn_crypto_data_hash_3(query *q)
 		SHA512((unsigned char*)C_STR(q, p1), C_STRLEN(q, p1), digest);
 
 		for (int i = 0; i < SHA512_DIGEST_LENGTH; i++) {
+			size_t len = snprintf(dst, buflen, "%02x", digest[i]);
+			dst += len;
+			buflen -= len;
+		}
+	} else if (is_sha1) {
+		unsigned char digest[SHA_DIGEST_LENGTH];
+		SHA1((unsigned char*)C_STR(q, p1), C_STRLEN(q, p1), digest);
+
+		for (int i = 0; i < SHA_DIGEST_LENGTH; i++) {
 			size_t len = snprintf(dst, buflen, "%02x", digest[i]);
 			dst += len;
 			buflen -= len;
