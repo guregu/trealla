@@ -439,13 +439,10 @@ struct db_entry_ {
 	predicate *owner;
 	db_entry *prev, *next;
 	const char *filename;
-
-	union {
-		db_entry *dirty;
-		uint64_t db_id;
-	};
-
+	db_entry *dirty;
 	uuid u;
+	uint64_t db_id;
+	unsigned line_nbr_start, line_nbr_end;
 	clause cl;
 };
 
@@ -455,8 +452,9 @@ struct predicate_ {
 	module *m;
 	map *idx, *idx2;
 	db_entry *dirty_list;
+	const char *filename;
 	cell key;
-	uint64_t cnt, ref_cnt, db_id;
+	uint64_t cnt, refcnt, db_id;
 	bool is_reload:1;
 	bool is_prebuilt:1;
 	bool is_public:1;
@@ -471,7 +469,9 @@ struct predicate_ {
 	bool is_var_in_first_arg:1;
 };
 
-#define BLAH false, false, {0}, {0}, 0, NULL, NULL, NULL, NULL, NULL
+#define BLAH1 false, false, {0}, {0}, 0, NULL, NULL, NULL, NULL, NULL
+#define BLAH false, false, {0}, {0}, 0, NULL, NULL, NULL, NULL, NULL, NULL
+
 #define MAX_FFI_ARGS 64
 
 struct builtins_ {
@@ -491,6 +491,7 @@ struct builtins_ {
 	module *m;
 	char *desc;
 	char *help2;
+	char *help_alt;
 };
 
 typedef struct {
@@ -541,7 +542,7 @@ struct prolog_state_ {
 	};
 
 	uint64_t timer_started;
-	pl_idx_t curr_frame, fp, hp, tp, sp, pp;
+	pl_idx_t curr_frame, fp, hp, tp, sp, pp, key_ctx;
 	float prob;
 	uint8_t qnbr;
 	bool arg1_is_ground:1;
@@ -556,9 +557,6 @@ struct choice_ {
 	bool catchme_retry:1;
 	bool catchme_exception:1;
 	bool barrier:1;
-	bool call_barrier:1;
-	bool soft_cut:1;
-	bool did_cleanup:1;
 	bool register_cleanup:1;
 	bool block_catcher:1;
 	bool catcher:1;
@@ -738,16 +736,16 @@ struct parser_ {
 	prolog_flags flags;
 	char *save_line, *srcptr, *error_desc;
 	size_t token_size, n_line, pos_start;
-	unsigned depth, read_term_slots;
+	unsigned line_nbr, line_nbr_start;
+	unsigned depth, read_term_slots, nbr_vars;
 	unsigned nesting_parens, nesting_braces, nesting_brackets;
-	int quote_char, line_nbr, line_nbr_start;
-	unsigned nbr_vars;
+	int quote_char;
 	int8_t dq_consing;
 	bool error, if_depth[MAX_IF_DEPTH];
 	bool was_consing:1;
 	bool was_string:1;
 	bool did_getline:1;
-	bool already_loaded:1;
+	bool already_loaded_error:1;
 	bool do_read_term:1;
 	bool string:1;
 	bool run_init:1;
@@ -779,11 +777,11 @@ struct module_ {
 	predicate *head, *tail;
 	parser *p;
 	FILE *fp;
-	map *index, *nbs, *ops, *defops;
+	map *index, *ops, *defops;
 	loaded_file *loaded_files;
+	prolog_flags flags;
 	unsigned id, idx_used, arity;
 	int if_depth;
-	prolog_flags flags;
 	bool ifs_blocked[MAX_IF_DEPTH];
 	bool ifs_done[MAX_IF_DEPTH];
 	bool user_ops:1;
@@ -920,7 +918,6 @@ uint64_t get_time_in_usec(void);
 uint64_t cpu_time_in_usec(void);
 char *relative_to(const char *basefile, const char *relfile);
 size_t sprint_int(char *dst, size_t size, pl_int_t n, int base);
-void format_property(module *m, char *tmpbuf, size_t buflen, const char *name, unsigned arity, const char *type);
 const char *dump_key(const void *k, const void *v, const void *p);
 
 #define slicecmp2(s1,l1,s2) slicecmp(s1,l1,s2,strlen(s2))

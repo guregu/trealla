@@ -6534,6 +6534,8 @@ static bool fn_sys_put_chars_2(query *q)
 	GET_NEXT_ARG(p1,any);
 	size_t len;
 
+	printf("HMMMMmmmmmm\n...");
+
 	if (is_cstring(p1)) {
 		const char *src = C_STR(q, p1);
 		size_t len = C_STRLEN(q, p1);
@@ -7117,12 +7119,13 @@ static bool fn_with_mutex_2(query *q)
 	if (check_body_callable(tmp2) != NULL)
 		return throw_error(q, tmp2, q->st.curr_frame, "type_error", "callable");
 
-	cell *tmp = clone_to_heap(q, true, tmp2, 2);
+	cell *tmp = clone_to_heap(q, true, tmp2, 3);
 	check_heap_error(tmp);
 	pl_idx_t nbr_cells = 1+tmp2->nbr_cells;
-	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, fn_sys_drop_barrier_0, 0, 0);
+	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, fn_sys_drop_barrier_1, 1, 1);
+	make_uint(tmp+nbr_cells++, q->cp);
 	make_call(q, tmp+nbr_cells);
-	check_heap_error(push_call_barrier(q));
+	check_heap_error(push_barrier(q));
 	choice *ch = GET_CURR_CHOICE();
 	ch->fail_on_retry = true;
 	q->st.curr_cell = tmp;
@@ -7409,15 +7412,15 @@ builtins g_files_bifs[] =
 	{"unget_byte", 2, fn_unget_byte_2, "+stream,+integer", true, false, BLAH},
 	{"set_stream", 2, fn_set_stream_2, "+stream,+term", true, false, BLAH},
 	{"getline", 1, fn_getline_1, "-atom", false, false, BLAH},
-	{"getline", 2, fn_getline_2, "+stream,-string", false, false, BLAH},
-	{"getline", 3, fn_getline_3, "+stream,-string,+list", false, false, BLAH},
+	{"getline", 2, fn_getline_2, "+stream,-character_list", false, false, BLAH},
+	{"getline", 3, fn_getline_3, "+stream,-character_list,+list", false, false, BLAH},
 	{"getlines", 1, fn_getlines_1, "-list", false, false, BLAH},
 	{"getlines", 2, fn_getlines_2, "+stream,-list", false, false, BLAH},
 	{"getlines", 3, fn_getlines_3, "+stream,-list,+list", false, false, BLAH},
 	{"load_files", 2, fn_load_files_2, "+atom,+list", false, false, BLAH},
 	{"unload_files", 1, fn_unload_files_1, "+atom", false, false, BLAH},
 	{"getfile", 2, fn_getfile_2, "+atom,-list", false, false, BLAH},
-	{"getfile", 3, fn_getfile_3, "+atom,-list,+opts", false, false, BLAH},
+	{"getfile", 3, fn_getfile_3, "+atom,-list,+list", false, false, BLAH},
 	{"loadfile", 2, fn_loadfile_2, "+atom,-atom", false, false, BLAH},
 	{"savefile", 2, fn_savefile_2, "+atom,+atom", false, false, BLAH},
 	{"rename_file", 2, fn_rename_file_2, "+atom,+atom", false, false, BLAH},
@@ -7434,26 +7437,26 @@ builtins g_files_bifs[] =
 	{"working_directory", 2, fn_working_directory_2, "-atom,+atom", false, false, BLAH},
 	{"absolute_file_name", 3, fn_absolute_file_name_3, "+atom,-atom,+list", false, false, BLAH},
 	{"is_absolute_file_name", 1, fn_is_absolute_file_name_1, "+atom", false, false, BLAH},
-	{"chdir", 1, fn_chdir_1, "+string", false, false, BLAH},
+	{"chdir", 1, fn_chdir_1, "+atom", false, false, BLAH},
 	{"$put_chars", 1, fn_sys_put_chars_1, "+chars", false, false, BLAH},
 	{"$put_chars", 2, fn_sys_put_chars_2, "+stream,+chars", false, false, BLAH},
 	{"$load_chars", 1, fn_sys_load_chars_1, "+chars", false, false, BLAH},
 	{"read_term_from_atom", 3, fn_read_term_from_atom_3, "+atom,?term,+list", false, false, BLAH},
-	{"read_term_from_chars", 3, fn_read_term_from_chars_3, "+chars,?term,+list", false, false, BLAH},
-	{"$read_term_from_chars", 4, fn_sys_read_term_from_chars_4, "?term,+list,+chars,-chars", false, false, BLAH},
+	{"read_term_from_chars", 3, fn_read_term_from_chars_3, "+character_list,?term,+list", false, false, BLAH},
+	{"$read_term_from_chars", 4, fn_sys_read_term_from_chars_4, "?term,+list,+character_list,-character_list", false, false, BLAH},
 	{"write_term_to_atom", 3, fn_write_term_to_atom_3, "?atom,?term,+list", false, false, BLAH},
 	{"write_canonical_to_atom", 3, fn_write_canonical_to_chars_3, "?atom,?term,+list", false, false, BLAH},
-	{"write_term_to_chars", 3, fn_write_term_to_chars_3, "?chars,?term,+list", false, false, BLAH},
-	{"write_canonical_to_chars", 3, fn_write_canonical_to_chars_3, "?chars,?term,+list", false, false, BLAH},
-	{"read_line_to_string", 2, fn_read_line_to_string_2, "+stream,-string", false, false, BLAH},
-	{"read_file_to_string", 3, fn_read_file_to_string_3, "+string,-string,+options", false, false, BLAH},
+	{"write_term_to_chars", 3, fn_write_term_to_chars_3, "?character_list,?term,+list", false, false, BLAH},
+	{"write_canonical_to_chars", 3, fn_write_canonical_to_chars_3, "?character_list,?term,+list", false, false, BLAH},
+	{"read_line_to_string", 2, fn_read_line_to_string_2, "+stream,-character_list", false, false, BLAH},
+	{"read_file_to_string", 3, fn_read_file_to_string_3, "+atom,-string,+options", false, false, BLAH},
 
 	{"client", 5, fn_client_5, "+atom,-atom,-atom,-atom,+list", false, false, BLAH},
 	{"server", 3, fn_server_3, "+atom,--stream,+list", false, false, BLAH},
 	{"accept", 2, fn_accept_2, "+stream,--stream", false, false, BLAH},
-	{"$get_n_chars", 3, fn_bread_3, "+stream,?integer,-string", false, false, BLAH},
-	{"bread", 3, fn_bread_3, "+stream,+integer,-string", false, false, BLAH},
-	{"bwrite", 2, fn_bwrite_2, "+stream,-string", false, false, BLAH},
+	{"$get_n_chars", 3, fn_bread_3, "+stream,?integer,-character_list", false, false, BLAH},
+	{"bread", 3, fn_bread_3, "+stream,+integer,-character_list", false, false, BLAH},
+	{"bwrite", 2, fn_bwrite_2, "+stream,-character_list", false, false, BLAH},
 
 	{"map_create", 2, fn_map_create_2, "--stream,+list", false, false, BLAH},
 	{"map_set", 3, fn_map_set_3, "+stream,+atomic,+value", false, false, BLAH},
@@ -7473,7 +7476,7 @@ builtins g_files_bifs[] =
 	{"engine_destroy", 1, fn_engine_destroy_1, "+stream", false, false, BLAH},
 
 	{"mutex_create", 1, fn_iso_true_0, "+stream", false, false, BLAH},
-	{"mutex_create", 2, fn_iso_true_0, "+stream", false, false, BLAH},
+	{"mutex_create", 2, fn_iso_true_0, "+stream,+list", false, false, BLAH},
 	{"with_mutex", 2, fn_with_mutex_2, "+stream,+callable", false, false, BLAH},
 	{"mutex_lock", 1, fn_iso_true_0, "+stream", false, false, BLAH},
 	{"mutex_trylock", 1, fn_iso_true_0, "+stream", false, false, BLAH},
@@ -7482,11 +7485,11 @@ builtins g_files_bifs[] =
 	{"mutex_destroy", 1, fn_iso_true_0, "+stream", false, false, BLAH},
 
 	{"$capture_output", 0, fn_sys_capture_output_0, NULL, false, false, BLAH},
-	{"$capture_output_to_chars", 1, fn_sys_capture_output_to_chars_1, "-chars", false, false, BLAH},
+	{"$capture_output_to_chars", 1, fn_sys_capture_output_to_chars_1, "-character_list", false, false, BLAH},
 	{"$capture_output_to_atom", 1, fn_sys_capture_output_to_atom_1, "-atom", false, false, BLAH},
 
 	{"$capture_error", 0, fn_sys_capture_error_0, NULL, false, false, BLAH},
-	{"$capture_error_to_chars", 1, fn_sys_capture_error_to_chars_1, "-chars", false, false, BLAH},
+	{"$capture_error_to_chars", 1, fn_sys_capture_error_to_chars_1, "-character_list", false, false, BLAH},
 	{"$capture_error_to_atom", 1, fn_sys_capture_error_to_atom_1, "-atom", false, false, BLAH},
 
 	{"$memory_stream_create", 2, fn_sys_memory_stream_create_2, "-stream,+options", false, false, BLAH},

@@ -127,29 +127,6 @@ builtins *get_module_help(module *m, const char *name, unsigned arity, bool *fou
 	return NULL;
 }
 
-static const char *set_loaded(module *m, const char *filename, const char *orig_filename)
-{
-	loaded_file *ptr = m->loaded_files;
-
-	while (ptr) {
-		if (!strcmp(ptr->filename, filename)) {
-			ptr->is_loaded = true;
-			return ptr->filename;
-		}
-
-		ptr = ptr->next;
-	}
-
-	ptr = malloc(sizeof(*ptr));
-	ptr->next = m->loaded_files;
-	ptr->orig_filename = strdup(orig_filename);
-	ptr->filename = strdup(filename);
-	ptr->when_loaded = time(0);
-	ptr->is_loaded = true;
-	m->loaded_files = ptr;
-	return ptr->filename;
-}
-
 static const char *set_known(module *m, const char *filename)
 {
 	loaded_file *ptr = m->loaded_files;
@@ -170,12 +147,38 @@ static const char *set_known(module *m, const char *filename)
 	return ptr->filename;
 }
 
+static const char *set_loaded(module *m, const char *filename, const char *orig_filename)
+{
+	loaded_file *ptr = m->loaded_files;
+
+	while (ptr) {
+		if (!strcmp(ptr->filename, filename)) {
+			//printf("*** set_loaded '%s'\n", filename);
+			ptr->is_loaded = true;
+			return ptr->filename;
+		}
+
+		ptr = ptr->next;
+	}
+
+	ptr = malloc(sizeof(*ptr));
+	ptr->next = m->loaded_files;
+	ptr->orig_filename = strdup(orig_filename);
+	ptr->filename = strdup(filename);
+	ptr->when_loaded = time(0);
+	ptr->is_loaded = true;
+	m->loaded_files = ptr;
+	//printf("*** set_loaded '%s'\n", filename);
+	return ptr->filename;
+}
+
 static void set_unloaded(module *m, const char *filename)
 {
 	loaded_file *ptr = m->loaded_files;
 
 	while (ptr) {
 		if (!strcmp(ptr->filename, filename)) {
+			//printf("*** set_unloaded '%s'\n", filename);
 			ptr->is_loaded = false;
 			return;
 		}
@@ -248,6 +251,7 @@ predicate *create_predicate(module *m, cell *c)
 	if (!m->head)
 		m->head = pr;
 
+	pr->filename = m->filename;
 	pr->m = m;
 	pr->key = *c;
 	pr->key.tag = TAG_INTERNED;
@@ -432,10 +436,22 @@ db_entry *find_in_db(module *m, uuid *ref)
 	return NULL;
 }
 
-static void push_property(module *m, const char *name, unsigned arity, const char *type)
+void push_property(module *m, const char *name, unsigned arity, const char *type)
 {
 	char tmpbuf[1024];
-	format_property(m, tmpbuf, sizeof(tmpbuf), name, arity, type);
+	format_property(m, tmpbuf, sizeof(tmpbuf), name, arity, type, false);
+	parser *p = parser_create(m);
+	p->srcptr = tmpbuf;
+	p->consulting = true;
+	p->internal = true;
+	tokenize(p, false, false);
+	parser_destroy(p);
+}
+
+void push_template(module *m, const char *name, unsigned arity, const builtins *ptr)
+{
+	char tmpbuf[1024];
+	format_template(m, tmpbuf, sizeof(tmpbuf), name, arity, ptr, false, NULL);
 	parser *p = parser_create(m);
 	p->srcptr = tmpbuf;
 	p->consulting = true;
@@ -912,7 +928,6 @@ static const char *dump_key(const void *k, const void *v, const void *p)
 
 bool set_op(module *m, const char *name, unsigned specifier, unsigned priority)
 {
-	//printf("*** %s set_op %s / %u / %u\n", m->name, name, specifier, priority);
 	miter *iter = map_find_key(m->ops, name);
 	op_table *ptr;
 
@@ -1147,8 +1162,10 @@ unsigned search_op(module *m, const char *name, unsigned *specifier, bool hint_p
 
 static bool check_multifile(module *m, predicate *pr, db_entry *dbe)
 {
-	if (pr->head && !pr->is_multifile && !pr->is_dynamic
-		&& (C_STR(m, &pr->key)[0] != '$')) {
+	if (pr->head
+		&& !pr->is_multifile && !pr->is_dynamic
+		&& (C_STR(m, &pr->key)[0] != '$')
+		) {
 		if ((dbe->filename != pr->head->filename) || pr->is_reload) {
 			for (db_entry *dbe = pr->head; dbe; dbe = dbe->next) {
 				retract_from_db(dbe);
@@ -1238,7 +1255,7 @@ void just_in_time_rebuild(predicate *pr)
 	pr->is_processed = true;
 
 	for (db_entry *dbe = pr->head; dbe; dbe = dbe->next) {
-		if (dbe->cl.dgen_erased)
+		if (dbe->cl.is_deleted)
 			continue;
 
 		optimize_rule(pr->m, dbe);
@@ -1289,15 +1306,6 @@ static db_entry *assert_begin(module *m, unsigned nbr_vars, unsigned nbr_tempora
 		return NULL;
 
 	if (!pr) {
-		bool found = false, evaluable = false;
-
-		/*
-		if (get_builtin_term(m, c, &found, &evaluable), found && !evaluable) {
-			//fprintf(stdout, "Error: permission error modifying %s/%u\n", C_STR(m, c), c->arity);
-			return NULL;
-		}
-		*/
-
 		pr = create_predicate(m, c);
 		check_error(pr);
 
@@ -1312,6 +1320,7 @@ static db_entry *assert_begin(module *m, unsigned nbr_vars, unsigned nbr_tempora
 				push_property(m, C_STR(m, c), c->arity, "built_in");
 
 			push_property(m, C_STR(m, c), c->arity, "static");
+			push_property(m, C_STR(m, c), c->arity, "interpreted");
 		}
 
 		if (consulting && m->make_public) {
@@ -1358,6 +1367,8 @@ static void assert_commit(module *m, db_entry *dbe, predicate *pr, bool append)
 	cl->arg3_is_unique = false;
 
 	uuid_gen(m->pl, &dbe->u);
+
+	// Note: indexing here refers to the dynamic index...
 
 	if (pr->is_noindex)
 		return;
@@ -1600,7 +1611,7 @@ module *load_text(module *m, const char *src, const char *filename)
 	p->srcptr = (char*)src;
 	tokenize(p, false, false);
 
-	if (!p->error && !p->already_loaded && !p->end_of_term && p->cl->cidx) {
+	if (!p->error && !p->already_loaded_error && !p->end_of_term && p->cl->cidx) {
 		if (DUMP_ERRS || !p->do_read_term)
 			fprintf(stdout, "Error: syntax error, incomplete statement, %s:%d\n", filename, p->line_nbr);
 
@@ -1639,7 +1650,12 @@ module *load_text(module *m, const char *src, const char *filename)
 static bool unload_realfile(module *m, const char *filename)
 {
 	for (predicate *pr = m->head; pr; pr = pr->next) {
+#if 0
 		if (pr->is_multifile || pr->is_dynamic)
+			continue;
+#endif
+
+		if (pr->filename && strcmp(pr->filename, filename))
 			continue;
 
 		for (db_entry *dbe = pr->head; dbe; dbe = dbe->next) {
@@ -1673,10 +1689,10 @@ static bool unload_realfile(module *m, const char *filename)
 
 bool unload_file(module *m, const char *filename)
 {
+	//printf("*** unload_file '%s'\n", filename);
 	size_t len = strlen(filename);
 	char *tmpbuf = malloc(len + 20);
 	memcpy(tmpbuf, filename, len+1);
-	strcat(tmpbuf, ".pl");
 
 	if (tmpbuf[0] == '~') {
 		const char *ptr = getenv("HOME");
@@ -1694,6 +1710,8 @@ bool unload_file(module *m, const char *filename)
 
 	if (!(realbuf = realpath(tmpbuf, NULL))) {
 		strcpy(tmpbuf, savebuf);
+
+		strcat(tmpbuf, ".pl");
 
 		if (!(realbuf = realpath(tmpbuf, NULL))) {
 			free(tmpbuf);
@@ -1735,9 +1753,9 @@ module *load_fp(module *m, FILE *fp, const char *filename, bool including)
 
 		ok = !p->error;
 	}
-	 while (ok && !p->already_loaded && !g_tpl_interrupt);
+	 while (ok && !p->already_loaded_error && !g_tpl_interrupt);
 
-	if (!p->error && !p->already_loaded && !p->end_of_term && p->cl->cidx) {
+	if (!p->error && !p->already_loaded_error && !p->end_of_term && p->cl->cidx) {
 		if (DUMP_ERRS || !p->do_read_term)
 			fprintf(stdout, "Error: syntax error, incomplete statement, %s:%d\n", filename, p->line_nbr);
 
@@ -1746,7 +1764,7 @@ module *load_fp(module *m, FILE *fp, const char *filename, bool including)
 
 	module *save_m = p->m;
 
-	if (!p->error && !p->already_loaded) {
+	if (!p->error && !p->already_loaded_error) {
 		xref_db(p->m);
 		int save = p->m->pl->quiet;
 		//p->m->pl->quiet = true;
@@ -1780,6 +1798,7 @@ module *load_fp(module *m, FILE *fp, const char *filename, bool including)
 
 module *load_file(module *m, const char *filename, bool including)
 {
+	//printf("*** load_file '%s'\n", filename);
 	const char *orig_filename = filename;
 
 	if (!strcmp(filename, "user")) {
@@ -2043,7 +2062,7 @@ module *module_create(prolog *pl, const char *name)
 	map_allow_dups(m->index, false);
 	m->p = parser_create(m);
 	check_error(m->p);
-	set_multifile_in_db(m, "$predicate_property", 2);
+	set_multifile_in_db(m, "$predicate_property", 3);
 	set_multifile_in_db(m, ":-", 1);
 
 	parser *p = parser_create(m);

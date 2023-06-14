@@ -374,15 +374,18 @@ int main(int ac, char *av[], char * envp[])
 
 		g_tpl_interrupt = 0;
 
-#if 1
+#if 0
 		pl_eval(pl, src);
 #else
 		pl_sub_query *subq;
 		char *out, *err;
 		int32_t out_len, err_len;
+		pl_capture(pl);
 		pl_query(pl, src, &subq, 0);
 		do {
-			//printf("stdout: %s\nstderr: %s\n", out, err);
+			printf("QUERY: %s, SUBQP %p\n", src, subq);
+			pl_capture_read(pl, &out, &out_len, &err, &err_len);
+			printf("stdout: %.*s\nstderr: %.*s\n", out_len, out, err_len, err);
 		} while (pl_redo(subq));
 #endif
 

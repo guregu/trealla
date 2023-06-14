@@ -339,7 +339,7 @@ static bool fn_iso_notunify_2(query *q)
 	GET_NEXT_RAW_ARG(p2,any);
 	cell tmp2;
 	make_struct(&tmp2, g_unify_s, fn_iso_unify_2, 2, 0);
-	cell *tmp = clone_to_heap(q, true, &tmp2, p1->nbr_cells+p2->nbr_cells+3);
+	cell *tmp = clone_to_heap(q, true, &tmp2, p1->nbr_cells+p2->nbr_cells+4);
 	pl_idx_t nbr_cells = 1;
 	tmp[nbr_cells].nbr_cells += p1->nbr_cells+p2->nbr_cells;
 	nbr_cells++;
@@ -2197,6 +2197,7 @@ bool do_retract(query *q, cell *p1, pl_idx_t p1_ctx, enum clause_type is_retract
 	if (dbe->owner->m->pl != q->pl)
 		return throw_error(q, p1, p1_ctx, "permission_error", "modify,static_procedure");
 
+#if 0
 	if (dbe->owner->is_multifile
 		&& (is_retract == DO_RETRACTALL)
 		&& strcmp(q->st.m->filename, dbe->filename)
@@ -2205,6 +2206,7 @@ bool do_retract(query *q, cell *p1, pl_idx_t p1_ctx, enum clause_type is_retract
 		//printf("*** RETRACT? %s : %s/%u multifile=%d, dynamic=%d, m->filename=%s\n", dbe->filename, C_STR(q->st.m, &dbe->owner->key), dbe->owner->key.arity, dbe->owner->is_multifile, dbe->owner->is_dynamic, q->st.m->filename);
 		return true;
 	}
+#endif
 
 	retract_from_db(dbe);
 	bool last_match = (is_retract == DO_RETRACT) && !has_next_key(q);
@@ -2276,8 +2278,8 @@ static bool do_abolish(query *q, cell *c_orig, cell *c_pi, bool hard)
 	for (db_entry *dbe = pr->head; dbe; dbe = dbe->next)
 		retract_from_db(dbe);
 
-	if (!pr->ref_cnt)
-		pr->ref_cnt++;
+	if (!pr->refcnt)
+		pr->refcnt++;
 
 	while (pr->dirty_list) {
 		db_entry *dbe = pr->dirty_list;
@@ -3506,7 +3508,7 @@ bool fn_sys_queue_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 	check_heap_error(init_tmp_heap(q));
-	cell *tmp = deep_raw_copy_to_tmp(q, p1, p1_ctx);
+	cell *tmp = deep_clone_to_tmp(q, p1, p1_ctx);
 	check_heap_error(tmp);
 	check_heap_error(alloc_on_queuen(q, q->st.qnbr, tmp));
 	return true;
@@ -4055,6 +4057,98 @@ static bool fn_help_0(query *q)
 	return true;
 }
 
+static bool fn_module_info_2(query *q)
+{
+	GET_FIRST_ARG(p1,atom);
+	GET_NEXT_ARG(p2,var);
+	const char *name = C_STR(q, p1);
+	module *m = find_module(q->pl, name);
+
+	if (!m)
+		return false;
+
+	bool first_time = true;
+
+	for (predicate *pr = m->head; pr; pr = pr->next) {
+		if (!pr->is_public)
+			continue;
+
+		cell tmp[3];
+		make_struct(tmp+0, g_slash_s, NULL, 2, 2);
+		SET_OP(tmp, OP_YFX);
+		make_atom(tmp+1, pr->key.val_off);
+		make_int(tmp+2, pr->key.arity);
+
+		if (first_time) {
+			allocate_list(q, tmp);
+			first_time = false;
+		} else
+			append_list(q, tmp);
+	}
+
+	cell *l = end_list(q);
+	return unify(q, p2, p2_ctx, l, q->st.curr_frame);
+}
+
+static bool fn_source_info_2(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,var);
+	bool found = false, evaluable = false;
+
+	if (!is_structure(p1))
+		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+
+	if (p1->arity != 2)
+		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+
+	if (p1->val_off != g_slash_s)
+		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+
+	cell *f = p1 + 1;
+
+	if (!is_atom(f))
+		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+
+	cell *a = p1 + 2;
+
+	if (!is_smallint(a))
+		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+
+	const char *functor = C_STR(q, f);
+	unsigned arity = get_smallint(a);
+	cell key;
+	key.val_off = f->val_off;
+	key.arity = get_smalluint(a);
+	predicate *pr = find_predicate(q->st.m, &key);
+
+	if (!pr || pr->is_dynamic)
+		return false;
+
+	bool first_time = true;
+
+	for (db_entry *dbe = pr->head; dbe; dbe = dbe->next) {
+		cell tmp[8];
+		make_struct(tmp+0, g_dot_s, NULL, 2, 7);
+		make_struct(tmp+1, index_from_pool(q->pl, "filename"), NULL, 1, 1);
+		make_cstring(tmp+2, dbe->filename);
+		make_struct(tmp+3, g_dot_s, NULL, 2, 4);
+		make_struct(tmp+4, index_from_pool(q->pl, "lines"), NULL, 2, 2);
+		make_uint(tmp+5, dbe->line_nbr_start);
+		make_uint(tmp+6, dbe->line_nbr_end);
+		make_atom(tmp+7, g_nil_s);
+
+		if (first_time) {
+			allocate_list(q, tmp);
+			first_time = false;
+		} else
+			append_list(q, tmp);
+	}
+
+	cell *l = end_list(q);
+	return unify(q, p2, p2_ctx, l, q->st.curr_frame);
+}
+
 static bool fn_help_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
@@ -4069,6 +4163,11 @@ static bool fn_help_1(query *q)
 		builtins *fn;
 
 		while (map_next_key(iter, (void**)&fn)) {
+			if (fn->help_alt) {
+				if (fn->arity)
+					fprintf(stdout, "%s/%u: %s(%s)%s%s\n", fn->name, fn->arity, fn->name, fn->help_alt ? fn->help_alt : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
+			}
+
 			if (fn->arity)
 				fprintf(stdout, "%s/%u: %s(%s)%s%s\n", fn->name, fn->arity, fn->name, fn->help ? fn->help : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 			else
@@ -4102,7 +4201,12 @@ static bool fn_help_1(query *q)
 	builtins *fn = get_help(q->pl, functor, arity, &found, &evaluable);
 
 	if (!found || !fn)
-		return throw_error(q, p1, p1_ctx, "domain_error", "existence");
+		return false;
+
+	if (fn->help_alt) {
+		if (fn->arity)
+			fprintf(stdout, "%s/%u: %s(%s)%s%s\n", fn->name, fn->arity, fn->name, fn->help_alt ? fn->help_alt : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
+	}
 
 	if (arity)
 		fprintf(stdout, "%s/%u: %s(%s)%s%s\n%s\n", fn->name, arity, fn->name, fn->help ? fn->help : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"", fn->desc?fn->desc:"");
@@ -4162,7 +4266,7 @@ static bool fn_help_2(query *q)
 	builtins *fn = get_help(q->pl, functor, arity, &found, &evaluable);
 
 	if (!found || !fn)
-		return throw_error(q, p1, p1_ctx, "domain_error", "existence");
+		return false;
 
 	if (!strcmp(pr, "swi"))
 		snprintf(url, sizeof(url), "http://swi-prolog.org/pldoc/man?predicate=%s/%u", functor, arity);
@@ -4170,9 +4274,9 @@ static bool fn_help_2(query *q)
 		snprintf(url, sizeof(url), "http://tau-prolog.org/documentation/prolog/builtin/%s/%u", functor, arity);
 
 	if (arity)
-		fprintf(stdout, "%s/%u: %s(%s)%s%s %s\n", fn->name, arity, fn->name, fn->help ? fn->help : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"", url);
+		fprintf(stdout, "%s/%u: %s\n", fn->name, arity, url);
 	else
-		fprintf(stdout, "%s/%u: %s%s%s %s\n", fn->name, arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"", url);
+		fprintf(stdout, "%s/%u: %s\n", fn->name, arity, url);
 
 	return true;
 }
@@ -4257,7 +4361,7 @@ static bool fn_module_help_2(query *q)
 	builtins *fn = get_module_help(m, functor, arity, &found, &evaluable);
 
 	if (!found || !fn)
-		return throw_error(q, p1, p1_ctx, "domain_error", "existence");
+		return false;
 
 	if (arity)
 		fprintf(stdout, "%s/%u: %s(%s)%s%s\n", fn->name, arity, fn->name, fn->help ? fn->help : "no args", fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
@@ -4325,7 +4429,7 @@ static bool fn_module_help_3(query *q)
 	builtins *fn = get_module_help(m, functor, arity, &found, &evaluable);
 
 	if (!found || !fn)
-		return throw_error(q, p1, p1_ctx, "domain_error", "existence");
+		return false;
 
 	if (!strcmp(pr, "swi"))
 		snprintf(url, sizeof(url), "http://swi-prolog.org/pldoc/man?predicate=%s/%u", functor, arity);
@@ -4403,11 +4507,12 @@ static bool fn_sys_elapsed_0(query *q)
 		if (q->is_redo) fprintf(stderr, " ");
 	}
 	double lips = (1.0 / ((double)elapsed/1000/1000)) * q->tot_goals;
-	fprintf(stderr, "%% Time elapsed %.3fs, %llu Inferences, %.3f MLips)\n", (double)elapsed/1000/1000, (unsigned long long)q->tot_goals, lips/1000/1000);
+	fprintf(stderr, "%% Time elapsed %.3fs, %llu Inferences, %.3f MLips\n", (double)elapsed/1000/1000, (unsigned long long)q->tot_goals, lips/1000/1000);
 	if (!q->pl->is_query) {
 		if (q->is_redo) fprintf(stderr, "  ");
 		else if (!q->is_redo) fprintf(stderr, "");
 	}
+	//else if (!q->redo) fprintf(stdout, "");
 	choice *ch = GET_CURR_CHOICE();
 	ch->st.timer_started = get_time_in_usec();
 	return true;
@@ -4422,10 +4527,11 @@ static bool fn_time_1(query *q)
 
 	GET_FIRST_ARG(p1,callable);
 	fn_sys_timer_0(q);
-	cell *tmp = clone_to_heap(q, true, p1, 3);
+	cell *tmp = clone_to_heap(q, true, p1, 4);
 	pl_idx_t nbr_cells = 1 + p1->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_sys_elapsed_s, fn_sys_elapsed_0, 0, 0);
-	make_struct(tmp+nbr_cells++, g_sys_cut_if_det_s, fn_sys_cut_if_det_0, 0, 0);
+	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, fn_sys_drop_barrier_1, 1, 1);
+	make_uint(tmp+nbr_cells++, q->cp);
 	make_call(q, tmp+nbr_cells);
 	check_heap_error(push_barrier(q));
 	q->st.curr_cell = tmp;
@@ -6305,76 +6411,161 @@ static bool fn_sys_ops_dirty_0(query *q)
 	return ok;
 }
 
+static void do_template(char *tmpbuf, const char *name, unsigned arity, const char *help, bool function, bool quote)
+{
+	SB(t);
+
+	if (quote) {
+		SB_sprintf(t, "template('%s'", name);
+	} else {
+		SB_sprintf(t, "template(%s", name);
+	}
+
+	if (arity)
+		SB_strcat(t, "(");
+
+	char tmpbuf1[256], tmpbuf2[256], tmpbuf3[256];
+	const char *src = help + (function?1:0);
+
+	for (unsigned i = 0; i < arity; i++) {
+		sscanf(src, "%255[^,],%s255", tmpbuf1, tmpbuf2);
+		tmpbuf1[sizeof(tmpbuf1)-1] = tmpbuf2[sizeof(tmpbuf2)-1] = 0;
+
+		if (i > 0)
+			SB_strcat(t, ",");
+
+		SB_strcat(t, tmpbuf1);
+		memcpy(tmpbuf3, tmpbuf2, sizeof(tmpbuf3));
+		src = tmpbuf3 + (function?1:0);
+	}
+
+	if (arity)
+		SB_strcat(t, ")");
+
+	if (function) {
+		SB_sprintf(t, ",%s", src);
+	}
+
+	strcpy(tmpbuf, SB_cstr(t));
+	SB_free(t);
+}
+
 static bool fn_sys_legacy_predicate_property_2(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 	GET_NEXT_ARG(p2,atom_or_var);
 	cell tmp;
-	bool found = false;
+	bool found = false, evaluable = false;
 
-	if (get_builtin_term(q->st.m, p1, &found, NULL), found) {
+	if (get_builtin_term(q->st.m, p1, &found, &evaluable), found) {
+		if (evaluable)
+			return false;
+
 		make_atom(&tmp, index_from_pool(q->pl, "built_in"));
 
-		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame) == true)
+		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame))
 			return true;
-		else
-			return throw_error(q, p2, p2_ctx, "domain_error", "predicate_property");
+
+		make_atom(&tmp, index_from_pool(q->pl, "static"));
+
+		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame))
+			return true;
+
+		make_atom(&tmp, index_from_pool(q->pl, "dynamic"));
+
+		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame))
+			return false;
+
+		return throw_error(q, p2, p2_ctx, "domain_error", "predicate_property");
 	}
 
 	predicate *pr = find_predicate(q->st.m, p1);
 
-	if (pr && !pr->is_dynamic && !is_var(p2)) {
+	if (!pr)
+		return false;
+
+	if (!pr->is_dynamic && !is_var(p2)) {
 		make_atom(&tmp, index_from_pool(q->pl, "built_in"));
-		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame) == true)
+
+		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame))
 			return true;
 	}
 
-	if (pr && pr->is_multifile) {
-		make_atom(&tmp, index_from_pool(q->pl, "multifile"));
-		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame) == true)
+	if (!pr->is_dynamic) {
+		make_atom(&tmp, index_from_pool(q->pl, "static"));
+
+		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame))
 			return true;
 	}
 
-	if (pr && pr->is_dynamic) {
+	if (pr->is_dynamic) {
 		make_atom(&tmp, index_from_pool(q->pl, "dynamic"));
-		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame) == true)
+
+		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame))
 			return true;
 	}
 
-	if (pr && !pr->is_dynamic) {
-		make_atom(&tmp, index_from_pool(q->pl, "static"));
-		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame) == true)
+	if (pr->is_multifile) {
+		make_atom(&tmp, index_from_pool(q->pl, "multifile"));
+
+		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame))
 			return true;
 	}
 
-	if (pr && pr->is_public) {
+	if (pr->is_public) {
 		make_atom(&tmp, index_from_pool(q->pl, "public"));
-		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame) == true)
+
+		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame))
 			return true;
 	}
 
-	if (pr && pr->is_public) {
+	if (pr->is_public) {
 		make_atom(&tmp, index_from_pool(q->pl, "exported"));
-		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame) == true)
+
+		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame))
 			return true;
 	}
 
-	if (pr) {
+	make_atom(&tmp, index_from_pool(q->pl, "static"));
+
+	if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame))
+		return true;
+
+	make_atom(&tmp, index_from_pool(q->pl, "meta_predicate"));
+
+	if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame))
+		return true;
+
+	make_atom(&tmp, index_from_pool(q->pl, "visible"));
+
+	if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame))
+		return true;
+
+	return false;
+}
+
+static bool fn_sys_legacy_function_property_2(query *q)
+{
+	GET_FIRST_ARG(p1,callable);
+	GET_NEXT_ARG(p2,atom_or_var);
+	cell tmp;
+	bool found = false, evaluable = false;
+
+	if (get_builtin_term(q->st.m, p1, &found, &evaluable), found) {
+		if (!evaluable)
+			return false;
+
+		make_atom(&tmp, index_from_pool(q->pl, "built_in"));
+
+		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame))
+			return true;
+
 		make_atom(&tmp, index_from_pool(q->pl, "static"));
-		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame) == true)
-			return true;
-	}
 
-	if (pr) {
-		make_atom(&tmp, index_from_pool(q->pl, "meta_predicate"));
-		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame) == true)
+		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame))
 			return true;
-	}
 
-	if (pr) {
-		make_atom(&tmp, index_from_pool(q->pl, "visible"));
-		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame) == true)
-			return true;
+		return throw_error(q, p2, p2_ctx, "domain_error", "function_property");
 	}
 
 	return false;
@@ -7249,7 +7440,7 @@ static bool fn_sys_register_cleanup_1(query *q)
 {
 	if (q->retry) {
 		GET_FIRST_ARG(p1,callable);
-		cell *tmp = clone_to_heap(q, true, p1, 3);
+		cell *tmp = clone_to_heap(q, true, p1, 4);
 		pl_idx_t nbr_cells = 1 + p1->nbr_cells;
 		make_struct(tmp+nbr_cells++, g_sys_prune_s, fn_sys_prune_0, 0, 0);
 		make_struct(tmp+nbr_cells++, g_fail_s, fn_iso_fail_0, 0, 0);
@@ -7266,7 +7457,7 @@ static bool fn_sys_register_cleanup_1(query *q)
 
 static bool fn_sys_get_level_1(query *q)
 {
-	GET_FIRST_ARG(p1,var);
+	GET_FIRST_ARG(p1,any);
 	cell tmp;
 	make_int(&tmp, q->cp);
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
@@ -7691,16 +7882,17 @@ static bool fn_parse_csv_file_2(query *q)
 	return true;
 }
 
-void format_property(module *m, char *tmpbuf, size_t buflen, const char *name, unsigned arity, const char *type)
+void format_property(module *m, char *tmpbuf, size_t buflen, const char *name, unsigned arity, const char *type, bool function)
 {
+	tmpbuf[0] = '\0';
 	char *dst = tmpbuf;
 
 	if (needs_quoting(m, name, strlen(name))) {
 		char tmpbuf2[1024];
 		formatted(tmpbuf2, sizeof(tmpbuf2), name, strlen(name), false, false);
-		dst += snprintf(dst, buflen-(dst-tmpbuf), "'$predicate_property'('%s'", tmpbuf2);
+		dst += snprintf(dst, buflen-(dst-tmpbuf), "'$predicate_property'(%s, '%s'", function?"function":"predicate", tmpbuf2);
 	} else
-		dst += snprintf(dst, buflen-(dst-tmpbuf), "'$predicate_property'(%s", name);
+		dst += snprintf(dst, buflen-(dst-tmpbuf), "'$predicate_property'(%s, %s", function?"function":"predicate", name);
 
 	if (arity) {
 		dst += snprintf(dst, buflen-(dst-tmpbuf), "(");
@@ -7718,6 +7910,44 @@ void format_property(module *m, char *tmpbuf, size_t buflen, const char *name, u
 	dst += snprintf(dst, buflen-(dst-tmpbuf), ", %s).\n", type);
 }
 
+void format_template(module *m, char *tmpbuf, size_t buflen, const char *name, unsigned arity, const builtins *ptr, bool function, bool alt)
+{
+	tmpbuf[0] = '\0';
+
+	if (!ptr->help || !*ptr->help)
+		return;
+
+	if (alt && (!ptr->help_alt || !*ptr->help_alt))
+		return;
+
+	char *dst = tmpbuf;
+	bool quote = needs_quoting(m, name, strlen(name));
+
+	if (quote) {
+		char tmpbuf2[1024];
+		formatted(tmpbuf2, sizeof(tmpbuf2), name, strlen(name), false, false);
+		dst += snprintf(dst, buflen-(dst-tmpbuf), "'$predicate_property'(%s, '%s'", function?"function":"predicate", tmpbuf2);
+	} else
+		dst += snprintf(dst, buflen-(dst-tmpbuf), "'$predicate_property'(%s, %s", function?"function":"predicate", name);
+
+	if (arity) {
+		dst += snprintf(dst, buflen-(dst-tmpbuf), "(");
+
+		for (unsigned i = 0; i < arity; i++) {
+			if (i > 0)
+				dst += snprintf(dst, buflen-(dst-tmpbuf), ",");
+
+			dst += snprintf(dst, buflen-(dst-tmpbuf), "_");
+		}
+
+		dst += snprintf(dst, buflen-(dst-tmpbuf), ")");
+	}
+
+	char tmpbuf2[256];
+	do_template(tmpbuf2, name, ptr->arity, alt?ptr->help_alt:ptr->help, function, quote);
+	dst += snprintf(dst, buflen-(dst-tmpbuf), ", %s)).\n", tmpbuf2);
+}
+
 static void load_properties(module *m)
 {
 	if (m->loaded_properties)
@@ -7727,48 +7957,45 @@ static void load_properties(module *m)
 	SB_alloc(pr, 1024*64);
 	char tmpbuf[1024];
 
-	format_property(m, tmpbuf, sizeof(tmpbuf), "!", 0, "control_construct"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "true", 0, "control_construct"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "fail", 0, "control_construct"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), ",", 2, "control_construct"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), ";", 2, "control_construct"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "->", 2, "control_construct"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "*->", 2, "control_construct"); SB_strcat(pr, tmpbuf);
-	//format_property(m, tmpbuf, sizeof(tmpbuf), "call", 1, "control_construct"); SB_strcat(pr, tmpbuf);
-	//format_property(m, tmpbuf, sizeof(tmpbuf), "bagof", 3, "control_construct"); SB_strcat(pr, tmpbuf);
-	//format_property(m, tmpbuf, sizeof(tmpbuf), "setof", 3, "control_construct"); SB_strcat(pr, tmpbuf);
-	//format_property(m, tmpbuf, sizeof(tmpbuf), "throw", 1, "control_construct"); SB_strcat(pr, tmpbuf);
-	//format_property(m, tmpbuf, sizeof(tmpbuf), "findall", 3, "control_construct"); SB_strcat(pr, tmpbuf);
-	//format_property(m, tmpbuf, sizeof(tmpbuf), "findall", 4, "control_construct"); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "!", 0, "control_construct", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "true", 0, "control_construct", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "fail", 0, "control_construct", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), ",", 2, "control_construct", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), ";", 2, "control_construct", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "->", 2, "control_construct", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "*->", 2, "control_construct", false); SB_strcat(pr, tmpbuf);
 
-	//format_property(m, tmpbuf, sizeof(tmpbuf), "catch", 3, "meta_predicate(catch(0,?,0))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), ",", 2, "meta_predicate((0,0))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), ";", 2, "meta_predicate((0;0))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "->", 2, "meta_predicate((0->0))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "*->", 2, "meta_predicate((0*->0))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "if", 3, "meta_predicate(if(0,0,0))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "once", 1, "meta_predicate(once(0))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "ignore", 1, "meta_predicate(ignore(0))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "call", 1, "meta_predicate(call(0))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "findall", 3, "meta_predicate(findall(?,0,-))"); SB_strcat(pr, tmpbuf);
-	//format_property(m, tmpbuf, sizeof(tmpbuf), "bagof", 3, "meta_predicate(bagof(?,0,-))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "with_mutex", 2, "meta_predicate(with_mutex(+,0))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "engine_create", 4, "meta_predicate(engine_create(?,0,?,+))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "|", 2, "meta_predicate((:|+))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "time", 1, "meta_predicate(time(0))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "call_nth", 2, "meta_predicate(call_nth(0,?))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "asserta", 1, "meta_predicate(asserta(:))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "asserta", 2, "meta_predicate(asserta(:,-))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "assertz", 1, "meta_predicate(assertz(:))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "assertz", 2, "meta_predicate(assertz(:,-))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "retract", 1, "meta_predicate(retract(:))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "retract", 2, "meta_predicate(retract(:,?))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "retractall", 1, "meta_predicate(retractall(:))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "current_predicate", 1, "meta_predicate(current_predicate(:))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "predicate_property", 1, "meta_predicate(predicate_property(:,?))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "abolish", 1, "meta_predicate(abolish(:))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "clause", 2, "meta_predicate(clause(:,?))"); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "clause", 3, "meta_predicate(clause(:,?,?))"); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "not", 1, "meta_predicate(not(0))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "\\+", 1, "meta_predicate((\\+0))", false); SB_strcat(pr, tmpbuf);
+	//format_property(m, tmpbuf, sizeof(tmpbuf), "catch", 3, "meta_predicate(catch(0,?,0))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "", 2, "meta_predicate((0,0))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), ",", 2, "meta_predicate((0,0))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), ";", 2, "meta_predicate((0;0))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "->", 2, "meta_predicate((0->0))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "*->", 2, "meta_predicate((0*->0))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "if", 3, "meta_predicate(if(0,0,0))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "once", 1, "meta_predicate(once(0))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "ignore", 1, "meta_predicate(ignore(0))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "$call", 1, "meta_predicate('$call'(0))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "call", 1, "meta_predicate(call(0))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "findall", 3, "meta_predicate(findall(?,0,-))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "with_mutex", 2, "meta_predicate(with_mutex(+,0))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "engine_create", 4, "meta_predicate(engine_create(?,0,?,+))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "|", 2, "meta_predicate((:|+))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "time", 1, "meta_predicate(time(0))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "call_nth", 2, "meta_predicate(call_nth(0,?))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "asserta", 1, "meta_predicate(asserta(:))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "asserta", 2, "meta_predicate(asserta(:,-))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "assertz", 1, "meta_predicate(assertz(:))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "assertz", 2, "meta_predicate(assertz(:,-))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "retract", 1, "meta_predicate(retract(:))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "retract", 2, "meta_predicate(retract(:,?))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "retractall", 1, "meta_predicate(retractall(:))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "current_predicate", 1, "meta_predicate(current_predicate(:))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "predicate_property", 2, "meta_predicate(predicate_property(:,?))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "abolish", 1, "meta_predicate(abolish(:))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "clause", 2, "meta_predicate(clause(:,?))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "clause", 3, "meta_predicate(clause(:,?,?))", false); SB_strcat(pr, tmpbuf);
 
 	for (int i = 2; i <= 7; i++) {
 		char metabuf[1024];
@@ -7780,7 +8007,7 @@ static void load_properties(module *m)
 
 
 		snprintf(dst2, sizeof(metabuf)-(dst2-metabuf), "))");
-		format_property(m, tmpbuf, sizeof(tmpbuf), "call", i, metabuf); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), "call", i, metabuf, false); SB_strcat(pr, tmpbuf);
 	}
 
 	for (int i = 2; i <= 7; i++) {
@@ -7793,70 +8020,77 @@ static void load_properties(module *m)
 
 
 		snprintf(dst2, sizeof(metabuf)-(dst2-metabuf), "))");
-		format_property(m, tmpbuf, sizeof(tmpbuf), "task", i, metabuf); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), "task", i, metabuf, false); SB_strcat(pr, tmpbuf);
 	}
 
 	for (const builtins *ptr = g_iso_bifs; ptr->name; ptr++) {
 		map_app(m->pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
-		if (ptr->evaluable) continue;
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in"); SB_strcat(pr, tmpbuf);
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static"); SB_strcat(pr, tmpbuf);
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "native_code"); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
  	}
 
 	for (const builtins *ptr = g_files_bifs; ptr->name; ptr++) {
 		map_app(m->pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
-		if (ptr->evaluable) continue;
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in"); SB_strcat(pr, tmpbuf);
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static"); SB_strcat(pr, tmpbuf);
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "native_code"); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
  	}
 
 	for (const builtins *ptr = g_evaluable_bifs; ptr->name; ptr++) {
 		map_app(m->pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
-		if (ptr->evaluable) continue;
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in"); SB_strcat(pr, tmpbuf);
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static"); SB_strcat(pr, tmpbuf);
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "native_code"); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
 	}
 
 	for (const builtins *ptr = g_other_bifs; ptr->name; ptr++) {
 		map_app(m->pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
-		if (ptr->evaluable) continue;
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in"); SB_strcat(pr, tmpbuf);
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static"); SB_strcat(pr, tmpbuf);
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "native_code"); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
 	}
 
 	for (const builtins *ptr = g_ffi_bifs; ptr->name; ptr++) {
 		map_app(m->pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
-		if (ptr->evaluable) continue;
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in"); SB_strcat(pr, tmpbuf);
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static"); SB_strcat(pr, tmpbuf);
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "native_code"); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
 	}
 
 	for (const builtins *ptr = g_posix_bifs; ptr->name; ptr++) {
 		map_app(m->pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
-		if (ptr->evaluable) continue;
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in"); SB_strcat(pr, tmpbuf);
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static"); SB_strcat(pr, tmpbuf);
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "native_code"); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
 	}
 
 	for (const builtins *ptr = g_contrib_bifs; ptr->name; ptr++) {
 		map_app(m->pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
-		if (ptr->evaluable) continue;
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in"); SB_strcat(pr, tmpbuf);
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static"); SB_strcat(pr, tmpbuf);
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "native_code"); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
 	}
 
 	parser *p = parser_create(m);
@@ -7993,6 +8227,7 @@ builtins g_iso_bifs[] =
 	{"=..", 2, fn_iso_univ_2, "+term,?list", true, false, BLAH},
 	{"->", 2, fn_iso_if_then_2, ":callable,:callable", true, false, BLAH},
 	{"\\+", 1, fn_iso_negation_1, ":callable", true, false, BLAH},
+	{"not", 1, fn_iso_negation_1, ":callable", false, false, BLAH},
 	{"=", 2, fn_iso_unify_2, "+term,+term", true, false, BLAH},
 	{"\\=", 2, fn_iso_notunify_2, "+term,+term", true, false, BLAH},
 	{"-->", 2, fn_iso_dcgs_2, "+term,+term", true, false, BLAH},
@@ -8000,12 +8235,10 @@ builtins g_iso_bifs[] =
 	{"$catch", 3, fn_iso_catch_3, NULL, true, false, BLAH},
 	{"$call_cleanup", 3, fn_sys_call_cleanup_3, NULL, false, false, BLAH},
 	{"$block_catcher", 1, fn_sys_block_catcher_1, NULL, false, false, BLAH},
-	{"$cleanup_if_det", 0, fn_sys_cleanup_if_det_0, NULL, false, false, BLAH},
-	{"$cut_if_det", 0, fn_sys_cut_if_det_0, NULL, false, false, BLAH},
-	{"$soft_prune", 0, fn_sys_soft_prune_0, NULL, false, false, BLAH},
+	{"$cleanup_if_det", 1, fn_sys_cleanup_if_det_1, NULL, false, false, BLAH},
+	{"$soft_prune", 1, fn_sys_soft_prune_1, NULL, false, false, BLAH},
 	{"$prune", 0, fn_sys_prune_0, NULL, false, false, BLAH},
-	{"$prune", 1, fn_sys_prune_1, NULL, false, false, BLAH},
-	{"$drop_barrier", 0, fn_sys_drop_barrier_0, NULL, false, false, BLAH},
+	{"$drop_barrier", 1, fn_sys_drop_barrier_1, NULL, false, false, BLAH},
 	{"$timer", 0, fn_sys_timer_0, NULL, false, false, BLAH},
 	{"$elapsed", 0, fn_sys_elapsed_0, NULL, false, false, BLAH},
 	{"$lt", 2, fn_sys_lt_2, NULL, false, false, BLAH},
@@ -8013,14 +8246,16 @@ builtins g_iso_bifs[] =
 	{"$ne", 2, fn_sys_ne_2, NULL, false, false, BLAH},
 	{"$incr", 2, fn_sys_incr_2, NULL, false, false, BLAH},
 
+	{"$call", 1, fn_iso_call_1, ":callable", true, false, BLAH},
 	{"call", 1, fn_iso_call_1, ":callable", true, false, BLAH},
-	{"call", 2, fn_iso_call_n, ":callable,term", true, false, BLAH},
-	{"call", 3, fn_iso_call_n, ":callable,term,term", true, false, BLAH},
-	{"call", 4, fn_iso_call_n, ":callable,term,term,term", true, false, BLAH},
-	{"call", 5, fn_iso_call_n, ":callable,term,term,term,term", true, false, BLAH},
-	{"call", 6, fn_iso_call_n, ":callable,term,term,term,term,term", true, false, BLAH},
-	{"call", 7, fn_iso_call_n, ":callable,term,term,term,term,term,term", true, false, BLAH},
-	{"call", 8, fn_iso_call_n, ":callable,term,term,term,term,term,term,term", true, false, BLAH},
+	{"call", 2, fn_iso_call_n, ":callable,?term", true, false, BLAH},
+	{"call", 3, fn_iso_call_n, ":callable,?term,term", true, false, BLAH},
+	{"call", 4, fn_iso_call_n, ":callable,?term,?term,?term", true, false, BLAH},
+	{"call", 5, fn_iso_call_n, ":callable,?term,?term,?term,?term", true, false, BLAH},
+	{"call", 6, fn_iso_call_n, ":callable,?term,?term,?term,?term,?term", true, false, BLAH},
+	{"call", 7, fn_iso_call_n, ":callable,?term,?term,?term,?term,?term,?term", true, false, BLAH},
+	{"call", 8, fn_iso_call_n, ":callable,?term,?term,?term,?term,?term,?term,?term", true, false, BLAH},
+
 
 	{"throw", 1, fn_iso_throw_1, "+term", true, false, BLAH},
 	{"once", 1, fn_iso_once_1, ":callable", true, false, BLAH},
@@ -8047,7 +8282,7 @@ builtins g_iso_bifs[] =
 	{"atom_length", 2, fn_iso_atom_length_2, "?list,?integer", true, false, BLAH},
 	{"atom_concat", 3, fn_iso_atom_concat_3, "+atom,+atom,?atom", true, false, BLAH},
 	{"sub_atom", 5, fn_iso_sub_atom_5, "+atom,?before,?length,?after,?atom", true, false, BLAH},
-	{"sub_string", 5, fn_iso_sub_string_5, "+string,?before,?length,?after,?string", true, false, BLAH},
+	{"sub_string", 5, fn_iso_sub_string_5, "+character_list,?before,?length,?after,?character_list", true, false, BLAH},
 	{"current_rule", 1, fn_iso_current_rule_1, "-term", true, false, BLAH},
 	{"sort", 2, fn_iso_sort_2, "+list,?list", true, false, BLAH},
 	{"msort", 2, fn_iso_msort_2, "+list,?list", true, false, BLAH},
@@ -8055,7 +8290,7 @@ builtins g_iso_bifs[] =
 	{"end_of_file", 0, fn_iso_halt_0, NULL, true, false, BLAH},
 	{"halt", 0, fn_iso_halt_0, NULL, true, false, BLAH},
 	{"halt", 1, fn_iso_halt_1, "+integer", true, false, BLAH},
-	{"abolish", 1, fn_iso_abolish_1, "+predicateindicator", true, false, BLAH},
+	{"abolish", 1, fn_iso_abolish_1, "+predicate_indicator", true, false, BLAH},
 	{"asserta", 1, fn_iso_asserta_1, "+term", true, false, BLAH},
 	{"assertz", 1, fn_iso_assertz_1, "+term", true, false, BLAH},
 	{"retract", 1, fn_iso_retract_1, "+term", true, false, BLAH},
@@ -8064,7 +8299,7 @@ builtins g_iso_bifs[] =
 	{"set_prolog_flag", 2, fn_iso_set_prolog_flag_2, "+atom,+term", true, false, BLAH},
 	{"op", 3, fn_iso_op_3, "?integer,?atom,+atom", true, false, BLAH},
 	{"findall", 3, fn_iso_findall_3, "+term,:callable,-list", true, false, BLAH},
-	{"current_predicate", 1, fn_iso_current_predicate_1, "+predicateindicator", true, false, BLAH},
+	{"current_predicate", 1, fn_iso_current_predicate_1, "+predicate_indicator", true, false, BLAH},
 	{"acyclic_term", 1, fn_iso_acyclic_term_1, "+term", true, false, BLAH},
 	{"compare", 3, fn_iso_compare_3, "+atom,+term,+term", true, false, BLAH},
 	{"unify_with_occurs_check", 2, fn_iso_unify_with_occurs_check_2, "+term,+term", true, false, BLAH},
@@ -8098,15 +8333,17 @@ builtins g_other_bifs[] =
 #endif
 
 	{"listing", 0, fn_listing_0, NULL, false, false, BLAH},
-	{"listing", 1, fn_listing_1, "+predicateindicator", false, false, BLAH},
+	{"listing", 1, fn_listing_1, "+predicate_indicator", false, false, BLAH},
 	{"time", 1, fn_time_1, ":callable", false, false, BLAH},
 	{"trace", 0, fn_trace_0, NULL, false, false, BLAH},
 	{"notrace", 0, fn_notrace_0, NULL, false, false, BLAH},
-	{"help", 2, fn_help_2, "+predicateindicator,+atom", false, false, BLAH},
-	{"help", 1, fn_help_1, "+predicateindicator", false, false, BLAH},
+	{"module_info", 2, fn_module_info_2, "+atom,-list", false, false, BLAH},
+	{"source_info", 2, fn_source_info_2, "+predicate_indicator,-list", false, false, BLAH},
+	{"help", 2, fn_help_2, "+predicate_indicator,+atom", false, false, BLAH},
+	{"help", 1, fn_help_1, "+predicate_indicator", false, false, BLAH},
 	{"help", 0, fn_help_0, NULL, false, false, BLAH},
-	{"module_help", 3, fn_module_help_3, "+atom,+predicateindicator,+atom", false, false, BLAH},
-	{"module_help", 2, fn_module_help_2, "+atom,+predicateindicator", false, false, BLAH},
+	{"module_help", 3, fn_module_help_3, "+atom,+predicate_indicator,+atom", false, false, BLAH},
+	{"module_help", 2, fn_module_help_2, "+atom,+predicate_indicator", false, false, BLAH},
 	{"module_help", 1, fn_module_help_1, "+atom", false, false, BLAH},
 	{"load_all_modules", 0, fn_load_all_modules_0, NULL, false, false, BLAH},
 
@@ -8120,58 +8357,58 @@ builtins g_other_bifs[] =
 	{"sort", 4, fn_sort_4, "+integer,+atom,+list,?list", false, false, BLAH},
 	{"ignore", 1, fn_ignore_1, ":callable", false, false, BLAH},
 	{"soft_abolish", 1, fn_soft_abolish_1, "+term", false, false, BLAH},
-	{"string_codes", 2, fn_string_codes_2, "+string,-list", false, false, BLAH},
+	{"string_codes", 2, fn_string_codes_2, "+character_list,-list", false, false, BLAH},
 	{"term_singletons", 2, fn_term_singletons_2, "+term,-list", false, false, BLAH},
 	{"get_unbuffered_code", 1, fn_get_unbuffered_code_1, "?integer", false, false, BLAH},
 	{"get_unbuffered_char", 1, fn_get_unbuffered_char_1, "?character", false, false, BLAH},
-	{"format", 2, fn_format_2, "+string,+list", false, false, BLAH},
-	{"format", 3, fn_format_3, "+stream,+string,+list", false, false, BLAH},
+	{"format", 2, fn_format_2, "+character_list,+list", false, false, BLAH},
+	{"format", 3, fn_format_3, "+stream,+character_list,+list", false, false, BLAH},
 	{"abolish", 2, fn_abolish_2, "+term,+list", false, false, BLAH},
 	{"assert", 1, fn_iso_assertz_1, "+term", false, false, BLAH},
 	{"copy_term_nat", 2, fn_copy_term_nat_2, "+term,-term", false, false, BLAH},
 	{"string", 1, fn_string_1, "+term", false, false, BLAH},
 	{"atomic_concat", 3, fn_atomic_concat_3, "+atomic,+atomic,?atomic", false, false, BLAH},
 	{"atomic_list_concat", 3, fn_atomic_list_concat_3, "+list,+list,-atomic", false, false, BLAH},
-	{"replace", 4, fn_replace_4, "+string,+integer,+integer,-string", false, false, BLAH},
+	{"replace", 4, fn_replace_4, "+character_list,+integer,+integer,-character_list", false, false, BLAH},
 	{"busy", 1, fn_busy_1, "+integer", false, false, BLAH},
 	{"now", 0, fn_now_0, NULL, false, false, BLAH},
 	{"now", 1, fn_now_1, "-integer", false, false, BLAH},
-	{"get_time", 1, fn_get_time_1, "-var", false, false, BLAH},
-	{"cpu_time", 1, fn_cpu_time_1, "-var", false, false, BLAH},
+	{"get_time", 1, fn_get_time_1, "-integer", false, false, BLAH},
+	{"cpu_time", 1, fn_cpu_time_1, "-integer", false, false, BLAH},
 	{"wall_time", 1, fn_wall_time_1, "-integer", false, false, BLAH},
 	{"date_time", 6, fn_date_time_6, "-integer,-integer,-integer,-integer,-integer,-integer", false, false, BLAH},
 	{"date_time", 7, fn_date_time_7, "-integer,-integer,-integer,-integer,-integer,-integer,-integer", false, false, BLAH},
-	{"split_string", 4, fn_split_string_4, "+string,+atom,+atom,-list", false, false, BLAH},
-	{"split", 4, fn_split_4, "+string,+string,?string,?string", false, false, BLAH},
+	{"split_string", 4, fn_split_string_4, "+character_list,+atom,+atom,-list", false, false, BLAH},
+	{"split", 4, fn_split_4, "+character_list,+character_list,?character_list,?character_list", false, false, BLAH},
 	{"is_list_or_partial_list", 1, fn_is_list_or_partial_list_1, "+term", false, false, BLAH},
 	{"is_partial_list", 1, fn_is_partial_list_1, "+term", false, false, BLAH},
 	{"is_list", 1, fn_is_list_1, "+term", false, false, BLAH},
 	{"list", 1, fn_is_list_1, "+term", false, false, BLAH},
 	{"is_stream", 1, fn_is_stream_1, "+term", false, false, BLAH},
 	{"term_hash", 2, fn_term_hash_2, "+term,?integer", false, false, BLAH},
-	{"base64", 3, fn_base64_3, "?string,?string,+list", false, false, BLAH},
-	{"urlenc", 3, fn_urlenc_3, "?string,?string,+list", false, false, BLAH},
+	{"base64", 3, fn_base64_3, "?character_list,?character_list,+list", false, false, BLAH},
+	{"urlenc", 3, fn_urlenc_3, "?character_list,?character_list,+list", false, false, BLAH},
 	{"atom_lower", 2, fn_atom_lower_2, "?atom,?atom", false, false, BLAH},
 	{"atom_upper", 2, fn_atom_upper_2, "?atom,?atom", false, false, BLAH},
-	{"string_lower", 2, fn_string_lower_2, "?string,?string", false, false, BLAH},
-	{"string_upper", 2, fn_string_upper_2, "?string,?string", false, false, BLAH},
-	{"hex_bytes", 2, fn_hex_bytes_2, "?string,?list", false, false, BLAH},
-	{"hex_chars", 2, fn_hex_chars_2, "?integer,?string", false, false, BLAH},
-	{"octal_chars", 2, fn_octal_chars_2, "?integer,?string", false, false, BLAH},
+	{"string_lower", 2, fn_string_lower_2, "?character_list,?character_list", false, false, BLAH},
+	{"string_upper", 2, fn_string_upper_2, "?character_list,?character_list", false, false, BLAH},
+	{"hex_bytes", 2, fn_hex_bytes_2, "?character_list,?list", false, false, BLAH},
+	{"hex_chars", 2, fn_hex_chars_2, "?integer,?character_list", false, false, BLAH},
+	{"octal_chars", 2, fn_octal_chars_2, "?integer,?character_list", false, false, BLAH},
 	{"char_type", 2, fn_char_type_2, "+character,+term", false, false, BLAH},
 	{"code_type", 2, fn_char_type_2, "+integer,+term", false, false, BLAH},
-	{"uuid", 1, fn_uuid_1, "-string", false, false, BLAH},
-	{"asserta", 2, fn_asserta_2, "+term,-string", false, false, BLAH},
-	{"assertz", 2, fn_assertz_2, "+term,-string", false, false, BLAH},
-	{"instance", 2, fn_instance_2, "+string,?term", false, false, BLAH},
-	{"erase", 1, fn_erase_1, "+string", false, false, BLAH},
-	{"clause", 3, fn_clause_3, "?term,?term,-string", false, false, BLAH},
+	{"uuid", 1, fn_uuid_1, "-character_list", false, false, BLAH},
+	{"asserta", 2, fn_asserta_2, "+term,-character_list", false, false, BLAH},
+	{"assertz", 2, fn_assertz_2, "+term,-character_list", false, false, BLAH},
+	{"instance", 2, fn_instance_2, "+character_list,?term", false, false, BLAH},
+	{"erase", 1, fn_erase_1, "+character_list", false, false, BLAH},
+	{"clause", 3, fn_clause_3, "?term,?term,-character_list", false, false, BLAH},
 	{"getenv", 2, fn_getenv_2, "+atom,-atom", false, false, BLAH},
 	{"setenv", 2, fn_setenv_2, "+atom,+atom", false, false, BLAH},
 	{"unsetenv", 1, fn_unsetenv_1, "+atom", false, false, BLAH},
 	{"statistics", 0, fn_statistics_0, NULL, false, false, BLAH},
-	{"statistics", 2, fn_statistics_2, "+atom,-var", false, false, BLAH},
-	{"duplicate_term", 2, fn_iso_copy_term_2, "+term,-var", false, false, BLAH},
+	{"statistics", 2, fn_statistics_2, "+atom,-term", false, false, BLAH},
+	{"duplicate_term", 2, fn_iso_copy_term_2, "+term,-term", false, false, BLAH},
 	{"call_nth", 2, fn_call_nth_2, ":callable,+integer", false, false, BLAH},
 	{"limit", 2, fn_limit_2, "+integer,:callable", false, false, BLAH},
 	{"offset", 2, fn_offset_2, "+integer,+callable", false, false, BLAH},
@@ -8179,58 +8416,59 @@ builtins g_other_bifs[] =
 	{"kv_set", 3, fn_kv_set_3, "+atomic,+term,+list", false, false, BLAH},
 	{"kv_get", 3, fn_kv_get_3, "+atomic,-term,+list", false, false, BLAH},
 	{"between", 3, fn_between_3, "+integer,+integer,-integer", false, false, BLAH},
-	{"string_length", 2, fn_string_length_2, "+string,?integer", false, false, BLAH},
+	{"string_length", 2, fn_string_length_2, "+character_list,?integer", false, false, BLAH},
 
 	{"must_be", 4, fn_must_be_4, "+term,+atom,+term,?any", false, false, BLAH},
 	{"can_be", 4, fn_can_be_4, "+term,+atom,+term,?any", false, false, BLAH},
 	{"must_be", 2, fn_must_be_2, "+atom,+term", false, false, BLAH},
 	{"can_be", 2, fn_can_be_2, "+atom,+term,", false, false, BLAH},
 
-	{"sre_compile", 2, fn_sre_compile_2, "+pattern,-reg,", false, false, BLAH},
-	{"sre_matchp", 4, fn_sre_matchp_4, "+reg,+text,-match,-rest,", false, false, BLAH},
-	{"sre_match", 4, fn_sre_match_4, "+pattern,+text,-match,-rest,", false, false, BLAH},
-	{"sre_substp", 4, fn_sre_substp_4, "+reg,+text,-prefix,-rest,", false, false, BLAH},
-	{"sre_subst", 4, fn_sre_subst_4, "+pattern,+text,-prefix,-rest,", false, false, BLAH},
+	{"sre_compile", 2, fn_sre_compile_2, "+character_list,-character_list,", false, false, BLAH},
+	{"sre_matchp", 4, fn_sre_matchp_4, "+character_list,+character_list,-character_list,-character_list,", false, false, BLAH},
+	{"sre_match", 4, fn_sre_match_4, "+character_list,+character_list,-character_list,-character_list,", false, false, BLAH},
+	{"sre_substp", 4, fn_sre_substp_4, "+character_list,+character_list,-character_list,-character_list,", false, false, BLAH},
+	{"sre_subst", 4, fn_sre_subst_4, "+character_list,+character_list,-character_list,-character_list,", false, false, BLAH},
 
 	{"$register_cleanup", 1, fn_sys_register_cleanup_1, NULL, false, false, BLAH},
-	{"$get_level", 1, fn_sys_get_level_1, "?var", false, false, BLAH},
-	{"$is_partial_string", 1, fn_sys_is_partial_string_1, "+string", false, false, BLAH},
+	{"$get_level", 1, fn_sys_get_level_1, "?integer", false, false, BLAH},
+	{"$is_partial_string", 1, fn_sys_is_partial_string_1, "+character_list", false, false, BLAH},
 	{"$undo_trail", 1, fn_sys_undo_trail_1, NULL, false, false, BLAH},
 	{"$redo_trail", 0, fn_sys_redo_trail_0, NULL, false, false, BLAH},
-	{"$legacy_predicate_property", 2, fn_sys_legacy_predicate_property_2, "+callable,?string", false, false, BLAH},
+	{"$legacy_predicate_property", 2, fn_sys_legacy_predicate_property_2, "+callable,?character_list", false, false, BLAH},
+	{"$legacy_function_property", 2, fn_sys_legacy_function_property_2, "+callable,?character_list", false, false, BLAH},
 	{"$load_properties", 0, fn_sys_load_properties_0, NULL, false, false, BLAH},
 	{"$load_flags", 0, fn_sys_load_flags_0, NULL, false, false, BLAH},
 	{"$load_ops", 0, fn_sys_load_ops_0, NULL, false, false, BLAH},
 	{"$ops_dirty", 0, fn_sys_ops_dirty_0, NULL, false, false, BLAH},
 	{"$list", 1, fn_sys_list_1, "-list", false, false, BLAH},
 	{"$queue", 1, fn_sys_queue_1, "+term", false, false, BLAH},
-	{"$incr", 2, fn_sys_incr_2, "@var,+integer", false, false, BLAH},
+	{"$incr", 2, fn_sys_incr_2, "@integer,+integer", false, false, BLAH},
 	{"$choice", 0, fn_sys_choice_0, NULL, false, false, BLAH},
 	{"$alarm", 1, fn_sys_alarm_1, "+integer", false, false, BLAH},
-	{"$put_attributes", 2, fn_sys_put_attributes_2, "@var,+list", false, false, BLAH},
-	{"$get_attributes", 2, fn_sys_get_attributes_2, "@var,-list", false, false, BLAH},
-	{"$erase_attributes", 1, fn_sys_erase_attributes_1, "@var", false, false, BLAH},
+	{"$put_attributes", 2, fn_sys_put_attributes_2, "@variable,+list", false, false, BLAH},
+	{"$get_attributes", 2, fn_sys_get_attributes_2, "@variable,-list", false, false, BLAH},
+	{"$erase_attributes", 1, fn_sys_erase_attributes_1, "@variable", false, false, BLAH},
 	{"$list_attributed", 1, fn_sys_list_attributed_1, "-list", false, false, BLAH},
 	{"$dump_keys", 1, fn_sys_dump_keys_1, NULL, false, false, BLAH},
-	{"$skip_max_list", 4, fn_sys_skip_max_list_4, NULL, false, false, BLAH},
+	{"$skip_max_list", 4, fn_sys_skip_max_list_4, "?integer,?integer?,?term,?term", false, false, BLAH},
 #ifdef __wasi__
 	{"$host_call", 2, fn_sys_host_call_2, "+string,-string", false, false, BLAH},
 	{"$host_resume", 1, fn_sys_host_resume_1, "-string", false, false, BLAH},
 #endif
 
 #if USE_OPENSSL
-	{"crypto_data_hash", 3, fn_crypto_data_hash_3, "?string,?string,?list", false, false, BLAH},
+	{"crypto_data_hash", 3, fn_crypto_data_hash_3, "?character_list,?character_list,?list", false, false, BLAH},
 #endif
 
 #ifndef WASI_TARGET_JS
 	{"task", 1, fn_task_n, ":callable", false, false, BLAH},
-	{"task", 2, fn_task_n, ":callable,+term,...", false, false, BLAH},
-	{"task", 3, fn_task_n, ":callable,+term,...", false, false, BLAH},
-	{"task", 4, fn_task_n, ":callable,+term,...", false, false, BLAH},
-	{"task", 5, fn_task_n, ":callable,+term,...", false, false, BLAH},
-	{"task", 6, fn_task_n, ":callable,+term,...", false, false, BLAH},
-	{"task", 7, fn_task_n, ":callable,+term,...", false, false, BLAH},
-	{"task", 8, fn_task_n, ":callable,+term,...", false, false, BLAH},
+	{"task", 2, fn_task_n, ":callable,?term", false, false, BLAH},
+	{"task", 3, fn_task_n, ":callable,?term,?term", false, false, BLAH},
+	{"task", 4, fn_task_n, ":callable,?term,?term,?term", false, false, BLAH},
+	{"task", 5, fn_task_n, ":callable,?term,?term,?term,?term", false, false, BLAH},
+	{"task", 6, fn_task_n, ":callable,?term,?term,?term,?term,?term", false, false, BLAH},
+	{"task", 7, fn_task_n, ":callable,?term,?term,?term,?term,?term,?term", false, false, BLAH},
+	{"task", 8, fn_task_n, ":callable,?term,?term,?term,?term,?term,?term,?term", false, false, BLAH},
 
 	{"wait", 0, fn_wait_0, NULL, false, false, BLAH},
 	{"await", 0, fn_await_0, NULL, false, false, BLAH},

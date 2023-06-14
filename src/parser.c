@@ -365,16 +365,6 @@ static bool conditionals(parser *p, cell *d)
 
 	const char *dirname = C_STR(p, c);
 
-	if (!strcmp(dirname, "endif") && (c->arity == 0) && !p->m->ifs_blocked[p->m->if_depth]) {
-		--p->m->if_depth;
-		return true;
-	}
-
-	if (!strcmp(dirname, "endif") && (c->arity == 0)) {
-		--p->m->if_depth;
-		return true;
-	}
-
 	if (!strcmp(dirname, "if") && (c->arity == 1) && !p->m->ifs_done[p->m->if_depth] && !p->m->ifs_blocked[p->m->if_depth]) {
 		bool ok = goal_run(p, c+1);
 		p->m->ifs_blocked[++p->m->if_depth] = !ok;
@@ -384,7 +374,6 @@ static bool conditionals(parser *p, cell *d)
 
 	if (!strcmp(dirname, "if") && (c->arity == 1)) {
 		bool save1 = p->m->ifs_blocked[p->m->if_depth];
-		bool save2 = p->m->ifs_done[p->m->if_depth];
 		p->m->ifs_blocked[++p->m->if_depth] = save1;
 		p->m->ifs_done[p->m->if_depth] = true;
 		return true;
@@ -410,6 +399,11 @@ static bool conditionals(parser *p, cell *d)
 
 	if (!strcmp(dirname, "else") && (c->arity == 0)) {
 		p->m->ifs_blocked[p->m->if_depth] = true;
+		return true;
+	}
+
+	if (!strcmp(dirname, "endif") && (c->arity == 0)) {
+		--p->m->if_depth;
 		return true;
 	}
 
@@ -504,6 +498,11 @@ static void directives(parser *p, cell *d)
 		ptr->iso = iso;
 		ptr->via_directive = true;
 		map_app(p->pl->help, ptr->name, ptr);
+
+		if (ptr->iso)
+			push_property(p->m, ptr->name, ptr->arity, "iso");
+
+		push_template(p->m, ptr->name, ptr->arity, ptr);
 		return;
 	}
 
@@ -580,7 +579,7 @@ static void directives(parser *p, cell *d)
 			//if (DUMP_ERRS || !p->do_read_term)
 			//	fprintf(stdout, "Error: module already loaded: %s, %s:%d\n", name, get_loaded(p->m, p->m->filename), p->line_nbr);
 			//
-			p->already_loaded = true;
+			p->already_loaded_error = true;
 			p->m = tmp_m;
 
 			if (tmp_m != p->m)
@@ -670,7 +669,7 @@ static void directives(parser *p, cell *d)
 			//if (DUMP_ERRS || !p->do_read_term)
 			//	fprintf(stdout, "Error: module already loaded: %s, %s:%d\n", name, get_loaded(p->m, p->m->filename), p->line_nbr);
 			//
-			p->already_loaded = true;
+			p->already_loaded_error = true;
 			p->m = tmp_m;
 			return;
 		}
@@ -710,6 +709,7 @@ static void directives(parser *p, cell *d)
 
 					predicate *pr = find_predicate(p->m, &tmp);
 					if (!pr) pr = create_predicate(p->m, &tmp);
+
 					if (!pr) {
 						module_destroy(p->m);
 						p->m = NULL;
@@ -720,6 +720,9 @@ static void directives(parser *p, cell *d)
 						return;
 					}
 
+					push_property(p->m, C_STR(p, &tmp), tmp.arity, "static");
+					push_property(p->m, C_STR(p, &tmp), tmp.arity, "visible");
+					push_property(p->m, C_STR(p, &tmp), tmp.arity, "interpreted");
 					pr->is_public = true;
 				} else if (!strcmp(C_STR(p, head), "op") && (head->arity == 3)) {
 					do_op(p, head, true);
@@ -1673,6 +1676,30 @@ static cell *goal_expansion(parser *p, cell *goal)
 	return goal;
 }
 
+static cell *insert_syscall_here(parser *p, cell *c, cell *p1)
+{
+	pl_idx_t c_idx = c - p->cl->cells, p1_idx = p1 - p->cl->cells;
+	make_room(p, 1);
+
+	cell *last = p->cl->cells + (p->cl->cidx - 1);
+	pl_idx_t cells_to_move = p->cl->cidx - p1_idx;
+	cell *dst = last + 1;
+
+	while (cells_to_move--)
+		*dst-- = *last--;
+
+	p1 = p->cl->cells + p1_idx;
+	p1->tag = TAG_INTERNED;
+	p1->flags = FLAG_BUILTIN;
+	p1->fn_ptr = get_fn_ptr(fn_iso_call_1);
+	p1->val_off = g_syscall_s;
+	p1->nbr_cells = 2;
+	p1->arity = 1;
+
+	p->cl->cidx++;
+	return p->cl->cells + c_idx;
+}
+
 static cell *insert_call_here(parser *p, cell *c, cell *p1)
 {
 	pl_idx_t c_idx = c - p->cl->cells, p1_idx = p1 - p->cl->cells;
@@ -1737,13 +1764,16 @@ static cell *term_to_body_conversion(parser *p, cell *c)
 			c->nbr_cells = 1 + lhs->nbr_cells + rhs->nbr_cells;
 		}
 	} else if (is_prefix(c)) {
-		if ((c->val_off == g_negation_s)
-			|| (c->val_off == g_neck_s)) {
+		if ((c->val_off == g_neck_s) || (c->val_off == g_negation_s)) {
 			cell *save_c = c;
 			cell *rhs = c + 1;
 
 			if (is_var(rhs)) {
-				c = insert_call_here(p, c, rhs);
+				if (c->val_off == g_negation_s)
+					c = insert_syscall_here(p, c, rhs);
+				else
+					c = insert_call_here(p, c, rhs);
+
 				rhs = c + 1;
 			} else {
 				rhs = goal_expansion(p, rhs);
@@ -2857,6 +2887,10 @@ static bool process_term(parser *p, cell *p1)
 
 	check_first_cut(&dbe->cl);
 	dbe->cl.is_fact = !get_logical_body(dbe->cl.cells);
+	dbe->line_nbr_start = p->line_nbr_start;
+	dbe->line_nbr_end = p->line_nbr;
+	//printf("*** %s/%u => '%s' : %u:%u\n", C_STR(p, &dbe->owner->key), dbe->owner->key.arity, dbe->filename, dbe->line_nbr_start, dbe->line_nbr_end);
+	p->line_nbr_start = 0;
 	return true;
 }
 
@@ -2916,9 +2950,20 @@ unsigned tokenize(parser *p, bool args, bool consing)
 
 					p->error_desc = "operator_expected";
 					p->error = true;
+					return 0;
 				}
 
 				term_assign_vars(p, p->read_term_slots, false);
+
+				if (p->consulting && check_body_callable(p->cl->cells)) {
+					if (DUMP_ERRS || !p->do_read_term)
+						printf("Error: type error, not callable, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
+
+					p->error_desc = "operator_expected";
+					p->error = true;
+					return 0;
+				}
+
 				xref_rule(p->m, p->cl, NULL);
 				term_to_body(p);
 
@@ -2969,7 +3014,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 						if (!process_term(p, h))
 							return false;
 
-						if (p->already_loaded)
+						if (p->already_loaded_error)
 							return false;
 
 						p1 = LIST_TAIL(p1);
@@ -2981,7 +3026,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 					if (!tail && !process_term(p, p1))
 						return false;
 
-					if (p->already_loaded)
+					if (p->already_loaded_error)
 						return false;
 
 					p->cl->cidx = 0;
@@ -2997,6 +3042,9 @@ unsigned tokenize(parser *p, bool args, bool consing)
 			last_num = false;
 			continue;
 		}
+
+		if (!p->line_nbr_start)
+			p->line_nbr_start = p->line_nbr;
 
 		p->end_of_term = false;
 
@@ -3501,7 +3549,7 @@ bool run(parser *p, const char *pSrc, bool dump, query **subq, unsigned int yiel
 	}
 
 	SB(src);
-	SB_sprintf(src, "true,%s", pSrc);
+	SB_sprintf(src, "true. %s", pSrc);
 	SB_trim_ws(src);
 	SB_trim(src, '.');
 	SB_strcat(src, ".");
@@ -3511,6 +3559,7 @@ bool run(parser *p, const char *pSrc, bool dump, query **subq, unsigned int yiel
 
 	while (p->srcptr && *p->srcptr && !g_tpl_interrupt) {
 		reset(p);
+		p->line_nbr_start = 0;
 		p->line_nbr = 1;
 		p->one_shot = true;
 		p->consulting = false;

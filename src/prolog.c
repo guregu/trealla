@@ -24,7 +24,7 @@ pl_idx_t g_dcg_s, g_throw_s, g_sys_block_catcher_s, g_sys_drop_barrier_s;
 pl_idx_t g_sys_soft_prune_s, g_if_then_s, g_soft_cut_s, g_negation_s;
 pl_idx_t g_error_s, g_slash_s, g_sys_cleanup_if_det_s, g_sys_table_s;
 pl_idx_t g_goal_expansion_s, g_term_expansion_s, g_tm_s, g_float_s;
-pl_idx_t g_sys_cut_if_det_s, g_as_s, g_colon_s, g_sys_prune_s;
+pl_idx_t g_sys_cut_if_det_s, g_as_s, g_colon_s, g_sys_prune_s, g_syscall_s;
 
 unsigned g_cpu_count = 4;
 char *g_tpl_lib = NULL;
@@ -134,7 +134,7 @@ bool pl_eval(prolog *pl, const char *s)
 
 bool pl_query(prolog *pl, const char *s, pl_sub_query **subq, unsigned int yield_time_in_ms)
 {
-	if (!pl || !*s || !subq)
+	if (!pl || !s || !subq)
 		return false;
 
 	// if (!pl->p)
@@ -435,6 +435,7 @@ static bool g_init(prolog *pl)
 	CHECK_SENTINEL(g_anon_s = index_from_pool(pl, "_"), ERR_IDX);
 	CHECK_SENTINEL(g_dcg_s = index_from_pool(pl, "-->"), ERR_IDX);
 	CHECK_SENTINEL(g_call_s = index_from_pool(pl, "call"), ERR_IDX);
+	CHECK_SENTINEL(g_syscall_s = index_from_pool(pl, "$call"), ERR_IDX);
 	CHECK_SENTINEL(g_braces_s = index_from_pool(pl, "braces"), ERR_IDX);
 	CHECK_SENTINEL(g_unify_s = index_from_pool(pl, "="), ERR_IDX);
 	CHECK_SENTINEL(g_on_s = index_from_pool(pl, "on"), ERR_IDX);
@@ -644,12 +645,14 @@ prolog *pl_create()
 
 	// In user space...
 
-	set_multifile_in_db(pl->user_m, "$predicate_property", 2);
+	set_discontiguous_in_db(pl->user_m, "$predicate_property", 3);
+
+	set_multifile_in_db(pl->user_m, "$predicate_property", 3);
 	set_multifile_in_db(pl->user_m, ":-", 1);
 
 	set_dynamic_in_db(pl->user_m, "$record_key", 2);
 	set_dynamic_in_db(pl->user_m, "$op", 3);
-	set_dynamic_in_db(pl->user_m, "$predicate_property", 2);
+	set_dynamic_in_db(pl->user_m, "$predicate_property", 3);
 	set_dynamic_in_db(pl->user_m, "$current_prolog_flag", 2);
 	set_dynamic_in_db(pl->user_m, "$stream_property", 2);
 	set_dynamic_in_db(pl->user_m, "initialization", 1);

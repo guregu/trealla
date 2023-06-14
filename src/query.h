@@ -15,7 +15,6 @@ void query_destroy(query *q);
 
 bool push_choice(query *q);
 bool push_barrier(query *q);
-bool push_call_barrier(query *q);
 bool push_catcher(query *q, enum q_retry type);
 
 bool do_retract(query *q, cell *p1, pl_idx_t p1_ctx, enum clause_type is_retract);
@@ -31,7 +30,7 @@ void purge_predicate_dirty_list(query *q, predicate *pr);
 void purge_dirty_list(query *q);
 bool check_slot(query *q, unsigned cnt);
 void cut_me(query *q);
-void prune_me(query *q, bool soft_cut);
+void prune_me(query *q, bool soft_cut, pl_idx_t cp);
 bool execute(query *q, cell *cells, unsigned nbr_vars);
 bool fn_call_0(query *q, cell *p1, pl_idx_t p1_ctx);
 void undo_me(query *q);
@@ -49,7 +48,6 @@ bool check_redo(query *q);
 void dump_vars(query *q, bool partial);
 int check_interrupt(query *q);
 bool make_slice(query *q, cell *d, const cell *orig, size_t off, size_t n);
-void unshare_predicate(query *q, predicate *pr);
 
 bool find_exception_handler(query *q, char *e);
 bool throw_error(query *q, cell *c, pl_idx_t c_ctx, const char *err_type, const char *expected);
@@ -71,7 +69,7 @@ int get_stream(query *q, cell *p1);
 bool call_builtin(query *q, cell *c, pl_idx_t c_ctx);
 bool call_userfun(query *q, cell *c, pl_idx_t c_ctx);
 void do_cleanup(query *q, cell *p1, pl_idx_t c_ctx);
-bool drop_barrier(query *q);
+bool drop_barrier(query *q, pl_idx_t cp);
 void collect_vars(query *q, cell *p1, pl_idx_t p1_ctx);
 bool check_list(query *q, cell *p1, pl_idx_t p1_ctx, bool *is_partial, pl_int_t *skip);
 bool parse_write_params(query *q, cell *c, pl_idx_t c_ctx, cell **vnames, pl_idx_t *vnames_ctx);
@@ -94,7 +92,7 @@ bool print_canonical_to_stream(query *q, stream *str, cell *c, pl_idx_t c_ctx, i
 
 void dump_term(query *q, const char *s, const cell *c);
 
-bool fn_sys_drop_barrier_0(query *q);
+bool fn_sys_drop_barrier_1(query *q);
 bool fn_iso_throw_1(query *q);
 bool fn_sys_call_cleanup_3(query *q);
 bool fn_iso_catch_3(query *q);
@@ -113,16 +111,14 @@ bool fn_iso_call_1(query *q);
 bool fn_iso_call_n(query *q);
 bool fn_iso_cut_0(query *q);
 bool fn_sys_prune_0(query *q);
-bool fn_sys_prune_1(query *q);
 bool fn_iso_fail_0(query *q);
 bool fn_iso_true_0(query *q);
 bool fn_sys_undo_trail_1(query *q);
 bool fn_sys_redo_trail_0(query *q);
-bool fn_sys_soft_prune_0(query *q);
+bool fn_sys_soft_prune_1(query *q);
 bool fn_iso_unify_2(query *q);
 bool fn_sys_block_catcher_1(query *q);
-bool fn_sys_cleanup_if_det_0(query *q);
-bool fn_sys_cut_if_det_0(query *q);
+bool fn_sys_cleanup_if_det_1(query *q);
 bool fn_sys_queue_1(query *q);
 bool fn_iso_findall_3(query *q);
 bool fn_iso_bagof_3(query *q);

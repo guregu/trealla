@@ -12,96 +12,98 @@
 	]).
 
 /*  Author:        Andrew Davison, Mark Thom, Jan Wielemaker, and Richard O'Keefe
-    Copyright (c)  2022,      Andrew Davison
-    Copyright (c)  2018-2021, Mark Thom
-    Copyright (c)  2002-2020, University of Amsterdam
-                              VU University Amsterdam
-                              SWI-Prolog Solutions b.v.
-    All rights reserved.
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions
-    are met:
-    1. Redistributions of source code must retain the above copyright
-       notice, this list of conditions and the following disclaimer.
-    2. Redistributions in binary form must reproduce the above copyright
-       notice, this list of conditions and the following disclaimer in
-       the documentation and/or other materials provided with the
-       distribution.
-    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-    "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-    LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
-    FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-    COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
-    INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
-    BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-    LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-    CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
-    LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
-    ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-    POSSIBILITY OF SUCH DAMAGE.
+	Copyright (c)  2022,      Andrew Davison
+	Copyright (c)  2018-2021, Mark Thom
+	Copyright (c)  2002-2020, University of Amsterdam
+							  VU University Amsterdam
+							  SWI-Prolog Solutions b.v.
+	All rights reserved.
+	Redistribution and use in source and binary forms, with or without
+	modification, are permitted provided that the following conditions
+	are met:
+	1. Redistributions of source code must retain the above copyright
+	   notice, this list of conditions and the following disclaimer.
+	2. Redistributions in binary form must reproduce the above copyright
+	   notice, this list of conditions and the following disclaimer in
+	   the documentation and/or other materials provided with the
+	   distribution.
+	THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+	"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+	LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+	FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+	COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+	INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+	BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+	LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+	CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+	LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+	ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+	POSSIBILITY OF SUCH DAMAGE.
 */
 
 reverse(Xs, Ys) :-
-    (	nonvar(Xs)
+	(	nonvar(Xs)
 	->	reverse_(Xs, Ys, [], Xs)
-    ;	reverse_(Ys, Xs, [], Ys)
-    ).
+	;	reverse_(Ys, Xs, [], Ys)
+	).
 
 reverse_([], [], YsRev, YsRev).
 reverse_([_|Xs], [Y1|Ys], YsPreludeRev, Xss) :-
-    reverse_(Xs, Ys, [Y1|YsPreludeRev], Xss).
+	reverse_(Xs, Ys, [Y1|YsPreludeRev], Xss).
 
-:- help(reverse(?list,?list), [iso(false),desc('Reverse one list to make another.')]).
+:- help(reverse(?list,?list), [iso(false), desc('Reverse one list to make another.')]).
 
 append([], []).
 append([L0|Ls0], Ls) :-
-    append(L0, Rest, Ls),
-    append(Ls0, Rest).
+	append(L0, Rest, Ls),
+	append(Ls0, Rest).
 
-:- help(append(+list,?list), [iso(false),desc('The concatention of a list of lists to make a new one.')]).
+:- help(append(?list,?list), [iso(false), desc('The concatention of a list of lists to make a new one.')]).
 
 append([], R, R).
 append([X|L], R, [X|S]) :- append(L, R, S).
 
-:- help(append(?list,?list,?list), [iso(false),desc('The concatenation of two lists to make a third.')]).
+:- help(append(?term,?term,?term), [iso(false), desc('The concatenation of two lists to make a third.')]).
 
 memberchk(X, Xs) :- member(X, Xs), !.
 
+:- help(memberchk(?term,?term), [iso(false), desc('Is element a member of the list.')]).
+
 member(El, [H|T]) :-
-    member_(T, El, H).
+	member_(T, El, H).
 
 member_(_, El, El).
 member_([H|T], El, _) :-
-    member_(T, El, H).
+	member_(T, El, H).
 
-:- help(member(?term,?list), [iso(false),desc('Is element a member of the list.')]).
+:- help(member(?term,?term), [iso(false), desc('Is element a member of the list.')]).
 
 selectchk(X, L, Rest) :- select(X, L, Rest), !.
 
-:- help(selectchk(+term,+list,-rest), [iso(false),desc('Deterministically remove element from list to make a new one.')]).
+:- help(selectchk(+term,?term,?term), [iso(false), desc('Deterministically remove element from list to make a new one.')]).
 
 select(X, [X|T], T).
 select(X, [H|T], [H|Rest]) :- select(X, T, Rest).
 
-:- help(select(+term,+list), [iso(false),desc('Remove element from a list to make a new one.')]).
+:- help(select(+term,+term, ?term), [iso(false), desc('Remove element from a list to make a new one.')]).
 
 subtract([], _, []) :- !.
 subtract([H|T], L2, L3) :- memberchk(H, L2), !, subtract(T, L2, L3).
 subtract([H|T1], L2, [H|T3]) :- subtract(T1, L2, T3).
 
-:- help(subtract(+list,+list,-list), [iso(false),desc('Delete all elements from set to make a new one.')]).
+:- help(subtract(+list,+list,-list), [iso(false), desc('Delete all elements from set to make a new one.')]).
 
 union([], L, L).
 union([H|T], Y, Z):- member(H, Y), !, union(T, Y, Z).
 union([H|T], Y, [H|Z]):- union(T, Y, Z).
 
-:- help(union(+list,+list,-list), [iso(false),desc('The union of two sets to produce a third.')]).
+:- help(union(+list,+list,-list), [iso(false), desc('The union of two sets to produce a third.')]).
 
 intersection([], _, []).
 intersection([H|T], Y, [H|Z]) :- member(H, Y), !, intersection(T, Y, Z).
 intersection([_|T], Y, Z) :- intersection(T, Y, Z).
 
-:- help(intersection(+list,+list,-list), [iso(false),desc('The intersection of two sets to produce a third.')]).
+:- help(intersection(+list,+list,-list), [iso(false), desc('The intersection of two sets to produce a third.')]).
 
 nth1_orig(N, Es, E) :-
 	can_be(integer, N),
@@ -147,7 +149,7 @@ nth1(N, Es0, E) :-
 nth1(N, Es, E) :-
 	nth1_orig(N, Es, E).
 
-:- help(nth1(+integer,+list,-term), [iso(false),desc('Indexed element (from 1) into list.')]).
+:- help(nth1(?integer,?term,?term), [iso(false), desc('Indexed element (from 1) into list.')]).
 
 nth0(N, Es0, E) :-
 	nonvar(N),
@@ -157,17 +159,17 @@ nth0(N, Es0, E) :-
 nth0(N, Es, E) :-
 	nth0_orig(N, Es, E).
 
-:- help(nth0(+integer,+list,-term), [iso(false),desc('Indexed element (from 0) into list.')]).
+:- help(nth0(?integer,?term,?term), [iso(false), desc('Indexed element (from 0) into list.')]).
 
 nth1(Nth, List, Element, Rest) :-
 	nth(Element, List, 1, Nth, Rest).
 
-:- help(nth1(+integer,+list,-term,-list), [iso(false)]).
+:- help(nth1(?integer,+term,?term,?term), [iso(false)]).
 
 nth0(Nth, List, Element, Rest) :-
 	nth(Element, List, 0, Nth, Rest).
 
-:- help(nth0(+integer,+list,-term,-list), [iso(false),desc('Indexed element (from 0) into list with remainder.')]).
+:- help(nth0(?integer,?term,?term,?term), [iso(false), desc('Indexed element (from 0) into list with remainder.')]).
 
 nth(Element, List, Acc, Nth, Rest) :-
 	(	integer(Nth),
@@ -191,18 +193,18 @@ last_([X|Xs], _, Last) :- last_(Xs, X, Last).
 :- help(last(+list,-term), [iso(false)]).
 
 flatten(List, FlatList) :-
-    flatten_(List, [], FlatList0),
-    !,
-    FlatList = FlatList0.
+	flatten_(List, [], FlatList0),
+	!,
+	FlatList = FlatList0.
 
 flatten_(Var, Tl, [Var|Tl]) :-
-    var(Var),
-    !.
+	var(Var),
+	!.
 flatten_([], Tl, Tl) :- !.
 flatten_([Hd|Tl], Tail, List) :-
-    !,
-    flatten_(Hd, FlatHeadTail, List),
-    flatten_(Tl, Tail, FlatHeadTail).
+	!,
+	flatten_(Hd, FlatHeadTail, List),
+	flatten_(Tl, Tail, FlatHeadTail).
 flatten_(NonList, Tl, [NonList|Tl]).
 
 :- help(flatten(+list,-list), [iso(false)]).
@@ -210,7 +212,7 @@ flatten_(NonList, Tl, [NonList|Tl]).
 same_length([], []).
 same_length([_|As], [_|Bs]) :- same_length(As, Bs).
 
-:- help(same_length(?list,?list), [iso(false),desc('Are two list the same length.')]).
+:- help(same_length(?list,?list), [iso(false), desc('Are two list the same length.')]).
 
 list_sum(Xs, Sum) :-
 	list_sum_(Xs, 0, Sum).
@@ -224,8 +226,8 @@ list_sum_([X|Xs], Sum0, Sum) :-
 	Sum1 is Sum0 + X,
 	list_sum_(Xs, Sum1, Sum).
 
-:- help(list_sum(+list,?integer), [iso(false),desc('Add all values of a list.')]).
-:- help(sum_list(+list,?integer), [iso(false),desc('Add all values of a list.')]).
+:- help(list_sum(+list,?integer), [iso(false), desc('Add all values of a list.')]).
+:- help(sum_list(+list,?integer), [iso(false), desc('Add all values of a list.')]).
 
 list_prod(Xs, Prod) :-
 	list_prod_(Xs, 1, Prod).
@@ -239,8 +241,8 @@ list_prod_([X|Xs], Prod0, Prod) :-
 	Prod1 is Prod0 * X,
 	list_prod_(Xs, Prod1, Prod).
 
-:- help(list_prod(+list,?integer), [iso(false),desc('Multiplay all values of a list.')]).
-:- help(prod_list(+list,?integer), [iso(false),desc('Multiplay all values of a list.')]).
+:- help(list_prod(+list,?integer), [iso(false), desc('Multiplay all values of a list.')]).
+:- help(prod_list(+list,?integer), [iso(false), desc('Multiplay all values of a list.')]).
 
 list_max([H|T], Max) :-
 	list_max_(T, H, Max).
@@ -256,8 +258,8 @@ list_max_([H|T], Max0, Max) :-
 	Max1 is max(H, Max0),
 	list_max_(T, Max1, Max).
 
-:- help(list_max(+list,?integer), [iso(false),desc('Highest value in list.')]).
-:- help(max_list(+list,?integer), [iso(false),desc('Highest value in list.')]).
+:- help(list_max(+list,?integer), [iso(false), desc('Highest value in list.')]).
+:- help(max_list(+list,?integer), [iso(false), desc('Highest value in list.')]).
 
 list_min([H|T], Min) :-
 	list_min_(T, H, Min).
@@ -273,8 +275,8 @@ list_min_([H|T], Min0, Min) :-
 	Min1 is min(H, Min0),
 	list_min_(T, Min1, Min).
 
-:- help(list_min(+list,?integer), [iso(false),desc('Lowest value in list.')]).
-:- help(min_list(+list,?integer), [iso(false),desc('Lowest value in list.')]).
+:- help(list_min(+list,?integer), [iso(false), desc('Lowest value in list.')]).
+:- help(min_list(+list,?integer), [iso(false), desc('Lowest value in list.')]).
 
 list_to_conjunction(List0, T) :-
 	reverse(List0, List),
@@ -296,31 +298,31 @@ tolist_((T1,T2), [T1|Rest]) :- !,
 tolist_(T, [T|[]]).
 
 list_to_set(Ls0, Ls) :-
-        maplist(lists:with_var, Ls0, LVs0),
-        keysort(LVs0, LVs),
-        same_elements(LVs),
-        pick_firsts(LVs0, Ls).
+		maplist(lists:with_var, Ls0, LVs0),
+		keysort(LVs0, LVs),
+		same_elements(LVs),
+		pick_firsts(LVs0, Ls).
 
 pick_firsts([], []).
 pick_firsts([E-V|EVs], Fs0) :-
-        (   V == visited ->
-            Fs0 = Fs
-        ;   V = visited,
-            Fs0 = [E|Fs]
-        ),
-        pick_firsts(EVs, Fs).
+		(   V == visited ->
+			Fs0 = Fs
+		;   V = visited,
+			Fs0 = [E|Fs]
+		),
+		pick_firsts(EVs, Fs).
 
 with_var(E, E-_).
 
 same_elements([]).
 same_elements([EV|EVs]) :-
-        foldl(lists:unify_same, EVs, EV, _).
+		foldl(lists:unify_same, EVs, EV, _).
 
 unify_same(E-V, Prev-Var, E-V) :-
-        (   Prev == E ->
-            Var = V
-        ;   true
-        ).
+		(   Prev == E ->
+			Var = V
+		;   true
+		).
 
 numlist(L, U, Ns) :-
 	must_be(L, integer, numlist/3, _),
@@ -335,7 +337,7 @@ numlist_(L, U, [L|Ns]) :-
 	L2 is L+1,
 	numlist_(L2, U, Ns).
 
-:- help(numlist(+integer,+integer,?list), [iso(false),desc('Produce list of numbers from start to finish.')]).
+:- help(numlist(+integer,+integer,?list), [iso(false), desc('Produce list of numbers from start to finish.')]).
 
 is_set(Set) :-
 	'$skip_list'(Len, Set, Tail),
@@ -343,7 +345,7 @@ is_set(Set) :-
 	sort(Set, Sorted),
 	length(Sorted, Len)
   .
-:- help(is_set(+list), [iso(false),desc('Is it a set.')]).
+:- help(is_set(+list), [iso(false), desc('Is it a set.')]).
 
 length(Xs0, N) :-
    '$skip_max_list'(M, N, Xs0, Xs),
@@ -362,12 +364,12 @@ length(_, N) :-
 
 length_addendum([], N, N).
 length_addendum([_|Xs], N, M) :-
-    M1 is M + 1,
-    length_addendum(Xs, N, M1).
+	M1 is M + 1,
+	length_addendum(Xs, N, M1).
 
 length_rundown(Xs, 0) :- !, Xs = [].
 length_rundown([_|Xs], N) :-
-    N1 is N-1,
-    length_rundown(Xs, N1).
+	N1 is N-1,
+	length_rundown(Xs, N1).
 
-:- help(length(?list,?integer), [iso(true),desc('Number of elements in list.')]).
+:- help(length(?term,?integer), [iso(false), desc('Number of elements in list.')]).

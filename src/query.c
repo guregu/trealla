@@ -95,8 +95,10 @@ static void trace_call(query *q, cell *c, pl_idx_t c_ctx, box_t box)
 	const char *src = C_STR(q, c);
 
 #if 1
-	if (!strcmp(src, ","))
+	if (!strcmp(src, ",")) {
+		q->step--;
 		return;
+	}
 #endif
 
 #if 0
@@ -113,9 +115,10 @@ static void trace_call(query *q, cell *c, pl_idx_t c_ctx, box_t box)
 		q->st.curr_frame, q->st.fp, q->cp, q->st.sp, q->st.hp, q->st.tp
 		);
 #else
-	SB_sprintf(pr, "[%s:%"PRIu64"] ",
+	SB_sprintf(pr, "[%s:%"PRIu64":cp%u] ",
 		q->st.m->name,
-		q->step++
+		q->step++,
+		q->cp
 		);
 #endif
 
@@ -282,16 +285,16 @@ static void setup_key(query *q)
 	if (q->st.key->arity > 1)
 		arg2 = arg1 + arg1->nbr_cells;
 
-	if (q->st.key->arity > 2)
+	if (arg2 && (q->st.key->arity > 2))
 		arg3 = arg2 + arg2->nbr_cells;
 
-	arg1 = deref(q, arg1, q->st.curr_frame);
+	arg1 = deref(q, arg1, q->st.key_ctx);
 
 	if (arg2)
-		arg2 = deref(q, arg2, q->st.curr_frame);
+		arg2 = deref(q, arg2, q->st.key_ctx);
 
 	if (arg3)
-		arg3 = deref(q, arg3, q->st.curr_frame);
+		arg3 = deref(q, arg3, q->st.key_ctx);
 
 	if (is_atomic(arg1) || is_structure(arg1))
 		q->st.arg1_is_ground = true;
@@ -311,15 +314,19 @@ void next_key(query *q)
 			map_done(q->st.iter);
 			q->st.iter = NULL;
 		}
-	} else
-		q->st.curr_dbe = q->st.curr_dbe->next;
+
+		return;
+	}
+
+	q->st.curr_dbe = q->st.curr_dbe->next;
 }
 
 bool has_next_key(query *q)
 {
+	const frame *f = GET_CURR_FRAME();
+
 	if (q->st.iter) {
-		db_entry *dbe;
-		const frame *f = GET_CURR_FRAME();
+		const db_entry *dbe;
 
 		while (map_is_next(q->st.iter, (void**)&dbe)) {
 			if (!can_view(q, f->ugen, dbe)) {
@@ -349,34 +356,35 @@ bool has_next_key(query *q)
 	if (q->st.arg3_is_ground && cl->arg3_is_unique)
 		return false;
 
-	db_entry *next = q->st.curr_dbe->next;
-
-	if (!next)
-		return false;
-
-	if (next->next || !q->st.arg1_is_ground)
-		return true;
-
 	// Attempt look-ahead on 1st arg...
 
-	cl = &next->cl;
-	cell *darg1 = cl->cells->val_off == g_neck_s ? cl->cells + 1+1 : cl->cells + 1;
+	for (db_entry *next = q->st.curr_dbe->next; next; next = next->next) {
+		if (!can_view(q, f->ugen, next))
+			continue;
 
-	if (is_var(darg1))
-		return true;
+		if (!q->st.arg1_is_ground)
+			return true;
 
-	cell *karg1 = deref(q, q->st.key + 1, q->st.curr_frame);
+		cl = &next->cl;
+		cell *darg1 = cl->cells->val_off == g_neck_s ? cl->cells+1+1 : cl->cells+1;
 
-	//DUMP_TERM("key", q->st.key, q->st.curr_frame, 1);
-	//DUMP_TERM("next", cl->cells, q->st.curr_frame, 0);
+		if (is_var(darg1))
+			return true;
 
-	if (q->pl->opt && is_atomic(karg1)) {
-		if (compare(q, karg1, q->st.curr_frame, darg1, q->st.curr_frame)) {
-			return false;
-		}
+		cell *karg1 = deref(q, q->st.key+1, q->st.key_ctx);
+		pl_idx_t karg1_ctx = q->latest_ctx;
+
+		//DUMP_TERM("key", q->st.key, q->st.key_ctx, 1);
+		//DUMP_TERM("next", cl->cells, q->st.curr_frame, 0);
+
+		if (is_var(karg1) || !is_atomic(karg1))
+			return true;
+
+		if (compare(q, karg1, karg1_ctx, darg1, q->st.curr_frame) == 0)
+			return true;
 	}
 
-	return true;
+	return false;
 }
 
 const char *dump_id(const void *k, const void *v, const void *p)
@@ -395,17 +403,20 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx_t key_ctx)
 	q->st.arg2_is_ground = false;
 	q->st.arg3_is_ground = false;
 	q->st.key = key;
+	q->st.key_ctx = key_ctx;
 
 	if (!pr->idx) {
-		if (!pr->is_processed && !pr->is_multifile)
+		// The just_in_time_rebuild of the index is currently disabled
+		// for multifile/dynamic predicates because of why???
+
+		if (!pr->is_processed && !pr->is_multifile && !pr->is_dynamic)
 			just_in_time_rebuild(pr);
 
 		q->st.curr_dbe = pr->head;
 
-		if (!key->arity || pr->is_multifile || pr->is_dynamic)
-			return true;
+		if (key->arity)
+			setup_key(q);
 
-		setup_key(q);
 		return true;
 	}
 
@@ -566,6 +577,78 @@ size_t scan_is_chars_list(query *q, cell *l, pl_idx_t l_ctx, bool allow_codes)
 	return scan_is_chars_list2(q, l, l_ctx, allow_codes, &has_var, &is_partial);
 }
 
+static void share_predicate(query *q, predicate *pr)
+{
+	if (!pr->is_dynamic)
+		return;
+
+	q->st.pr = pr;
+	pr->refcnt++;
+}
+
+static void unshare_predicate(query *q, predicate *pr)
+{
+	if (!pr)
+		return;
+
+	if (!pr->is_dynamic)
+		return;
+
+	if (!pr->refcnt)
+		return;
+
+	--pr->refcnt;
+
+	if (pr->refcnt != 0)
+		return;
+
+	// Predicate is no longer being used
+
+	if (!pr->dirty_list)
+		return;
+
+	// Just because this predicate is no longer in use doesn't
+	// mean there are no shared references to terms contained
+	// within. So move items on the dirty-list to the query
+	// dirty-list. They will be freed up at end of the query.
+
+	db_entry *dbe = pr->dirty_list;
+
+	while (dbe) {
+		delink(pr, dbe);
+
+		if (pr->cnt) {
+			predicate *pr = dbe->owner;
+			map_remove(pr->idx2, dbe);
+			map_remove(pr->idx, dbe);
+		}
+
+		dbe->cl.is_deleted = true;
+		db_entry *save = dbe->dirty;
+		dbe->dirty = q->dirty_list;
+		q->dirty_list = dbe;
+		dbe = save;
+	}
+
+	pr->dirty_list = NULL;
+
+	if (pr->idx && !pr->cnt) {
+		map_destroy(pr->idx2);
+		map_destroy(pr->idx);
+		pr->idx2 = NULL;
+
+		pr->idx = map_create(index_cmpkey, NULL, pr->m);
+		ensure(pr->idx);
+		map_allow_dups(pr->idx, true);
+
+		if (pr->key.arity > 1) {
+			pr->idx2 = map_create(index_cmpkey, NULL, pr->m);
+			ensure(pr->idx2);
+			map_allow_dups(pr->idx2, true);
+		}
+	}
+}
+
 static void unwind_trail(query *q)
 {
 	const choice *ch = GET_CURR_CHOICE();
@@ -644,7 +727,7 @@ int retry_choice(query *q)
 		if (ch->succeed_on_retry)
 			return -1;
 
-		if (ch->catchme_exception || ch->soft_cut || ch->did_cleanup || ch->fail_on_retry)
+		if (ch->catchme_exception || ch->fail_on_retry)
 			continue;
 
 		if (!ch->register_cleanup && q->noretry)
@@ -676,8 +759,7 @@ static frame *push_frame(query *q, unsigned nbr_vars)
 		f->prev_cell = q->st.curr_cell;
 	}
 
-	choice *ch = GET_CURR_CHOICE();
-	f->cgen = ch->cgen = ++q->cgen;
+	f->cgen = ++q->cgen;
 	f->is_last = false;
 	f->overflow = 0;
 	f->hp = q->st.hp;
@@ -692,7 +774,7 @@ static void reuse_frame(query *q, const clause *cl)
 	frame *f = GET_CURR_FRAME();
 	const frame *newf = GET_FRAME(q->st.fp);
 	f->initial_slots = f->actual_slots = cl->nbr_vars - cl->nbr_temporaries;
-	//f->cgen = ++q->cgen;
+	f->cgen = ++q->cgen;
 	f->overflow = 0;
 
 	const slot *from = GET_SLOT(newf, 0);
@@ -714,13 +796,12 @@ static void trim_trail(query *q)
 	if (q->undo_hi_tp)
 		return;
 
-	if (!q->cp) {
-		q->st.tp = 0;
-		return;
-	}
+	pl_idx_t tp = 0;
 
-	const choice *ch = GET_CURR_CHOICE();
-	pl_idx_t tp = ch->st.tp;
+	if (q->cp) {
+		const choice *ch = GET_CURR_CHOICE();
+		tp = ch->st.tp;
+	}
 
 	while (q->st.tp > tp) {
 		const trail *tr = q->trails + q->st.tp - 1;
@@ -743,78 +824,6 @@ static bool are_slots_ok(const query *q, const frame *f)
 	}
 
 	return true;
-}
-
-static void share_predicate(query *q, predicate *pr)
-{
-	if (!pr->is_dynamic)
-		return;
-
-	q->st.pr = pr;
-	pr->ref_cnt++;
-}
-
-void unshare_predicate(query *q, predicate *pr)
-{
-	if (!pr)
-		return;
-
-	if (!pr->is_dynamic)
-		return;
-
-	if (!pr->ref_cnt)
-		return;
-
-	--pr->ref_cnt;
-
-	if (pr->ref_cnt != 0)
-		return;
-
-	// Predicate is no longer being used
-
-	if (!pr->dirty_list)
-		return;
-
-	// Just because this predicate is no longer in use doesn't
-	// mean there are no shared references to terms contained
-	// within. So move items on the dirty-list to the query
-	// dirty-list. They will be freed up at end of the query.
-
-	db_entry *dbe = pr->dirty_list;
-
-	while (dbe) {
-		delink(pr, dbe);
-
-		if (pr->cnt) {
-			predicate *pr = dbe->owner;
-			map_remove(pr->idx2, dbe);
-			map_remove(pr->idx, dbe);
-		}
-
-		dbe->cl.is_deleted = true;
-		db_entry *save = dbe->dirty;
-		dbe->dirty = q->dirty_list;
-		q->dirty_list = dbe;
-		dbe = save;
-	}
-
-	pr->dirty_list = NULL;
-
-	if (pr->idx && !pr->cnt) {
-		map_destroy(pr->idx2);
-		map_destroy(pr->idx);
-		pr->idx2 = NULL;
-
-		pr->idx = map_create(index_cmpkey, NULL, pr->m);
-		ensure(pr->idx);
-		map_allow_dups(pr->idx, true);
-
-		if (pr->key.arity > 1) {
-			pr->idx2 = map_create(index_cmpkey, NULL, pr->m);
-			ensure(pr->idx2);
-			map_allow_dups(pr->idx2, true);
-		}
-	}
 }
 
 static void commit_me(query *q)
@@ -859,7 +868,9 @@ static void commit_me(query *q)
 		f->is_last = true;
 		unshare_predicate(q, q->st.pr);
 		drop_choice(q);
-		trim_trail(q);
+
+		if (tco)
+			trim_trail(q);
 	} else {
 		choice *ch = GET_CURR_CHOICE();
 		ch->st.curr_dbe = q->st.curr_dbe;
@@ -913,17 +924,15 @@ bool push_choice(query *q)
 	ch->actual_slots = f->actual_slots;
 	ch->overflow = f->overflow;
 	ch->catchme_retry =
-		ch->catchme_exception = ch->barrier =
-		ch->call_barrier = ch->soft_cut =
-		ch->did_cleanup = ch->register_cleanup =
-		ch->block_catcher = ch->catcher =
-		ch->fail_on_retry = ch->succeed_on_retry = false;
+		ch->catchme_exception = ch->barrier = ch->register_cleanup =
+		ch->block_catcher = ch->catcher = ch->fail_on_retry =
+		ch->succeed_on_retry = false;
 	return true;
 }
 
-// A barrier is used when making a call, it sets a
-// new choice generation so that normal cuts are contained.
-// An '$prune_me' though will also remove the barrier...
+// A barrier is used when making a call, it sets a new
+// choice generation so that normal cuts are contained.
+// This is because there is no separate control stack.
 
 bool push_barrier(query *q)
 {
@@ -935,22 +944,11 @@ bool push_barrier(query *q)
 	return true;
 }
 
-// Note: since there is no separate control stack a call will
-// create a choice on the stack. This sets a special flag so
-// that '$drop_barrier' knows to also remove the barrier (choice)
-// if the call is det.
-
-bool push_call_barrier(query *q)
-{
-	check_error(push_barrier(q));
-	choice *ch = GET_CURR_CHOICE();
-	ch->call_barrier = true;
-	return true;
-}
+// A catcher adds the ability to trap exceptions.
 
 bool push_catcher(query *q, enum q_retry retry)
 {
-	check_error(push_call_barrier(q));
+	check_error(push_barrier(q));
 	choice *ch = GET_CURR_CHOICE();
 	ch->catcher = true;
 
@@ -979,11 +977,6 @@ void cut_me(query *q)
 				break;
 		}
 
-		if (ch->st.iter) {
-			map_done(ch->st.iter);
-			ch->st.iter = NULL;
-		}
-
 		const frame *f2 = GET_FRAME(ch->st.curr_frame);
 
 		if ((ch->st.fp == (q->st.curr_frame + 1))
@@ -995,8 +988,8 @@ void cut_me(query *q)
 		unshare_predicate(q, ch->st.pr);
 		drop_choice(q);
 
-		if (ch->register_cleanup && !ch->did_cleanup) {
-			ch->did_cleanup = true;
+		if (ch->register_cleanup && !ch->fail_on_retry) {
+			ch->fail_on_retry = true;
 			cell *c = ch->st.curr_cell;
 			pl_idx_t c_ctx = ch->st.curr_frame;
 			c = deref(q, c+1, c_ctx);
@@ -1010,7 +1003,7 @@ void cut_me(query *q)
 		q->st.tp = 0;
 }
 
-void prune_me(query *q, bool soft_cut)
+void prune_me(query *q, bool soft_cut, pl_idx_t cp)
 {
 	frame *f = GET_CURR_FRAME();
 
@@ -1019,14 +1012,15 @@ void prune_me(query *q, bool soft_cut)
 		const choice *save_ch = ch;
 
 		while (soft_cut && (ch >= q->choices)) {
-			if (ch->barrier && (ch->cgen == f->cgen)) {
+			if ((q->cp-1) == cp) {
 				if (ch == save_ch) {
+					unshare_predicate(q, ch->st.pr);
 					drop_choice(q);
 					f->cgen--;
 					return;
 				}
 
-				ch->soft_cut = true;
+				ch->fail_on_retry = true;
 				f->cgen--;
 				return;
 			}
@@ -1041,16 +1035,11 @@ void prune_me(query *q, bool soft_cut)
 			break;
 		}
 
-		if (ch->st.iter) {
-			map_done(ch->st.iter);
-			ch->st.iter = NULL;
-		}
-
 		unshare_predicate(q, ch->st.pr);
 		drop_choice(q);
 
-		if (ch->register_cleanup && !ch->did_cleanup) {
-			ch->did_cleanup = true;
+		if (ch->register_cleanup && !ch->fail_on_retry) {
+			ch->fail_on_retry = true;
 			cell *c = ch->st.curr_cell;
 			pl_idx_t c_ctx = ch->st.curr_frame;
 			c = deref(q, c+1, c_ctx);
@@ -1066,12 +1055,9 @@ void prune_me(query *q, bool soft_cut)
 
 // If the call is det then the barrier can be dropped...
 
-bool drop_barrier(query *q)
+bool drop_barrier(query *q, pl_idx_t cp)
 {
-	const frame *f = GET_CURR_FRAME();
-	const choice *ch = GET_CURR_CHOICE();
-
-	if (ch->call_barrier && (ch->cgen == f->cgen)) {
+	if ((q->cp-1) == cp) {
 		drop_choice(q);
 		return true;
 	}
@@ -1285,8 +1271,8 @@ bool match_rule(query *q, cell *p1, pl_idx_t p1_ctx, enum clause_type is_retract
 		undo_me(q);
 	}
 
-	drop_choice(q);
 	unshare_predicate(q, q->st.pr);
+	drop_choice(q);
 	return false;
 }
 
@@ -1374,8 +1360,8 @@ bool match_clause(query *q, cell *p1, pl_idx_t p1_ctx, enum clause_type is_retra
 		undo_me(q);
 	}
 
-	drop_choice(q);
 	unshare_predicate(q, q->st.pr);
+	drop_choice(q);
 	return false;
 }
 
@@ -1452,31 +1438,30 @@ static bool match_head(query *q)
 
 	choice *ch = GET_CURR_CHOICE();
 	ch->st.iter = NULL;
-
-	drop_choice(q);
 	unshare_predicate(q, q->st.pr);
+	drop_choice(q);
 	return false;
 }
 
 static bool any_outstanding_choices(query *q)
 {
-	if (!q->cp)
-		return false;
+	while (q->cp) {
+		const choice *ch = GET_CURR_CHOICE();
 
-	const choice *ch = GET_CURR_CHOICE();
+		if (!ch->barrier)
+			break;
 
-	while (ch->barrier) {
-		drop_choice(q);
-		ch--;
+		q->cp--;
 	}
 
-	return q->cp ? true : false;
+	return q->cp > 0;
 }
 
 static bool consultall(query *q, cell *l, pl_idx_t l_ctx)
 {
 	if (is_string(l)) {
 		char *s = DUP_STR(q, l);
+		unload_file(q->p->m, s);
 
 		if (!load_file(q->p->m, s, false)) {
 			free(s);
@@ -1502,6 +1487,7 @@ static bool consultall(query *q, cell *l, pl_idx_t l_ctx)
 				return false;
 		} else {
 			char *s = DUP_STR(q, h);
+			unload_file(q->p->m, s);
 
 			if (!load_file(q->p->m, s, false)) {
 				free(s);
@@ -1793,7 +1779,7 @@ bool execute(query *q, cell *cells, unsigned nbr_vars)
 
 void purge_predicate_dirty_list(query *q, predicate *pr)
 {
-	if (pr->ref_cnt)
+	if (pr->refcnt)
 		return;
 
 	db_entry *save = NULL;

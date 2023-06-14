@@ -11,7 +11,7 @@ predicate_property(P, A) :-
 	'$load_properties',
 	(	var(A)
 	->	true
-	; 	(	(Controls = [built_in,control_construct,discontiguous,private,static,dynamic,tabled,multifile,meta_predicate(_)],
+	; 	(	(Controls = [built_in,control_construct,discontiguous,private,static,dynamic,tabled,multifile,meta_predicate(_),iso,visible,template(_)],
 			memberchk(A, Controls))
 			->	true
 			;	throw(error(domain_error(predicate_property, A), P))
@@ -19,9 +19,33 @@ predicate_property(P, A) :-
 	),
 	must_be(P, callable, predicate_property/2, _),
 	(	P = (M:P2)
-	->	M:'$predicate_property'(P2, A)
-	;	'$predicate_property'(P, A)
+	->	M:'$predicate_property'(predicate, P2, A)
+	;	'$predicate_property'(predicate, P, A)
 	).
+
+:- help(predicate_property(+callable,+term), [iso(true)]).
+
+function_property(P, A) :-
+	nonvar(P), atom(A), !,
+	must_be(P, callable, function_property/2, _),
+	'$legacy_function_property'(P, A).
+function_property(P, A) :-
+	'$load_properties',
+	(	var(A)
+	->	true
+	; 	(	(Controls = [iso,built_in,control_construct,discontiguous,private,static,dynamic,public,visible,tabled,multifile,meta_predicate(_),template(_),template(_,_)],
+			memberchk(A, Controls))
+			->	true
+			;	throw(error(domain_error(function_property, A), P))
+		)
+	),
+	must_be(P, callable, function_property/2, _),
+	(	P = (M:P2)
+	->	M:'$predicate_property'(function, P2, A)
+	;	'$predicate_property'(function, P, A)
+	).
+
+:- help(function_property(+callable,+term), [iso(true)]).
 
 current_prolog_flag(P, A) :-
 	nonvar(P), !,
@@ -65,6 +89,15 @@ catch(G, E, C) :-
 
 :- meta_predicate(catch(0,?,0)).
 :- help(catch(:callable,+term,:callable), [iso(true)]).
+
+call_det(G, Det) :-
+	'$get_level'(L1),
+	G,
+	'$get_level'(L2),
+	(L1 = L2 -> Det = true ; Det = false).
+
+:- meta_predicate(call_det(0,?)).
+:- help(call_det(:callable,?boolean), [iso(false)]).
 
 call_cleanup(G, C) :-
 	(var(C) -> throw(error(instantiation_error, call_cleanup/3)) ; true),
@@ -167,10 +200,10 @@ permutation([X|Rest], L) :-
 % Derived from code by R.A. O'Keefe
 
 setof(Template, Generator, Set) :-
-    ( 	var(Set)
-    ->	true
-    ; 	must_be(Set, list_or_partial_list, setof/3, _)
-    ),
+	( 	var(Set)
+	->	true
+	; 	must_be(Set, list_or_partial_list, setof/3, _)
+	),
 	bagof_(Template, Generator, Bag),
 	is_list_or_partial_list(Set),
 	sort(Bag, Set).
@@ -179,8 +212,8 @@ setof(Template, Generator, Set) :-
 :- help(setof(+term,+callable,?list), [iso(true)]).
 
 bagof(Template, Generator, Bag) :-
-    (	var(Bag)
-    ->	true
+	(	var(Bag)
+	->	true
 	;	must_be(Bag, list_or_partial_list, bagof/3, _)
 	),
 	bagof_(Template, Generator, Bag).
@@ -543,13 +576,6 @@ term_hash(Term, _Opts, Hash) :- term_hash(Term, Hash).
 
 :- help(term_hash(+term,+list,-integer), [iso(false)]).
 
-not(G) :- G, !, fail.
-not(_).
-
-:- meta_predicate(not(0)).
-:- help(not(:callable), [iso(false)]).
-
-
 read_term_from_chars_(T, Cs, Rest) :-
 	'$read_term_from_chars'(T, [], Cs, Rest).
 
@@ -619,17 +645,17 @@ read_line_to_codes(Stream, Codes) :-
 :- help(read_line_to_codes(+stream,?list), [iso(false)]).
 
 instantiation_error(Context) :-
-    throw(error(instantiation_error, Context)).
+	throw(error(instantiation_error, Context)).
 
 :- help(instantiation_error(+term), [iso(false)]).
 
 domain_error(Type, Term, Context) :-
-    throw(error(domain_error(Type, Term), Context)).
+	throw(error(domain_error(Type, Term), Context)).
 
 :- help(domain_error(+atom,+term,+term), [iso(false)]).
 
 type_error(Type, Term, Context) :-
-    throw(error(type_error(Type, Term), Context)).
+	throw(error(type_error(Type, Term), Context)).
 
 :- help(type_error(+atom,+term,+term), [iso(false)]).
 
@@ -1018,7 +1044,7 @@ call_residue_vars(Goal, Atts) :-
 	Goal,
 	term_attvars(Goal, Atts).
 
-:- help(call_residue_vars(:callable, -list), [iso(false),desc('Find residual attributed variables left by Goal. This predicate is intended for reasoning about and debugging programs that use coroutining or constraints. To see why this predicate is necessary, consider a predicate that poses contradicting constraints on a variable, and where that variable does not appear in any argument of the predicate and hence does not yield any residual goals on the toplevel when the predicate is invoked. Such programs should fail, but sometimes succeed because the constraint solver is too weak to detect the contradiction. Ideally, delayed goals and constraints are all executed at the end of the computation. The meta predicate call_residue_vars/2 finds variables that are given attributes or whose attributes are modified by Goal, regardless of whether or not these variables are reachable from the arguments of Goal.')]).
+:- help(call_residue_vars(:callable, -list), [iso(false), desc('Find residual attributed variables left by Goal. This predicate is intended for reasoning about and debugging programs that use coroutining or constraints. To see why this predicate is necessary, consider a predicate that poses contradicting constraints on a variable, and where that variable does not appear in any argument of the predicate and hence does not yield any residual goals on the toplevel when the predicate is invoked. Such programs should fail, but sometimes succeed because the constraint solver is too weak to detect the contradiction. Ideally, delayed goals and constraints are all executed at the end of the computation. The meta predicate call_residue_vars/2 finds variables that are given attributes or whose attributes are modified by Goal, regardless of whether or not these variables are reachable from the arguments of Goal.')]).
 
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -1056,7 +1082,8 @@ succ(X,S) :- var(X), Y=1, nonvar(Y), nonvar(S),
 succ(_,_) :-
 	throw(error(instantiation_error, succ/2)).
 
-:- help(succ(?integer,?integer,?integer), [iso(false)]).
+:- help(succ(?integer,+integer), [iso(false)]).
+:- help(succ(+integer,-integer), [iso(false)]).
 
 sre_match_all_in_file(Pat, Filename, L) :-
 	setup_call_cleanup(
@@ -1135,9 +1162,3 @@ sre_subst_all_(Reg, TextIn, Subst, L0, L) :-
 	).
 
 :- help(sre_subst_all(+pattern,+text,+subst,-text), [iso(false)]).
-
-name(N, L) :-
-	( number(N) -> number_codes(N, L) ; atom_codes(N, L) ).
-
-:- help(name(+atomic,?chars), [iso(false),deprecated(true)]).
-
