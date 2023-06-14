@@ -137,6 +137,10 @@ bool pl_query(prolog *pl, const char *s, pl_sub_query **subq, unsigned int yield
 	if (!pl || !s || !subq)
 		return false;
 
+	// NOTE: this is one of the few places this fork diverges from upstream
+	// in that we keep the parser around for the lifetime of the query.
+	// TODO: do we still need this?
+
 	// if (!pl->p)
 	pl->p = parser_create(pl->curr_m);
 	// else
@@ -149,6 +153,7 @@ bool pl_query(prolog *pl, const char *s, pl_sub_query **subq, unsigned int yield
 	if (get_status(pl)) pl->curr_m = pl->p->m;
 	if (!ok) {
 		parser_destroy(pl->p);
+		pl->p = NULL;
 	}
 	return ok;
 }
