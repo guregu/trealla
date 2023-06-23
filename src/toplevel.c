@@ -184,7 +184,7 @@ bool check_redo(query *q)
 			printf("  ... .\n");
 			q->is_redo = true;
 			q->retry = QUERY_RETRY;
-			q->pl->did_dump_vars = false;
+			q->pl->did_dump_vars = true;
 			q->noretry = true;
 			break;
 		}
@@ -271,8 +271,9 @@ static bool any_attributed(const query *q)
 
 	for (unsigned i = 0; i < p->nbr_vars; i++) {
 		const slot *e = GET_SLOT(f, i);
+		const cell *c = &e->c;
 
-		if (!is_empty(&e->c) || !e->c.attrs)
+		if (!is_empty(c) || !c->attrs)
 			continue;
 
 		any = true;
@@ -409,7 +410,10 @@ void dump_vars(query *q, bool partial)
 		q->max_depth = 9;
 		q->parens = parens;
 
-		print_term(q, stdout, c, c_ctx, 1);
+		e->vgen = q->vgen+1;
+		init_tmp_heap(q);
+		cell *tmp = deep_clone_to_tmp(q, c, c_ctx);
+		print_term(q, stdout, tmp, 0, 0);
 
 		if (parens) fputc(')', stdout);
 		if (q->last_thing_was_symbol) space = true;

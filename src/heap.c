@@ -28,16 +28,6 @@ struct heap_save {
 	q->tmph_size = _s.size;								\
 	q->tmphp = _s.hp;
 
-struct reflist_ {
-	reflist *next;
-	cell *ptr;
-	pl_idx_t ctx;
-};
-
-struct cycle_info_ {
-	reflist *r1, *r2;
-};
-
 static int accum_slot(const query *q, pl_idx_t slot_nbr, unsigned var_nbr)
 {
 	const void *vnbr;
@@ -189,327 +179,20 @@ void trim_heap(query *q)
 	}
 }
 
-static bool is_in_ref_list(const cell *c, pl_idx_t c_ctx, const reflist *rlist)
-{
-	while (rlist) {
-		if ((c == rlist->ptr) && (c_ctx == rlist->ctx))
-			return true;
-
-		rlist = rlist->next;
-	}
-
-	return false;
-}
-
-// FIXME: rewrite this to be efficient...
-
-static cell *deep_copy2_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx, bool copy_attrs, cell *from, pl_idx_t from_ctx, cell *to, pl_idx_t to_ctx, unsigned depth, reflist *list)
+static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx, unsigned depth)
 {
 	if (depth >= MAX_DEPTH) {
 		printf("*** OOPS %s %d\n", __FILE__, __LINE__);
 		q->cycle_error = true;
 		return NULL;
 	}
-
-	const pl_idx_t save_idx = tmp_heap_used(q);
-	cell *save_p1 = p1;
-
-	cell *tmp = alloc_on_tmp(q, 1);
-	if (!tmp) return NULL;
-	copy_cells(tmp, p1, 1);
-
-	if (!is_structure(p1) || is_string(p1)) {
-		if (!is_var(p1))
-			return tmp;
-
-		const frame *f = GET_FRAME(p1_ctx);
-		const slot *e = GET_SLOT(f, p1->var_nbr);
-		const pl_idx_t slot_nbr = e - q->slots;
-		int var_nbr;
-
-		if ((var_nbr = accum_slot(q, slot_nbr, q->varno)) == -1)
-			var_nbr = q->varno++;
-
-		if (!q->tab_idx) {
-			q->tab0_varno = var_nbr;
-			q->tab_idx++;
-		}
-
-		tmp->var_nbr = var_nbr;
-		tmp->flags = FLAG_VAR_FRESH;
-
-		if (from && (p1->var_nbr == from->var_nbr) && (p1_ctx == from_ctx)) {
-			tmp->flags |= FLAG_VAR_REF;
-			tmp->val_off = to->val_off;
-			tmp->var_nbr = to->var_nbr;
-			tmp->var_ctx = to_ctx;
-		} else if (copy_attrs && e->c.attrs) {
-			push_tmp_heap(q);
-			cell *tmp2 = deep_copy_to_heap_with_replacement(q, e->c.attrs, e->c.attrs_ctx, false, NULL, 0, NULL, 0);
-			pop_tmp_heap(q);
-			if (!tmp2) return NULL;
-			tmp->tmp_attrs = tmp2;
-			tmp->var_ctx = q->st.curr_frame;
-		}
-
-		return tmp;
-	}
-
-	pl_idx_t save_p1_ctx = p1_ctx;
-	bool cyclic = false;
-	bool is_partial = false;
-
-	//if (q->flags.occurs_check && is_iso_list(p1)
-	//	&& !check_list(q, p1, p1_ctx, &is_partial, NULL))
-	//	is_partial = true;
-
-	if (!is_partial && is_iso_list(p1)) {
-		LIST_HANDLER(p1);
-
-		while (is_iso_list(p1)) {
-			cell *h = LIST_HEAD(p1);
-			cell *c = h;
-			c = deref(q, c, p1_ctx);
-			pl_idx_t c_ctx = q->latest_ctx;
-
-			if (is_in_ref_list(c, c_ctx, list)) {
-				cell *tmp = alloc_on_tmp(q, 1);
-				if (!tmp) return NULL;
-				*tmp = *h;
-				tmp->var_nbr = q->tab0_varno;
-				tmp->flags |= FLAG_VAR_FRESH;
-				tmp->tmp_attrs = NULL;
-			} else {
-				reflist nlist;
-				nlist.next = list;
-				nlist.ptr = save_p1;
-				nlist.ctx = save_p1_ctx;
-				cell *rec = deep_copy2_to_tmp(q, c, c_ctx, copy_attrs, from, from_ctx, to, to_ctx, depth+1, &nlist);
-				if (!rec) return rec;
-			}
-
-			p1 = LIST_TAIL(p1);
-			p1 = deref(q, p1, p1_ctx);
-			p1_ctx = q->latest_ctx;
-
-			reflist nlist;
-			nlist.next = list;
-			nlist.ptr = save_p1;
-			nlist.ctx = save_p1_ctx;
-
-			if (is_in_ref_list(p1, p1_ctx, &nlist)) {
-				cell *tmp = alloc_on_tmp(q, 1);
-				if (!tmp) return NULL;
-				tmp->tag = TAG_VAR;
-				tmp->flags = 0;
-				tmp->nbr_cells = 1;
-				tmp->val_off = g_anon_s;
-				tmp->var_nbr = q->tab0_varno;
-				tmp->flags |= FLAG_VAR_FRESH;
-				tmp->tmp_attrs = NULL;
-				cyclic = true;
-				break;
-			}
-
-			if (is_iso_list(p1)) {
-				cell *tmp = alloc_on_tmp(q, 1);
-				if (!tmp) return NULL;
-				copy_cells(tmp, p1, 1);
-			}
-		}
-
-		if (!cyclic) {
-			cell *rec = deep_copy2_to_tmp(q, p1, p1_ctx, copy_attrs, from, from_ctx, to, to_ctx, depth+1, list);
-			if (!rec) return rec;
-		}
-
-		tmp = get_tmp_heap(q, save_idx);
-		tmp->nbr_cells = tmp_heap_used(q) - save_idx;
-		fix_list(tmp);
-		return tmp;
-	}
-
-	unsigned arity = p1->arity;
-	p1++;
-
-	while (arity--) {
-		cell *c = p1;
-		c = deref(q, c, p1_ctx);
-		pl_idx_t c_ctx = q->latest_ctx;
-
-		if (is_in_ref_list(c, c_ctx, list)) {
-			cell *tmp = alloc_on_tmp(q, 1);
-			if (!tmp) return NULL;
-			*tmp = *p1;
-			tmp->var_nbr = q->tab0_varno;
-			tmp->flags |= FLAG_VAR_FRESH;
-			tmp->tmp_attrs = NULL;
-		} else {
-			reflist nlist;
-			nlist.next = list;
-			nlist.ptr = save_p1;
-			nlist.ctx = save_p1_ctx;
-
-			cell *rec = deep_copy2_to_tmp(q, c, c_ctx, copy_attrs, from, from_ctx, to, to_ctx, depth+1, &nlist);
-			if (!rec) return rec;
-		}
-
-		p1 += p1->nbr_cells;
-	}
-
-	tmp = get_tmp_heap(q, save_idx);
-	tmp->nbr_cells = tmp_heap_used(q) - save_idx;
-	return tmp;
-}
-
-cell *deep_raw_copy_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx)
-{
-	const frame *f = GET_CURR_FRAME();
-	q->varno = f->actual_slots;
-	q->tab_idx = 0;
-	q->cycle_error = false;
-	reflist nlist;
-	nlist.next = NULL;
-	nlist.ptr = p1;
-	nlist.ctx = p1_ctx;
-
-	q->vars = map_create(NULL, NULL, NULL);
-	if (!q->vars) return NULL;
-	cell *rec = deep_copy2_to_tmp(q, p1, p1_ctx, false, NULL, 0, NULL, 0, 0, &nlist);
-	map_destroy(q->vars);
-	q->vars = NULL;
-	if (!rec) return rec;
-	return q->tmp_heap;
-}
-
-static cell *deep_copy_to_tmp_with_replacement(query *q, cell *p1, pl_idx_t p1_ctx, bool copy_attrs, cell *from, pl_idx_t from_ctx, cell *to, pl_idx_t to_ctx)
-{
-	cell *save_p1 = p1;
-	pl_idx_t save_p1_ctx = p1_ctx;
-	cell *c = deref(q, p1, p1_ctx);
-	pl_idx_t c_ctx = q->latest_ctx;
-	const frame *f = GET_CURR_FRAME();
-	q->cycle_error = false;
-
-	if (q->vars && is_var(save_p1)) {
-		const frame *f = GET_FRAME(p1_ctx);
-		const slot *e = GET_SLOT(f, save_p1->var_nbr);
-		const pl_idx_t slot_nbr = e - q->slots;
-
-		if (!q->tab_idx) {
-			q->tab0_varno = q->varno;
-			q->tab_idx++;
-		}
-
-		map_set(q->vars, (void*)(size_t)slot_nbr, (void*)(size_t)q->varno);
-		q->varno++;
-	}
-
-	if (is_var(p1)) {
-		p1 = deref(q, p1, p1_ctx);
-		p1_ctx = q->latest_ctx;
-	}
-
-	reflist nlist;
-	nlist.next = NULL;
-	nlist.ptr = c;
-	nlist.ctx = c_ctx;
-	cell *rec = deep_copy2_to_tmp(q, c, c_ctx, copy_attrs, from, from_ctx, to, to_ctx, 0, &nlist);
-	if (!rec) return rec;
-	int cnt = q->varno - f->actual_slots;
-
-	if (cnt) {
-		if (!create_vars(q, cnt)) {
-			throw_error(q, p1, p1_ctx, "resource_error", "stack");
-			return NULL;
-		}
-	}
-
-	if (is_var(save_p1)) {
-		cell tmp;
-		tmp = *save_p1;
-		tmp.var_nbr = q->tab0_varno;
-		unify(q, &tmp, q->st.curr_frame, rec, q->st.curr_frame);
-	}
-
-	if (!copy_attrs)
-		return get_tmp_heap_start(q);
-
-	c = get_tmp_heap_start(q);
-
-	for (pl_idx_t i = 0; i < rec->nbr_cells; i++, c++) {
-		if (is_var(c) && is_fresh(c) && c->tmp_attrs) {
-			const frame *f = GET_FRAME(c->var_ctx);
-			slot *e = GET_SLOT(f, c->var_nbr);
-			e->c.attrs = c->tmp_attrs;
-			e->c.attrs_ctx = c->var_ctx;
-		}
-	}
-
-	return get_tmp_heap_start(q);
-}
-
-cell *deep_copy_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx, bool copy_attrs)
-{
-	q->vars = map_create(NULL, NULL, NULL);
-	if (!q->vars) return NULL;
-	const frame *f = GET_CURR_FRAME();
-	q->varno = f->actual_slots;
-	q->tab_idx = 0;
-	cell *tmp = deep_copy_to_tmp_with_replacement(q, p1, p1_ctx, copy_attrs, NULL, 0, NULL, 0);
-	map_destroy(q->vars);
-	q->vars = NULL;
-	return tmp;
-}
-
-cell *deep_copy_to_heap(query *q, cell *p1, pl_idx_t p1_ctx, bool copy_attrs)
-{
-	if (!init_tmp_heap(q))
-		return NULL;
-
-	cell *tmp = deep_copy_to_tmp(q, p1, p1_ctx, copy_attrs);
-	if (!tmp) return tmp;
-	cell *tmp2 = alloc_on_heap(q, tmp->nbr_cells);
-	if (!tmp2) return NULL;
-	safe_copy_cells(tmp2, tmp, tmp->nbr_cells);
-	return tmp2;
-}
-
-cell *deep_copy_to_heap_with_replacement(query *q, cell *p1, pl_idx_t p1_ctx, bool copy_attrs, cell *from, pl_idx_t from_ctx, cell *to, pl_idx_t to_ctx)
-{
-	if (q->vars) map_destroy(q->vars);
-	q->vars = map_create(NULL, NULL, NULL);
-	if (!q->vars) return NULL;
-	const frame *f = GET_CURR_FRAME();
-	q->varno = f->actual_slots;
-	q->tab_idx = 0;
-	cell *tmp = deep_copy_to_tmp_with_replacement(q, p1, p1_ctx, copy_attrs, from, from_ctx, to, to_ctx);
-	map_destroy(q->vars);
-	q->vars = NULL;
-	if (!tmp) return NULL;
-	cell *tmp2 = alloc_on_heap(q, tmp->nbr_cells);
-	if (!tmp2) return NULL;
-	safe_copy_cells(tmp2, tmp, tmp->nbr_cells);
-	return tmp2;
-}
-
-static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx, unsigned depth, reflist *list)
-{
-	if (depth >= MAX_DEPTH) {
-		printf("*** OOPS %s %d\n", __FILE__, __LINE__);
-		q->cycle_error = true;
-		return NULL;
-	}
-
-	cell *save_p1 = p1;
-	pl_idx_t save_p1_ctx = p1_ctx;
-	//p1 = deref(q, p1, p1_ctx);
-	//p1_ctx = q->latest_ctx;
 
 	pl_idx_t save_idx = tmp_heap_used(q);
 	cell *tmp = alloc_on_tmp(q, 1);
 	if (!tmp) return NULL;
 	copy_cells(tmp, p1, 1);
+
+	// Convert vars to refs...
 
 	if (is_var(tmp) && !is_ref(tmp)) {
 		tmp->flags |= FLAG_VAR_REF;
@@ -519,51 +202,62 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx, unsigned de
 	if (!is_structure(p1) || is_string(p1))
 		return tmp;
 
-	bool cyclic = false;
-	bool is_partial = false;
-
-	//if (q->flags.occurs_check && is_iso_list(p1)
-	//	&& !check_list(q, p1, p1_ctx, &is_partial, NULL))
-	//	is_partial = true;
-
-	if (!is_partial && is_iso_list(p1)) {
-		LIST_HANDLER(p1);
+	if (is_iso_list(p1)) {
+		bool cyclic = false;
 
 		while (is_iso_list(p1)) {
-			cell *h = LIST_HEAD(p1);
-			pl_idx_t h_ctx = p1_ctx;
-			cell *c = deref(q, h, h_ctx);
-			pl_idx_t c_ctx = q->latest_ctx;
+			if (g_tpl_interrupt)
+				return NULL;
 
-			if (is_in_ref_list(c, c_ctx, list)) {
-				cell *tmp = alloc_on_tmp(q, 1);
-				if (!tmp) return NULL;
-				*tmp = *h;
+			cell *h = p1 + 1;
+			pl_idx_t h_ctx = p1_ctx;
+
+			if (is_var(h)) {
+				if (is_ref(h))
+					h_ctx = h->var_ctx;
+
+				const frame *f = GET_FRAME(h_ctx);
+				slot *e = GET_SLOT(f, h->var_nbr);
+
+				if (e->vgen == q->vgen) {
+					cell *rec = deep_clone2_to_tmp(q, h, h_ctx, depth+1);
+					if (!rec) return NULL;
+					q->cycle_error = true;
+				} else {
+					e->vgen = q->vgen;
+					cell *c = deref(q, h, p1_ctx);
+					pl_idx_t c_ctx = q->latest_ctx;
+					cell *rec = deep_clone2_to_tmp(q, c, c_ctx, depth+1);
+					if (!rec) return NULL;
+					e->vgen = 0;
+				}
 			} else {
-				reflist nlist;
-				nlist.next = list;
-				nlist.ptr = save_p1;
-				nlist.ctx = save_p1_ctx;
-				cell *rec = deep_clone2_to_tmp(q, c, c_ctx, depth+1, &nlist);
-				if (!rec) return rec;
+				cell *rec = deep_clone2_to_tmp(q, h, p1_ctx, depth+1);
+				if (!rec) return NULL;
 			}
 
-			p1 = LIST_TAIL(p1);
-			cell *tmp_p1 = p1;
-			p1 = deref(q, p1, p1_ctx);
-			p1_ctx = q->latest_ctx;
+			p1 = p1 + 1; p1 += p1->nbr_cells;
+			cell *t = p1;
+			pl_idx_t t_ctx = p1_ctx;
 
-			reflist nlist;
-			nlist.next = list;
-			nlist.ptr = save_p1;
-			nlist.ctx = save_p1_ctx;
+			if (is_var(t)) {
+				if (is_ref(t))
+					t_ctx = t->var_ctx;
 
-			if (is_in_ref_list(p1, p1_ctx, &nlist)) {
-				cell *tmp = alloc_on_tmp(q, 1);
-				if (!tmp) return NULL;
-				*tmp = *tmp_p1;
-				cyclic = true;
-				break;
+				const frame *f = GET_FRAME(t_ctx);
+				slot *e = GET_SLOT(f, t->var_nbr);
+
+				if (e->vgen == q->vgen) {
+					cell *rec = deep_clone2_to_tmp(q, t, t_ctx, depth+1);
+					if (!rec) return NULL;
+					cyclic = true;
+					q->cycle_error = true;
+					break;
+				}
+
+				e->vgen = q->vgen;
+				p1 = deref(q, p1, p1_ctx);
+				p1_ctx = q->latest_ctx;
 			}
 
 			if (is_iso_list(p1)) {
@@ -574,8 +268,8 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx, unsigned de
 		}
 
 		if (!cyclic) {
-			cell *rec = deep_clone2_to_tmp(q, p1, p1_ctx, depth+1, list);
-			if (!rec) return rec;
+			cell *rec = deep_clone2_to_tmp(q, p1, p1_ctx, depth+1);
+			if (!rec) return NULL;
 		}
 
 		tmp = get_tmp_heap(q, save_idx);
@@ -584,24 +278,33 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx, unsigned de
 	}
 
 	unsigned arity = p1->arity;
+	const frame *f = GET_FRAME(p1_ctx);
 	p1++;
 
 	while (arity--) {
-		cell *c = deref(q, p1, p1_ctx);
-		pl_idx_t c_ctx = q->latest_ctx;
+		cell *c = p1;
+		pl_idx_t c_ctx = p1_ctx;
 
-		if (is_in_ref_list(c, c_ctx, list)) {
-			cell *tmp = alloc_on_tmp(q, 1);
-			if (!tmp) return NULL;
-			*tmp = *p1;
+		if (is_var(c)) {
+			if (is_ref(c))
+				c_ctx = c->var_ctx;
+
+			slot *e = GET_SLOT(f, c->var_nbr);
+
+			if (e->vgen == q->vgen) {
+				cell *rec = deep_clone2_to_tmp(q, c, c_ctx, depth+1);
+				if (!rec) return NULL;
+			} else {
+				e->vgen = q->vgen;
+				cell *c = deref(q, p1, p1_ctx);
+				pl_idx_t c_ctx = q->latest_ctx;
+				cell *rec = deep_clone2_to_tmp(q, c, c_ctx, depth+1);
+				if (!rec) return NULL;
+				e->vgen = 0;
+			}
 		} else {
-			reflist nlist;
-			nlist.next = list;
-			nlist.ptr = save_p1;
-			nlist.ctx = save_p1_ctx;
-
-			cell *rec = deep_clone2_to_tmp(q, c, c_ctx, depth+1, &nlist);
-			if (!rec) return rec;
+			cell *rec = deep_clone2_to_tmp(q, p1, p1_ctx, depth+1);
+			if (!rec) return NULL;
 		}
 
 		p1 += p1->nbr_cells;
@@ -614,15 +317,10 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx, unsigned de
 
 cell *deep_clone_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx)
 {
-	q->cycle_error = false;
-	reflist nlist;
-	nlist.next = NULL;
-	nlist.ptr = p1;
-	nlist.ctx = p1_ctx;
-
-	cell *rec = deep_clone2_to_tmp(q, p1, p1_ctx, 0, &nlist);
-	if (!rec) return rec;
-	return q->tmp_heap;
+	q->vgen++;
+	cell *rec = deep_clone2_to_tmp(q, p1, p1_ctx, 0);
+	if (!rec) return NULL;
+	return rec;
 }
 
 cell *deep_clone_to_heap(query *q, cell *p1, pl_idx_t p1_ctx)
@@ -696,6 +394,149 @@ cell *clone_to_heap(query *q, bool prefix, cell *p1, unsigned extras)
 	}
 
 	return tmp;
+}
+
+static bool copy_vars(query *q, cell *tmp, bool copy_attrs, cell *from, pl_idx_t from_ctx, cell *to, pl_idx_t to_ctx)
+{
+	unsigned nbr_cells = tmp->nbr_cells;
+
+	for (unsigned i = 0; i < nbr_cells; i++, tmp++) {
+		if (!is_ref(tmp))
+			continue;
+
+		const frame *f = GET_FRAME(tmp->var_ctx);
+		const slot *e = GET_SLOT(f, tmp->var_nbr);
+		const pl_idx_t slot_nbr = e - q->slots;
+		int var_nbr;
+
+		if ((var_nbr = accum_slot(q, slot_nbr, q->varno)) == -1)
+			var_nbr = q->varno++;
+
+		if (!q->tab_idx) {
+			q->tab0_varno = var_nbr;
+			q->tab_idx++;
+		}
+
+		tmp->flags = FLAG_VAR_FRESH;
+		tmp->val_off = g_anon_s;
+
+		if (from && (tmp->var_nbr == from->var_nbr) && (tmp->var_ctx == from_ctx)) {
+			tmp->flags |= FLAG_VAR_REF;
+			tmp->val_off = to->val_off;
+			tmp->var_nbr = to->var_nbr;
+			tmp->var_ctx = to_ctx;
+		} else {
+			tmp->var_nbr = var_nbr;
+			tmp->var_ctx = q->st.curr_frame;
+
+			if (copy_attrs && e->c.attrs) {
+				push_tmp_heap(q);
+				cell *tmp2 = deep_copy_to_heap_with_replacement(q, e->c.attrs, e->c.attrs_ctx, false, NULL, 0, NULL, 0);
+				pop_tmp_heap(q);
+				check_heap_error(tmp2);
+				tmp->tmp_attrs = tmp2;
+			}
+		}
+	}
+
+	return true;
+}
+
+static cell *deep_copy_to_tmp_with_replacement(query *q, cell *p1, pl_idx_t p1_ctx, bool copy_attrs, cell *from, pl_idx_t from_ctx, cell *to, pl_idx_t to_ctx)
+{
+	cell *c = deref(q, p1, p1_ctx);
+	pl_idx_t c_ctx = q->latest_ctx;
+
+	q->vars = map_create(NULL, NULL, NULL);
+	if (!q->vars) return false;
+	const frame *f = GET_CURR_FRAME();
+	q->varno = f->actual_slots;
+	q->tab_idx = 0;
+
+	if (is_var(p1)) {
+		const frame *f = GET_FRAME(p1_ctx);
+		slot *e = GET_SLOT(f, p1->var_nbr);
+		const pl_idx_t slot_nbr = e - q->slots;
+		e->vgen = q->vgen+1; // +1 because that is what deep_clone_to_tmp() will do
+		q->tab0_varno = q->varno;
+		q->tab_idx++;
+		map_set(q->vars, (void*)(size_t)slot_nbr, (void*)(size_t)q->varno);
+		q->varno++;
+	}
+
+	cell *tmp = deep_clone_to_tmp(q, c, c_ctx);
+	if (!tmp) return tmp;
+
+	if (!copy_vars(q, tmp, copy_attrs, from, from_ctx, to, to_ctx)) {
+		map_destroy(q->vars);
+		q->vars = NULL;
+		return NULL;
+	}
+
+	map_destroy(q->vars);
+	q->vars = NULL;
+	int cnt = q->varno - f->actual_slots;
+
+	if (cnt) {
+		if (!create_vars(q, cnt)) {
+			throw_error(q, c, c_ctx, "resource_error", "stack");
+			return NULL;
+		}
+	}
+
+	if (is_var(p1)) {
+		cell tmp2;
+		tmp2 = *p1;
+		tmp2.var_nbr = q->tab0_varno;
+		unify(q, &tmp2, q->st.curr_frame, tmp, q->st.curr_frame);
+	}
+
+	if (!copy_attrs)
+		return tmp;
+
+	c = tmp;
+
+	for (pl_idx_t i = 0; i < tmp->nbr_cells; i++, c++) {
+		if (is_var(c) && is_fresh(c) && c->tmp_attrs) {
+			const frame *f = GET_FRAME(c->var_ctx);
+			slot *e = GET_SLOT(f, c->var_nbr);
+			e->c.attrs = c->tmp_attrs;
+			e->c.attrs_ctx = c->var_ctx;
+		}
+	}
+
+	return tmp;
+}
+
+cell *deep_copy_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx, bool copy_attrs)
+{
+	return deep_copy_to_tmp_with_replacement(q, p1, p1_ctx, copy_attrs, NULL, 0, NULL, 0);
+}
+
+cell *deep_copy_to_heap(query *q, cell *p1, pl_idx_t p1_ctx, bool copy_attrs)
+{
+	if (!init_tmp_heap(q))
+		return NULL;
+
+	cell *tmp = deep_copy_to_tmp_with_replacement(q, p1, p1_ctx, copy_attrs, NULL, 0, NULL, 0);
+	if (!tmp) return tmp;
+	cell *tmp2 = alloc_on_heap(q, tmp->nbr_cells);
+	if (!tmp2) return NULL;
+	safe_copy_cells(tmp2, tmp, tmp->nbr_cells);
+	return tmp2;
+}
+
+cell *deep_copy_to_heap_with_replacement(query *q, cell *p1, pl_idx_t p1_ctx, bool copy_attrs, cell *from, pl_idx_t from_ctx, cell *to, pl_idx_t to_ctx)
+{
+	if (!init_tmp_heap(q))
+		return NULL;
+
+	cell *tmp = deep_copy_to_tmp_with_replacement(q, p1, p1_ctx, copy_attrs, from, from_ctx, to, to_ctx);
+	if (!tmp) return tmp;
+	cell *tmp2 = alloc_on_heap(q, tmp->nbr_cells);
+	if (!tmp2) return NULL;
+	safe_copy_cells(tmp2, tmp, tmp->nbr_cells);
+	return tmp2;
 }
 
 cell *alloc_on_queuen(query *q, unsigned qnbr, const cell *c)
