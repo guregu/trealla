@@ -285,7 +285,6 @@ Non-standard predicates
 	listing/0
 	listing/1					# listing(+PI)
 
-	function_property/2
 	pretty/1					# pretty-print version of listing/1
 	between/3
 	forall/2
@@ -294,6 +293,7 @@ Non-standard predicates
 	merge/3
 	format/[1-3]
 	predicate_property/2
+	evaluable_property/2
 	numbervars/[1,3-4]
 	e/0
 	name/2
