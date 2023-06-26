@@ -9,8 +9,7 @@ predicate_property(P, A) :-
 	'$legacy_predicate_property'(P, A).
 predicate_property(P, A) :-
 	'$load_properties',
-	(	var(A)
-	->	true
+	(	var(A) -> true
 	; 	(	(Controls = [built_in,control_construct,discontiguous,private,static,dynamic,foreign,tabled,multifile,meta_predicate(_),iso,visible,template(_)],
 			memberchk(A, Controls))
 			->	true
@@ -18,8 +17,8 @@ predicate_property(P, A) :-
 		)
 	),
 	must_be(P, callable, predicate_property/2, _),
-	(	P = (M:P2)
-	->	M:'$predicate_property'(predicate, P2, A)
+	(	P = (M:P2) ->
+		M:'$predicate_property'(predicate, P2, A)
 	;	'$predicate_property'(predicate, P, A)
 	).
 
@@ -31,8 +30,7 @@ evaluable_property(P, A) :-
 	'$legacy_evaluable_property'(P, A).
 evaluable_property(P, A) :-
 	'$load_properties',
-	(	var(A)
-	->	true
+	(	var(A) -> true
 	; 	(	(Controls = [iso,built_in,static,dynamic,template(_),template(_,_)],
 			memberchk(A, Controls))
 			->	true
@@ -43,8 +41,7 @@ evaluable_property(P, A) :-
 		)
 	),
 	must_be(P, callable, evaluable_property/2, _),
-	(	P = (M:P2)
-	->	M:'$predicate_property'(function, P2, A)
+	(	P = (M:P2) -> M:'$predicate_property'(function, P2, A)
 	;	'$predicate_property'(function, P, A)
 	).
 
@@ -203,8 +200,7 @@ permutation([X|Rest], L) :-
 % Derived from code by R.A. O'Keefe
 
 setof(Template, Generator, Set) :-
-	( 	var(Set)
-	->	true
+	( 	var(Set) -> true
 	; 	must_be(Set, list_or_partial_list, setof/3, _)
 	),
 	bagof_(Template, Generator, Bag),
@@ -215,8 +211,7 @@ setof(Template, Generator, Set) :-
 :- help(setof(+term,+callable,?list), [iso(true)]).
 
 bagof(Template, Generator, Bag) :-
-	(	var(Bag)
-	->	true
+	(	var(Bag) -> true
 	;	must_be(Bag, list_or_partial_list, bagof/3, _)
 	),
 	bagof_(Template, Generator, Bag).
@@ -279,8 +274,7 @@ replace_variables_(Term, Vars0, Vars) :-
 replace_variables_term_(0, _, Vars, Vars) :- !.
 replace_variables_term_(N, Term, Vars0, Vars) :-
 	arg(N, Term, Arg),
-	(	cyclic_term(Arg)
-	->	N1 is N-1,
+	(	cyclic_term(Arg) -> N1 is N-1,
 		replace_variables_term_(N1, Term, Vars0, Vars)
 	;	replace_variables_(Arg, Vars0, Vars1),
 		N1 is N-1,
@@ -363,8 +357,7 @@ free_variables_(Term, Bound, OldList, NewList, _) :-
 free_variables_(0,    _,     _, VarList, VarList, _) :- !.
 free_variables_(N, Term, Bound, OldList, NewList, B) :-
 	arg(N, Term, Argument),
-	(	cyclic_term(Argument)
-	->	M is N-1, !,
+	(	cyclic_term(Argument) -> M is N-1, !,
 		free_variables_(M, Term, Bound, OldList, NewList, B)
 	;	free_variables_(Argument, Bound, OldList, MidList, B),
 		M is N-1, !,
@@ -683,11 +676,6 @@ pretty(PI) :-
 	).
 
 :- help(pretty(+predicateindicator), [iso(false)]).
-
-portray_clause(T) :-
-	'$portray_clause'(T).
-
-:- help(portray_clause(+term), [iso(false)]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % SWI compatible
@@ -1052,6 +1040,7 @@ call_residue_vars(Goal, Atts) :-
 	Goal,
 	term_attvars(Goal, Atts).
 
+:- meta_predicate(call_residue_vars(0,-)).
 :- help(call_residue_vars(:callable, -list), [iso(false), desc('Find residual attributed variables left by Goal. This predicate is intended for reasoning about and debugging programs that use coroutining or constraints. To see why this predicate is necessary, consider a predicate that poses contradicting constraints on a variable, and where that variable does not appear in any argument of the predicate and hence does not yield any residual goals on the toplevel when the predicate is invoked. Such programs should fail, but sometimes succeed because the constraint solver is too weak to detect the contradiction. Ideally, delayed goals and constraints are all executed at the end of the computation. The meta predicate call_residue_vars/2 finds variables that are given attributes or whose attributes are modified by Goal, regardless of whether or not these variables are reachable from the arguments of Goal.')]).
 
 %
