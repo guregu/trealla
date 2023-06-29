@@ -445,7 +445,7 @@ static const char *get_slot_name(query *q, pl_idx_t slot_idx)
 {
 	for (unsigned i = 0; i < q->print_idx; i++) {
 		if (q->pl->tab1[i] == slot_idx) {
-			return varformat(q->pl->tmpbuf, q->pl->tab2[i]);
+			return varformat(q->pl->tmpbuf, i);
 		}
 	}
 
@@ -466,8 +466,8 @@ static const char *get_slot_name(query *q, pl_idx_t slot_idx)
 ssize_t print_variable(query *q, char *dst, size_t dstlen, const cell *c, pl_idx_t c_ctx, bool running)
 {
 	char *save_dst = dst;
-	frame *f = GET_FRAME(running ? c_ctx : 0);
-	slot *e = GET_SLOT(f, c->var_nbr);
+	const frame *f = GET_FRAME(running ? c_ctx : 0);
+	const slot *e = GET_SLOT(f, c->var_nbr);
 	pl_idx_t slot_idx = running ? (unsigned)(e - q->slots) : (unsigned)c->var_nbr;
 
 	if (q->varnames && !is_fresh(c) && !is_anon(c) && running) {
