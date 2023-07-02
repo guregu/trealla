@@ -297,9 +297,7 @@ static void setup_key(query *q)
 	if (arg3)
 		arg3 = deref(q, arg3, q->st.key_ctx);
 
-	if (is_atomic(arg1)
-		//!has_vars(q, arg1, arg1_ctx)
-		)
+	if (is_atomic(arg1) /*|| !has_vars(q, arg1, arg1_ctx*/)
 		q->st.arg1_is_ground = true;
 
 	if (arg2 && is_atomic(arg2))
@@ -369,8 +367,13 @@ bool has_next_key(query *q)
 			return true;
 
 		cl = &next->cl;
-		cell *darg1 = cl->cells->val_off == g_neck_s ? cl->cells+1+1 : cl->cells+1;
-		cell *darg2 = darg1 + darg1->nbr_cells;
+		cell *dkey = cl->cells;
+
+		if (dkey->val_off == g_neck_s)
+			dkey++;
+
+		cell *darg1 = dkey + 1;
+		cell *darg2 = dkey->arity > 1 ? darg1 + darg1->nbr_cells : NULL;
 
 		if (is_var(darg1) || (darg2 && is_var(darg2)))
 			return true;
@@ -381,10 +384,7 @@ bool has_next_key(query *q)
 		//DUMP_TERM("key", q->st.key, q->st.key_ctx, 1);
 		//DUMP_TERM("next", cl->cells, q->st.curr_frame, 0);
 
-		if (is_var(karg1) || !is_atomic(karg1))
-			return true;
-
-		if (compare(q, karg1, karg1_ctx, darg1, q->st.curr_frame) == 0)
+		if (index_cmpkey(karg1, darg1, q->st.m, NULL) == 0)
 			return true;
 	}
 
@@ -940,7 +940,7 @@ bool push_choice(query *q)
 
 bool push_barrier(query *q)
 {
-	check_error(push_choice(q));
+	check_heap_error(push_choice(q));
 	frame *f = GET_CURR_FRAME();
 	choice *ch = GET_CURR_CHOICE();
 	ch->cgen = f->cgen = ++q->cgen;
@@ -952,7 +952,7 @@ bool push_barrier(query *q)
 
 bool push_catcher(query *q, enum q_retry retry)
 {
-	check_error(push_barrier(q));
+	check_heap_error(push_barrier(q));
 	choice *ch = GET_CURR_CHOICE();
 	ch->catcher = true;
 
@@ -1590,7 +1590,7 @@ bool start(query *q)
 				}
 			}
 
-			if (!status && !q->is_oom) {
+			if ((!status && !q->is_oom) || q->abort) {
 				q->retry = QUERY_RETRY;
 
 				if (q->yielded)
@@ -1903,10 +1903,10 @@ query *query_create(module *m, bool is_task)
 	q->trails_size = is_task ? INITIAL_NBR_TRAILS/10 : INITIAL_NBR_TRAILS;
 
 	bool error = false;
-	CHECK_SENTINEL(q->frames = calloc(q->frames_size, sizeof(frame)), NULL);
-	CHECK_SENTINEL(q->slots = calloc(q->slots_size, sizeof(slot)), NULL);
-	CHECK_SENTINEL(q->choices = calloc(q->choices_size, sizeof(choice)), NULL);
-	CHECK_SENTINEL(q->trails = calloc(q->trails_size, sizeof(trail)), NULL);
+	ensure(q->frames = calloc(q->frames_size, sizeof(frame)), NULL);
+	ensure(q->slots = calloc(q->slots_size, sizeof(slot)), NULL);
+	ensure(q->choices = calloc(q->choices_size, sizeof(choice)), NULL);
+	ensure(q->trails = calloc(q->trails_size, sizeof(trail)), NULL);
 
 	// Allocate these later as needed...
 

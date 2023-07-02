@@ -36,7 +36,7 @@ cell *string_to_chars_list(query *q, cell *p, pl_idx_t p_ctx)
 char *chars_list_to_string(query *q, cell *p_chars, pl_idx_t p_chars_ctx, size_t len)
 {
 	char *tmp = malloc(len+1+1);
-	ensure(tmp);
+	check_error(tmp);
 	char *dst = tmp;
 	LIST_HANDLER(p_chars);
 
@@ -555,7 +555,7 @@ static ssize_t print_iso_list(query *q, char *save_dst, char *dst, size_t dstlen
 		cell *save_head = head;
 		pl_idx_t head_ctx = c_ctx;
 		slot *e = NULL;
-		uint64_t save_vgen = 0;
+		uint64_t save_vgen = q->vgen - 1;
 
 		if (is_var(head) && running) {
 			if (is_ref(head))
@@ -935,7 +935,7 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx_t 
 			return dst - save_dst;
 		}
 
-		if (is_var(c) && !is_anon(c) && q->variable_names) {
+		if (is_var(c) && q->variable_names) {
 			cell *l = q->variable_names;
 			pl_idx_t l_ctx = q->variable_names_ctx;
 			LIST_HANDLER(l);
@@ -945,10 +945,10 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx_t 
 				h = running ? deref(q, h, l_ctx) : h;
 				pl_idx_t h_ctx = running ? q->latest_ctx : 0;
 				cell *name = running ? deref(q, h+1, h_ctx) : h+1;
-				cell *var = running ? deref(q, h+2, l_ctx) : h+2;
-				pl_idx_t tmp_ctx = running ? q->latest_ctx : l_ctx;
+				cell *var = running ? deref(q, h+2, h_ctx) : h+2;
+				pl_idx_t var_ctx = running ? q->latest_ctx : h_ctx;
 
-				if (is_var(var) && (var->var_nbr == c->var_nbr) && (tmp_ctx == c_ctx)) {
+				if (is_var(var) && (var->var_nbr == c->var_nbr) && (var_ctx == c_ctx)) {
 					dst += snprintf(dst, dstlen, "%s", C_STR(q, name));
 					q->last_thing_was_symbol = false;
 					q->was_space = false;
@@ -1015,7 +1015,7 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx_t 
 				slot *e = NULL;
 				cell *tmp = c;
 				pl_idx_t tmp_ctx = c_ctx;
-				uint64_t save_vgen = 0;
+				uint64_t save_vgen = q->vgen - 1;
 
 				if (is_var(c)) {
 					if (is_ref(tmp))
@@ -1307,14 +1307,14 @@ char *print_canonical_to_strbuf(query *q, cell *c, pl_idx_t c_ctx, int running)
 		running = 0;
 	}
 
-	q->vgen++;
+	if (++q->vgen == 0) q->vgen = 1;
 	q->ignore_ops = true;
 	q->quoted = 1;
 	q->last_thing_was_symbol = false;
 	q->did_quote = false;
 	ssize_t len = print_term_to_buf(q, NULL, 0, c, c_ctx, running, false, 1);
 	char *buf = malloc(len*2+1);
-	ensure(buf, clear_write_options(q));
+	check_error(buf, clear_write_options(q));
 	q->last_thing_was_symbol = false;
 	q->did_quote = false;
 	len = print_term_to_buf(q, buf, len+1, c, c_ctx, running, false, 0);
@@ -1338,7 +1338,7 @@ bool print_canonical_to_stream(query *q, stream *str, cell *c, pl_idx_t c_ctx, i
 		running = 0;
 	}
 
-	q->vgen++;
+	if (++q->vgen == 0) q->vgen = 1;
 	q->ignore_ops = true;
 	q->quoted = 1;
 	q->last_thing_was_symbol = false;
@@ -1385,7 +1385,7 @@ bool print_canonical(query *q, FILE *fp, cell *c, pl_idx_t c_ctx, int running)
 		running = 0;
 	}
 
-	q->vgen++;
+	if (++q->vgen == 0) q->vgen = 1;
 	q->ignore_ops = true;
 	q->quoted = 1;
 	q->last_thing_was_symbol = false;
@@ -1420,7 +1420,7 @@ bool print_canonical(query *q, FILE *fp, cell *c, pl_idx_t c_ctx, int running)
 
 char *print_term_to_strbuf(query *q, cell *c, pl_idx_t c_ctx, int running)
 {
-	q->vgen++;
+	if (++q->vgen == 0) q->vgen = 1;
 	q->last_thing_was_symbol = false;
 	q->did_quote = false;
 	ssize_t len = print_term_to_buf(q, NULL, 0, c, c_ctx, running, false, 0);
@@ -1430,8 +1430,8 @@ char *print_term_to_strbuf(query *q, cell *c, pl_idx_t c_ctx, int running)
 	}
 
 	char *buf = malloc(len*2+1);
-	ensure(buf, clear_write_options(q));
-	q->vgen++;
+	check_error(buf, clear_write_options(q));
+	if (++q->vgen == 0) q->vgen = 1;
 	q->last_thing_was_symbol = false;
 	q->did_quote = false;
 	len = print_term_to_buf(q, buf, len+1, c, c_ctx, running, false, 0);
@@ -1440,7 +1440,7 @@ char *print_term_to_strbuf(query *q, cell *c, pl_idx_t c_ctx, int running)
 
 bool print_term_to_stream(query *q, stream *str, cell *c, pl_idx_t c_ctx, int running)
 {
-	q->vgen++;
+	if (++q->vgen == 0) q->vgen = 1;
 	q->last_thing_was_symbol = false;
 	q->did_quote = false;
 	ssize_t len = print_term_to_buf(q, NULL, 0, c, c_ctx, running, false, 0);
@@ -1451,7 +1451,7 @@ bool print_term_to_stream(query *q, stream *str, cell *c, pl_idx_t c_ctx, int ru
 
 	char *dst = malloc(len*2+1);
 	check_heap_error(dst, clear_write_options(q));
-	q->vgen++;
+	if (++q->vgen == 0) q->vgen = 1;
 	q->last_thing_was_symbol = false;
 	q->did_quote = false;
 	len = print_term_to_buf(q, dst, len+1, c, c_ctx, running, false, 0);
@@ -1476,7 +1476,7 @@ bool print_term_to_stream(query *q, stream *str, cell *c, pl_idx_t c_ctx, int ru
 
 bool print_term(query *q, FILE *fp, cell *c, pl_idx_t c_ctx, int running)
 {
-	q->vgen++;
+	if (++q->vgen == 0) q->vgen = 1;
 	q->last_thing_was_symbol = false;
 	q->did_quote = false;
 	ssize_t len = print_term_to_buf(q, NULL, 0, c, c_ctx, running, false, 0);
@@ -1487,7 +1487,7 @@ bool print_term(query *q, FILE *fp, cell *c, pl_idx_t c_ctx, int running)
 
 	char *dst = malloc(len*2+1);
 	check_heap_error(dst, clear_write_options(q));
-	q->vgen++;
+	if (++q->vgen == 0) q->vgen = 1;
 	q->last_thing_was_symbol = false;
 	q->did_quote = false;
 	len = print_term_to_buf(q, dst, len+1, c, c_ctx, running, false, 0);

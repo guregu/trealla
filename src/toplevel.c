@@ -53,16 +53,19 @@ int check_interrupt(query *q)
 			printf("%c\n", ch);
 
 		if (ch == 'h') {
-			printf("Action (#digit), (e)nd, e(x)it, (r)etry, (c)ontinue, (t)race, cree(p): ");
+			printf("Action:\n"
+				"\tENTER     abort        - abort current query\n"
+				"\ta         abort        - abort current query\n"
+				"\tc         continue     - resume current query\n"
+				"\te         exit         - exit top-level\n"
+				"\tt         trace        - toggle tracing (creeping)\n"
+				"\th         help         - display this help\n"
+				"");
 			goto LOOP;
 		}
 
-		if (ch == 't') {
-			q->trace = !q->trace;
-			break;
-		}
 
-		if (ch == 'p') {
+		if (ch == 't') {
 			q->trace = q->creep = !q->creep;
 			break;
 		}
@@ -78,7 +81,7 @@ int check_interrupt(query *q)
 		}
 
 #ifndef __wasi__
-		if ((ch == '\n') || (ch == 'e')) {
+		if ((ch == '\n') || (ch == 'a')) {
 			//printf(";  ... .\n");
 			printf("  ... .\n");
 			q->is_redo = true;
@@ -89,7 +92,7 @@ int check_interrupt(query *q)
 		}
 #endif
 
-		if (ch == 'x') {
+		if (ch == 'e') {
 			if (!q->run_init)
 				printf("\n");
 
@@ -145,7 +148,15 @@ bool check_redo(query *q)
 		int ch = history_getch();
 
 		if ((ch == 'h') || (ch == '?')) {
-			printf("Action (#digit), (a)ll, (e)nd, e(x)it, (r)etry, (e)nd:\n");
+			printf("Action:\n"
+				"\tENTER     abort        - abort current query\n"
+				"\te         exit         - exit top-level\n"
+				"\tt         trace        - toggle tracing (creeping)\n"
+				"\t;         next         - display next solution\n"
+				"\t#         digit        - display # solutions\n"
+				"\ta         all          - display all solutions\n"
+				"\th         help         - display this help\n"
+			"");
 			fflush(stdout);
 			continue;
 		}
@@ -175,10 +186,10 @@ bool check_redo(query *q)
 		}
 
 #ifndef __wasi__
-		if ((ch == '\n') || (ch == 'e')) {
+		if (ch == '\n') {
 #else
 		// WASI always sends buffered input with a linebreak, so use '.' instead
-		if ((ch == '.') || (ch == 'e')) {
+		if (ch == '.') {
 #endif
 			//printf(";  ... .\n");
 			printf("  ... .\n");
@@ -189,7 +200,13 @@ bool check_redo(query *q)
 			break;
 		}
 
-		if (ch == 'x') {
+		if (isdigit(ch)) {
+			q->fail_on_retry = true;
+			q->autofail_n = isdigit(ch) ? (unsigned)ch - '0' : UINT_MAX;
+			break;
+		}
+
+		if (ch == 'e') {
 			if (!q->run_init)
 				printf("\n");
 
@@ -225,6 +242,7 @@ static void	clear_results()
 static void add_result(int nbr, cell *c, pl_idx_t c_ctx)
 {
 	item *ptr = malloc(sizeof(item));
+	ensure(ptr);
 	ptr->c = c;
 	ptr->c_ctx = c_ctx;
 	ptr->nbr = nbr;
@@ -411,7 +429,10 @@ void dump_vars(query *q, bool partial)
 		q->parens = parens;
 
 		e->vgen = q->vgen+1;
-		init_tmp_heap(q);
+
+		if (!init_tmp_heap(q))
+			return;
+
 		cell *tmp = deep_clone_to_tmp(q, c, c_ctx);
 		print_term(q, stdout, tmp, 0, 1);
 

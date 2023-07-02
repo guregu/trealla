@@ -335,7 +335,7 @@ static int compare_internal(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_id
 int compare(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx_t p2_ctx)
 {
 	q->cycle_error = false;
-	q->vgen++;
+	if (++q->vgen == 0) q->vgen = 1;
 	return compare_internal(q, p1, p1_ctx, p2, p2_ctx, 0);
 }
 
@@ -356,11 +356,13 @@ bool accum_var(query *q, const cell *c, pl_idx_t c_ctx)
 	if (!q->pl->tabs) {
 		q->pl->tabs_size = 4000;
 		q->pl->tabs = malloc(sizeof(var_item)*q->pl->tabs_size);
+		check_error(!q->pl->tabs);
 	}
 
 	if (q->tab_idx == q->pl->tabs_size) {
 		q->pl->tabs_size *= 2;
 		q->pl->tabs = realloc(q->pl->tabs, sizeof(var_item)*q->pl->tabs_size);
+		check_error(!q->pl->tabs);
 	}
 
 	q->pl->tabs[q->tab_idx].ctx = c_ctx;
@@ -489,7 +491,7 @@ static void collect_vars_internal(query *q, cell *p1, pl_idx_t p1_ctx, unsigned 
 
 void collect_vars(query *q, cell *p1, pl_idx_t p1_ctx)
 {
-	q->vgen++;
+	if (++q->vgen == 0) q->vgen = 1;
 	q->tab_idx = 0;
 	ensure(q->vars = map_create(NULL, NULL, NULL));
 	map_allow_dups(q->vars, false);
@@ -616,7 +618,7 @@ static bool has_vars_internal(query *q, cell *p1, pl_idx_t p1_ctx, unsigned dept
 
 bool has_vars(query *q, cell *p1, pl_idx_t p1_ctx)
 {
-	q->vgen++;
+	if (++q->vgen == 0) q->vgen = 1;
 	return has_vars_internal(q, p1, p1_ctx, 0);
 }
 
@@ -760,14 +762,14 @@ static bool is_cyclic_term_internal(query *q, cell *p1, pl_idx_t p1_ctx, unsigne
 bool is_cyclic_term(query *q, cell *p1, pl_idx_t p1_ctx)
 {
 	q->cycle_error = false;
-	q->vgen++;
+	if (++q->vgen == 0) q->vgen = 1;
 	return is_cyclic_term_internal(q, p1, p1_ctx, 0);
 }
 
 bool is_acyclic_term(query *q, cell *p1, pl_idx_t p1_ctx)
 {
 	q->cycle_error = false;
-	q->vgen++;
+	if (++q->vgen == 0) q->vgen = 1;
 	return !is_cyclic_term_internal(q, p1, p1_ctx, 0);
 }
 
@@ -964,7 +966,7 @@ bool fn_sys_undo_trail_1(query *q)
 	}
 
 	q->save_e = malloc(sizeof(slot)*(q->undo_hi_tp - q->undo_lo_tp));
-	check_heap_error(q->save_e);
+	check_error(q->save_e);
 	bool first = true;
 
 	// Unbind our vars
@@ -1452,6 +1454,6 @@ static bool unify_internal(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx
 bool unify(query *q, cell *p1, pl_idx_t p1_ctx, cell *p2, pl_idx_t p2_ctx)
 {
 	q->cycle_error = false;
-	q->vgen++;
+	if (++q->vgen == 0) q->vgen = 1;
 	return unify_internal(q, p1, p1_ctx, p2, p2_ctx, 0);
 }

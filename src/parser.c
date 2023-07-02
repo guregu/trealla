@@ -25,7 +25,7 @@ const char *g_solo = "!(){}[]|,;`'\"";
 char *slicedup(const char *s, size_t n)
 {
 	char *ptr = malloc(n+1);
-	if (!ptr) return NULL;
+	ensure (ptr);
 	memcpy(ptr, s, n);
 	ptr[n] = '\0';
 	return ptr;
@@ -140,11 +140,7 @@ static bool make_room(parser *p, unsigned nbr)
 		pl_idx_t nbr_cells = (p->cl->allocated_cells + nbr) * 3 / 2;
 
 		clause *cl = realloc(p->cl, sizeof(clause)+(sizeof(cell)*nbr_cells));
-		if (!cl) {
-			p->error = true;
-			return false;
-		}
-
+		ensure(cl);
 		p->cl = cl;
 		p->cl->allocated_cells = nbr_cells;
 	}
@@ -179,12 +175,12 @@ void parser_destroy(parser *p)
 parser *parser_create(module *m)
 {
 	parser *p = calloc(1, sizeof(parser));
-	check_error(p);
+	ensure(p);
 	p->pl = m->pl;
 	p->m = m;
 	pl_idx_t nbr_cells = INITIAL_NBR_CELLS;
 	p->cl = calloc(1, sizeof(clause)+(sizeof(cell)*nbr_cells));
-	check_error(p->cl, free(p));
+	ensure(p->cl, free(p));
 	p->cl->allocated_cells = nbr_cells;
 	p->start_term = true;
 	p->flags = m->flags;
@@ -215,6 +211,7 @@ static void consultall(parser *p, cell *l)
 char *relative_to(const char *basefile, const char *relfile)
 {
 	char *tmpbuf = malloc(strlen(basefile) + strlen(relfile) + 256);
+	ensure(tmpbuf);
 	char *ptr = tmpbuf;
 
 	if (!strncmp(relfile, "../", 3)) {
@@ -478,6 +475,7 @@ static void directives(parser *p, cell *d)
 		q.st.m = p->m;
 		char *dst = print_term_to_strbuf(&q, p1, p1_ctx, 0);
 		builtins *ptr = calloc(1, sizeof(builtins));
+		ensure(ptr);
 		ptr->name = strdup(C_STR(p, p1));
 		ptr->arity = p1->arity;
 		ptr->m = p->m;
@@ -1395,7 +1393,7 @@ static bool autoload_dcg_library(parser *p)
 			continue;
 
 		char *src = malloc(*lib->len+1);
-		check_error(src);
+		ensure(src);
 		memcpy(src, lib->start, *lib->len);
 		src[*lib->len] = '\0';
 		SB(s);
@@ -2124,6 +2122,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 
 		if (mp_int_to_int(&v2, &val) == MP_RANGE) {
 			p->v.val_bigint = malloc(sizeof(bigint));
+			ensure(p->v.val_bigint);
 			p->v.val_bigint->refcnt = 1;
 			mp_int_init_copy(&p->v.val_bigint->ival, &v2);
 			if (neg) p->v.val_bigint->ival.sign = MP_NEG;
@@ -2147,6 +2146,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 
 		if (mp_int_to_int(&v2, &val) == MP_RANGE) {
 			p->v.val_bigint = malloc(sizeof(bigint));
+			ensure(p->v.val_bigint);
 			p->v.val_bigint->refcnt = 1;
 			mp_int_init_copy(&p->v.val_bigint->ival, &v2);
 			if (neg) p->v.val_bigint->ival.sign = MP_NEG;
@@ -2170,6 +2170,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 
 		if (mp_int_to_int(&v2, &val) == MP_RANGE) {
 			p->v.val_bigint = malloc(sizeof(bigint));
+			ensure(p->v.val_bigint);
 			p->v.val_bigint->refcnt = 1;
 			mp_int_init_copy(&p->v.val_bigint->ival, &v2);
 			if (neg) p->v.val_bigint->ival.sign = MP_NEG;
@@ -2230,6 +2231,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 
 	if (mp_int_to_int(&v2, &val) == MP_RANGE) {
 		p->v.val_bigint = malloc(sizeof(bigint));
+		ensure(p->v.val_bigint);
 		p->v.val_bigint->refcnt = 1;
 		mp_int_init_copy(&p->v.val_bigint->ival, &v2);
 		if (neg) p->v.val_bigint->ival.sign = MP_NEG;
@@ -2916,15 +2918,12 @@ unsigned tokenize(parser *p, bool args, bool consing)
 
 		if (!p->quote_char
 			&& !SB_strcmp(p->token, ".")
-			&& !iswalpha(*p->srcptr)
-		    && (*p->srcptr != '"')
-		    && (*p->srcptr != '(')
 		    && (*p->srcptr != ',')
-		    && (*p->srcptr != ';')
+		    && (*p->srcptr != '(')
 		    && (*p->srcptr != ')')
 		    && (*p->srcptr != ']')
 		    && (*p->srcptr != '}')
-		    && (*p->srcptr != '|')) {
+		    ) {
 
 			if (p->nesting_parens || p->nesting_brackets || p->nesting_braces) {
 				if (DUMP_ERRS || !p->do_read_term)
@@ -2941,7 +2940,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 
 				p->error_desc = "incomplete_statement";
 				p->error = true;
-				return false;
+				return 0;
 			}
 
 			if (analyze(p, 0, last_op)) {
@@ -3013,10 +3012,10 @@ unsigned tokenize(parser *p, bool args, bool consing)
 						cell *h = LIST_HEAD(p1);
 
 						if (!process_term(p, h))
-							return false;
+							return 0;
 
 						if (p->already_loaded_error)
-							return false;
+							return 0;
 
 						p1 = LIST_TAIL(p1);
 
@@ -3025,10 +3024,10 @@ unsigned tokenize(parser *p, bool args, bool consing)
 					}
 
 					if (!tail && !process_term(p, p1))
-						return false;
+						return 0;
 
 					if (p->already_loaded_error)
-						return false;
+						return 0;
 
 					p->cl->cidx = 0;
 				}
@@ -3098,7 +3097,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 		if (!p->quote_char && !SB_strcmp(p->token, "{")) {
 			save_idx = p->cl->cidx;
 			cell *c = make_interned(p, g_braces_s);
-			check_error(c);
+			ensure(c);
 			c->arity = 1;
 			p->start_term = true;
 			p->nesting_braces++;
@@ -3539,7 +3538,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 	}
 
 	p->depth--;
-	return !p->error;
+	return !p->error ? 1 : 0;
 }
 
 bool run(parser *p, const char *pSrc, bool dump, query **subq, unsigned int yield_time_in_ms)

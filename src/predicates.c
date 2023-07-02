@@ -414,7 +414,7 @@ static bool fn_iso_compound_1(query *q)
 static bool fn_iso_atomic_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
-	return is_atomic(p1);
+	return is_iso_atomic(p1);
 }
 
 static bool fn_iso_var_1(query *q)
@@ -3156,6 +3156,7 @@ static cell *nodesort(query *q, cell *p1, pl_idx_t p1_ctx, bool dedup, bool keys
 	unshare_cell(&tmp);
 	size_t cnt = skip;
 	basepair *base = malloc(sizeof(basepair)*cnt);
+	check_error(base);
 	LIST_HANDLER(p1);
 		size_t idx = 0;
 
@@ -3351,6 +3352,7 @@ static cell *nodesort4(query *q, cell *p1, pl_idx_t p1_ctx, bool dedup, bool asc
 	unshare_cell(&tmp);
 	size_t cnt = skip;
 	basepair *base = malloc(sizeof(basepair)*cnt);
+	check_error(base);
 	LIST_HANDLER(p1);
 	size_t idx = 0;
 
@@ -3936,7 +3938,7 @@ static bool fn_load_all_modules_0(query *q)
 	for (library *lib = g_libs; lib->name; lib++) {
 		size_t len = *lib->len;
 		char *src = malloc(len+1);
-		check_error(src, pl_destroy(pl));
+		check_error(src);
 		memcpy(src, lib->start, len);
 		src[len] = '\0';
 		SB(s1);
@@ -4535,11 +4537,28 @@ static bool fn_notrace_0(query *q)
 static bool fn_statistics_0(query *q)
 {
 	fprintf(stdout,
-		"Goals %"PRIu64", Matches %"PRIu64", Max frames %u, choices %u, trails %u, slots %u, heap: %u.\nBacktracks %"PRIu64", TCOs:%"PRIu64", Recovered frames: %"PRIu64", slots: %"PRIu64"\n",
+		"Goals %"PRIu64", "
+		"Matches %"PRIu64".\n"
+		"Max frames %u, "
+		"choices %u, "
+		"trails %u, "
+		"slots %u.\n"
+		"Active frames %u, "
+		"choices %u, "
+		"trails %u, "
+		"slots %u.\n"
+		"Heap: %u (~%u MB), "
+		"Backtracks %"PRIu64", "
+		"TCOs:%"PRIu64", "
+		"Recovered frames: %"PRIu64", "
+		"slots: %"PRIu64", "
+		"Queue: %u\n",
 		q->tot_goals, q->tot_matches,
-		q->hw_frames, q->hw_choices, q->hw_trails, q->hw_slots, q->st.hp,
+		q->hw_frames, q->hw_choices, q->hw_trails, q->hw_slots,
+		q->st.fp, q->cp, q->st.tp, q->st.sp,
+		q->st.hp, (unsigned)(sizeof(slot)*q->st.hp/1024/1024),
 		q->tot_retries, q->tot_tcos,
-		q->tot_frecovs, q->tot_srecovs
+		q->tot_frecovs, q->tot_srecovs, (unsigned)q->qcnt[q->st.qnbr]
 		);
 	return true;
 }
@@ -6090,6 +6109,7 @@ static bool fn_hex_chars_2(query *q)
 		if (is_bigint(p1)) {
 			size_t len = mp_int_string_len(&p1->val_bigint->ival, 16) -1;
 			dst = malloc(len+10);
+			check_heap_error(dst);
 			mp_int_to_string(&p1->val_bigint->ival, 16, dst, len+1);
 		} else {
 			snprintf(tmpbuf, sizeof(tmpbuf), "%"PRIx64"", (uint64_t)get_smallint(p1));
@@ -6115,6 +6135,7 @@ static bool fn_hex_chars_2(query *q)
 	if (mp_int_to_int(&v2, &val) == MP_RANGE) {
 		tmp.tag = TAG_INTEGER;
 		tmp.val_bigint = malloc(sizeof(bigint));
+		check_heap_error(tmp.val_bigint);
 		tmp.val_bigint->refcnt = 1;
 		mp_int_init_copy(&tmp.val_bigint->ival, &v2);
 		tmp.flags |= FLAG_MANAGED;
@@ -6143,6 +6164,7 @@ static bool fn_octal_chars_2(query *q)
 		if (is_bigint(p1)) {
 			size_t len = mp_int_string_len(&p1->val_bigint->ival, 8) -1;
 			dst = malloc(len+10);
+			check_heap_error(dst);
 			mp_int_to_string(&p1->val_bigint->ival, 8, dst, len+1);
 		} else {
 			snprintf(tmpbuf, sizeof(tmpbuf), "%"PRIo64"", (uint64_t)get_smallint(p1));
@@ -6168,6 +6190,7 @@ static bool fn_octal_chars_2(query *q)
 	if (mp_int_to_int(&v2, &val) == MP_RANGE) {
 		tmp.tag = TAG_INTEGER;
 		tmp.val_bigint = malloc(sizeof(bigint));
+		check_heap_error(tmp.val_bigint);
 		tmp.val_bigint->refcnt = 1;
 		mp_int_init_copy(&tmp.val_bigint->ival, &v2);
 		tmp.flags |= FLAG_MANAGED;
@@ -7600,6 +7623,7 @@ static bool fn_sre_compile_2(query *q)
 	tmp.flags = FLAG_MANAGED | FLAG_BLOB_SRE;
 	tmp.nbr_cells = 1;
 	tmp.val_blob = malloc(sizeof(blob));
+	check_heap_error(tmp.val_blob);
 	tmp.val_blob->ptr = (void*)reg;
 	tmp.val_blob->ptr2 = (void*)buf;
 	tmp.val_blob->refcnt = 1;
