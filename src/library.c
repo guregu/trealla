@@ -64,6 +64,8 @@ extern unsigned char library_concurrent_pl[];
 extern unsigned int library_concurrent_pl_len;
 extern unsigned char library_gensym_pl[];
 extern unsigned int library_gensym_pl_len;
+extern unsigned char library_uuid_pl[];
+extern unsigned int library_uuid_pl_len;
 
 #ifdef WASI_TARGET_SPIN
 extern unsigned char library_spin_pl[];
@@ -102,6 +104,7 @@ library g_libs[] = {
 #endif
 	 {"sqlite3", library_sqlite3_pl, &library_sqlite3_pl_len},
 	 {"ugraphs", library_ugraphs_pl, &library_ugraphs_pl_len},
+	 {"uuid", library_uuid_pl, &library_uuid_pl_len},
 	 {"wasm", library_wasm_pl, &library_wasm_pl_len},
 	 {"wasm_generic", library_wasm_generic_pl, &library_wasm_generic_pl_len},
 	 {"wasm_js", library_wasm_js_pl, &library_wasm_js_pl_len},

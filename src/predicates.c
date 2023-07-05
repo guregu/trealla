@@ -1085,6 +1085,53 @@ static bool fn_hex_bytes_2(query *q)
 		return ok;
 	}
 
+	if (is_list(p2) && is_iso_list(p1)) {
+		LIST_HANDLER(p1);
+		LIST_HANDLER(p2);
+
+		while (is_list(p1) && is_list(p2)) {
+			cell *h11 = LIST_HEAD(p1);
+			h11 = deref(q, h11, p1_ctx);
+			pl_idx_t h11_ctx = q->latest_ctx;
+			p1 = LIST_TAIL(p1);
+			p1 = deref(q, p1, p1_ctx);
+			p1_ctx = q->latest_ctx;
+			cell *h12 = LIST_HEAD(p1);
+			h12 = deref(q, h12, p1_ctx);
+			pl_idx_t h12_ctx = q->latest_ctx;
+
+			cell *h2 = LIST_HEAD(p2);
+			h2 = deref(q, h2, p2_ctx);
+			unsigned n = get_smalluint(h2);
+
+			unsigned n1 = (n >> 4) & 0xF;
+			int ch;
+			if (n1 < 10) ch = '0' + n1;
+			else { n1 -= 10; ch = 'a' + n1; }
+			char tmpbuf[10];
+			put_char_utf8(tmpbuf, ch);
+			cell tmp;
+			make_cstring(&tmp, tmpbuf);
+			unify(q, h11, h11_ctx, &tmp, q->st.curr_frame);
+
+			unsigned n2 = n & 0xF;
+			if (n2 < 10) ch = '0' + n2;
+			else { n2 -= 10; ch = 'a' + n2; }
+			put_char_utf8(tmpbuf, ch);
+			make_cstring(&tmp, tmpbuf);
+
+			if (!unify(q, h12, h12_ctx, &tmp, q->st.curr_frame))
+				return false;
+
+			p1 = LIST_TAIL(p1);
+			p1 = deref(q, p1, p1_ctx);
+			p1_ctx = q->latest_ctx;
+			p2 = LIST_TAIL(p2);
+			p2 = deref(q, p2, p2_ctx);
+			p2_ctx = q->latest_ctx;
+		}
+	}
+
 	LIST_HANDLER(p1);
 	bool first = true;
 
@@ -2283,17 +2330,27 @@ static bool do_abolish(query *q, cell *c_orig, cell *c_pi, bool hard)
 	for (db_entry *dbe = pr->head; dbe; dbe = dbe->next)
 		retract_from_db(dbe);
 
-	if (!pr->refcnt)
-		pr->refcnt++;
-
-	while (pr->dirty_list) {
+	if (!pr->refcnt) {
 		db_entry *dbe = pr->dirty_list;
-		pr->dirty_list = dbe->dirty;
-		dbe->dirty = q->dirty_list;
-		q->dirty_list = dbe;
+
+		while (dbe) {
+			delink(pr, dbe);
+			db_entry *save = dbe->dirty;
+			clear_rule(&dbe->cl);
+			free(dbe);
+			dbe = save;
+		}
+
+		pr->dirty_list = NULL;
+	} else {
+		while (pr->dirty_list) {
+			db_entry *dbe = pr->dirty_list;
+			pr->dirty_list = dbe->dirty;
+			dbe->dirty = q->dirty_list;
+			q->dirty_list = dbe;
+		}
 	}
 
-	purge_predicate_dirty_list(q, pr);
 	map_destroy(pr->idx2);
 	map_destroy(pr->idx);
 	pr->idx2 = pr->idx = NULL;
@@ -2359,49 +2416,6 @@ static bool fn_iso_abolish_1(query *q)
 	tmp.arity = get_smallint(p1_arity);
 	CLR_OP(&tmp);
 	return do_abolish(q, p1, &tmp, true);
-}
-
-static bool fn_soft_abolish_1(query *q)
-{
-	GET_FIRST_ARG(p1,callable);
-
-	if (p1->arity != 2)
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	if (CMP_STR_TO_CSTR(q, p1, "/") && CMP_STR_TO_CSTR(q, p1, "//"))
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	cell *p1_name = p1 + 1;
-	p1_name = deref(q, p1_name, p1_ctx);
-
-	if (!is_atom(p1_name))
-		return throw_error(q, p1_name, p1_ctx, "type_error", "atom");
-
-	cell *p1_arity = p1 + 2;
-	p1_arity = deref(q, p1_arity, p1_ctx);
-
-	if (!CMP_STR_TO_CSTR(q, p1, "//"))
-		p1_arity += 2;
-
-	if (!is_integer(p1_arity))
-		return throw_error(q, p1_arity, p1_ctx, "type_error", "integer");
-
-	if (is_negative(p1_arity))
-		return throw_error(q, p1_arity, p1_ctx, "domain_error", "not_less_than_zero");
-
-	if (get_smallint(p1_arity) > MAX_ARITY)
-		return throw_error(q, p1_arity, p1_ctx, "representation_error", "max_arity");
-
-	bool found = false;
-
-	if (get_builtin(q->pl, C_STR(q, p1_name), C_STRLEN(q, p1_name), get_smallint(p1_arity), &found, NULL), found)
-		return throw_error(q, p1, p1_ctx, "permission_error", "modify,static_procedure");
-
-	cell tmp;
-	tmp = *p1_name;
-	tmp.arity = get_smallint(p1_arity);
-	CLR_OP(&tmp);
-	return do_abolish(q, p1, &tmp, false);
 }
 
 static unsigned count_non_anons(uint8_t *mask, unsigned bit)
@@ -3506,10 +3520,10 @@ static bool fn_sys_list_1(query *q)
 bool fn_sys_queue_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
-	check_heap_error(init_tmp_heap(q));
+	check_heap_error(init_tmp_heap(q), q->st.qnbr--);
 	cell *tmp = deep_clone_to_tmp(q, p1, p1_ctx);
-	check_heap_error(tmp);
-	check_heap_error(alloc_on_queuen(q, q->st.qnbr, tmp));
+	check_heap_error(tmp, q->st.qnbr--);
+	check_heap_error(alloc_on_queuen(q, q->st.qnbr, tmp), q->st.qnbr--);
 	return true;
 }
 
@@ -5701,6 +5715,41 @@ static bool fn_format_3(query *q)
 	}
 
 	return do_format(q, pstr, pstr_ctx, p1, p1_ctx, !is_nil(p2)?p2:NULL, p2_ctx);
+}
+
+// FIXME: not truly crypto strength
+
+static bool fn_crypto_n_random_bytes_2(query *q)
+{
+	static bool s_seed = false;
+
+	if (!s_seed) {
+		s_seed = true;
+		srand(time(NULL));
+	}
+
+	GET_FIRST_ARG(p1,integer);
+	GET_NEXT_ARG(p2,list_or_var);
+	bool first_time = true;
+	int n = get_smallint(p1);
+
+	if (n < 1)
+		return throw_error(q, p1, p1_ctx, "domain_error", "not_less_than_zero");
+
+	while (n--) {
+		int i = rand() % 256;
+		cell tmp;
+		make_int(&tmp, i);
+
+		if (first_time) {
+			first_time = false;
+			allocate_list(q, &tmp);
+		} else
+			append_list(q, &tmp);
+	}
+
+	cell *tmp = end_list(q);
+	return unify(q, p2, p2_ctx, tmp, q->st.curr_frame);
 }
 
 #if USE_OPENSSL
@@ -8385,7 +8434,6 @@ builtins g_other_bifs[] =
 	{"abort", 0, fn_abort_0, NULL, false, false, BLAH},
 	{"sort", 4, fn_sort_4, "+integer,+atom,+list,?list", false, false, BLAH},
 	{"ignore", 1, fn_ignore_1, ":callable", false, false, BLAH},
-	{"soft_abolish", 1, fn_soft_abolish_1, "+term", false, false, BLAH},
 	{"string_codes", 2, fn_string_codes_2, "+character_list,-list", false, false, BLAH},
 	{"term_singletons", 2, fn_term_singletons_2, "+term,-list", false, false, BLAH},
 	{"get_unbuffered_code", 1, fn_get_unbuffered_code_1, "?integer", false, false, BLAH},
@@ -8484,6 +8532,7 @@ builtins g_other_bifs[] =
 	{"$host_call", 2, fn_sys_host_call_2, "+string,-string", false, false, BLAH},
 	{"$host_resume", 1, fn_sys_host_resume_1, "-string", false, false, BLAH},
 #endif
+	{"crypto_n_random_bytes", 2, fn_crypto_n_random_bytes_2, "+integer,-codes", false, false, BLAH},
 
 #if USE_OPENSSL
 	{"crypto_data_hash", 3, fn_crypto_data_hash_3, "?character_list,?character_list,?list", false, false, BLAH},

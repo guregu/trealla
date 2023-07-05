@@ -75,12 +75,12 @@ WASMOPT = wasm-opt
 endif
 
 SRCOBJECTS = tpl.o \
-	src/bags.o \
 	src/base64.o \
 	src/contrib.o \
 	src/control.o \
 	src/csv.o \
 	src/ffi.o \
+	src/findall.o \
 	src/format.o \
 	src/functions.o \
 	src/heap.o \
@@ -130,6 +130,7 @@ LIBOBJECTS +=  \
 	library/si.o \
 	library/sqlite3.o \
 	library/ugraphs.o \
+	library/uuid.o \
 	library/wasm.o \
 	library/wasm_generic.o \
 	library/wasm_js.o \
@@ -233,9 +234,6 @@ clean:
 
 # from [gcc|clang] -MM src/*.c src/imath/*.c src/isocline/src/*.c src/sre/*.c
 
-src/bags.o: src/bags.c src/heap.h src/internal.h src/map.h src/skiplist.h \
-  src/trealla.h src/cdebug.h src/stringbuf.h src/imath/imath.h src/imath/imrat.h \
-  src/module.h src/parser.h src/prolog.h src/query.h src/builtins.h
 src/base64.o: src/base64.c src/base64.h
 src/contrib.o: src/contrib.c src/trealla.h src/internal.h src/map.h \
   src/skiplist.h src/cdebug.h src/stringbuf.h src/imath/imath.h src/imath/imrat.h \
@@ -250,6 +248,9 @@ src/csv.o: src/csv.c src/heap.h src/prolog.h src/internal.h src/map.h src/skipli
 src/ffi.o: src/ffi.c src/heap.h src/prolog.h src/internal.h src/map.h src/skiplist.h \
   src/trealla.h src/cdebug.h src/stringbuf.h src/imath/imath.h src/imath/imrat.h \
   src/query.h src/builtins.h
+src/findall.o: src/findall.c src/heap.h src/internal.h src/map.h src/skiplist.h \
+  src/trealla.h src/cdebug.h src/stringbuf.h src/imath/imath.h src/imath/imrat.h \
+  src/module.h src/parser.h src/prolog.h src/query.h src/builtins.h
 src/format.o: src/format.c src/network.h src/internal.h src/map.h \
   src/skiplist.h src/trealla.h src/cdebug.h src/stringbuf.h \
   src/imath/imath.h src/imath/imrat.h src/query.h src/builtins.h src/utf8.h

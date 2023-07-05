@@ -204,7 +204,7 @@ size_t formatted(char *dst, size_t dstlen, const char *src, int srclen, bool dq,
 		int lench = len_char_utf8(src);
 		int ch = get_char_utf8(&src);
 		srclen -= lench;
-		const char *ptr = (lench == 1) && (ch != ' ') ? strchr(g_escapes, ch) : NULL;
+		const char *ptr = (lench == 1) && (ch != ' ') && (ch != '\e') ? strchr(g_escapes, ch) : NULL;
 
 		if ((ch == '\'') && dq)
 			ptr = 0;
@@ -835,6 +835,9 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx_t 
 	}
 
 	if (is_float(c)) {
+		if (c->val_float == 0.0)
+			c->val_float = fabs(c->val_float);
+
 		char tmpbuf[256];
 		sprintf(tmpbuf, "%.*g", 17, get_float(c));
 		if (!q->json) reformat_float(q, tmpbuf, c->val_float);
@@ -935,7 +938,7 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx_t 
 			return dst - save_dst;
 		}
 
-		if (is_var(c) && q->variable_names) {
+		if (is_var(c) && !is_anon(c) && q->variable_names) {
 			cell *l = q->variable_names;
 			pl_idx_t l_ctx = q->variable_names_ctx;
 			LIST_HANDLER(l);
@@ -1121,7 +1124,7 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx_t 
 		bool space = (c->val_off == g_minus_s) && (is_number(rhs) || search_op(q->st.m, C_STR(q, rhs), NULL, true));
 		if ((c->val_off == g_plus_s) && search_op(q->st.m, C_STR(q, rhs), NULL, true) && rhs->arity) space = true;
 		if (isalpha(*src)) space = true;
-		if (is_op(rhs) || is_negative(rhs)) space = true;
+		if (is_op(rhs) || is_negative(rhs) || is_float(rhs)) space = true;
 
 		bool parens = false; //is_op(rhs);
 		if (strcmp(src, "+") && (is_infix(rhs) || is_postfix(rhs))) parens = true;

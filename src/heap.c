@@ -218,6 +218,7 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx, unsigned de
 
 				const frame *f = GET_FRAME(h_ctx);
 				slot *e = GET_SLOT(f, h->var_nbr);
+				uint64_t save_vgen = e->vgen;
 
 				if (e->vgen == q->vgen) {
 					cell *rec = deep_clone2_to_tmp(q, h, h_ctx, depth+1);
@@ -229,7 +230,7 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx, unsigned de
 					pl_idx_t c_ctx = q->latest_ctx;
 					cell *rec = deep_clone2_to_tmp(q, c, c_ctx, depth+1);
 					if (!rec) return NULL;
-					e->vgen = 0;
+					e->vgen = save_vgen;
 				}
 			} else {
 				cell *rec = deep_clone2_to_tmp(q, h, p1_ctx, depth+1);
@@ -290,6 +291,7 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx, unsigned de
 				c_ctx = c->var_ctx;
 
 			slot *e = GET_SLOT(f, c->var_nbr);
+			uint64_t save_vgen = e->vgen;
 
 			if (e->vgen == q->vgen) {
 				cell *rec = deep_clone2_to_tmp(q, c, c_ctx, depth+1);
@@ -300,7 +302,7 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx_t p1_ctx, unsigned de
 				pl_idx_t c_ctx = q->latest_ctx;
 				cell *rec = deep_clone2_to_tmp(q, c, c_ctx, depth+1);
 				if (!rec) return NULL;
-				e->vgen = 0;
+				e->vgen = save_vgen;
 			}
 		} else {
 			cell *rec = deep_clone2_to_tmp(q, p1, p1_ctx, depth+1);
@@ -543,36 +545,20 @@ cell *alloc_on_queuen(query *q, unsigned qnbr, const cell *c)
 {
 	if (!q->queue[qnbr]) {
 		q->queue[qnbr] = malloc(sizeof(cell)*q->q_size[qnbr]);
-		check_error(q->queue[qnbr]);
+		if (!q->queue[qnbr]) return NULL;
 	}
 
 	while ((q->qp[qnbr]+c->nbr_cells) >= q->q_size[qnbr]) {
-		q->q_size[qnbr] += q->q_size[qnbr] / 2;
-		q->queue[qnbr] = realloc(q->queue[qnbr], sizeof(cell)*q->q_size[qnbr]);
-		check_error(q->queue[qnbr]);
+		size_t n = q->q_size[qnbr] + q->q_size[qnbr] / 2;
+		void *ptr = realloc(q->queue[qnbr], sizeof(cell)*n);
+		if (!ptr) return NULL;
+		q->queue[qnbr] = ptr;
+		q->q_size[qnbr] = n;
 	}
 
 	cell *dst = q->queue[qnbr] + q->qp[qnbr];
 	q->qp[qnbr] += safe_copy_cells(dst, c, c->nbr_cells);
 	q->qcnt[qnbr]++;
-	return dst;
-}
-
-cell *alloc_on_queuen_unsafe(query *q, unsigned qnbr, const cell *c)
-{
-	if (!q->queue[qnbr]) {
-		q->queue[qnbr] = malloc(sizeof(cell)*q->q_size[qnbr]);
-		check_error(q->queue[qnbr]);
-	}
-
-	while ((q->qp[qnbr]+c->nbr_cells) >= q->q_size[qnbr]) {
-		q->q_size[qnbr] += q->q_size[qnbr] / 2;
-		q->queue[qnbr] = realloc(q->queue[qnbr], sizeof(cell)*q->q_size[qnbr]);
-		check_error(q->queue[qnbr]);
-	}
-
-	cell *dst = q->queue[qnbr] + q->qp[qnbr];
-	q->qp[qnbr] += copy_cells(dst, c, c->nbr_cells);
 	return dst;
 }
 
