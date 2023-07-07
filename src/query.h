@@ -34,8 +34,8 @@ void prune_me(query *q, bool soft_cut, pl_idx_t cp);
 bool execute(query *q, cell *cells, unsigned nbr_vars);
 bool fn_call_0(query *q, cell *p1, pl_idx_t p1_ctx);
 void undo_me(query *q);
-void drop_choice(query *q);
-int retry_choice(query *q);
+void drop_control(query *q);
+int retry_control(query *q);
 void term_assign_vars(parser *p, unsigned start, bool rebase);
 bool start(query *q);
 bool match_rule(query *q, cell *p1, pl_idx_t p1_ctx, enum clause_type is_retract);
@@ -122,8 +122,6 @@ bool fn_sys_cleanup_if_det_1(query *q);
 bool fn_sys_queue_1(query *q);
 bool fn_iso_findall_3(query *q);
 bool fn_iso_bagof_3(query *q);
-
-cell *convert_to_list(query *q, cell *c, pl_idx_t nbr_cells);
 
 builtins *get_fn_ptr(void *fn);
 

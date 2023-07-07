@@ -244,6 +244,8 @@ bool call_builtin(query *q, cell *c, pl_idx_t c_ctx)
 #endif
 	if (!c->fn_ptr->evaluable && (c->val_off != g_float_s))
 		return throw_error(q, &q->accum, q->st.curr_frame, "type_error", "evaluable");
+	else if (q->max_eval_depth++ > MAX_DEPTH)
+		return throw_error(q, &q->accum, q->st.curr_frame, "type_error", "evaluable");
 	else
 		c->fn_ptr->fn(q);
 
@@ -301,7 +303,7 @@ static bool fn_return_1(query *q)
 	CLEANUP cell p1 = eval(q, p1_tmp);
 	q->accum = p1;
 	prune_me(q, false, -1);
-	drop_choice(q);
+	drop_control(q);
 	q->error = true;
 	return true;
 }
@@ -310,6 +312,7 @@ static bool fn_iso_is_2(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 	GET_NEXT_ARG(p2_tmp,any);
+	q->max_eval_depth = 0;
 
 	if (!is_number(p1) && !is_var(p1))
 		return false;
