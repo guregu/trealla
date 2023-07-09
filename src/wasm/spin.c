@@ -145,7 +145,7 @@ BADMETHOD:
 	SB_strcat(s, method);
 	SB_strcat(s, ").");
 
-	bool ok = pl_eval(pl, SB_cstr(s));
+	bool ok = pl_eval(pl, SB_cstr(s), false);
 	if (!ok || !get_status(pl)) {
 		fprintf(stderr, "Error: query failed (ok = %d, status = %d): %s\n",
 			ok, get_status(pl), SB_cstr(s));
