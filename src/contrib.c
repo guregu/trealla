@@ -305,7 +305,7 @@ static bool fn_sys_wasi_outbound_http_5(query *q)
 
 #define check_pg_error(p, ret) 													\
 	if (ret.is_err) { 															\
-		pl_idx_t kind = 0;														\
+		pl_idx kind = 0;														\
 		char *msg; 																\
 		switch (ret.val.err.tag) {												\
 		case OUTBOUND_PG_PG_ERROR_CONNECTION_FAILED:							\
@@ -339,22 +339,22 @@ static bool fn_sys_wasi_outbound_http_5(query *q)
 	}
 
 #define PG_ATOM_INDICES() \
-	pl_idx_t row_idx = index_from_pool(q->pl, "row");			\
-	pl_idx_t boolean_idx = index_from_pool(q->pl, "boolean");	\
-	pl_idx_t int8_idx = index_from_pool(q->pl, "int8");			\
-	pl_idx_t int16_idx = index_from_pool(q->pl, "int16");		\
-	pl_idx_t int32_idx = index_from_pool(q->pl, "int32");		\
-	pl_idx_t int64_idx = index_from_pool(q->pl, "int64");		\
-	pl_idx_t uint8_idx = index_from_pool(q->pl, "uint8");		\
-	pl_idx_t uint16_idx = index_from_pool(q->pl, "uint16");		\
-	pl_idx_t uint32_idx = index_from_pool(q->pl, "uint32");		\
-	pl_idx_t uint64_idx = index_from_pool(q->pl, "uint64");		\
-	pl_idx_t float32_idx = index_from_pool(q->pl, "float32");	\
-	pl_idx_t float64_idx = index_from_pool(q->pl, "float64");	\
-	pl_idx_t string_idx = index_from_pool(q->pl, "string");		\
-	pl_idx_t binary_idx = index_from_pool(q->pl, "binary");		\
-	pl_idx_t null_idx = index_from_pool(q->pl, "null");			\
-	pl_idx_t other_idx = index_from_pool(q->pl, "other");
+	pl_idx row_idx = index_from_pool(q->pl, "row");			\
+	pl_idx boolean_idx = index_from_pool(q->pl, "boolean");	\
+	pl_idx int8_idx = index_from_pool(q->pl, "int8");			\
+	pl_idx int16_idx = index_from_pool(q->pl, "int16");		\
+	pl_idx int32_idx = index_from_pool(q->pl, "int32");		\
+	pl_idx int64_idx = index_from_pool(q->pl, "int64");		\
+	pl_idx uint8_idx = index_from_pool(q->pl, "uint8");		\
+	pl_idx uint16_idx = index_from_pool(q->pl, "uint16");		\
+	pl_idx uint32_idx = index_from_pool(q->pl, "uint32");		\
+	pl_idx uint64_idx = index_from_pool(q->pl, "uint64");		\
+	pl_idx float32_idx = index_from_pool(q->pl, "float32");	\
+	pl_idx float64_idx = index_from_pool(q->pl, "float64");	\
+	pl_idx string_idx = index_from_pool(q->pl, "string");		\
+	pl_idx binary_idx = index_from_pool(q->pl, "binary");		\
+	pl_idx null_idx = index_from_pool(q->pl, "null");			\
+	pl_idx other_idx = index_from_pool(q->pl, "other");
 
 #define make_pg_params(p, params)													\
 	{																				\
@@ -375,7 +375,7 @@ static bool fn_sys_wasi_outbound_http_5(query *q)
 			cell *c = LIST_HEAD(p);													\
 			c = deref(q, c, p##_ctx);												\
 			cell *v = deref(q, c+1, p##_ctx);										\
-			pl_idx_t v_ctx = q->latest_ctx;											\
+			pl_idx v_ctx = q->latest_ctx;											\
 			outbound_pg_parameter_value_t *value = &params.ptr[i];					\
 			if (c->val_off == boolean_idx) {										\
 				value->tag = OUTBOUND_PG_PARAMETER_VALUE_BOOLEAN;					\
@@ -467,7 +467,7 @@ static bool fn_sys_outbound_pg_query_5(query *q)
 			cell *tmp;
 			tmp = alloc_on_heap(q, 1 + row.len*2);
 			check_heap_error(tmp);
-			pl_idx_t nbr_cells = 0;
+			pl_idx nbr_cells = 0;
 			make_struct(tmp+nbr_cells++, row_idx, NULL, row.len, row.len*2);
 			for (size_t i = 0; i < row.len; i++) {
 				outbound_pg_db_value_t col = row.ptr[i];
@@ -547,8 +547,8 @@ static bool fn_sys_outbound_pg_query_5(query *q)
 		
 		cell *tmp = alloc_on_heap(q, 3);
 		check_heap_error(tmp);
-		pl_idx_t type_idx = 0;
-		pl_idx_t nbr_cells = 0;
+		pl_idx type_idx = 0;
+		pl_idx nbr_cells = 0;
 		make_struct(tmp+nbr_cells++, g_minus_s, NULL, 2, 2);
 		SET_OP(tmp, OP_YFX);
 		make_stringn(tmp+nbr_cells++, col.name.ptr, col.name.len);

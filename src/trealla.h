@@ -18,7 +18,7 @@ EXPORT(pl_destroy)
 extern void pl_destroy(prolog*);
 
 EXPORT(pl_eval)
-extern bool pl_eval(prolog*, const char *expr);
+extern bool pl_eval(prolog*, const char *expr, bool interactive);
 EXPORT(pl_consult)
 extern bool pl_consult(prolog*, const char *filename);
 EXPORT(pl_consult_fp)
