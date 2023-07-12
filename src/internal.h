@@ -67,8 +67,6 @@ extern unsigned g_string_cnt, g_interned_cnt;
 #define MAX_QUEUES 255
 #define MAX_STREAMS 1024
 #define MAX_MODULES 1024
-//#define MAX_DEPTH 9999
-#define MAX_DEPTH 6000			// Clang stack size needs this small
 #define MAX_IGNORES 64000
 
 #define STREAM_BUFLEN 1024
@@ -674,6 +672,7 @@ struct query_ {
 	bool done:1;
 	bool parens:1;
 	bool last_thing_was_symbol:1;
+	bool last_thing_was_comma:1;
 	bool in_attvar_print:1;
 	bool lists_ok:1;
 	bool fail_on_retry:1;
@@ -715,6 +714,7 @@ struct query_ {
 	bool was_space:1;
 	bool is_engine:1;
 	bool ops_dirty:1;
+	bool noderef:1;
 };
 
 struct parser_ {
@@ -919,6 +919,8 @@ uint64_t cpu_time_in_usec(void);
 char *relative_to(const char *basefile, const char *relfile);
 size_t sprint_int(char *dst, size_t size, pl_int n, int base);
 const char *dump_key(const void *k, const void *v, const void *p);
+
+extern unsigned g_max_depth;
 
 #define slicecmp2(s1,l1,s2) slicecmp(s1,l1,s2,strlen(s2))
 

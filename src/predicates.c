@@ -2520,7 +2520,7 @@ static bool fn_iso_asserta_1(query *q)
 	db_entry *dbe = asserta_to_db(q->st.m, p->cl->nbr_vars, p->cl->nbr_temporaries, p->cl->cells, 0);
 
 	if (!dbe)
-		return throw_error(q, h, q->st.curr_frame, "permission_error", "modify_static_procedure");
+		return throw_error(q, h, q->st.curr_frame, "permission_error", "modify,static_procedure");
 
 	p->cl->cidx = 0;
 	return true;
@@ -2575,7 +2575,7 @@ static bool fn_iso_assertz_1(query *q)
 	db_entry *dbe = assertz_to_db(q->st.m, p->cl->nbr_vars, p->cl->nbr_temporaries, p->cl->cells, 0);
 
 	if (!dbe)
-		return throw_error(q, h, q->st.curr_frame, "permission_error", "modify_static_procedure");
+		return throw_error(q, h, q->st.curr_frame, "permission_error", "modify,static_procedure");
 
 	p->cl->cidx = 0;
 	return true;
@@ -3535,8 +3535,7 @@ static bool do_op(query *q, cell *p3, pl_idx p3_ctx)
 	if (!is_atom(p3))
 		return throw_error(q, p3, p3_ctx, "type_error", "atom");
 
-	unsigned specifier;
-	unsigned pri = get_smallint(p1);
+	unsigned specifier, pri = get_smallint(p1);
 
 	if (!CMP_STR_TO_CSTR(q, p2, "fx"))
 		specifier = OP_FX;
@@ -3778,7 +3777,7 @@ static bool do_asserta_2(query *q)
 	db_entry *dbe = asserta_to_db(q->st.m, p->cl->nbr_vars, p->cl->nbr_temporaries, p->cl->cells, 0);
 
 	if (!dbe)
-		return throw_error(q, h, q->st.curr_frame, "permission_error", "modify_static_procedure");
+		return throw_error(q, h, q->st.curr_frame, "permission_error", "modify,static_procedure");
 
 	p->cl->cidx = 0;
 
@@ -3868,7 +3867,7 @@ static bool do_assertz_2(query *q)
 	db_entry *dbe = assertz_to_db(q->st.m, p->cl->nbr_vars, p->cl->nbr_temporaries, p->cl->cells, 0);
 
 	if (!dbe)
-		return throw_error(q, h, q->st.curr_frame, "permission_error", "modify_static_procedure");
+		return throw_error(q, h, q->st.curr_frame, "permission_error", "modify,static_procedure");
 
 	p->cl->cidx = 0;
 

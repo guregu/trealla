@@ -260,11 +260,9 @@ predicate *create_predicate(module *m, cell *c, bool *created)
 {
 	if (created) *created = false;
 	bool found, evaluable;
-	unsigned specifier;
 
-	if (search_op(m, C_STR(m, c), &specifier, is_prefix(c))
-		&& (get_builtin_term(m, c, &found, &evaluable), !evaluable && found)) {
-		fprintf(stdout, "Error: permission error modifying %s/%u\n", C_STR(m, c), c->arity);
+	if (get_builtin_term(m, c, &found, &evaluable),
+		!evaluable && found && strcmp(m->name, "format")) {
 		return NULL;
 	}
 
@@ -646,6 +644,7 @@ bool do_use_module_1(module *curr_m, cell *p)
 		    || !strcmp(name, "types")
 			|| !strcmp(name, "iso_ext")
 			|| !strcmp(name, "loader")
+			|| !strcmp(name, "error")
 			|| !strcmp(name, "crypto")
 		    || !strcmp(name, "files"))
 			return true;
@@ -1357,6 +1356,10 @@ static db_entry *assert_begin(module *m, unsigned nbr_vars, unsigned nbr_tempora
 	if (!pr) {
 		bool created = false;
 		pr = create_predicate(m, c, &created);
+
+		if (!pr && consulting)
+			fprintf(stdout, "Error: permission error modifying %s:(%s)/%u\n", m->name, C_STR(m, c), c->arity);
+
 		check_error(pr);
 
 		if (created) {

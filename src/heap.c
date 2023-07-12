@@ -179,10 +179,13 @@ void trim_heap(query *q)
 	}
 }
 
+#define deep_copy(c) \
+	(!q->noderef || (is_ref(c) && (c->var_ctx == q->st.curr_frame) && !is_anon(c)))
+
 static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx p1_ctx, unsigned depth)
 {
-	if (depth >= MAX_DEPTH) {
-		printf("*** OOPS %s %d\n", __FILE__, __LINE__);
+	if (depth >= g_max_depth) {
+		printf("*** Stack limit %s %d\n", __FILE__, __LINE__);
 		q->cycle_error = true;
 		return NULL;
 	}
@@ -212,7 +215,7 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx p1_ctx, unsigned dept
 			cell *h = p1 + 1;
 			pl_idx h_ctx = p1_ctx;
 
-			if (is_var(h)) {
+			if (is_var(h) && deep_copy(h)) {
 				if (is_ref(h))
 					h_ctx = h->var_ctx;
 
@@ -226,14 +229,14 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx p1_ctx, unsigned dept
 					q->cycle_error = true;
 				} else {
 					e->vgen = q->vgen;
-					cell *c = deref(q, h, p1_ctx);
-					pl_idx c_ctx = q->latest_ctx;
-					cell *rec = deep_clone2_to_tmp(q, c, c_ctx, depth+1);
+					h = deref(q, h, h_ctx);
+					h_ctx = q->latest_ctx;
+					cell *rec = deep_clone2_to_tmp(q, h, h_ctx, depth+1);
 					if (!rec) return NULL;
 					e->vgen = save_vgen;
 				}
 			} else {
-				cell *rec = deep_clone2_to_tmp(q, h, p1_ctx, depth+1);
+				cell *rec = deep_clone2_to_tmp(q, h, h_ctx, depth+1);
 				if (!rec) return NULL;
 			}
 
@@ -241,7 +244,7 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx p1_ctx, unsigned dept
 			cell *t = p1;
 			pl_idx t_ctx = p1_ctx;
 
-			if (is_var(t)) {
+			if (is_var(t) && deep_copy(t)) {
 				if (is_ref(t))
 					t_ctx = t->var_ctx;
 
@@ -257,7 +260,7 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx p1_ctx, unsigned dept
 				}
 
 				e->vgen = q->vgen;
-				p1 = deref(q, p1, p1_ctx);
+				p1 = deref(q, t, t_ctx);
 				p1_ctx = q->latest_ctx;
 			}
 
@@ -286,7 +289,7 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx p1_ctx, unsigned dept
 		cell *c = p1;
 		pl_idx c_ctx = p1_ctx;
 
-		if (is_var(c)) {
+		if (is_var(c) && deep_copy(c)) {
 			if (is_ref(c))
 				c_ctx = c->var_ctx;
 
@@ -298,14 +301,14 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx p1_ctx, unsigned dept
 				if (!rec) return NULL;
 			} else {
 				e->vgen = q->vgen;
-				cell *c = deref(q, p1, p1_ctx);
-				pl_idx c_ctx = q->latest_ctx;
+				c = deref(q, c, c_ctx);
+				c_ctx = q->latest_ctx;
 				cell *rec = deep_clone2_to_tmp(q, c, c_ctx, depth+1);
 				if (!rec) return NULL;
 				e->vgen = save_vgen;
 			}
 		} else {
-			cell *rec = deep_clone2_to_tmp(q, p1, p1_ctx, depth+1);
+			cell *rec = deep_clone2_to_tmp(q, c, c_ctx, depth+1);
 			if (!rec) return NULL;
 		}
 
@@ -408,7 +411,7 @@ static bool copy_vars(query *q, cell *tmp, bool copy_attrs, cell *from, pl_idx f
 
 		const frame *f = GET_FRAME(tmp->var_ctx);
 		const slot *e = GET_SLOT(f, tmp->var_nbr);
-		const pl_idx slot_nbr = e - q->slots;
+		const pl_idx slot_nbr = f->base + tmp->var_nbr;
 		int var_nbr;
 
 		if ((var_nbr = accum_slot(q, slot_nbr, q->varno)) == -1)
@@ -458,7 +461,7 @@ static cell *deep_copy_to_tmp_with_replacement(query *q, cell *p1, pl_idx p1_ctx
 	if (is_var(p1)) {
 		const frame *f = GET_FRAME(p1_ctx);
 		slot *e = GET_SLOT(f, p1->var_nbr);
-		const pl_idx slot_nbr = e - q->slots;
+		const pl_idx slot_nbr = f->base + p1->var_nbr;
 		e->vgen = q->vgen+1; // +1 because that is what deep_clone_to_tmp() will do
 		if (e->vgen == 0) e->vgen++;
 		q->tab0_varno = q->varno;
@@ -571,7 +574,7 @@ cell *copy_to_tmp(query *q, cell *p1, pl_idx p1_ctx)
 
 		const frame *f = GET_FRAME(v_ctx);
 		const slot *e = GET_SLOT(f, v->var_nbr);
-		const pl_idx slot_nbr = e - q->slots;
+		const pl_idx slot_nbr = f->base + v->var_nbr;
 		int var_nbr;
 
 		if ((var_nbr = accum_slot(q, slot_nbr, q->varno)) == -1)

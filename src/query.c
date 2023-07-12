@@ -359,7 +359,7 @@ bool has_next_key(query *q)
 
 	// Attempt look-ahead on 1st arg...
 
-#if 1
+#if 0
 	for (db_entry *next = q->st.curr_dbe->next; next; next = next->next) {
 		if (!can_view(q, f->ugen, next))
 			continue;
@@ -1660,12 +1660,12 @@ bool start(query *q)
 		if (q->is_oom) {
 			q->is_oom = q->error = false;
 
-			//if (!throw_error(q, q->st.curr_cell, q->st.curr_frame, "resource_error", "memory")) {
-			//	q->retry = QUERY_RETRY;
-			//	q->tot_backtracks++;
-			//	q->fail_on_retry = false;
-				continue;
-			//}
+			if (!q->did_throw)
+				throw_error(q, q->st.curr_cell, q->st.curr_frame, "resource_error", "memory");
+
+			q->retry = QUERY_RETRY;
+			q->tot_backtracks++;
+			continue;
 		}
 
 		MORE:
