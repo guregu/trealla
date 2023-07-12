@@ -285,26 +285,46 @@ static void setup_key(query *q)
 	if (q->st.key->arity > 1)
 		arg2 = arg1 + arg1->nbr_cells;
 
-	if (arg2 && (q->st.key->arity > 2))
+	if (q->st.key->arity > 2)
 		arg3 = arg2 + arg2->nbr_cells;
 
 	arg1 = deref(q, arg1, q->st.key_ctx);
 	pl_idx arg1_ctx = q->latest_ctx;
+	cell *arg11 = NULL, *arg21 = NULL, *arg31 = NULL;
 
-	if (arg2)
+	if (arg1->arity == 1)
+		arg11 = deref(q, arg1+1, arg1_ctx);
+
+	if (arg2) {
 		arg2 = deref(q, arg2, q->st.key_ctx);
+		pl_idx arg2_ctx = q->latest_ctx;
 
-	if (arg3)
+		if (arg2->arity == 1)
+			arg21 = deref(q, arg2+1, arg2_ctx);
+	}
+
+	if (arg3) {
 		arg3 = deref(q, arg3, q->st.key_ctx);
+		pl_idx arg3_ctx = q->latest_ctx;
 
-	if (is_atomic(arg1) /*|| !has_vars(q, arg1, arg1_ctx*/)
-		q->st.arg1_is_ground = true;
+		if (arg3->arity == 1)
+			arg31 = deref(q, arg3+1, arg3_ctx);
+	}
 
-	if (arg2 && is_atomic(arg2))
-		q->st.arg2_is_ground = true;
+	if (is_iso_atomic(arg1))
+		q->st.karg1_is_ground = true;
+	else if (arg11 && !is_var(arg11))
+		q->st.karg1_is_ground = true;
 
-	if (arg3 && is_atomic(arg3))
-		q->st.arg3_is_ground = true;
+	if (arg2 && is_iso_atomic(arg2))
+		q->st.karg2_is_ground = true;
+	else if (arg21 && !is_var(arg21))
+		q->st.karg2_is_ground = true;
+
+	if (arg3 && is_iso_atomic(arg3))
+		q->st.karg3_is_ground = true;
+	else if (arg31 && !is_var(arg31))
+		q->st.karg3_is_ground = true;
 }
 
 void next_key(query *q)
@@ -345,61 +365,38 @@ bool has_next_key(query *q)
 
 	clause *cl = &q->st.curr_dbe->cl;
 
-	//printf("*** q->st.arg1_is_ground=%d, cl->arg1_is_unique=%d\n",
-	//	q->st.arg1_is_ground, cl->arg1_is_unique);
+	//printf("*** q->st.karg1_is_ground=%d, cl->arg1_is_unique=%d\n",
+	//	q->st.karg1_is_ground, cl->arg1_is_unique);
 
-	if (q->st.arg1_is_ground && cl->arg1_is_unique)
+	if (q->st.karg1_is_ground && cl->arg1_is_unique)
 		return false;
 
-	if (q->st.arg2_is_ground && cl->arg2_is_unique)
+	if (q->st.karg2_is_ground && cl->arg2_is_unique)
 		return false;
 
-	if (q->st.arg3_is_ground && cl->arg3_is_unique)
+	if (q->st.karg3_is_ground && cl->arg3_is_unique)
 		return false;
 
-	// Attempt look-ahead on 1st arg...
-
-#if 0
 	for (db_entry *next = q->st.curr_dbe->next; next; next = next->next) {
 		if (!can_view(q, f->ugen, next))
 			continue;
 
-		if (!q->st.arg1_is_ground)
+		if (!q->st.key->arity)
 			return true;
 
 		cl = &next->cl;
 		cell *dkey = cl->cells;
 
-		if ((dkey->val_off == g_neck_s) && (dkey->arity == 2))
-			dkey++;
-
-		cell *darg1 = dkey + 1;
-		cell *karg1 = deref(q, q->st.key+1, q->st.key_ctx);
-
 		//DUMP_TERM("key", q->st.key, q->st.key_ctx, 0);
-		//DUMP_TERM("next", cl->cells, q->st.curr_frame, 0);
-
-		if (index_cmpkey(karg1, darg1, q->st.m, NULL) == 0)
-			return true;
-	}
-#else
-	for (db_entry *next = q->st.curr_dbe->next; next; next = next->next) {
-		if (!can_view(q, f->ugen, next))
-			continue;
-
-		cl = &next->cl;
-		cell *dkey = cl->cells;
+		//DUMP_TERM("next", dkey, q->st.curr_frame, 0);
 
 		if ((dkey->val_off == g_neck_s) && (dkey->arity == 2))
 			dkey++;
-
-		//DUMP_TERM("key", q->st.key, q->st.key_ctx, 0);
-		//DUMP_TERM("next", cl->cells, q->st.curr_frame, 0);
 
 		if (index_cmpkey(q->st.key, dkey, q->st.m, NULL) == 0)
 			return true;
 	}
-#endif
+
 	return false;
 }
 
@@ -415,13 +412,14 @@ const char *dump_id(const void *k, const void *v, const void *p)
 static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 {
 	q->st.iter = NULL;
-	q->st.arg1_is_ground = false;
-	q->st.arg2_is_ground = false;
-	q->st.arg3_is_ground = false;
-	q->st.key = key;
+	q->st.karg1_is_ground = false;
+	q->st.karg2_is_ground = false;
+	q->st.karg3_is_ground = false;
 	q->st.key_ctx = key_ctx;
 
 	if (!pr->idx) {
+		q->st.key = key;
+
 		// The just_in_time_rebuild of the index is currently disabled
 		// for multifile/dynamic predicates because of why???
 
@@ -439,9 +437,9 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 	//sl_dump(pr->idx, dump_key, q);
 
 	check_heap_error(init_tmp_heap(q));
-	q->st.key = key = deep_clone_to_tmp(q, key, key_ctx);
+	q->st.key = deep_clone_to_tmp(q, key, key_ctx);
 
-	cell *arg1 = key->arity ? key + 1 : NULL;
+	cell *arg1 = q->st.key->arity ? q->st.key + 1 : NULL;
 	map *idx = pr->idx;
 
 	if (arg1 && (is_var(arg1) || pr->is_var_in_first_arg)) {
@@ -457,20 +455,20 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 			return true;
 		}
 
-		q->st.key = key = arg2;
+		q->st.key = arg2;
 		idx = pr->idx2;
 	}
 
 #define DEBUGIDX 0
 
 #if DEBUGIDX
-	DUMP_TERM("search, term = ", key, q->st.curr_frame);
+	DUMP_TERM("search, term = ", q->st.key, q->st.curr_frame);
 #endif
 
 	q->st.curr_dbe = NULL;
 	miter *iter;
 
-	if (!(iter = map_find_key(idx, key)))
+	if (!(iter = map_find_key(idx, q->st.key)))
 		return false;
 
 	// If the index search has found just one (definite) solution
@@ -1976,4 +1974,3 @@ query *query_create_subquery(query *q, cell *curr_cell)
 	subq->st.sp = fdst->actual_slots;
 	return subq;
 }
-
