@@ -184,6 +184,9 @@ wasm: tpl.wasm
 libtpl.wasm:
 	$(MAKE) WASI=1 TPL=libtpl.wasm 'OPT=$(OPT) -DNDEBUG -DWASI_IMPORTS -DWASI_TARGET_GENERIC'
 
+libtpl-debug.wasm:
+	$(MAKE) WASI=1 TPL=libtpl-debug.wasm 'OPT=-O0 -g -DWASI_IMPORTS -DWASI_TARGET_GENERIC'
+
 libtpl-js.wasm:
 	$(MAKE) WASI=1 TPL=libtpl-js.wasm 'OPT=$(OPT) -DNDEBUG -DWASI_IMPORTS -DWASI_TARGET_GENERIC -DWASI_TARGET_JS'
 
