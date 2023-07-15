@@ -24,7 +24,7 @@ static void msleep(int ms)
 }
 #endif
 
-#define Trace if (q->trace /*&& !consulting*/) trace_call
+#define Trace if (!(q->trace /*&& !consulting*/)) q->step++; else  trace_call
 
 static const unsigned INITIAL_NBR_QUEUE_CELLS = 1000;
 static const unsigned INITIAL_NBR_HEAP_CELLS = 16000;
@@ -89,6 +89,8 @@ static void trace_call(query *q, cell *c, pl_idx c_ctx, box_t box)
 		return;
 #endif
 
+	q->step++;
+
 	if (box == CALL)
 		box = q->retry?REDO:CALL;
 
@@ -111,13 +113,13 @@ static void trace_call(query *q, cell *c, pl_idx c_ctx, box_t box)
 #ifdef DEBUG
 	SB_sprintf(pr, "[%s:%"PRIu64":f%u:fp:%u:cp%u:sp%u:hp%u:tp%u] ",
 		q->st.m->name,
-		q->step++,
+		q->step,
 		q->st.curr_frame, q->st.fp, q->cp, q->st.sp, q->st.hp, q->st.tp
 		);
 #else
 	SB_sprintf(pr, "[%s:%"PRIu64":cp%u] ",
 		q->st.m->name,
-		q->step++,
+		q->step,
 		q->cp
 		);
 #endif
@@ -289,7 +291,7 @@ static void setup_key(query *q)
 		arg3 = arg2 + arg2->nbr_cells;
 
 	arg1 = deref(q, arg1, q->st.key_ctx);
-	pl_idx arg1_ctx = q->latest_ctx;
+	pl_idx arg1_ctx = q->latest_ctx, arg2_ctx = 0, arg3_ctx = 0;
 	cell *arg11 = NULL, *arg21 = NULL, *arg31 = NULL;
 
 	if (arg1->arity == 1)
@@ -297,7 +299,7 @@ static void setup_key(query *q)
 
 	if (arg2) {
 		arg2 = deref(q, arg2, q->st.key_ctx);
-		pl_idx arg2_ctx = q->latest_ctx;
+		arg2_ctx = q->latest_ctx;
 
 		if (arg2->arity == 1)
 			arg21 = deref(q, arg2+1, arg2_ctx);
@@ -305,29 +307,29 @@ static void setup_key(query *q)
 
 	if (arg3) {
 		arg3 = deref(q, arg3, q->st.key_ctx);
-		pl_idx arg3_ctx = q->latest_ctx;
+		arg3_ctx = q->latest_ctx;
 
 		if (arg3->arity == 1)
 			arg31 = deref(q, arg3+1, arg3_ctx);
 	}
 
-	if (is_iso_atomic(arg1))
+	if (is_iso_atomic(arg1) || is_ground(arg1))
 		q->st.karg1_is_ground = true;
-	else if (arg11 && !is_var(arg11))
+	else if (arg11 && (is_atomic(arg11) || is_ground(arg1)))
 		q->st.karg1_is_ground = true;
 
-	if (arg2 && is_iso_atomic(arg2))
+	if (arg2 && (is_iso_atomic(arg2) || is_ground(arg2)))
 		q->st.karg2_is_ground = true;
-	else if (arg21 && !is_var(arg21))
+	else if (arg21 && (is_atomic(arg21) || is_ground(arg21)))
 		q->st.karg2_is_ground = true;
 
-	if (arg3 && is_iso_atomic(arg3))
+	if (arg3 && (is_iso_atomic(arg3) || is_ground(arg3)))
 		q->st.karg3_is_ground = true;
-	else if (arg31 && !is_var(arg31))
+	else if (arg31 && (is_atomic(arg31) || is_ground(arg31)))
 		q->st.karg3_is_ground = true;
 }
 
-void next_key(query *q)
+static void next_key(query *q)
 {
 	if (q->st.iter) {
 		if (!map_next(q->st.iter, (void*)&q->st.curr_dbe)) {
@@ -364,6 +366,7 @@ bool has_next_key(query *q)
 	}
 
 	clause *cl = &q->st.curr_dbe->cl;
+	predicate *pr = q->st.curr_dbe->owner;
 
 	//printf("*** q->st.karg1_is_ground=%d, cl->arg1_is_unique=%d\n",
 	//	q->st.karg1_is_ground, cl->arg1_is_unique);
@@ -381,17 +384,21 @@ bool has_next_key(query *q)
 		if (!can_view(q, f->ugen, next))
 			continue;
 
-		if (!q->st.key->arity)
+#if 1
+		// This is needed for: tpl -g run ~/retina/retina.pl ~/retina/rdfsurfaces/lubm/lubm.s
+
+		if (pr->is_dynamic && !q->st.karg1_is_ground)
 			return true;
+#endif
 
 		cl = &next->cl;
 		cell *dkey = cl->cells;
 
-		//DUMP_TERM("key", q->st.key, q->st.key_ctx, 0);
-		//DUMP_TERM("next", dkey, q->st.curr_frame, 0);
-
 		if ((dkey->val_off == g_neck_s) && (dkey->arity == 2))
 			dkey++;
+
+		//DUMP_TERM("key", q->st.key, q->st.key_ctx, 0);
+		//DUMP_TERM("next", dkey, q->st.curr_frame, 0);
 
 		if (index_cmpkey(q->st.key, dkey, q->st.m, NULL) == 0)
 			return true;
@@ -415,10 +422,8 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 	q->st.karg1_is_ground = false;
 	q->st.karg2_is_ground = false;
 	q->st.karg3_is_ground = false;
-	q->st.key_ctx = key_ctx;
 
 	if (!pr->idx) {
-		q->st.key = key;
 
 		// The just_in_time_rebuild of the index is currently disabled
 		// for multifile/dynamic predicates because of why???
@@ -427,9 +432,17 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 			just_in_time_rebuild(pr);
 
 		q->st.curr_dbe = pr->head;
+		q->st.key = key;
+		q->st.key_ctx = key_ctx;
 
-		if (key->arity)
+		if (key->arity) {
+			if (pr->is_dynamic && pr->is_multifile) {
+				q->st.key = deep_clone_to_heap(q, key, key_ctx);
+				q->st.key_ctx = q->st.curr_frame;
+			}
+
 			setup_key(q);
+		}
 
 		return true;
 	}
@@ -438,6 +451,7 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 
 	check_heap_error(init_tmp_heap(q));
 	q->st.key = deep_clone_to_tmp(q, key, key_ctx);
+	q->st.key_ctx = q->st.curr_frame;
 
 	cell *arg1 = q->st.key->arity ? q->st.key + 1 : NULL;
 	map *idx = pr->idx;
@@ -781,12 +795,12 @@ static frame *push_frame(query *q, unsigned nbr_vars)
 
 	// Avoid long chains of useless returns...
 
-	if (is_end(next_cell) && !next_cell->val_ret && curr_f->prev_cell) {
+	if (is_end(next_cell) && !next_cell->val_ret && curr_f->curr_cell) {
 		f->prev_offset = (new_frame - q->st.curr_frame) + curr_f->prev_offset;
-		f->prev_cell = curr_f->prev_cell;
+		f->curr_cell = curr_f->curr_cell;
 	} else {
 		f->prev_offset = new_frame - q->st.curr_frame;
-		f->prev_cell = q->st.curr_cell;
+		f->curr_cell = q->st.curr_cell;
 	}
 
 	f->cgen = ++q->cgen;
@@ -932,7 +946,7 @@ void stash_me(query *q, const clause *cl, bool last_match)
 		frame *f = GET_FRAME(new_frame);
 		f->is_last = last_match;
 		f->prev_offset = new_frame - q->st.curr_frame;
-		f->prev_cell = NULL;
+		f->curr_cell = NULL;
 		f->cgen = cgen;
 		f->overflow = 0;
 		q->st.sp += nbr_vars;
@@ -1130,7 +1144,7 @@ static bool resume_frame(query *q)
 	if (q->pl->opt && 0)
 		chop_frames(q, f);
 
-	q->st.curr_cell = f->prev_cell;
+	q->st.curr_cell = f->curr_cell;
 	q->st.curr_frame = q->st.curr_frame - f->prev_offset;
 	f = GET_CURR_FRAME();
 	q->st.m = q->pl->modmap[f->mid];

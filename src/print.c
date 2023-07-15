@@ -590,7 +590,7 @@ static ssize_t print_iso_list(query *q, char *save_dst, char *dst, size_t dstlen
 		int parens = is_structure(head) && special_op;
 		if (parens) dst += snprintf(dst, dstlen, "%s", "(");
 		q->parens = parens;
-		ssize_t res = print_term_to_buf(q, dst, dstlen, head, head_ctx, running, false, depth+1);
+		ssize_t res = print_term_to_buf(q, dst, dstlen, head, head_ctx, running, -1, depth+1);
 		q->parens = false;
 		if (e) e->vgen = save_vgen;
 		if (res < 0) return -1;
@@ -687,15 +687,21 @@ static ssize_t print_iso_list(query *q, char *save_dst, char *dst, size_t dstlen
 	return dst - save_dst;
 }
 
-ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx c_ctx, int running, bool cons, unsigned depth)
+ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx c_ctx, int running, int cons, unsigned depth)
 {
 	char *save_dst = dst;
 
-	if (q->max_depth && (depth >= q->max_depth)) {
-		if (cons) dst += snprintf(dst, dstlen, "[");
+	if (cons && q->max_depth && (depth > (q->max_depth+1))) {
+		if (cons > 0) dst += snprintf(dst, dstlen, "[");
 		if (q->last_thing_was_symbol && !q->last_thing_was_comma) dst += snprintf(dst, dstlen, " ");
 		dst += snprintf(dst, dstlen, "...");
-		if (cons) dst += snprintf(dst, dstlen, "]");
+		if (cons > 0) dst += snprintf(dst, dstlen, "]");
+		q->last_thing_was_symbol = true;
+		q->was_space = false;
+		return dst - save_dst;
+	} else if (!cons && q->max_depth && (depth >= (q->max_depth))) {
+		if (q->last_thing_was_symbol && !q->last_thing_was_comma) dst += snprintf(dst, dstlen, " ");
+		dst += snprintf(dst, dstlen, "...");
 		q->last_thing_was_symbol = true;
 		q->was_space = false;
 		return dst - save_dst;
@@ -868,7 +874,7 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx c_
 	}
 
 	if (is_string(c) && q->ignore_ops) {
-		ssize_t n = print_string_list(q, save_dst, dst, dstlen, c, c_ctx, running, cons, depth+1);
+		ssize_t n = print_string_list(q, save_dst, dst, dstlen, c, c_ctx, running, cons > 0, depth+1);
 		q->was_space = false;
 		return n;
 	}
@@ -910,7 +916,7 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx c_
 	}
 
 	if (is_iso_list(c) && !q->ignore_ops) {
-		ssize_t n = print_iso_list(q, save_dst, dst, dstlen, c, c_ctx, running, cons, depth+1);
+		ssize_t n = print_iso_list(q, save_dst, dst, dstlen, c, c_ctx, running, cons > 0, depth+1);
 		q->was_space = false;
 		return n;
 	}
@@ -941,8 +947,9 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx c_
 		if ((c->arity == 1) && is_interned(c) && !strcmp(src, "{}")) braces = 1;
 		cell *c1 = c->arity ? deref(q, c+1, c_ctx) : NULL;
 
-		if (running && is_interned(c) && c->arity && !strcmp(src, "$VAR") && c1
-			&& q->numbervars && is_integer(c1)) {
+		if (running && is_interned(c) && c->arity
+			&& q->numbervars && !strcmp(src, "$VAR") && c1
+			&& is_integer(c1) && (get_smallint(c1) >= 0)) {
 			dst += snprintf(dst, dstlen, "%s", varformat2(q->pl->tmpbuf, sizeof(q->pl->tmpbuf), c1, 0));
 			q->last_thing_was_symbol = false;
 			q->was_space = false;

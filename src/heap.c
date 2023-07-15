@@ -85,6 +85,7 @@ cell *init_tmp_heap(query *q)
 	}
 
 	q->tmphp = 0;
+	q->ground = true;
 	return q->tmp_heap;
 }
 
@@ -197,9 +198,13 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx p1_ctx, unsigned dept
 
 	// Convert vars to refs...
 
-	if (is_var(tmp) && !is_ref(tmp)) {
-		tmp->flags |= FLAG_VAR_REF;
-		tmp->var_ctx = p1_ctx;
+	if (is_var(tmp)) {
+		if (!is_ref(tmp)) {
+			tmp->flags |= FLAG_VAR_REF;
+			tmp->var_ctx = p1_ctx;
+		}
+
+		q->ground = false;
 	}
 
 	if (!is_structure(p1) || is_string(p1))
@@ -337,6 +342,7 @@ cell *deep_clone_to_heap(query *q, cell *p1, pl_idx p1_ctx)
 	if (!p1) return p1;
 	cell *tmp = alloc_on_heap(q, p1->nbr_cells);
 	if (!tmp) return NULL;
+	tmp->flags |= q->ground ? FLAG_GROUND : 0;
 	safe_copy_cells(tmp, p1, p1->nbr_cells);
 	return tmp;
 }
@@ -452,8 +458,13 @@ static cell *deep_copy_to_tmp_with_replacement(query *q, cell *p1, pl_idx p1_ctx
 	cell *c = deref(q, p1, p1_ctx);
 	pl_idx c_ctx = q->latest_ctx;
 
+	void *save = q->vars;
 	q->vars = map_create(NULL, NULL, NULL);
-	if (!q->vars) return false;
+	if (!q->vars) {
+		q->vars = save;
+		return NULL;
+	}
+
 	const frame *f = GET_CURR_FRAME();
 	q->varno = f->actual_slots;
 	q->tab_idx = 0;
@@ -471,16 +482,20 @@ static cell *deep_copy_to_tmp_with_replacement(query *q, cell *p1, pl_idx p1_ctx
 	}
 
 	cell *tmp = deep_clone_to_tmp(q, c, c_ctx);
-	if (!tmp) return tmp;
+	if (!tmp) {
+		map_destroy(q->vars);
+		q->vars = save;
+		return NULL;
+	}
 
 	if (!copy_vars(q, tmp, copy_attrs, from, from_ctx, to, to_ctx)) {
 		map_destroy(q->vars);
-		q->vars = NULL;
+		q->vars = save;
 		return NULL;
 	}
 
 	map_destroy(q->vars);
-	q->vars = NULL;
+	q->vars = save;
 	int cnt = q->varno - f->actual_slots;
 
 	if (cnt) {

@@ -25,7 +25,6 @@ void do_yield_at(query *q, unsigned int time_in_ms);
 cell *do_term_variables(query *q, cell *p1, pl_idx p1_ctx);
 bool query_redo(query *q);
 bool has_next_key(query *q);
-void next_key(query *q);
 void purge_predicate_dirty_list(query *q, predicate *pr);
 void purge_dirty_list(query *q);
 bool check_slot(query *q, unsigned cnt);
@@ -80,7 +79,7 @@ bool do_parse_csv_line(query *q, csv *params, const char *src, cell *p2, pl_idx 
 int compare(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_ctx);
 bool unify(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_ctx);
 
-ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx c_ctx, int running, bool cons, unsigned depth);
+ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx c_ctx, int running, int cons, unsigned depth);
 bool print_term(query *q, FILE *fp, cell *c, pl_idx c_ctx, int running);
 bool print_term_to_stream(query *q, stream *str, cell *c, pl_idx c_ctx, int running);
 char *print_term_to_strbuf(query *q, cell *c, pl_idx c_ctx, int running);
@@ -120,8 +119,6 @@ bool fn_iso_unify_2(query *q);
 bool fn_sys_block_catcher_1(query *q);
 bool fn_sys_cleanup_if_det_1(query *q);
 bool fn_sys_queue_1(query *q);
-bool fn_iso_findall_3(query *q);
-bool fn_iso_bagof_3(query *q);
 
 builtins *get_fn_ptr(void *fn);
 
