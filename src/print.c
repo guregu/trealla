@@ -754,6 +754,11 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx c_
 		return dst - save_dst;
 	}
 
+	if (is_number(c) && is_negative(c)) {
+		if (is_negative(c) && q->last_thing_was_symbol && !q->was_space)
+			dst += snprintf(dst, dstlen, " ");
+	}
+
 	if (is_rational(c)) {
 		int radix = 10;
 
@@ -1131,6 +1136,9 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx c_
 	}
 
 	if (is_prefix(c)) {
+		if (q->last_thing_was_symbol && !q->was_space)
+			dst += snprintf(dst, dstlen, " ");
+
 		cell *rhs = c + 1;
 		rhs = running ? deref(q, rhs, c_ctx) : rhs;
 		pl_idx rhs_ctx = running ? q->latest_ctx : 0;
