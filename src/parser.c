@@ -342,6 +342,7 @@ static bool goal_run(parser *p, cell *goal)
 		return false;
 	}
 
+	query_destroy(q);
 	return true;
 }
 
@@ -433,9 +434,10 @@ static bool directives(parser *p, cell *d)
 	if (d->arity != 1)
 		return false;
 
+	d->val_off = index_from_pool(p->pl, "$directive");
+	CLR_OP(d);
+
 	if (!strcmp(dirname, "initialization") && (c->arity == 1)) {
-		d->val_off = index_from_pool(p->pl, "$directive");
-		CLR_OP(d);
 		p->run_init = true;
 		return false;
 	}
@@ -2848,8 +2850,7 @@ static bool process_term(parser *p, cell *p1)
 	if (p->m->ifs_blocked[p->m->if_depth])
 		return true;
 
-	if (directives(p, p1))
-		return true;
+	directives(p, p1);
 
 	bool consulting = true;
 
@@ -3635,11 +3636,10 @@ bool run(parser *p, const char *pSrc, bool dump, query **subq, unsigned int yiel
 
 		ok = !q->error;
 		p->m = q->st.m;
-
-		if (q->pl->is_query)
-			break;
-
 		query_destroy(q);
+
+		if (p->pl->is_query)
+			break;
 
 		if (!ok)
 			break;

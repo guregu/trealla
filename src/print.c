@@ -693,15 +693,17 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx c_
 
 	if (cons && q->max_depth && (depth > (q->max_depth+1))) {
 		if (cons > 0) dst += snprintf(dst, dstlen, "[");
-		if (q->last_thing_was_symbol && !q->last_thing_was_comma) dst += snprintf(dst, dstlen, " ");
+		else if (!q->was_space) dst += snprintf(dst, dstlen, " ");
 		dst += snprintf(dst, dstlen, "...");
-		if (cons > 0) dst += snprintf(dst, dstlen, "]");
+		q->was_dots = true;
 		q->last_thing_was_symbol = true;
 		q->was_space = false;
+		if (cons > 0) dst += snprintf(dst, dstlen, "]");
 		return dst - save_dst;
-	} else if (!cons && q->max_depth && (depth >= (q->max_depth))) {
-		if (q->last_thing_was_symbol && !q->last_thing_was_comma) dst += snprintf(dst, dstlen, " ");
+	} else if (!cons && q->max_depth && (depth > (q->max_depth+1))) {
+		if (!q->was_space) dst += snprintf(dst, dstlen, " ");
 		dst += snprintf(dst, dstlen, "...");
+		q->was_dots = true;
 		q->last_thing_was_symbol = true;
 		q->was_space = false;
 		return dst - save_dst;
@@ -755,8 +757,10 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx c_
 	}
 
 	if (is_number(c) && is_negative(c)) {
-		if (is_negative(c) && q->last_thing_was_symbol && !q->was_space)
+		if (is_negative(c) && q->last_thing_was_symbol && !q->was_space) {
 			dst += snprintf(dst, dstlen, " ");
+			q->was_space = true;
+		}
 	}
 
 	if (is_rational(c)) {
@@ -901,8 +905,9 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx c_
 		LIST_HANDLER(l);
 
 		while (is_list(l)) {
-			if (q->max_depth && (cnt++ >= q->max_depth)) {
+			if (q->max_depth && (cnt++ > q->max_depth)) {
 				dst += snprintf(dst, dstlen, "%s", "|...");
+				q->was_dots = true;
 				break;
 			}
 
@@ -1009,9 +1014,12 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx c_
 
 			dst += formatted(dst, dstlen, src, len_str, dq, q->json);
 
-			if (is_blob(c) && q->max_depth && (len_str >= q->max_depth) && (src_len > 128)) {
+			if (is_blob(c) && q->max_depth && (len_str > q->max_depth) && (src_len > 128)) {
 				dst--;
+				//if (!q->was_space) dst += snprintf(dst, dstlen, " ");
 				dst += snprintf(dst, dstlen, "%s", "...");
+				q->was_dots = true;
+				q->last_thing_was_symbol = true;
 			}
 
 			q->last_thing_was_symbol = false;
@@ -1075,9 +1083,9 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx c_
 					dst += snprintf(dst, dstlen, "%s", "(");
 
 				if (q->max_depth && ((depth+1) >= q->max_depth)) {
+					//if (!q->was_space) dst += snprintf(dst, dstlen, " ");
 					dst += snprintf(dst, dstlen, "...)");
 					q->last_thing_was_symbol = false;
-					q->was_space = false;
 					return dst - save_dst;
 				}
 
@@ -1093,11 +1101,10 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx c_
 
 				if (arity)
 					dst += snprintf(dst, dstlen, "%s", ",");
-
-				q->parens = false;
 			}
 
 			dst += snprintf(dst, dstlen, "%s", braces&&!q->ignore_ops?"}":")");
+			q->was_dots = false;
 			q->parens = false;
 			q->last_thing_was_symbol = false;
 		}
@@ -1136,8 +1143,10 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx c_
 	}
 
 	if (is_prefix(c)) {
-		if (q->last_thing_was_symbol && !q->was_space)
+		if (q->last_thing_was_symbol && !q->was_space) {
 			dst += snprintf(dst, dstlen, " ");
+			q->was_space = true;
+		}
 
 		cell *rhs = c + 1;
 		rhs = running ? deref(q, rhs, c_ctx) : rhs;
@@ -1190,7 +1199,11 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx c_
 		q->parens = false;
 		if (res < 0) return -1;
 		dst += res;
-		if (parens) dst += snprintf(dst, dstlen, "%s", ")");
+		if (parens) {
+			dst += snprintf(dst, dstlen, "%s", ")");
+			q->was_dots = false;
+		}
+
 		return dst - save_dst;
 	}
 
@@ -1217,7 +1230,7 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx c_
 	bool lhs_space = false;
 
 	if (!q->was_space && lhs_space) {
-		dst += snprintf(dst, dstlen, "%s", " ");
+		dst += snprintf(dst, dstlen, "%s", "");
 		q->was_space = true;
 	}
 
@@ -1227,14 +1240,20 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx c_
 	q->parens = false;
 	if (res < 0) return -1;
 	dst += res;
-	if (lhs_parens) dst += snprintf(dst, dstlen, "%s", ")");
+
+	if (lhs_parens) {
+		dst += snprintf(dst, dstlen, "%s", ")");
+		q->was_dots = false;
+	}
+
 	bool space = false;
 
 	if (is_interned(lhs) && !lhs->arity && !lhs_parens) {
 		const char *lhs_src = C_STR(q, lhs);
 		if (!isalpha(*lhs_src) && !isdigit(*lhs_src) && (*lhs_src != '$')
 			&& strcmp(src, ",") && strcmp(src, ";")
-			&& strcmp(lhs_src, "[]") && strcmp(lhs_src, "{}"))
+			&& strcmp(lhs_src, "[]") && strcmp(lhs_src, "{}")
+			)
 			space = true;
 	}
 
@@ -1253,20 +1272,20 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx c_
 	if (!*src || (q->last_thing_was_symbol && is_symbol && !lhs_parens && !q->was_space && !q->parens))
 		space = true;
 
-	if (!q->was_space && space) {
+	if (!q->was_space && !is_symbol && space) {
 		dst += snprintf(dst, dstlen, "%s", " ");
 		q->was_space = true;
 	}
 
 	// Print OP..
 
-	q->last_thing_was_symbol = is_symbol;
+	q->last_thing_was_symbol += is_symbol;
 	space = iswalpha(*src);
 
 	if (q->listing && !depth && !strcmp(src, ":-"))
 		space = true;
 
-	if (!q->was_space && space) {
+	if (!q->was_space && (space || q->was_dots)) {
 		dst += snprintf(dst, dstlen, "%s", " ");
 		q->was_space = true;
 	}
@@ -1299,7 +1318,7 @@ ssize_t print_term_to_buf(query *q, char *dst, size_t dstlen, cell *c, pl_idx c_
 		&& !iswalpha(*C_STR(q, rhs)) && !needs_quoting(q->st.m, C_STR(q, rhs), C_STRLEN(q, rhs))
 		&& !rhs_parens;
 
-	if (rhs_is_symbol && strcmp(C_STR(q, rhs), "!"))
+	if (rhs_is_symbol && strcmp(C_STR(q, rhs), "[]") && strcmp(C_STR(q, rhs), "{}") && strcmp(C_STR(q, rhs), "!"))
 		space = true;
 
 	if ((rhs_pri_1 == my_priority) && is_xfy(c))
@@ -1455,6 +1474,7 @@ char *print_term_to_strbuf(query *q, cell *c, pl_idx c_ctx, int running)
 	if (++q->vgen == 0) q->vgen = 1;
 	q->last_thing_was_symbol = false;
 	q->did_quote = false;
+	q->was_space = true;
 	ssize_t len = print_term_to_buf(q, NULL, 0, c, c_ctx, running, false, 0);
 
 	if ((len < 0) || q->cycle_error) {
@@ -1466,6 +1486,7 @@ char *print_term_to_strbuf(query *q, cell *c, pl_idx c_ctx, int running)
 	if (++q->vgen == 0) q->vgen = 1;
 	q->last_thing_was_symbol = false;
 	q->did_quote = false;
+	q->was_space = true;
 	len = print_term_to_buf(q, buf, len+1, c, c_ctx, running, false, 0);
 	return buf;
 }
@@ -1475,6 +1496,7 @@ bool print_term_to_stream(query *q, stream *str, cell *c, pl_idx c_ctx, int runn
 	if (++q->vgen == 0) q->vgen = 1;
 	q->last_thing_was_symbol = false;
 	q->did_quote = false;
+	q->was_space = true;
 	ssize_t len = print_term_to_buf(q, NULL, 0, c, c_ctx, running, false, 0);
 
 	if ((len < 0) || q->cycle_error) {
@@ -1486,6 +1508,7 @@ bool print_term_to_stream(query *q, stream *str, cell *c, pl_idx c_ctx, int runn
 	if (++q->vgen == 0) q->vgen = 1;
 	q->last_thing_was_symbol = false;
 	q->did_quote = false;
+	q->was_space = true;
 	len = print_term_to_buf(q, dst, len+1, c, c_ctx, running, false, 0);
 	const char *src = dst;
 
@@ -1511,6 +1534,7 @@ bool print_term(query *q, FILE *fp, cell *c, pl_idx c_ctx, int running)
 	if (++q->vgen == 0) q->vgen = 1;
 	q->last_thing_was_symbol = false;
 	q->did_quote = false;
+	q->was_space = true;
 	ssize_t len = print_term_to_buf(q, NULL, 0, c, c_ctx, running, false, 0);
 
 	if ((len < 0) || q->cycle_error) {
@@ -1522,6 +1546,7 @@ bool print_term(query *q, FILE *fp, cell *c, pl_idx c_ctx, int running)
 	if (++q->vgen == 0) q->vgen = 1;
 	q->last_thing_was_symbol = false;
 	q->did_quote = false;
+	q->was_space = true;
 	len = print_term_to_buf(q, dst, len+1, c, c_ctx, running, false, 0);
 	const char *src = dst;
 
@@ -1550,5 +1575,7 @@ void clear_write_options(query *q)
 	q->parens = q->numbervars = q->json = false;
 	q->last_thing_was_symbol = false;
 	q->last_thing_was_comma = false;
+	q->was_dots = false;
 	q->variable_names = NULL;
+	memset(q->ignores, 0, sizeof(q->ignores));
 }

@@ -1606,9 +1606,11 @@ bool start(query *q)
 					status = wrap_ffi_function(q, q->st.curr_cell->fn_ptr);
 				else
 					status = wrap_ffi_predicate(q, q->st.curr_cell->fn_ptr);
-			} else
+			} else {
 #endif
+				q->max_eval_depth = 0;
 				status = q->st.curr_cell->fn_ptr->fn(q);
+			}
 
 			if (q->retry == QUERY_SKIP) {
 				q->retry = QUERY_OK;
@@ -1932,6 +1934,7 @@ query *query_create(module *m, bool is_task)
 	q->get_started = get_time_in_usec();
 	q->time_cpu_last_started = q->time_cpu_started = cpu_time_in_usec();
 	q->ops_dirty = true;
+	q->double_quotes = true;
 	q->st.prob = 1.0;
 	mp_int_init(&q->tmp_ival);
 	mp_rat_init(&q->tmp_irat);
