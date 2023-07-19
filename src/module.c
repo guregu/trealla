@@ -261,7 +261,7 @@ predicate *create_predicate(module *m, cell *c, bool *created)
 	if (created) *created = false;
 	bool found, evaluable;
 
-	if ((c->val_off == g_neck_s) && (c->arity == 2))
+	if (c->val_off == g_neck_s)
 		return NULL;
 
 	if (get_builtin_term(m, c, &found, &evaluable),
@@ -292,21 +292,21 @@ predicate *create_predicate(module *m, cell *c, bool *created)
 		pr->key.nbr_cells = 1;
 		pr->is_noindex = m->pl->noindex || !pr->key.arity;
 		map_app(m->index, &pr->key, pr);
-	} else {
-		db_entry *dbe = pr->dirty_list;
-
-		while (dbe) {
-			delink(pr, dbe);
-			db_entry *save = dbe->dirty;
-			clear_rule(&dbe->cl);
-			free(dbe);
-			dbe = save;
-		}
-
-		pr->dirty_list = NULL;
-		pr->is_abolished = false;
+		return pr;
 	}
 
+	db_entry *dbe = pr->dirty_list;
+
+	while (dbe) {
+		delink(pr, dbe);
+		db_entry *save = dbe;
+		dbe = dbe->dirty;
+		clear_rule(&save->cl);
+		free(save);
+	}
+
+	pr->dirty_list = NULL;
+	pr->is_abolished = false;
 	return pr;
 }
 
@@ -1218,19 +1218,21 @@ static bool check_multifile(module *m, predicate *pr, db_entry *dbe_orig)
 		&& (C_STR(m, &pr->key)[0] != '$')
 		) {
 		if ((dbe_orig->filename != pr->head->filename) || pr->is_reload) {
-			for (db_entry *dbe = pr->head; dbe; dbe = dbe->next) {
-				retract_from_db(dbe);
-				pr->is_processed = false;
-				pr->is_reload = false;
-			}
+			fprintf(stderr, "Warning: overwriting %s/%u\n", C_STR(m, &pr->key), pr->key.arity);
 
-			if (pr->cnt)
-				fprintf(stderr, "Warning: overwriting %s/%u\n", C_STR(m, &pr->key), pr->key.arity);
+			while (pr->head) {
+				db_entry *dbe = pr->head;
+				pr->head = pr->head->next;
+				clear_rule(&dbe->cl);
+				free(dbe);
+			}
 
 			map_destroy(pr->idx2);
 			map_destroy(pr->idx);
 			pr->idx2 = pr->idx = NULL;
 			pr->head = pr->tail = NULL;
+			pr->is_processed = false;
+			pr->is_reload = false;
 			pr->cnt = 0;
 			return false;
 		}
