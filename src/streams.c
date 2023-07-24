@@ -6552,8 +6552,6 @@ static bool fn_sys_put_chars_2(query *q)
 	GET_NEXT_ARG(p1,any);
 	size_t len;
 
-	printf("HMMMMmmmmmm\n...");
-
 	if (is_cstring(p1)) {
 		const char *src = C_STR(q, p1);
 		size_t len = C_STRLEN(q, p1);
