@@ -159,11 +159,10 @@ extern unsigned g_string_cnt, g_interned_cnt;
 #define is_anon(c) ((c)->flags & FLAG_VAR_ANON)
 #define is_builtin(c) ((c)->flags & FLAG_BUILTIN)
 #define is_evaluable(c) ((c)->flags & FLAG_EVALUABLE)
-#define is_ground(c) ((c)->flags & FLAG_GROUND)
 #define is_tail_recursive(c) ((c)->flags & FLAG_TAIL_REC)
 #define is_temporary(c) (is_var(c) && ((c)->flags & FLAG_VAR_TEMPORARY))
 #define is_ref(c) (is_var(c) && ((c)->flags & FLAG_VAR_REF))
-#define is_op(c) (c->flags & 0xE000)
+#define is_op(c) (c->flags & 0xE000) ? true : false
 #define is_callable(c) (is_interned(c) || (is_cstring(c) && !is_string(c)))
 #define is_structure(c) (is_interned(c) && (c)->arity)
 #define is_compound(c) (is_structure(c) || is_string(c))
@@ -277,13 +276,11 @@ enum {
 
 	FLAG_BLOB_SRE=1<<0,					// used with TAG_BLOB
 
-	FLAG_GROUND=1<<7,					// only true if on the heap
 	FLAG_FFI=1<<8,
 	FLAG_BUILTIN=1<<9,
 	FLAG_MANAGED=1<<10,					// any ref-counted object
 	FLAG_TAIL_REC=1<<11,
 	FLAG_EVALUABLE=1<<12,
-	FLAG_PROCESSED=1<<12,				// used by bagof
 
 	FLAG_END=1<<13
 };
@@ -337,7 +334,7 @@ typedef struct prolog_flags_ prolog_flags;
 typedef struct builtins_ builtins;
 
 // Using a fixed-size cell allows having arrays of cells, which is
-// basically what a Term is. A compound is a var length array of
+// basically what a Term is. A compound is a variable length array of
 // cells, the length specified by 'nbr_cells' field in the 1st cell.
 // A cell is a tagged union.
 // The size should be 24 bytes... (1 + 2) * 8
@@ -423,9 +420,6 @@ struct clause_ {
 	uint16_t nbr_temporaries;
 	bool is_first_cut:1;
 	bool is_cut_only:1;
-	bool arg1_is_unique:1;
-	bool arg2_is_unique:1;
-	bool arg3_is_unique:1;
 	bool is_unique:1;
 	bool is_fact:1;
 	bool is_complex:1;
@@ -524,7 +518,6 @@ struct frame_ {
 	uint64_t ugen, cgen;
 	pl_idx prev_offset, hp, base, overflow, initial_slots, actual_slots;
 	uint16_t mid;
-	bool is_last:1;
 };
 
 struct prolog_state_ {
@@ -661,7 +654,7 @@ struct query_ {
 	uint64_t step, qid, tmo_msecs, cgen;
 	uint64_t get_started, autofail_n, yield_at;
 	uint64_t time_cpu_started, time_cpu_last_started, future;
-	unsigned max_depth, print_idx, tab_idx, varno, tab0_varno, curr_engine;
+	unsigned max_depth, max_eval_depth, print_idx, tab_idx, varno, tab0_varno, curr_engine;
 	pl_idx tmphp, latest_ctx, popp, variable_names_ctx;
 	pl_idx frames_size, slots_size, trails_size, controls_size;
 	pl_idx hw_controls, hw_frames, hw_slots, hw_trails;
@@ -673,10 +666,9 @@ struct query_ {
 	uint32_t vgen;
 	int8_t halt_code;
 	int8_t quoted;
+	enum { WAS_OTHER, WAS_SPACE, WAS_COMMA, WAS_SYMBOL } last_thing;
 	bool done:1;
 	bool parens:1;
-	bool last_thing_was_symbol:1;
-	bool last_thing_was_comma:1;
 	bool in_attvar_print:1;
 	bool lists_ok:1;
 	bool fail_on_retry:1;
@@ -690,7 +682,6 @@ struct query_ {
 	bool portray_vars:1;
 	bool status:1;
 	bool no_tco:1;
-	bool check_unique:1;
 	bool has_vars:1;
 	bool error:1;
 	bool did_throw:1;
@@ -715,12 +706,9 @@ struct query_ {
 	bool in_commit:1;
 	bool did_quote:1;
 	bool is_input:1;
-	bool last_thing_was_space:1;
-	bool was_dots:1;
 	bool is_engine:1;
 	bool ops_dirty:1;
 	bool noderef:1;
-	bool ground:1;
 	bool double_quotes:1;
 };
 

@@ -329,11 +329,11 @@ static bool fn_iso_findall_3(query *q)
 
 		cell *p0;
 
-		if (is_structure(xp1)) {	// Why is this necessary?
+		if (is_structure(xp1) && !is_list(xp1)) {	// Why is this necessary?
 			p0 = deep_copy_to_heap(q, q->st.curr_cell, q->st.curr_frame, false);
 			check_heap_error(p0);
 			unify(q, q->st.curr_cell, q->st.curr_frame, p0, q->st.curr_frame);
-		} else if (!is_atomic(xp1) && !is_string(xp1)) {
+		} else if (is_var(xp1)) {
 			p0 = deep_clone_to_heap(q, q->st.curr_cell, q->st.curr_frame);
 			check_heap_error(p0);
 		} else
@@ -841,12 +841,12 @@ static bool fn_iso_number_chars_2(query *q)
 
 	q->ignore_ops = true;
 	q->quoted = 1;
-	q->last_thing_was_symbol = false;
+	q->last_thing = WAS_OTHER;
 	q->did_quote = false;
-	ssize_t len = print_term_to_buf(q, NULL, 0, p1, p1_ctx, 1, 0, 0);
+	ssize_t len = print_term_to_buf(q, NULL, 0, p1, p1_ctx, 1, 0);
 	char *dst = malloc(len+10);
 	check_heap_error(dst);
-	print_term_to_buf(q, dst, len+1, p1, p1_ctx, 1, 0, 0);
+	print_term_to_buf(q, dst, len+1, p1, p1_ctx, 1, 0);
 	q->ignore_ops = false;
 	q->quoted = 0;
 	cell tmp;
@@ -1419,12 +1419,12 @@ static bool fn_iso_number_codes_2(query *q)
 
 	q->ignore_ops = true;
 	q->quoted = 1;
-	q->last_thing_was_symbol = false;
+	q->last_thing = WAS_OTHER;
 	q->did_quote = false;
-	ssize_t len = print_term_to_buf(q, NULL, 0, p1, p1_ctx, 1, 0, 0);
+	ssize_t len = print_term_to_buf(q, NULL, 0, p1, p1_ctx, 1, 0);
 	char *dst = malloc(len+10);
 	check_heap_error(dst);
-	print_term_to_buf(q, dst, len+1, p1, p1_ctx, 1, 0, 0);
+	print_term_to_buf(q, dst, len+1, p1, p1_ctx, 1, 0);
 	q->ignore_ops = false;
 	q->quoted = 0;
 	const char *src = dst;
@@ -4013,7 +4013,7 @@ static void save_db(FILE *fp, query *q, int logging)
 				fprintf(fp, ",'%s')", tmpbuf);
 			}
 
-			if (q->last_thing_was_symbol)
+			if (q->last_thing == WAS_SYMBOL)
 				fprintf(fp, " ");
 
 			fprintf(fp, ".\n");
@@ -4524,7 +4524,7 @@ const char *dump_key(const void *k, const void *v, const void *p)
 	query *q = (query*)p;
 	cell *c = (cell*)k;
 	static char tmpbuf[1024];
-	print_term_to_buf(q, tmpbuf, sizeof(tmpbuf), c, q->st.curr_frame, 0, false, 0);
+	print_term_to_buf(q, tmpbuf, sizeof(tmpbuf), c, q->st.curr_frame, 0, false);
 	return tmpbuf;
 }
 
@@ -6414,9 +6414,9 @@ static bool fn_atomic_concat_3(query *q)
 	const char *src1, *src2;
 	size_t len1, len2;
 	char tmpbuf1[256], tmpbuf2[256];
-	len1 = print_term_to_buf(q, tmpbuf1, sizeof(tmpbuf1), p1, p1_ctx, 1, false, 0);
+	len1 = print_term_to_buf(q, tmpbuf1, sizeof(tmpbuf1), p1, p1_ctx, 1, false);
 	src1 = tmpbuf1;
-	len2 = print_term_to_buf(q, tmpbuf2, sizeof(tmpbuf2), p2, p2_ctx, 1, false, 0);
+	len2 = print_term_to_buf(q, tmpbuf2, sizeof(tmpbuf2), p2, p2_ctx, 1, false);
 	src2 = tmpbuf2;
 	SB(pr);
 	SB_strcatn(pr, src1, len1);

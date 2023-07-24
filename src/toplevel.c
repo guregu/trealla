@@ -291,6 +291,9 @@ static void add_result(int nbr, cell *c, pl_idx c_ctx)
 
 static int check_duplicate_result(query *q, int nbr, cell *c, pl_idx c_ctx)
 {
+	if (is_cyclic_term(q, c, c_ctx))
+		return -1;
+
 	const item *ptr = g_items;
 
 	while (ptr) {
@@ -483,7 +486,7 @@ void dump_vars(query *q, bool partial)
 		print_term(q, stdout, tmp, 0, 1);
 
 		if (parens) fputc(')', stdout);
-		if (q->last_thing_was_symbol) space = true;
+		if (q->last_thing == WAS_SYMBOL) space = true;
 		if (q->did_quote) space = false;
 		q->quoted = saveq;
 		q->numbervars = false;

@@ -313,19 +313,19 @@ static void setup_key(query *q)
 			arg31 = deref(q, arg3+1, arg3_ctx);
 	}
 
-	if (is_iso_atomic(arg1) || is_ground(arg1))
+	if (is_iso_atomic(arg1))
 		q->st.karg1_is_ground = true;
-	else if (arg11 && (is_atomic(arg11) || is_ground(arg1)))
+	else if (arg11 && is_atomic(arg11))
 		q->st.karg1_is_ground = true;
 
-	if (arg2 && (is_iso_atomic(arg2) || is_ground(arg2)))
+	if (arg2 && is_iso_atomic(arg2))
 		q->st.karg2_is_ground = true;
-	else if (arg21 && (is_atomic(arg21) || is_ground(arg21)))
+	else if (arg21 && is_atomic(arg21))
 		q->st.karg2_is_ground = true;
 
-	if (arg3 && (is_iso_atomic(arg3) || is_ground(arg3)))
+	if (arg3 && is_iso_atomic(arg3))
 		q->st.karg3_is_ground = true;
-	else if (arg31 && (is_atomic(arg31) || is_ground(arg31)))
+	else if (arg31 && is_atomic(arg31))
 		q->st.karg3_is_ground = true;
 }
 
@@ -346,56 +346,47 @@ static void next_key(query *q)
 
 bool has_next_key(query *q)
 {
-	const frame *f = GET_CURR_FRAME();
+	if (q->st.iter)
+		return map_is_next(q->st.iter, NULL);
 
-	if (q->st.iter) {
-		const db_entry *dbe;
-
-		while (map_is_next(q->st.iter, (void**)&dbe)) {
-			if (!can_view(q, f->ugen, dbe)) {
-				db_entry *save_dbe = q->st.curr_dbe;
-				next_key(q);
-				q->st.curr_dbe = save_dbe;
-				continue;
-			}
-
-			return true;
-		}
-
-		return false;
-	}
+	if (!q->st.key->arity)
+		return q->st.curr_dbe->next ? true : false;
 
 	clause *cl = &q->st.curr_dbe->cl;
 	predicate *pr = q->st.curr_dbe->owner;
+	cell *karg1 = NULL;
 
-	//printf("*** q->st.karg1_is_ground=%d, cl->arg1_is_unique=%d\n",
-	//	q->st.karg1_is_ground, cl->arg1_is_unique);
-
-	if (q->st.karg1_is_ground && cl->arg1_is_unique)
-		return false;
-
-	if (q->st.karg2_is_ground && cl->arg2_is_unique)
-		return false;
-
-	if (q->st.karg3_is_ground && cl->arg3_is_unique)
-		return false;
+	if (q->st.karg1_is_ground)
+		karg1 = deref(q, q->st.key+1, q->st.key_ctx);
 
 	for (db_entry *next = q->st.curr_dbe->next; next; next = next->next) {
-		if (!can_view(q, f->ugen, next))
-			continue;
-
-#if 1
-		// This is needed for: tpl -g run ~/retina/retina.pl ~/retina/rdfsurfaces/lubm/lubm.s
-
-		if (pr->is_dynamic && !q->st.karg1_is_ground)
-			return true;
-#endif
-
 		cl = &next->cl;
 		cell *dkey = cl->cells;
 
 		if ((dkey->val_off == g_neck_s) && (dkey->arity == 2))
 			dkey++;
+
+		if (karg1) {
+			cell *darg1 = dkey + 1;
+
+			if (is_atomic(karg1) && is_iso_list(darg1))
+				continue;
+
+			if (is_atomic(karg1) && !darg1->arity) {
+				if (index_cmpkey(karg1, darg1, q->st.m, NULL) != 0)
+					continue;
+			}
+		}
+
+#if 1
+		// This is needed for: tpl -g run ~/retina/retina.pl ~/retina/rdfsurfaces/lubm/lubm.s
+
+		if (pr->is_dynamic
+			&& !q->st.karg1_is_ground
+			&& (*C_STR(q, &pr->key) != '$')
+			)
+			return true;
+#endif
 
 		//DUMP_TERM("key", q->st.key, q->st.key_ctx, 0);
 		//DUMP_TERM("next", dkey, q->st.curr_frame, 0);
@@ -727,8 +718,6 @@ void try_me(query *q, unsigned nbr_vars)
 	}
 
 	q->run_hook = false;
-	q->cycle_error = false;
-	q->check_unique = false;
 	q->has_vars = false;
 	q->no_tco = false;
 	q->tot_matches++;
@@ -804,7 +793,6 @@ static frame *push_frame(query *q, unsigned nbr_vars)
 	}
 
 	f->cgen = ++q->cgen;
-	f->is_last = false;
 	f->overflow = 0;
 	f->hp = q->st.hp;
 
@@ -884,7 +872,7 @@ static void commit_me(query *q)
 		q->st.m = q->st.curr_dbe->owner->m;
 	}
 
-	bool implied_first_cut = q->check_unique && !q->has_vars && cl->is_unique && !q->st.iter;
+	bool implied_first_cut = !q->has_vars && cl->is_unique;
 	bool last_match = implied_first_cut || cl->is_first_cut || !has_next_key(q);
 	bool tco = false;
 
@@ -893,9 +881,9 @@ static void commit_me(query *q)
 	else if (last_match){
 		bool recursive = is_tail_recursive(q->st.curr_cell);
 		bool vars_ok = f->actual_slots == cl->nbr_vars;
-		bool controls = false;//any_choices(q, f);
+		bool choices = any_choices(q, f);
 		bool slots_ok = are_slots_ok(q, f);
-		tco = recursive && vars_ok && !controls && slots_ok;
+		tco = recursive && vars_ok && !choices && slots_ok;
 	}
 
 #if 0
@@ -909,7 +897,6 @@ static void commit_me(query *q)
 		f = push_frame(q, cl->nbr_vars);
 
 	if (last_match) {
-		f->is_last = true;
 		leave_predicate(q, q->st.pr);
 		drop_control(q);
 
@@ -944,7 +931,6 @@ void stash_me(query *q, const clause *cl, bool last_match)
 	if (nbr_vars) {
 		pl_idx new_frame = q->st.fp++;
 		frame *f = GET_FRAME(new_frame);
-		f->is_last = last_match;
 		f->prev_offset = new_frame - q->st.curr_frame;
 		f->curr_cell = NULL;
 		f->cgen = cgen;
@@ -1138,7 +1124,6 @@ static bool resume_frame(query *q)
 	if (!q->st.curr_frame)
 		return false;
 
-	Trace(q, get_head(q->st.curr_dbe->cl.cells), q->st.curr_frame, EXIT);
 	const frame *f = GET_CURR_FRAME();
 
 	if (q->pl->opt && 0)
@@ -1595,6 +1580,7 @@ bool start(query *q)
 		pl_idx save_ctx = q->st.curr_frame;
 		q->run_hook = q->did_throw = false;
 		q->before_hook_tp = q->st.tp;
+		q->max_eval_depth = 0;
 		q->tot_goals++;
 
 		if (is_builtin(q->st.curr_cell)) {
@@ -1685,6 +1671,10 @@ bool start(query *q)
 		q->retry = QUERY_OK;
 
 		while (!q->st.curr_cell || is_end(q->st.curr_cell)) {
+			if (q->st.curr_dbe) {
+				Trace(q, get_head(q->st.curr_dbe->cl.cells), q->st.curr_frame, EXIT);
+			}
+
 			if (resume_frame(q)) {
 				proceed(q);
 				continue;

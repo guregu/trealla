@@ -77,7 +77,6 @@ bool fn_iso_invoke_2(query *q)
 	q->tot_goals--;
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p2,callable);
-
 	module *m = find_module(q->pl, C_STR(q, p1));
 
 	if (!m)
@@ -115,7 +114,6 @@ bool fn_call_0(query *q, cell *p1, pl_idx p1_ctx)
 	control *ch = GET_CURR_CHOICE();
 	ch->fail_on_retry = true;
 	q->st.curr_cell = tmp;
-	q->st.curr_frame = p1_ctx;
 	return true;
 }
 
@@ -197,27 +195,14 @@ bool fn_iso_call_1(query *q)
 {
 	q->tot_goals--;
 	GET_FIRST_ARG(p1,callable);
-	cell *tmp2;
-
 	check_heap_error(init_tmp_heap(q));
-	tmp2 = deep_clone_to_tmp(q, p1, p1_ctx);
+	cell *tmp2 = deep_clone_to_tmp(q, p1, p1_ctx);
 	check_heap_error(tmp2);
-
-	if (is_cstring(tmp2)) {
-		share_cell(tmp2);
-		convert_to_literal(q->st.m, tmp2);
-	}
-
 	bool found = false;
 
 	if (!tmp2->match) {
-		if ((tmp2->match = search_predicate(q->st.m, tmp2, NULL)) != NULL) {
-			tmp2->flags &= ~FLAG_BUILTIN;
-		} else if ((tmp2->fn_ptr = get_builtin_term(q->st.m, tmp2, &found, NULL)), found) {
+		if ((tmp2->fn_ptr = get_builtin_term(q->st.m, tmp2, &found, NULL)), found)
 			tmp2->flags |= FLAG_BUILTIN;
-		} else {
-			tmp2->flags &= ~FLAG_BUILTIN;
-		}
 	}
 
 	if (check_body_callable(tmp2) != NULL)
@@ -242,27 +227,14 @@ bool fn_iso_once_1(query *q)
 {
 	q->tot_goals--;
 	GET_FIRST_ARG(p1,callable);
-	cell *tmp2;
-
 	check_heap_error(init_tmp_heap(q));
-	tmp2 = deep_clone_to_tmp(q, p1, p1_ctx);
+	cell *tmp2 = deep_clone_to_tmp(q, p1, p1_ctx);
 	check_heap_error(tmp2);
-
-	if (is_cstring(tmp2)) {
-		share_cell(tmp2);
-		convert_to_literal(q->st.m, tmp2);
-	}
-
 	bool found = false;
 
 	if (!tmp2->match) {
-		if ((tmp2->match = search_predicate(q->st.m, tmp2, NULL)) != NULL) {
-			tmp2->flags &= ~FLAG_BUILTIN;
-		} else if ((tmp2->fn_ptr = get_builtin_term(q->st.m, tmp2, &found, NULL)), found) {
+		if ((tmp2->fn_ptr = get_builtin_term(q->st.m, tmp2, &found, NULL)), found)
 			tmp2->flags |= FLAG_BUILTIN;
-		} else {
-			tmp2->flags &= ~FLAG_BUILTIN;
-		}
 	}
 
 	if (check_body_callable(tmp2) != NULL)
@@ -286,27 +258,14 @@ bool fn_ignore_1(query *q)
 {
 	q->tot_goals--;
 	GET_FIRST_ARG(p1,callable);
-	cell *tmp2;
-
 	check_heap_error(init_tmp_heap(q));
-	tmp2 = deep_clone_to_tmp(q, p1, p1_ctx);
+	cell *tmp2 = deep_clone_to_tmp(q, p1, p1_ctx);
 	check_heap_error(tmp2);
-
-	if (is_cstring(tmp2)) {
-		share_cell(tmp2);
-		convert_to_literal(q->st.m, tmp2);
-	}
-
 	bool found = false;
 
 	if (!tmp2->match) {
-		if ((tmp2->match = search_predicate(q->st.m, tmp2, NULL)) != NULL) {
-			tmp2->flags &= ~FLAG_BUILTIN;
-		} else if ((tmp2->fn_ptr = get_builtin_term(q->st.m, tmp2, &found, NULL)), found) {
+		if ((tmp2->fn_ptr = get_builtin_term(q->st.m, tmp2, &found, NULL)), found)
 			tmp2->flags |= FLAG_BUILTIN;
-		} else {
-			tmp2->flags &= ~FLAG_BUILTIN;
-		}
 	}
 
 	if (check_body_callable(tmp2) != NULL)
@@ -761,6 +720,7 @@ bool throw_error3(query *q, cell *c, pl_idx c_ctx, const char *err_type, const c
 
 	char tmpbuf[1024];
 	snprintf(tmpbuf, sizeof(tmpbuf), "%s", expected);
+	tmpbuf[sizeof(tmpbuf)-1] = '\0';
 	char *ptr;
 
 	if (!strcmp(err_type, "type_error")
@@ -780,6 +740,7 @@ bool throw_error3(query *q, cell *c, pl_idx c_ctx, const char *err_type, const c
 	if (!is_var(c)) {
 		char *tmpbuf = DUP_STR(q, goal);
 		snprintf(functor, sizeof(functor), "%s", tmpbuf);
+		functor[sizeof(functor)-1] = '\0';
 		free(tmpbuf);
 	}
 
@@ -795,6 +756,10 @@ bool throw_error3(query *q, cell *c, pl_idx c_ctx, const char *err_type, const c
 
 	if (!strcmp(C_STR(q, q->st.curr_cell), "abolish"))
 		is_abolish = true;
+
+	bool is_builtin = false, evaluable = false;
+	get_builtin_term(q->st.m, c, &is_builtin, &evaluable);
+	bool is_op = search_op(q->st.m, C_STR(q, c), NULL, true) > 0;
 
 	cell *tmp;
 
@@ -877,7 +842,7 @@ bool throw_error3(query *q, cell *c, pl_idx c_ctx, const char *err_type, const c
 		SET_OP(tmp+nbr_cells, OP_YFX); nbr_cells++;
 		make_atom(tmp+nbr_cells++, index_from_pool(q->pl, functor));
 		make_int(tmp+nbr_cells, !is_string(goal)?goal->arity:0);
-	} else if (!strcmp(err_type, "permission_error") && (is_builtin(c) || (is_op(c) && !is_abolish))) {
+	} else if (!strcmp(err_type, "permission_error") && (is_builtin || (is_op && c->arity)) && !is_abolish) {
 		//printf("error(%s(%s,(%s)/%u),(%s)/%u).\n", err_type, expected, tmpbuf, c->arity, functor, goal->arity);
 		tmp = alloc_on_heap(q, 9+extra);
 		check_heap_error(tmp);
