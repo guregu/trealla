@@ -75,16 +75,16 @@ extern unsigned g_string_cnt, g_interned_cnt;
 #define MIN_OF(a,b) (a) < (b) ? (a) : (b)
 
 #define GET_CHOICE(i) (q->choices+(i))
-#define GET_CURR_CHOICE() GET_CHOICE(q->cp?q->cp-1:q->cp)
-#define GET_PREV_CHOICE() GET_CHOICE(q->cp?q->cp-2:q->cp)
+#define GET_CURR_CHOICE() GET_CHOICE(q->cp-1)
+#define GET_PREV_CHOICE() GET_CHOICE(q->cp-2)
 
 #define GET_FRAME(i) (q->frames+(i))
 #define GET_FIRST_FRAME() GET_FRAME(0)
 #define GET_CURR_FRAME() GET_FRAME(q->st.curr_frame)
 #define GET_NEW_FRAME() GET_FRAME(q->st.fp)
 
-#define FIRST_ARG(c) (c)+1
-#define NEXT_ARG(c) (c)+1
+#define FIRST_ARG(c) ((c)+1)
+#define NEXT_ARG(c) ((c)+(c)->nbr_cells)
 
 #define GET_SLOT(f,i) ((i) < (f)->initial_slots ? 			\
 	(q->slots+(f)->base+(i)) : 								\
@@ -534,8 +534,6 @@ struct prolog_state_ {
 		struct {
 			cell *key;
 			bool karg1_is_ground:1;
-			bool karg2_is_ground:1;
-			bool karg3_is_ground:1;
 		};
 		struct { uint64_t v1, v2; };
 		int64_t cnt;
