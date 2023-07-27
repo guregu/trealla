@@ -458,7 +458,7 @@ static int index_cmpkey_(const void *ptr1, const void *ptr2, const void *param, 
 			p1++; p2++;
 
 			while (arity--) {
-				if (is_var(p1) || is_var(p2)) {
+				if (l && (is_var(p1) || is_var(p2))) {
 					if (map_is_find(l))
 						break;
 
@@ -1395,7 +1395,11 @@ static void assert_commit(module *m, db_entry *dbe, predicate *pr, bool append)
 		return;
 
 	if (!pr->idx) {
-		if (pr->cnt < 1500)
+		unsigned INDEX_THRESHHOLD =
+			(pr->is_dynamic && pr->is_multifile) || (*C_STR(m,&pr->key)== '$')
+			? 1500 : 500;
+
+		if (pr->cnt < INDEX_THRESHHOLD)
 			return;
 
 		pr->idx = map_create(index_cmpkey, NULL, m);
@@ -1417,8 +1421,8 @@ static void assert_commit(module *m, db_entry *dbe, predicate *pr, bool append)
 			map_app(pr->idx, c, cl2);
 
 			if (pr->idx2) {
-				cell *arg1 = c + 1;
-				cell *arg2 = arg1 + arg1->nbr_cells;
+				cell *arg1 = FIRST_ARG(c);
+				cell *arg2 = NEXT_ARG(arg1);
 				map_app(pr->idx2, arg2, cl2);
 			}
 		}
@@ -1427,11 +1431,14 @@ static void assert_commit(module *m, db_entry *dbe, predicate *pr, bool append)
 	}
 
 	cell *c = get_head(dbe->cl.cells);
-	cell *arg1 = c->arity ? c + 1 : NULL;
-	cell *arg2 = arg1 ? arg1 + arg1->nbr_cells : NULL;
+	cell *arg1 = c->arity ? FIRST_ARG(c) : NULL;
+	cell *arg2 = c->arity > 1 ? NEXT_ARG(arg1) : NULL;
 
 	if (arg1 && is_var(arg1))
 		pr->is_var_in_first_arg = true;
+
+	if (arg2 && is_var(arg2))
+		pr->is_var_in_second_arg = true;
 
 	if (!append) {
 		map_set(pr->idx, c, dbe);
