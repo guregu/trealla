@@ -56,6 +56,8 @@ EXPORT(get_halt_code)
 extern int get_halt_code(prolog*);
 EXPORT(get_halt)
 extern bool get_halt(prolog*);
+EXPORT(get_error)
+extern bool get_error(prolog*);
 EXPORT(get_status)
 extern bool get_status(prolog*);
 EXPORT(get_redo)

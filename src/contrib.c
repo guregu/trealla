@@ -341,19 +341,19 @@ static bool fn_sys_wasi_outbound_http_5(query *q)
 #define PG_ATOM_INDICES() \
 	pl_idx row_idx = index_from_pool(q->pl, "row");			\
 	pl_idx boolean_idx = index_from_pool(q->pl, "boolean");	\
-	pl_idx int8_idx = index_from_pool(q->pl, "int8");			\
+	pl_idx int8_idx = index_from_pool(q->pl, "int8");		\
 	pl_idx int16_idx = index_from_pool(q->pl, "int16");		\
 	pl_idx int32_idx = index_from_pool(q->pl, "int32");		\
 	pl_idx int64_idx = index_from_pool(q->pl, "int64");		\
 	pl_idx uint8_idx = index_from_pool(q->pl, "uint8");		\
-	pl_idx uint16_idx = index_from_pool(q->pl, "uint16");		\
-	pl_idx uint32_idx = index_from_pool(q->pl, "uint32");		\
-	pl_idx uint64_idx = index_from_pool(q->pl, "uint64");		\
+	pl_idx uint16_idx = index_from_pool(q->pl, "uint16");	\
+	pl_idx uint32_idx = index_from_pool(q->pl, "uint32");	\
+	pl_idx uint64_idx = index_from_pool(q->pl, "uint64");	\
 	pl_idx float32_idx = index_from_pool(q->pl, "float32");	\
 	pl_idx float64_idx = index_from_pool(q->pl, "float64");	\
-	pl_idx string_idx = index_from_pool(q->pl, "string");		\
-	pl_idx binary_idx = index_from_pool(q->pl, "binary");		\
-	pl_idx null_idx = index_from_pool(q->pl, "null");			\
+	pl_idx string_idx = index_from_pool(q->pl, "string");	\
+	pl_idx binary_idx = index_from_pool(q->pl, "binary");	\
+	pl_idx null_idx = index_from_pool(q->pl, "null");		\
 	pl_idx other_idx = index_from_pool(q->pl, "other");
 
 #define make_pg_params(p, params)													\

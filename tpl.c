@@ -393,7 +393,7 @@ int main(int ac, char *av[], char * envp[])
 		if (get_halt(pl))
 			break;
 
-		if (!did_dump_vars(pl)) {
+		if (!did_dump_vars(pl) && !get_error(pl)) {
 			if (get_redo(pl))
 				printf(" ");
 			else

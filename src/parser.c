@@ -840,7 +840,7 @@ static bool directives(parser *p, cell *d)
 			if (!strcmp(dirname, "dynamic")) {
 				predicate * pr = find_predicate(p->m, &tmp);
 
-				if (pr && !pr->is_dynamic && pr->cnt) {
+				if (pr && !pr->is_dynamic && pr->head) {
 					if (DUMP_ERRS || !p->do_read_term)
 						fprintf(stdout, "Error: no permission to modify static predicate %s:%s/%u, %s:%d\n", p->m->name, C_STR(p->m, c_name), arity, get_loaded(p->m, p->m->filename), p->line_nbr);
 
@@ -932,7 +932,7 @@ static bool directives(parser *p, cell *d)
 			else if (!strcmp(dirname, "dynamic")) {
 				predicate * pr = find_predicate(p->m, &tmp);
 
-				if (pr && !pr->is_dynamic && pr->cnt) {
+				if (pr && !pr->is_dynamic && pr->head) {
 					if (DUMP_ERRS || !p->do_read_term)
 						fprintf(stdout, "Error: no permission to modify static predicate %s:%s/%u, %s:%d\n", m->name, C_STR(p->m, c_name), arity, get_loaded(p->m, p->m->filename), p->line_nbr);
 
@@ -1202,7 +1202,7 @@ static bool reduce(parser *p, pl_idx start_idx, bool last_op)
 		// Prefix...
 
 		if (is_fx(c)) {
-			cell *rhs = c + 1;
+			const cell *rhs = c + 1;
 
 			if (is_fx(rhs) && !rhs->arity && (rhs->priority == c->priority) && !is_quoted(rhs)) {
 				if (DUMP_ERRS || !p->do_read_term)
@@ -1227,7 +1227,7 @@ static bool reduce(parser *p, pl_idx start_idx, bool last_op)
 		}
 
 		if (is_prefix(c)) {
-			cell *rhs = c + 1;
+			const cell *rhs = c + 1;
 
 			if (is_infix(rhs) && !rhs->arity && (rhs->priority > c->priority) && !is_quoted(rhs)) {
 				if (DUMP_ERRS || !p->do_read_term)
@@ -1249,8 +1249,7 @@ static bool reduce(parser *p, pl_idx start_idx, bool last_op)
 		}
 
 		if (is_prefix(c)) {
-			cell *rhs = c + 1;
-			c->nbr_cells += rhs->nbr_cells;
+			const cell *rhs = c + 1;
 			pl_idx off = (pl_idx)(rhs - p->cl->cells);
 
 			if (off > end_idx) {
@@ -1262,12 +1261,13 @@ static bool reduce(parser *p, pl_idx start_idx, bool last_op)
 				return false;
 			}
 
+			c->nbr_cells += rhs->nbr_cells;
 			break;
 		}
 
 		// Postfix...
 
-		cell *rhs = c + 1;
+		const cell *rhs = c + 1;
 		cell save = *c;
 
 		if (is_xf(rhs) && (rhs->priority == c->priority) && !is_quoted(rhs)) {
@@ -1325,7 +1325,7 @@ static bool reduce(parser *p, pl_idx start_idx, bool last_op)
 			return false;
 		}
 
-		cell *lhs = p->cl->cells + last_idx;
+		const cell *lhs = p->cl->cells + last_idx;
 
 		if (is_infix(lhs) && !lhs->arity && !is_quoted(lhs)) {
 			if (DUMP_ERRS || !p->do_read_term)
@@ -1473,7 +1473,7 @@ static bool term_expansion(parser *p)
 
 	predicate *pr = find_functor(p->m, "term_expansion", 2);
 
-	if (!pr || !pr->cnt)
+	if (!pr || !pr->head)
 		return false;
 
 	cell *h = get_head(p->cl->cells);
@@ -1558,7 +1558,7 @@ static cell *goal_expansion(parser *p, cell *goal)
 
 	predicate *pr = find_functor(p->m, "goal_expansion", 2);
 
-	if (!pr || !pr->cnt)
+	if (!pr || !pr->head)
 		return goal;
 
 	if (get_builtin_term(p->m, goal, NULL, NULL) /*|| is_op(goal)*/)
@@ -3419,7 +3419,9 @@ unsigned tokenize(parser *p, bool args, bool consing)
 
 			int nextch = *s;
 
-			if ((nextch == ',')
+			/*if (IS_PREFIX(specifier) && p->symbol && SB_strcmp(p->token, ":-"))
+				;
+			else*/ if ((nextch == ',')
 				|| (nextch == ';')
 				|| (nextch == ')')
 				|| (nextch == '|')
@@ -3451,11 +3453,6 @@ unsigned tokenize(parser *p, bool args, bool consing)
 		}
 
 		is_func = last_op && is_interned(&p->v) && !specifier && !last_num && (*p->srcptr == '(');
-
-#if 0
-		printf("*** =%s, last_op=%d, p->is_op=%d, is_func=%d, prefix=%d\n",
-			SB_cstr(p->token), last_op, p->is_op, is_func, IS_PREFIX(specifier));
-#endif
 
 		if (!is_func && last_op && (args && priority >= 1200) && !p->is_quoted) {
 			if (DUMP_ERRS || !p->do_read_term)
@@ -3511,7 +3508,6 @@ unsigned tokenize(parser *p, bool args, bool consing)
 		SET_OP(c,specifier);
 		c->priority = priority;
 		bool found = false;
-
 		last_num = is_number(c);
 
 		if (is_bigint(&p->v)) {
@@ -3584,8 +3580,10 @@ bool run(parser *p, const char *pSrc, bool dump, query **subq, unsigned int yiel
 		p->one_shot = true;
 		p->consulting = false;
 
-		if (!tokenize(p, false, false))
+		if (!tokenize(p, false, false)) {
+			p->m->pl->error = p->error;
 			break;
+		}
 
 		if (!p->cl->cidx)
 			break;
@@ -3598,6 +3596,7 @@ bool run(parser *p, const char *pSrc, bool dump, query **subq, unsigned int yiel
 		if (p->error) {
 			p->pl->did_dump_vars = true;
 			p->srcptr = NULL;
+			p->m->pl->error = p->error;
 			SB_free(src);
 			return false;
 		}
@@ -3632,6 +3631,7 @@ bool run(parser *p, const char *pSrc, bool dump, query **subq, unsigned int yiel
 		p->m->pl->halt = q->halt;
 		p->m->pl->halt_code = q->halt_code;
 		p->m->pl->status = q->status;
+		p->m->pl->error = q->error;
 		p->m->pl->is_redo = q->is_redo;
 
 		ok = !q->error;

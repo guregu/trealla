@@ -381,9 +381,6 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 	q->st.karg1_is_ground = false;
 
 	if (!pr->idx) {
-		if (!pr->is_processed && !pr->is_dynamic)
-			just_in_time_rebuild(pr);
-
 		q->st.curr_dbe = pr->head;
 		q->st.key = key;
 		q->st.key_ctx = key_ctx;
@@ -423,7 +420,7 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 
 		cell *arg2 = NEXT_ARG(arg1);
 
-		if (is_var(arg2) || pr->is_var_in_second_arg) {
+		if (is_var(arg2) /*|| pr->is_var_in_second_arg*/) {
 			q->st.curr_dbe = pr->head;
 			return true;
 		}
@@ -575,18 +572,10 @@ static void enter_predicate(query *q, predicate *pr)
 
 static void leave_predicate(query *q, predicate *pr)
 {
-	if (!pr)
+	if (!pr || !pr->is_dynamic || !pr->refcnt)
 		return;
 
-	if (!pr->is_dynamic)
-		return;
-
-	if (!pr->refcnt)
-		return;
-
-	--pr->refcnt;
-
-	if (pr->refcnt != 0)
+	if (--pr->refcnt != 0)
 		return;
 
 	// Predicate is no longer being used
@@ -599,15 +588,15 @@ static void leave_predicate(query *q, predicate *pr)
 		// mean there are no shared references to terms contained
 		// within. So move items on the dirty-list to the query
 		// dirty-list. They will be freed up at end of the query.
-		// FIXME: this is a memory leak.
+		// FIXME: this is a memory drain.
 
 		db_entry *dbe = pr->dirty_list;
 
 		while (dbe) {
 			delink(pr, dbe);
 
-			if (pr->cnt) {
-				predicate *pr = dbe->owner;
+			if (pr->idx && pr->cnt) {
+				//predicate *pr = dbe->owner;
 				map_remove(pr->idx2, dbe);
 				map_remove(pr->idx, dbe);
 			}
@@ -624,17 +613,7 @@ static void leave_predicate(query *q, predicate *pr)
 		if (pr->idx && !pr->cnt) {
 			map_destroy(pr->idx2);
 			map_destroy(pr->idx);
-			pr->idx2 = NULL;
-
-			pr->idx = map_create(index_cmpkey, NULL, pr->m);
-			ensure(pr->idx);
-			map_allow_dups(pr->idx, true);
-
-			if (pr->key.arity > 1) {
-				pr->idx2 = map_create(index_cmpkey, NULL, pr->m);
-				ensure(pr->idx2);
-				map_allow_dups(pr->idx2, true);
-			}
+			pr->idx = pr->idx2 = NULL;
 		}
 	} else {
 		db_entry *dbe = pr->dirty_list;
