@@ -364,11 +364,11 @@ cell *clone_to_tmp(query *q, cell *p1)
 	return append_to_tmp(q, p1);
 }
 
-cell *clone_to_heap(query *q, bool prefix, cell *p1, unsigned extras)
+cell *prepare_call(query *q, bool prefix, cell *p1, pl_idx p1_ctx, unsigned extras)
 {
-	cell *tmp = alloc_on_heap(q, (prefix?1:0)+(unsigned)p1->nbr_cells+extras);
+	unsigned nbr_cells = (prefix?1:0) + p1->nbr_cells + extras;
+	cell *tmp = alloc_on_heap(q, nbr_cells);
 	if (!tmp) return NULL;
-	const frame *f = GET_CURR_FRAME();
 
 	if (prefix) {
 		// Needed for follow() to work
@@ -385,7 +385,7 @@ cell *clone_to_heap(query *q, bool prefix, cell *p1, unsigned extras)
 		tmp->fn_ptr = s_fn_ptr;
 	}
 
-	cell *src = p1, *dst = tmp+(prefix?1:0);
+	cell *src = p1, *dst = tmp + (prefix?1:0);
 
 	for (pl_idx i = 0; i < p1->nbr_cells; i++, dst++) {
 		*dst = *src++;
@@ -393,7 +393,7 @@ cell *clone_to_heap(query *q, bool prefix, cell *p1, unsigned extras)
 
 		if (is_var(dst) && !is_ref(dst)) {
 			dst->flags |= FLAG_VAR_REF;
-			dst->var_ctx = q->st.curr_frame;
+			dst->var_ctx = p1_ctx;
 		}
 	}
 

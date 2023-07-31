@@ -315,38 +315,35 @@ bool make_slice(query *q, cell *d, const cell *orig, size_t off, size_t n)
 
 static bool fn_iso_findall_3(query *q)
 {
-	GET_FIRST_ARG(xp1,any);
-	GET_NEXT_ARG(xp2,callable);
-	GET_NEXT_ARG(xp3,list_or_nil_or_var);
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,callable);
+	GET_NEXT_ARG(p3,list_or_nil_or_var);
 
 	if (!q->retry) {
 		bool is_partial = false;
 
 		// This checks for a valid list (it allows for partial but acyclic lists)...
 
-		if (is_iso_list(xp3) && !check_list(q, xp3, xp3_ctx, &is_partial, NULL) && !is_partial)
-			return throw_error(q, xp3, xp3_ctx, "type_error", "list");
+		if (is_iso_list(p3) && !check_list(q, p3, p3_ctx, &is_partial, NULL) && !is_partial)
+			return throw_error(q, p3, p3_ctx, "type_error", "list");
 
-		cell *p0;
-
-		if (is_structure(xp1) && !is_list(xp1)) {	// Why is this necessary?
-			p0 = deep_copy_to_heap(q, q->st.curr_cell, q->st.curr_frame, false);
+		if (is_structure(p1) && !is_iso_list(p1)) {	// Why is this necessary?
+			cell *p0 = deep_copy_to_tmp(q, q->st.curr_cell, q->st.curr_frame, false);
 			check_heap_error(p0);
 			unify(q, q->st.curr_cell, q->st.curr_frame, p0, q->st.curr_frame);
-		} else if (is_var(xp1)) {
-			p0 = deep_clone_to_heap(q, q->st.curr_cell, q->st.curr_frame);
-			check_heap_error(p0);
-		} else
-			p0 = q->st.curr_cell;
+			GET_FIRST_ARG0(xp1,any,p0);
+			GET_NEXT_ARG(xp2,any);
+			p1 = xp1;
+			p2 = xp2;
+			p2_ctx = xp2_ctx;
+		}
 
-		GET_FIRST_ARG0(p1,any,p0);
-		GET_NEXT_ARG(p2,any);
 		grab_queuen(q);
 
 		if (q->st.qnbr == MAX_QUEUES)
-			return throw_error(q, xp2, xp2_ctx, "resource_error", "max_queues");
+			return throw_error(q, p2, p2_ctx, "resource_error", "max_queues");
 
-		cell *tmp = clone_to_heap(q, true, p2, 1+p1->nbr_cells+2);
+		cell *tmp = prepare_call(q, true, p2, p2_ctx, 1+p1->nbr_cells+2);
 		check_heap_error(tmp);
 		pl_idx nbr_cells = 1 + p2->nbr_cells;
 		make_struct(tmp+nbr_cells++, g_sys_queue_s, fn_sys_queue_1, 1, p1->nbr_cells);
@@ -360,7 +357,7 @@ static bool fn_iso_findall_3(query *q)
 
 	if (!queuen_used(q)) {
 		drop_queuen(q);
-		return unify(q, xp3, xp3_ctx, make_nil(), q->st.curr_frame);
+		return unify(q, p3, p3_ctx, make_nil(), q->st.curr_frame);
 	}
 
 	// Retry takes the queue
@@ -386,7 +383,7 @@ static bool fn_iso_findall_3(query *q)
 	free(solns);
 	cell *l = end_list(q);
 	check_heap_error(l);
-	return unify(q, xp3, xp3_ctx, l, q->st.curr_frame);
+	return unify(q, p3, p3_ctx, l, q->st.curr_frame);
 }
 
 static bool fn_iso_unify_with_occurs_check_2(query *q)
@@ -423,7 +420,7 @@ static bool fn_iso_notunify_2(query *q)
 	GET_NEXT_RAW_ARG(p2,any);
 	cell tmp2;
 	make_struct(&tmp2, g_unify_s, fn_iso_unify_2, 2, 0);
-	cell *tmp = clone_to_heap(q, true, &tmp2, p1->nbr_cells+p2->nbr_cells+4);
+	cell *tmp = prepare_call(q, true, &tmp2, q->st.curr_frame, p1->nbr_cells+p2->nbr_cells+4);
 	pl_idx nbr_cells = 1;
 	tmp[nbr_cells].nbr_cells += p1->nbr_cells+p2->nbr_cells;
 	nbr_cells++;
@@ -4582,7 +4579,7 @@ static bool fn_time_1(query *q)
 
 	GET_FIRST_ARG(p1,callable);
 	fn_sys_timer_0(q);
-	cell *tmp = clone_to_heap(q, true, p1, 4);
+	cell *tmp = prepare_call(q, true, p1, p1_ctx, 4);
 	pl_idx nbr_cells = 1 + p1->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_sys_elapsed_s, fn_sys_elapsed_0, 0, 0);
 	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, fn_sys_drop_barrier_1, 1, 1);
@@ -5561,7 +5558,7 @@ static bool fn_task_n(query *q)
 	}
 
 	q->st.hp = save_hp;
-	cell *tmp = clone_to_heap(q, false, tmp2, 0);
+	cell *tmp = prepare_call(q, false, tmp2, q->st.curr_frame, 0);
 	query *task = query_create_subquery(q, tmp);
 	task->yielded = task->spawned = true;
 	push_task(q, task);
@@ -6804,7 +6801,7 @@ static bool fn_limit_2(query *q)
 	if (is_bigint(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
 
-	cell *tmp = clone_to_heap(q, true, p2, 4);
+	cell *tmp = prepare_call(q, true, p2, p2_ctx, 4);
 	pl_idx nbr_cells = 1 + p2->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_fail_s, fn_sys_lt_2, 2, 2);
 	make_int(tmp+nbr_cells++, 1);
@@ -6843,7 +6840,7 @@ static bool fn_offset_2(query *q)
 	if (is_bigint(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
 
-	cell *tmp = clone_to_heap(q, true, p2, 4);
+	cell *tmp = prepare_call(q, true, p2, p2_ctx, 4);
 	pl_idx nbr_cells = 1 + p2->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_fail_s, fn_sys_gt_2, 2, 2);
 	make_int(tmp+nbr_cells++, 1);
@@ -6908,7 +6905,7 @@ static bool fn_call_nth_2(query *q)
 		return throw_error(q, p2, p2_ctx, "domain_error", "not_less_than_zero");
 
 	if (is_var(p2)) {
-		cell *tmp = clone_to_heap(q, true, p1, 4);
+		cell *tmp = prepare_call(q, true, p1, p1_ctx, 4);
 		pl_idx nbr_cells = 1 + p1->nbr_cells;
 		make_struct(tmp+nbr_cells++, g_sys_incr_s, fn_sys_incr_2, 2, 2);
 		GET_RAW_ARG(2,p2_raw);
@@ -6923,7 +6920,7 @@ static bool fn_call_nth_2(query *q)
 		return true;
 	}
 
-	cell *tmp = clone_to_heap(q, true, p1, 5);
+	cell *tmp = prepare_call(q, true, p1, p1_ctx, 5);
 	pl_idx nbr_cells = 1 + p1->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_sys_ne_s, fn_sys_ne_2, 2, 2);
 	make_int(tmp+nbr_cells++, 1);
@@ -7600,7 +7597,7 @@ static bool fn_sys_register_cleanup_1(query *q)
 {
 	if (q->retry) {
 		GET_FIRST_ARG(p1,callable);
-		cell *tmp = clone_to_heap(q, true, p1, 4);
+		cell *tmp = prepare_call(q, true, p1, p1_ctx, 4);
 		pl_idx nbr_cells = 1 + p1->nbr_cells;
 		make_struct(tmp+nbr_cells++, g_sys_prune_s, fn_sys_prune_0, 0, 0);
 		make_struct(tmp+nbr_cells++, g_fail_s, fn_iso_fail_0, 0, 0);

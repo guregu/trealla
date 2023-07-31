@@ -386,7 +386,7 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 		q->st.key_ctx = key_ctx;
 
 		if (key->arity) {
-			if (pr->is_dynamic) {
+			if (pr->is_dynamic && pr->is_multifile) {
 
 				// Because the key will also be used later
 				// to check for choice-points, we need to
@@ -989,7 +989,7 @@ void prune(query *q, bool soft_cut, pl_idx cp)
 		choice *ch = GET_CURR_CHOICE();
 		const choice *save_ch = ch;
 
-		while (soft_cut && (ch > q->choices)) {
+		while (soft_cut && (ch >= q->choices)) {
 			if ((q->cp-1) == cp) {
 				if (ch == save_ch) {
 					leave_predicate(q, ch->st.pr);
@@ -1003,11 +1003,11 @@ void prune(query *q, bool soft_cut, pl_idx cp)
 				return;
 			}
 
+			if (ch == q->choices)
+				return;
+
 			ch--;
 		}
-
-		if (ch == q->choices)
-			return;
 
 		// A prune can break through a barrier...
 
@@ -1916,7 +1916,7 @@ query *query_create_subquery(query *q, cell *curr_cell)
 	subq->is_task = true;
 	subq->p = q->p;
 
-	cell *tmp = clone_to_heap(subq, false, curr_cell, 1);
+	cell *tmp = prepare_call(subq, false, curr_cell, q->st.curr_frame, 1);
 	pl_idx nbr_cells = tmp->nbr_cells;
 	make_end(tmp+nbr_cells);
 	subq->st.curr_cell = tmp;
