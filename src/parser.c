@@ -2909,7 +2909,8 @@ unsigned tokenize(parser *p, bool args, bool consing)
 {
 	pl_idx arg_idx = p->cl->cidx, save_idx = 0;
 	bool last_op = true, is_func = false, last_num = false;
-	bool last_bar = false, last_quoted = false, last_postfix = false;
+	bool last_bar = false, last_quoted = false;
+	bool last_prefix = false, last_postfix = false;
 	unsigned arity = 1;
 	p->depth++;
 
@@ -3419,9 +3420,9 @@ unsigned tokenize(parser *p, bool args, bool consing)
 
 			int nextch = *s;
 
-			/*if (IS_PREFIX(specifier) && p->symbol && SB_strcmp(p->token, ":-"))
+			if (IS_PREFIX(specifier) && p->symbol && last_prefix)
 				;
-			else*/ if ((nextch == ',')
+			else if ((nextch == ',')
 				|| (nextch == ';')
 				|| (nextch == ')')
 				|| (nextch == '|')
@@ -3499,6 +3500,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 		last_quoted = p->is_quoted;
 		last_op = SB_strcmp(p->token, ")") && priority;
 		last_postfix = last_op && IS_POSTFIX(specifier);
+		last_prefix = last_op && IS_PREFIX(specifier);
 
 		p->start_term = false;
 		cell *c = make_a_cell(p);
