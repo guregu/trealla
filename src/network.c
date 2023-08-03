@@ -476,7 +476,7 @@ int net_getline(char **lineptr, size_t *n, stream *str)
 	return getline(lineptr, n, str->fp);
 }
 
-void net_close(stream *str)
+int net_close(stream *str)
 {
 #if USE_OPENSSL
 	if (str->ssl) {
@@ -490,13 +490,15 @@ void net_close(stream *str)
 	}
 #endif
 
+	int ok = 0;
+
 #ifdef pclose
 	if (str->pipe)
-		pclose(str->fp);
+		ok = pclose(str->fp);
 	else
 #else
 	{
-		fclose(str->fp);
+		ok = fclose(str->fp);
 
 		if (str->is_memory) {
 			SB_free(str->sb);
@@ -506,4 +508,5 @@ void net_close(stream *str)
 #endif
 
 	str->fp = NULL;
+	return ok;
 }

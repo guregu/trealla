@@ -234,7 +234,6 @@ void pl_capture(prolog *pl) {
 	stderr_stream->is_memory = true;
 }
 
-
 // Read and reset captured stdin/stdout streams
 void pl_capture_read(prolog *pl, char **stdout_str, int32_t *stdout_len, char **stderr_str, int32_t *stderr_len) {
 	stream* stdout_stream = &pl->streams[1];

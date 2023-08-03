@@ -1577,8 +1577,6 @@ static bool fn_iso_close_1(query *q)
 	parser_destroy(str->p);
 	str->p = NULL;
 
-	//printf("*** close %s\n", str->filename);
-
 	if ((str->fp == stdin)
 		|| (str->fp == stdout)
 		|| (str->fp == stderr))
@@ -1611,6 +1609,8 @@ static bool fn_iso_close_1(query *q)
 	if (!str->socket)
 		del_stream_properties(q, n);
 
+	bool ok = true;
+
 	if (is_map_stream(str)) {
 		map_destroy(str->keyval);
 		str->keyval = NULL;
@@ -1621,7 +1621,7 @@ static bool fn_iso_close_1(query *q)
 		query_destroy(str->engine);
 		str->engine = NULL;
 	} else
-		net_close(str);
+		ok = !net_close(str);
 
 	map_destroy(str->alias);
 	str->alias = NULL; //map_create((void*)fake_strcmp, (void*)keyfree, NULL);
@@ -1630,6 +1630,10 @@ static bool fn_iso_close_1(query *q)
 	free(str->data);
 	str->filename = NULL;
 	str->at_end_of_file = true;
+
+	if (!ok)
+		return throw_error(q, pstr, pstr_ctx, "io_error", strerror(errno));
+
 	return true;
 }
 
@@ -1732,7 +1736,11 @@ static bool fn_iso_flush_output_0(query *q)
 	if (is_memory_stream(str))
 		return true;
 
-	fflush(str->fp);
+	int err = fflush(str->fp);
+
+	if (err == EOF)
+		return throw_error(q, q->st.curr_cell, q->st.curr_frame, "io_error", strerror(errno));
+
 	return !ferror(str->fp);
 }
 
@@ -1748,7 +1756,11 @@ static bool fn_iso_flush_output_1(query *q)
 	if (is_memory_stream(str))
 		return true;
 
-	fflush(str->fp);
+	int err = fflush(str->fp);
+
+	if (err == EOF)
+		return throw_error(q, pstr, pstr_ctx, "io_error", strerror(errno));
+
 	return !ferror(str->fp);
 }
 
@@ -1763,7 +1775,11 @@ static bool fn_iso_nl_0(query *q)
 	if (is_memory_stream(str))
 		return true;
 	
-	//fflush(str->fp);
+	int err = fflush(str->fp);
+
+	if (err == EOF)
+		return throw_error(q, q->st.curr_cell, q->st.curr_frame, "io_error", strerror(errno));
+
 	return !ferror(str->fp);
 }
 
@@ -1782,7 +1798,11 @@ static bool fn_iso_nl_1(query *q)
 	if (is_memory_stream(str))
 		return true;
 
-	//fflush(str->fp);
+	int err = fflush(str->fp);
+
+	if (err == EOF)
+		return throw_error(q, pstr, pstr_ctx, "io_error", strerror(errno));
+
 	return !ferror(str->fp);
 }
 
@@ -2387,8 +2407,10 @@ static bool fn_iso_write_2(query *q)
 	if (is_memory_stream(str))
 		return true;
 
-	if (isatty(fileno(str->fp)))
-		fflush(str->fp);
+	if (isatty(fileno(str->fp))) {
+		if (fflush(str->fp))
+			return false;
+	}
 
 	return !ferror(str->fp);
 }
