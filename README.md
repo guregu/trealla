@@ -686,10 +686,11 @@ Examples...
 ```
 
 
-Application maps
-================
+Application maps (dictionaries)
+===============================
 
-Maps use atomic key/values only.
+Maps use atomic key/value pairs only and are represented as
+pseudo-streams:
 
 	map_create/2					# map_create(-map,+opts)
 	map_create/1					# map_create(-map)
@@ -706,6 +707,8 @@ Maps use atomic key/values only.
 	   S = <$stream>(4).
 	?- map_set(foo,1,111), map_set(foo,two,222), map_set(foo,3,333).
 	   true.
+	?- map_get(foo,3,V).
+	   V = 333.
 	?- map_del(foo,3).
 	   true.
 	?- map_list(foo,L).
@@ -713,6 +716,15 @@ Maps use atomic key/values only.
 	?- map_close(foo).
 	   true.
 ```
+
+Maps can store virtually unlimited amounts of volatile data in
+an efficient indexed manner.
+
+Maps don't require syntactic extensions to Prolog as found in
+other non-standard systems.
+
+A possible future extension would be to load a CSV file directly
+in a very efficient manner.
 
 
 HTTP 1.1

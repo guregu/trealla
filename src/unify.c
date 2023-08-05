@@ -805,14 +805,10 @@ cell *skip_max_list(query *q, cell *head, pl_idx *head_ctx, pl_int max, pl_int *
 	}
 
 	cell *slow;
-
-#if 0
 	pl_int offset = 0;
-#endif
 
 LOOP:
 
-#if 0
 	if (is_string(head)) {
 		const char *src = C_STR(q, head);
 		size_t len_src = C_STRLEN(q, head);
@@ -838,7 +834,6 @@ LOOP:
 		*skip += offset;
 		return tmp;
 	}
-#endif
 
 	// Handle ISO lists...
 
@@ -868,13 +863,11 @@ LOOP:
 
 		fast = term_next(q, fast, &fast_ctx, &done);
 
-		if (is_string(fast)) {
+		if (is_string(slow)) {
 			head = fast;
 			max -= cnt + 1;
 			max += 1;
-#if 0
 			offset = cnt;
-#endif
 			goto LOOP;
 		}
 
