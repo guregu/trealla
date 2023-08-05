@@ -90,6 +90,7 @@
               libcrypto-3-x64.dll
               libssl-3-x64.dll
               libffi-8.dll
+              libdl.dll
 
     # Roughly matches https://github.com/WebAssembly/wasi-sdk#install
     wasm:
