@@ -60,6 +60,8 @@
             pacman --noconfirm -S mingw-w64-x86_64-openssl mingw-w64-x86_64-readline vim diffutils git
         - name: Dirty?
           run: git diff-index --cached HEAD
+        - name: Version
+          run: git describe --abbrev=4 --dirty --always --tags
         - name: Build
           run: make ISOCLINE=1 release
         - name: Test
