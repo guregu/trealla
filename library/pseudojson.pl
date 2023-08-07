@@ -16,11 +16,11 @@
 json_chars(JSON, Cs) :-
 	ground(JSON),
 	json(JSON),
-	write_term_to_chars(JSON, [json(true)], Cs),
+	write_term_to_chars(JSON, [json(true), double_quotes(true)], Cs),
 	!.
 json_chars(JSON, Cs) :-
 	string(Cs),
-	read_term_from_chars(Cs, JSON, [json(true)]),
+	read_term_from_chars(Cs, JSON, [json(true), double_quotes(chars)]),
 	ground(JSON),
 	once(json(JSON)).
 
