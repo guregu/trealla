@@ -59,8 +59,7 @@
             pacman --noconfirm -S mingw-w64-x86_64-openssl mingw-w64-x86_64-readline vim diffutils git
         - name: Configure line endings
           run: |
-            git config --global core.autocrlf false
-            git config --global core.eol lf  
+            git config --global core.autocrlf input
         - uses: actions/checkout@v3
         - name: Version
           run: |
