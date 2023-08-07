@@ -58,10 +58,11 @@
           run: |
             pacman --noconfirm -S make mingw-w64-x86_64-gcc mingw-w64-x86_64-headers-git mingw-w64-x86_64-libffi mingw-w64-x86_64-dlfcn
             pacman --noconfirm -S mingw-w64-x86_64-openssl mingw-w64-x86_64-readline vim diffutils git
-        - name: Dirty?
-          run: git diff-index --cached HEAD
         - name: Version
-          run: git describe --abbrev=4 --dirty --always --tags
+          run: |
+            git describe --abbrev=4 --dirty --always --tags
+            git diff --name-only HEAD
+            git ls-files --others --exclude-standard
         - name: Build
           run: make ISOCLINE=1 release
         - name: Test
