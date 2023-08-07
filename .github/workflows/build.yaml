@@ -68,7 +68,6 @@
             fetch-depth: 0
         - name: Fetch tags
           run: git fetch --tags --force origin
-          if: ${{ github.ref_type == 'tag' }}
         - name: Version
           run: |
             git describe --abbrev=4 --dirty --always --tags
