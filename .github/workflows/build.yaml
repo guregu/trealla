@@ -21,7 +21,7 @@
             - ubuntu-latest
             - macos-latest
       steps:
-        - uses: actions/checkout@v1
+        - uses: actions/checkout@v3
         - name: Install deps (Linux)
           run: |
             sudo apt-get install libreadline-dev xxd libffi-dev libssl-dev
@@ -110,7 +110,7 @@
         WAPM_REGISTRY_TOKEN: ${{ secrets.WAPM_REGISTRY_TOKEN }}
         WIZER_VERSION: "v1.6.0"
       steps:
-        - uses: actions/checkout@v1
+        - uses: actions/checkout@v3
         - name: Set environment (1/3)
           run: |
             echo "WASI_VERSION_FULL=${WASI_VERSION}.0" >> $GITHUB_ENV
