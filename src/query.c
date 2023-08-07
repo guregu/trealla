@@ -375,6 +375,38 @@ const char *dump_id(const void *k, const void *v, const void *p)
 	return tmpbuf;
 }
 
+static bool expand_meta_predicate(query *q, predicate *pr)
+{
+	unsigned arity = q->st.key->arity;
+	cell *tmp = alloc_on_heap(q, q->st.key->nbr_cells*3);	// alloc max possible
+	check_heap_error(tmp);
+	cell *save_tmp = tmp;
+	tmp += copy_cells(tmp, q->st.key, 1);
+
+	// Expand module-sensitive args...
+
+	for (cell *k = q->st.key+1, *m = pr->meta_args+1; arity--; k += k->nbr_cells, m += m->nbr_cells) {
+		if ((k->arity == 2) && (k->val_off == g_colon_s) && is_atom(FIRST_ARG(k)))
+			;
+		else if (!is_interned(k))
+			;
+		else if ((m->val_off == g_colon_s)
+			//|| (m->val_off == g_caret_s)
+			//|| (is_smallint(m) && (get_smallint(m) >= 0) && (get_smallint(m) <= 9))
+			) {
+			make_struct(tmp, g_colon_s, NULL, 2, 1+k->nbr_cells);
+			SET_OP(tmp, OP_XFY); tmp++;
+			make_atom(tmp++, index_from_pool(q->pl, pr->m->name));
+		}
+
+		tmp += safe_copy_cells(tmp, k, k->nbr_cells);
+	}
+
+	save_tmp->nbr_cells = tmp - save_tmp;
+	q->st.save_key = q->st.key = save_tmp;
+	return true;
+}
+
 static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 {
 	q->st.iter = NULL;
@@ -382,8 +414,7 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 
 	if (!pr->idx) {
 		q->st.curr_dbe = pr->head;
-		q->st.save_key = q->st.curr_cell;
-		q->st.key = key;
+		q->st.save_key = q->st.key = key;
 		q->st.key_ctx = key_ctx;
 
 		if (key->arity) {
@@ -398,26 +429,8 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 				q->st.key_ctx = q->st.curr_frame;
 
 				if (pr->is_meta_predicate) {
-					unsigned arity = pr->key.arity;
-					cell *tmp = alloc_on_heap(q, q->st.key->nbr_cells*3);	// alloc max possible
-					check_heap_error(tmp);
-					cell *save_tmp = tmp;
-					tmp += copy_cells(tmp, q->st.key, 1);
-
-					// Expand module-sensitive args...
-
-					for (cell *k = q->st.key+1, *m = pr->meta_args+1; arity--; k += k->nbr_cells, m += m->nbr_cells) {
-						if (m->val_off == g_colon_s) {
-							make_struct(tmp, g_colon_s, NULL, 2, 1+k->nbr_cells);
-							SET_OP(tmp, OP_XFY); tmp++;
-							make_atom(tmp++, index_from_pool(q->pl, pr->m->name));
-						}
-
-						tmp += safe_copy_cells(tmp, k, k->nbr_cells);
-					}
-
-					save_tmp->nbr_cells = tmp - save_tmp;
-					q->st.save_key = q->st.key = save_tmp;
+					if (!expand_meta_predicate(q, pr))
+						return false;
 				}
 			}
 
@@ -434,6 +447,11 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 	q->st.save_key = key;
 	q->st.key = deep_clone_to_tmp(q, key, key_ctx);
 	q->st.key_ctx = q->st.curr_frame;
+
+	if (pr->is_meta_predicate) {
+		if (!expand_meta_predicate(q, pr))
+			return false;
+	}
 
 	cell *arg1 = q->st.key->arity ? FIRST_ARG(q->st.key) : NULL;
 	map *idx = pr->idx;
