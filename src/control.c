@@ -199,6 +199,12 @@ bool fn_iso_call_1(query *q)
 	check_heap_error(init_tmp_heap(q));
 	cell *tmp2 = deep_clone_to_tmp(q, p1, p1_ctx);
 	check_heap_error(tmp2);
+	bool found = false;
+
+	if (!tmp2->match) {
+		if ((tmp2->fn_ptr = get_builtin_term(q->st.m, tmp2, &found, NULL)), found)
+			tmp2->flags |= FLAG_BUILTIN;
+	}
 
 	if (check_body_callable(tmp2) != NULL)
 		return throw_error(q, tmp2, q->st.curr_frame, "type_error", "callable");
@@ -225,6 +231,12 @@ bool fn_iso_once_1(query *q)
 	check_heap_error(init_tmp_heap(q));
 	cell *tmp2 = deep_clone_to_tmp(q, p1, p1_ctx);
 	check_heap_error(tmp2);
+	bool found = false;
+
+	if (!tmp2->match) {
+		if ((tmp2->fn_ptr = get_builtin_term(q->st.m, tmp2, &found, NULL)), found)
+			tmp2->flags |= FLAG_BUILTIN;
+	}
 
 	if (check_body_callable(tmp2) != NULL)
 		return throw_error(q, tmp2, q->st.curr_frame, "type_error", "callable");
@@ -250,6 +262,12 @@ bool fn_ignore_1(query *q)
 	check_heap_error(init_tmp_heap(q));
 	cell *tmp2 = deep_clone_to_tmp(q, p1, p1_ctx);
 	check_heap_error(tmp2);
+	bool found = false;
+
+	if (!tmp2->match) {
+		if ((tmp2->fn_ptr = get_builtin_term(q->st.m, tmp2, &found, NULL)), found)
+			tmp2->flags |= FLAG_BUILTIN;
+	}
 
 	if (check_body_callable(tmp2) != NULL)
 		return throw_error(q, tmp2, q->st.curr_frame, "type_error", "callable");
