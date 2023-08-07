@@ -53,13 +53,15 @@
           shell: msys2 {0}
       steps:
         - uses: msys2/setup-msys2@v2
-        - uses: actions/checkout@v1
         - name: Install deps
           run: |
             pacman --noconfirm -S make mingw-w64-x86_64-gcc mingw-w64-x86_64-headers-git mingw-w64-x86_64-libffi mingw-w64-x86_64-dlfcn
             pacman --noconfirm -S mingw-w64-x86_64-openssl mingw-w64-x86_64-readline vim diffutils git
         - name: Configure line endings
-          run: git config --global core.autocrlf false    
+          run: |
+            git config --system core.autocrlf false
+            git config --system core.eol lf  
+        - uses: actions/checkout@v3
         - name: Version
           run: |
             git describe --abbrev=4 --dirty --always --tags
