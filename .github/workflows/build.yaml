@@ -29,8 +29,10 @@
             brew install readline vim libffi openssl make
             echo "$(brew --prefix)/opt/make/libexec/gnubin" >> $GITHUB_PATH
           if: matrix.os == 'macos-latest'
+        - name: Dirty?
+          run: git diff-index --cached HEAD
         - name: Build
-          run: make release
+          run: make GIT_VERSION=`git describe --abbrev=4 --always --tags` release
         - name: Test
           run: make test
         - name: Upload artifacts
@@ -57,7 +59,7 @@
             pacman --noconfirm -S make mingw-w64-x86_64-gcc mingw-w64-x86_64-headers-git mingw-w64-x86_64-libffi mingw-w64-x86_64-dlfcn
             pacman --noconfirm -S mingw-w64-x86_64-openssl mingw-w64-x86_64-readline vim diffutils git
         - name: Build
-          run: make ISOCLINE=1 release
+          run: make GIT_VERSION=`git describe --abbrev=4 --always --tags` ISOCLINE=1 release
         - name: Test
           run: make test
         - name: Make Windows-friendly
