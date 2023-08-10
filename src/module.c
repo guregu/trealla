@@ -719,7 +719,7 @@ bool do_use_module_1(module *curr_m, cell *p)
 	module *m;
 
 	if (!(m = load_file(curr_m, filename, false))) {
-		NET_WRITE(curr_m->pl, stdout, "Error: module file not found: %s\n", filename);
+		PL_FPRINTF(curr_m->pl, stdout, "Error: module file not found: %s\n", filename);
 		free(filename);
 		return false;
 	}
@@ -1270,7 +1270,7 @@ static db_entry *assert_begin(module *m, unsigned nbr_vars, unsigned nbr_tempora
 
 		if ((c->val_off == g_neck_s) && (c->arity == 1)) {
 			if (consulting)
-				NET_WRITE(m->pl, stdout, "Error: permission error modifying %s:(%s)/%u\n", m->name, C_STR(m, c), c->arity);
+				PL_FPRINTF(m->pl, stdout, "Error: permission error modifying %s:(%s)/%u\n", m->name, C_STR(m, c), c->arity);
 
 			return NULL;
 		}
@@ -1316,7 +1316,7 @@ static db_entry *assert_begin(module *m, unsigned nbr_vars, unsigned nbr_tempora
 		pr = create_predicate(m, c, &created);
 
 		if (!pr && consulting)
-			NET_WRITE(m->pl, stdout, "Error: permission error modifying %s:(%s)/%u\n", m->name, C_STR(m, c), c->arity);
+			PL_FPRINTF(m->pl, stdout, "Error: permission error modifying %s:(%s)/%u\n", m->name, C_STR(m, c), c->arity);
 
 		check_error(pr);
 
@@ -1966,7 +1966,7 @@ bool save_file(module *m, const char *filename)
 	FILE *fp = fopen(filename, "w");
 
 	if (!fp) {
-		NET_WRITE(m->pl, stdout, "Error: file '%s' cannot be created\n", filename);
+		PL_FPRINTF(m->pl, stdout, "Error: file '%s' cannot be created\n", filename);
 		return false;
 	}
 

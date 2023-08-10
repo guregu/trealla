@@ -963,7 +963,7 @@ int get_named_stream(prolog *pl, const char *name, size_t len);
 __attribute__((weak))
 char g_wasm_print_buf[512];
 
-#define PL_WRITE(pl, fd, fmt, ...) do { \
+#define PL_FPRINTF(pl, fd, fmt, ...) do { \
 	size_t wasm_print_size = snprintf(g_wasm_print_buf,						\
 		sizeof(g_wasm_print_buf), fmt, __VA_ARGS__);						\
 	if ((pl) && is_live_stream(&(pl)->streams[1]))							\
@@ -972,14 +972,14 @@ char g_wasm_print_buf[512];
 		fprintf(WARN_FP, fmt, __VA_ARGS__); 								\
 } while(0)
 
-#define PRINTF(fmt, ...) PL_WRITE(p->pl, stdout, fmt, __VA_ARGS__)
+#define PRINTF(fmt, ...) PL_FPRINTF(p->pl, stdout, fmt, __VA_ARGS__)
 
 #define FPRINTF(fd, fmt, ...) PRINTF(fmt, __VA_ARGS__)
 
 #else
 #define WARN_FP stdout
 #define ERROR_FP
-#define PL_WRITE(pl, fd, fmt, ...) fprintf(fd, fmt, __VA_ARGS__)
+#define PL_FPRINTF(pl, fd, fmt, ...) fprintf(fd, fmt, __VA_ARGS__)
 #define PRINTF(fmt, ...) printf(fmt, __VA_ARGS__)
 #define FPRINTF(fd, fmt, ...) fprintf(fd, fmt, __VA_ARGS__)
 #endif
