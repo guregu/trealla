@@ -4138,6 +4138,9 @@ static bool fn_module_info_2(query *q)
 			append_list(q, tmp);
 	}
 
+	if (first_time)
+		return unify(q, p2, p2_ctx, make_nil(), q->st.curr_frame);
+
 	cell *l = end_list(q);
 	return unify(q, p2, p2_ctx, l, q->st.curr_frame);
 }
@@ -4196,6 +4199,9 @@ static bool fn_source_info_2(query *q)
 		} else
 			append_list(q, tmp);
 	}
+
+	if (first_time)
+		return unify(q, p2, p2_ctx, make_nil(), q->st.curr_frame);
 
 	cell *l = end_list(q);
 	return unify(q, p2, p2_ctx, l, q->st.curr_frame);
