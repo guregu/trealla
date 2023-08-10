@@ -67,11 +67,11 @@ bool wrap_ffi_predicate(query *q, builtins *fn_ptr);
 #define is_iso_atom_or_var(c) (is_iso_atom(c) || is_var(c))
 #define is_iso_atomic_or_var(c) (is_iso_atom(c) || is_number(c) || is_var(c))
 
-#define is_memory_stream(str) (str->is_memory)
-#define is_map_stream(str) (str->is_map)
-#define is_engine_stream(str) (str->is_engine)
+#define is_memory_stream(str) ((str)->is_memory)
+#define is_map_stream(str) ((str)->is_map)
+#define is_engine_stream(str) ((str)->is_engine)
 #define is_virtual_stream(str) (is_memory_stream(str) || is_map_stream(str) || is_engine_stream(str))
-#define is_live_stream(str) (str->fp || is_virtual_stream(str))
+#define is_live_stream(str) ((str)->fp || is_virtual_stream(str))
 
 void make_uint(cell *tmp, pl_uint v);
 void make_int(cell *tmp, pl_int v);

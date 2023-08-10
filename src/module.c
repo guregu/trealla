@@ -715,7 +715,7 @@ bool do_use_module_1(module *curr_m, cell *p)
 	module *m;
 
 	if (!(m = load_file(curr_m, filename, false))) {
-		fprintf(stdout, "Error: module file not found: %s\n", filename);
+		NET_WRITE(curr_m->pl, stdout, "Error: module file not found: %s\n", filename);
 		free(filename);
 		return false;
 	}
@@ -1266,7 +1266,7 @@ static db_entry *assert_begin(module *m, unsigned nbr_vars, unsigned nbr_tempora
 
 		if ((c->val_off == g_neck_s) && (c->arity == 1)) {
 			if (consulting)
-				fprintf(stdout, "Error: permission error modifying %s:(%s)/%u\n", m->name, C_STR(m, c), c->arity);
+				NET_WRITE(m->pl, stdout, "Error: permission error modifying %s:(%s)/%u\n", m->name, C_STR(m, c), c->arity);
 
 			return NULL;
 		}
@@ -1312,7 +1312,7 @@ static db_entry *assert_begin(module *m, unsigned nbr_vars, unsigned nbr_tempora
 		pr = create_predicate(m, c, &created);
 
 		if (!pr && consulting)
-			fprintf(stdout, "Error: permission error modifying %s:(%s)/%u\n", m->name, C_STR(m, c), c->arity);
+			NET_WRITE(m->pl, stdout, "Error: permission error modifying %s:(%s)/%u\n", m->name, C_STR(m, c), c->arity);
 
 		check_error(pr);
 
@@ -1614,7 +1614,7 @@ module *load_text(module *m, const char *src, const char *filename)
 
 	if (!p->error && !p->already_loaded_error && !p->end_of_term && p->cl->cidx) {
 		if (DUMP_ERRS || !p->do_read_term)
-			fprintf(stdout, "Error: syntax error, incomplete statement, %s:%d\n", filename, p->line_nbr);
+			FPRINTF(stdout, "Error: syntax error, incomplete statement, %s:%d\n", filename, p->line_nbr);
 
 		p->error = true;
 	}
@@ -1754,7 +1754,7 @@ module *load_fp(module *m, FILE *fp, const char *filename, bool including)
 
 	if (!p->error && !p->already_loaded_error && !p->end_of_term && p->cl->cidx) {
 		if (DUMP_ERRS || !p->do_read_term)
-			fprintf(stdout, "Error: syntax error, incomplete statement, %s:%d\n", filename, p->line_nbr);
+			FPRINTF(stdout, "Error: syntax error, incomplete statement, %s:%d\n", filename, p->line_nbr);
 
 		p->error = true;
 	}
@@ -1962,7 +1962,7 @@ bool save_file(module *m, const char *filename)
 	FILE *fp = fopen(filename, "w");
 
 	if (!fp) {
-		fprintf(stdout, "Error: file '%s' cannot be created\n", filename);
+		NET_WRITE(m->pl, stdout, "Error: file '%s' cannot be created\n", filename);
 		return false;
 	}
 

@@ -953,3 +953,31 @@ inline static int fake_strcmp(const void *ptr1, const void *ptr2, const void *pa
 		return throw_error(q, p, p##_ctx, "type_error", "chars");
 
 int get_named_stream(prolog *pl, const char *name, size_t len);
+
+#ifdef __wasi__
+#include "network.h"
+#define WARN_FP stderr
+
+// Hacky way to capture error output for wasm builds
+
+char g_wasm_print_buf[250];
+
+#define NET_WRITE(pl, fd, fmt, ...) do { \
+	size_t wasm_print_size = snprintf(g_wasm_print_buf,						\
+		sizeof(g_wasm_print_buf), fmt, __VA_ARGS__);						\
+	if ((pl) && is_live_stream(&(pl)->streams[1]))							\
+		net_write(g_wasm_print_buf, wasm_print_size, &(pl)->streams[1]);	\
+	else																	\
+		fprintf(WARN_FP, fmt, __VA_ARGS__); 								\
+} while(0)
+
+#define PRINTF(fmt, ...) NET_WRITE(p->pl, stdout, fmt, __VA_ARGS__)
+
+#define FPRINTF(fd, fmt, ...) PRINTF(fmt, __VA_ARGS__)
+
+#else
+#define WARN_FP stdout
+#define NET_WRITE(pl, fd, fmt, ...) fprintf(fd, fmt, __VA_ARGS__)
+#define PRINTF(fmt, ...) printf(fmt, __VA_ARGS__)
+#define FPRINTF(fd, fmt, ...) fprintf(fd, fmt, __VA_ARGS__)
+#endif
