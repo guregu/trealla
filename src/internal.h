@@ -955,12 +955,14 @@ inline static int fake_strcmp(const void *ptr1, const void *ptr2, const void *pa
 int get_named_stream(prolog *pl, const char *name, size_t len);
 
 #ifdef __wasi__
-#include "network.h"
 #define WARN_FP stderr
 
 // Hacky way to capture error output for wasm builds
 
+#ifndef NET_WRITE
+__attribute__((weak))
 char g_wasm_print_buf[250];
+#endif
 
 #define NET_WRITE(pl, fd, fmt, ...) do { \
 	size_t wasm_print_size = snprintf(g_wasm_print_buf,						\

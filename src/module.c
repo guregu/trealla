@@ -11,6 +11,10 @@
 #include "prolog.h"
 #include "query.h"
 
+#ifdef __wasi__
+#include "network.h"
+#endif
+
 struct loaded_file_ {
 	loaded_file *next;
 	char *filename;

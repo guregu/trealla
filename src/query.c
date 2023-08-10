@@ -335,15 +335,8 @@ bool has_next_key(query *q)
 			dkey++;
 
 		if (karg1) {
-			cell *darg1 = dkey + 1;
-
-			if (is_atomic(karg1) && is_iso_list(darg1))
+			if (index_cmpkey(karg1, FIRST_ARG(dkey), q->st.m, NULL) != 0)
 				continue;
-
-			if (is_atomic(karg1) && !darg1->arity) {
-				if (index_cmpkey(karg1, darg1, q->st.m, NULL) != 0)
-					continue;
-			}
 		}
 
 		//DUMP_TERM("key", q->st.key, q->st.key_ctx, 0);
@@ -390,10 +383,7 @@ static bool expand_meta_predicate(query *q, predicate *pr)
 			;
 		else if (!is_interned(k))
 			;
-		else if ((m->val_off == g_colon_s)
-			//|| (m->val_off == g_caret_s)
-			//|| (is_smallint(m) && (get_smallint(m) >= 0) && (get_smallint(m) <= 9))
-			) {
+		else if (m->val_off == g_colon_s) {
 			make_struct(tmp, g_colon_s, NULL, 2, 1+k->nbr_cells);
 			SET_OP(tmp, OP_XFY); tmp++;
 			make_atom(tmp++, index_from_pool(q->pl, pr->m->name));
