@@ -821,7 +821,7 @@ static bool directives(parser *p, cell *d)
 
 			if (is_var(c_name)) {
 				if (((DUMP_ERRS || !p->do_read_term)) && !p->m->pl->quiet)
-					FPRINTF(WARN_FP, "Error: uninstantiated: %s/%d\n", dirname, c->arity);
+					FPRINTF(ERROR_FP, "Error: uninstantiated: %s/%d\n", dirname, c->arity);
 
 				p->error = true;
 				return true;
@@ -881,7 +881,7 @@ static bool directives(parser *p, cell *d)
 				}
 			} else {
 				if (((DUMP_ERRS || !p->do_read_term)) && !p->m->pl->quiet)
-					FPRINTF(WARN_FP, "Error: unknown directive: %s/%d\n", dirname, c->arity);
+					FPRINTF(ERROR_FP, "Error: unknown directive: %s/%d\n", dirname, c->arity);
 
 				p->error = true;
 				return true;
@@ -896,7 +896,7 @@ static bool directives(parser *p, cell *d)
 
 	if (is_var(p1)) {
 		if (((DUMP_ERRS || !p->do_read_term)) && !p->m->pl->quiet)
-			FPRINTF(WARN_FP, "Error: uninstantiated: %s/%d\n", dirname, c->arity);
+			FPRINTF(ERROR_FP, "Error: uninstantiated: %s/%d\n", dirname, c->arity);
 
 		p->error = true;
 		return true;
@@ -925,7 +925,7 @@ static bool directives(parser *p, cell *d)
 
 			if (is_var(c_name)) {
 				if (((DUMP_ERRS || !p->do_read_term)) && !p->m->pl->quiet)
-					FPRINTF(WARN_FP, "Error: uninstantiated: %s/%d\n", dirname, c->arity);
+					FPRINTF(ERROR_FP, "Error: uninstantiated: %s/%d\n", dirname, c->arity);
 
 				p->error = true;
 				return true;
@@ -968,7 +968,7 @@ static bool directives(parser *p, cell *d)
 				set_dynamic_in_db(m, C_STR(p, c_name), arity);
 			} else {
 				if (((DUMP_ERRS || !p->do_read_term)) && !p->m->pl->quiet)
-					FPRINTF(WARN_FP, "Error: unknown directive: %s/%d\n", dirname, c->arity);
+					FPRINTF(ERROR_FP, "Error: unknown directive: %s/%d\n", dirname, c->arity);
 
 				p->error = true;
 				return true;
@@ -986,7 +986,7 @@ static bool directives(parser *p, cell *d)
 			p1 += 1;
 		else {
 			if (((DUMP_ERRS || !p->do_read_term)) && !p->m->pl->quiet)
-				FPRINTF(WARN_FP, "Error: unknown directive: %s/%d\n", dirname, c->arity);
+				FPRINTF(ERROR_FP, "Error: unknown directive: %s/%d\n", dirname, c->arity);
 
 			p->error = true;
 			return true;

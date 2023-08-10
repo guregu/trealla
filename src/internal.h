@@ -956,13 +956,12 @@ int get_named_stream(prolog *pl, const char *name, size_t len);
 
 #ifdef __wasi__
 #define WARN_FP stderr
+#define ERROR_FP stderr
 
 // Hacky way to capture error output for wasm builds
 
-#ifndef NET_WRITE
 __attribute__((weak))
 char g_wasm_print_buf[250];
-#endif
 
 #define NET_WRITE(pl, fd, fmt, ...) do { \
 	size_t wasm_print_size = snprintf(g_wasm_print_buf,						\
@@ -979,6 +978,7 @@ char g_wasm_print_buf[250];
 
 #else
 #define WARN_FP stdout
+#define ERROR_FP stdout
 #define NET_WRITE(pl, fd, fmt, ...) fprintf(fd, fmt, __VA_ARGS__)
 #define PRINTF(fmt, ...) printf(fmt, __VA_ARGS__)
 #define FPRINTF(fd, fmt, ...) fprintf(fd, fmt, __VA_ARGS__)
