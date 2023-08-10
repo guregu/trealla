@@ -956,7 +956,7 @@ int get_named_stream(prolog *pl, const char *name, size_t len);
 
 #ifdef __wasi__
 #define WARN_FP stderr
-#define ERROR_FP stderr
+#define ERROR_FP stdout
 
 // Hacky way to capture error output for wasm builds
 
@@ -972,13 +972,13 @@ char g_wasm_print_buf[512];
 		fprintf(WARN_FP, fmt, __VA_ARGS__); 								\
 } while(0)
 
-#define PRINTF(fmt, ...) PL_FPRINTF(p->pl, stdout, fmt, __VA_ARGS__)
+#define PRINTF(fmt, ...) PL_FPRINTF(p->pl, ERROR_FP, fmt, __VA_ARGS__)
 
 #define FPRINTF(fd, fmt, ...) PRINTF(fmt, __VA_ARGS__)
 
 #else
 #define WARN_FP stdout
-#define ERROR_FP
+#define ERROR_FP stdout
 #define PL_FPRINTF(pl, fd, fmt, ...) fprintf(fd, fmt, __VA_ARGS__)
 #define PRINTF(fmt, ...) printf(fmt, __VA_ARGS__)
 #define FPRINTF(fd, fmt, ...) fprintf(fd, fmt, __VA_ARGS__)
