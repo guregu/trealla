@@ -11,7 +11,7 @@
 #include "prolog.h"
 #include "spin-http.h"
 #include "stringbuf.h"
-#include "map.h"
+#include "skiplist.h"
 #include "internal.h"
 
 #include "spin.h"
@@ -181,15 +181,15 @@ BADMETHOD:
 	str = &pl->streams[n];
 	spin_http_headers_t response_headers = {0};
 	if (str->is_map) {
-		map *m = str->keyval;
+		skiplist *m = str->keyval;
 
 		const char *sch;
-		if (map_get(m, "status", (const void **)&sch)) {
+		if (sl_get(m, "status", (const void **)&sch)) {
 			status = atoi(sch);
-			map_del(m, "status");
+			sl_del(m, "status");
 		}
 
-		size_t count = map_count(m);
+		size_t count = sl_count(m);
 		response_headers.len = count;
 		spin_http_tuple2_string_string_t *headers = calloc(count,
 			sizeof(spin_http_tuple2_string_string_t));
@@ -197,19 +197,19 @@ BADMETHOD:
 		if (count > 0)
 			response->headers.is_some = true;
 
-		miter *iter = map_first(m);
+		sliter *iter = sl_first(m);
 		const char *value;
 		size_t i = 0;
-		while (map_next(iter, (void **)&value)) {
+		while (sl_next(iter, (void **)&value)) {
 			spin_http_tuple2_string_string_t *header = &headers[i++];
-			const char *key = map_key(iter);
+			const char *key = sl_key(iter);
 			spin_http_string_t header_name, header_value;
 			spin_http_string_dup(&header_name, key);
 			spin_http_string_dup(&header_value, value);
 			header->f0 = header_name;
 			header->f1 = header_value;
 		}
-		map_done(iter);
+		sl_done(iter);
 	}
 	response->headers.val = response_headers;
 

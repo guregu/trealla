@@ -213,39 +213,39 @@ static bool fn_sys_wasi_outbound_http_5(query *q)
 
 	// Request method
 	const char *tmpstr;
-	if (map_get(req_str->keyval, "method", (const void **)&tmpstr)) {
+	if (sl_get(req_str->keyval, "method", (const void **)&tmpstr)) {
 		if (!spin_http_method_lookup(tmpstr, &request.method))
 			return throw_error(q, p2, q->st.curr_frame, "domain_error", "http_method");
 	}
 
 	// Request body
-	if (map_get(req_str->keyval, "body", (const void **)&tmpstr)) {
+	if (sl_get(req_str->keyval, "body", (const void **)&tmpstr)) {
 		request.body.is_some = true;
 		request.body.val.len = strlen(tmpstr);
 		request.body.val.ptr = (uint8_t *)strdup(tmpstr);
 	}
 
 	// Request headers
-	size_t req_hdr_ct = map_count(req_hdr_str->keyval);
+	size_t req_hdr_ct = sl_count(req_hdr_str->keyval);
 	if (req_hdr_ct > 0) {
 		request.headers.len = req_hdr_ct;
 		wasi_outbound_http_tuple2_string_string_t *headers = calloc(req_hdr_ct,
 			sizeof(wasi_outbound_http_tuple2_string_string_t));
 		request.headers.ptr = headers;
 
-		miter *iter = map_first(req_hdr_str->keyval);
+		sliter *iter = sl_first(req_hdr_str->keyval);
 		const char *value;
 		size_t i = 0;
-		while (map_next(iter, (void **)&value)) {
+		while (sl_next(iter, (void **)&value)) {
 			wasi_outbound_http_tuple2_string_string_t *header = &headers[i++];
-			const char *key = map_key(iter);
+			const char *key = sl_key(iter);
 			wasi_outbound_http_string_t header_name, header_value;
 			wasi_outbound_http_string_dup(&header_name, key);
 			wasi_outbound_http_string_dup(&header_value, value);
 			header->f0 = header_name;
 			header->f1 = header_value;
 		}
-		map_done(iter);
+		sl_done(iter);
 	}
 
 	wasi_outbound_http_http_error_t code = wasi_outbound_http_request(&request, &response);
@@ -272,14 +272,14 @@ static bool fn_sys_wasi_outbound_http_5(query *q)
 	// Response status
 	char tmpbuf[8];
 	snprintf(tmpbuf, sizeof(tmpbuf), "%d", response.status);
-	map_set(resp_str->keyval, strdup("status"), strdup(tmpbuf));
+	sl_set(resp_str->keyval, strdup("status"), strdup(tmpbuf));
 
 	// Response body
 	if (response.body.is_some) {
 		char *body = malloc(response.body.val.len + 1);
 		body[response.body.val.len] = 0;
 		memcpy(body, response.body.val.ptr, response.body.val.len);
-		map_set(resp_str->keyval, strdup("body"), body);
+		sl_set(resp_str->keyval, strdup("body"), body);
 	}
 
 	// Response headers
@@ -296,7 +296,7 @@ static bool fn_sys_wasi_outbound_http_5(query *q)
 			v[header->f1.len] = 0;
 			memcpy(v, header->f1.ptr, header->f1.len);
 
-			map_set(resp_hdr_str->keyval, k, v);
+			sl_set(resp_hdr_str->keyval, k, v);
 		}
 	}
 

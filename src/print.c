@@ -745,19 +745,19 @@ static ssize_t print_term_to_buf_(query *q, char *dst, size_t dstlen, cell *c, p
 	if (q->is_dump_vars && (c->tag == TAG_INTEGER) && is_stream(c)) {
 		int n = get_stream(q, c);
 		stream *str = &q->pl->streams[n];
-		miter *iter = map_first(str->alias);
+		sliter *iter = sl_first(str->alias);
 
-		if (iter && map_next(iter, NULL)) {
-			const char *alias = map_key(iter);
+		if (iter && sl_next(iter, NULL)) {
+			const char *alias = sl_key(iter);
 
 			if (strcmp(alias, "user_input") && strcmp(alias, "user_output") && strcmp(alias, "user_error"))
 				dst += formatted(dst, dstlen, alias, strlen(alias), false, q->json);
 			else
 				dst += snprintf(dst, dstlen, "'<$stream>'(%d)", (int)get_smallint(c));
+
+			sl_done(iter);
 		} else
 			dst += snprintf(dst, dstlen, "'<$stream>'(%d)", (int)get_smallint(c));
-		
-		map_done(iter);
 
 		q->last_thing = WAS_OTHER;
 		return dst - save_dst;

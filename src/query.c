@@ -45,7 +45,7 @@ typedef enum { CALL, EXIT, REDO, NEXT, FAIL } box_t;
 #define TRACE_MEM 0
 
 // Note: when in commit there is a provisional choice point
-// that we should skip over, hence the '1' ...
+// that we should ignore, hence the '1' ...
 
 static bool any_choices(const query *q, const frame *f)
 {
@@ -279,30 +279,24 @@ static bool can_view(query *q, size_t ugen, const db_entry *dbe)
 
 static void setup_key(query *q)
 {
-	if (!q->pl->opt)
-		return;
-
 	cell *arg1 = FIRST_ARG(q->st.key);
-
 	arg1 = deref(q, arg1, q->st.key_ctx);
 	pl_idx arg1_ctx = q->latest_ctx;
-	cell *arg11 = NULL;
-
-	if (arg1->arity == 1)
-		arg11 = deref(q, FIRST_ARG(arg1), arg1_ctx);
 
 	if (is_iso_atomic(arg1))
 		q->st.karg1_is_ground = true;
-	else if (arg11 && is_atomic(arg11))
-		q->st.karg1_is_ground = true;
+	else if (arg1->arity == 1) {
+		const cell *arg11 = deref(q, FIRST_ARG(arg1), arg1_ctx);
+		q->st.karg1_is_ground = is_atomic(arg11);
+	}
 }
 
 static void next_key(query *q)
 {
 	if (q->st.iter) {
-		if (!map_next(q->st.iter, (void*)&q->st.curr_dbe)) {
+		if (!sl_next(q->st.iter, (void*)&q->st.curr_dbe)) {
 			q->st.curr_dbe = NULL;
-			map_done(q->st.iter);
+			sl_done(q->st.iter);
 			q->st.iter = NULL;
 		}
 
@@ -315,38 +309,38 @@ static void next_key(query *q)
 bool has_next_key(query *q)
 {
 	if (q->st.iter)
-		return map_is_next(q->st.iter, NULL);
+		return sl_is_next(q->st.iter, NULL);
+
+	if (!q->st.curr_dbe->next)
+		return false;
 
 	if (!q->st.key->arity || !q->pl->opt)
-		return q->st.curr_dbe->next ? true : false;
+		return true;
 
-	clause *cl = &q->st.curr_dbe->cl;
-	predicate *pr = q->st.curr_dbe->owner;
-	cell *karg1 = NULL;
+	const cell *qarg1 = NULL;
 
 	if (q->st.karg1_is_ground)
-		karg1 = deref(q, FIRST_ARG(q->st.key), q->st.key_ctx);
+		qarg1 = deref(q, FIRST_ARG(q->st.key), q->st.key_ctx);
+	else
+		qarg1 = FIRST_ARG(q->st.key);
 
-	for (db_entry *next = q->st.curr_dbe->next; next; next = next->next) {
-		cl = &next->cl;
-		cell *dkey = cl->cells;
+	//DUMP_TERM("key ", q->st.key, q->st.key_ctx, 1);
+
+	for (const db_entry *next = q->st.curr_dbe->next; next; next = next->next) {
+		const cell *dkey = next->cl.cells;
 
 		if ((dkey->val_off == g_neck_s) && (dkey->arity == 2))
 			dkey++;
 
-		if (karg1) {
-			if (index_cmpkey(karg1, FIRST_ARG(dkey), q->st.m, NULL) != 0)
-				continue;
-		}
-
-		//DUMP_TERM("key", q->st.key, q->st.key_ctx, 0);
 		//DUMP_TERM("next", dkey, q->st.curr_frame, 0);
 
-		if (index_cmpkey(q->st.key, dkey, q->st.m, NULL) == 0)
+		if (index_cmpkey(qarg1, FIRST_ARG(dkey), q->st.m, NULL) == 0)
 			return true;
 
 #if 1
 		// This is needed for: tpl -g run ~/retina/retina.pl ~/retina/rdfsurfaces/lubm/lubm.s
+
+		const predicate *pr = q->st.curr_dbe->owner;
 
 		if (pr->is_dynamic
 			&& !q->st.karg1_is_ground
@@ -393,7 +387,7 @@ static bool expand_meta_predicate(query *q, predicate *pr)
 	}
 
 	save_tmp->nbr_cells = tmp - save_tmp;
-	q->st.save_key = q->st.key = save_tmp;
+	q->st.key = save_tmp;
 	return true;
 }
 
@@ -401,11 +395,11 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 {
 	q->st.iter = NULL;
 	q->st.karg1_is_ground = false;
+	q->st.key = key;
+	q->st.key_ctx = key_ctx;
 
 	if (!pr->idx) {
 		q->st.curr_dbe = pr->head;
-		q->st.save_key = q->st.key = key;
-		q->st.key_ctx = key_ctx;
 
 		if (key->arity) {
 			if (pr->is_dynamic || pr->is_multifile || pr->is_meta_predicate) {
@@ -434,17 +428,16 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 	// we only need a temporary clone...
 
 	check_heap_error(init_tmp_heap(q));
-	q->st.save_key = key;
-	q->st.key = deep_clone_to_tmp(q, key, key_ctx);
-	q->st.key_ctx = q->st.curr_frame;
+	key = deep_clone_to_tmp(q, key, key_ctx);
+	key_ctx = q->st.curr_frame;
 
 	if (pr->is_meta_predicate) {
 		if (!expand_meta_predicate(q, pr))
 			return false;
 	}
 
-	cell *arg1 = q->st.key->arity ? FIRST_ARG(q->st.key) : NULL;
-	map *idx = pr->idx;
+	cell *arg1 = key->arity ? FIRST_ARG(key) : NULL;
+	skiplist *idx = pr->idx;
 
 	if (arg1 && (is_var(arg1) || pr->is_var_in_first_arg)) {
 		if (!pr->idx2) {
@@ -459,20 +452,20 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 			return true;
 		}
 
-		q->st.key = arg2;
+		key = arg2;
 		idx = pr->idx2;
 	}
 
 #define DEBUGIDX 0
 
 #if DEBUGIDX
-	DUMP_TERM("search, term = ", q->st.key, q->st.curr_frame);
+	DUMP_TERM("search, term = ", key, key_ctx);
 #endif
 
 	q->st.curr_dbe = NULL;
-	miter *iter;
+	sliter *iter;
 
-	if (!(iter = map_find_key(idx, q->st.key)))
+	if (!(iter = sl_find_key(idx, key)))
 		return false;
 
 	// If the index search has found just one (definite) solution
@@ -480,34 +473,34 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 	// results must be returned in database order, so prefetch all
 	// the results and return them sorted as an iterator...
 
-	map *tmp_idx = NULL;
+	skiplist *tmp_idx = NULL;
 	const db_entry *dbe;
 
-	while (map_next_key(iter, (void*)&dbe)) {
+	while (sl_next_key(iter, (void*)&dbe)) {
 #if DEBUGIDX
 		DUMP_TERM("   got, key = ", dbe->cl.cells, q->st.curr_frame);
 #endif
 
 		if (!tmp_idx) {
-			tmp_idx = map_create(NULL, NULL, NULL);
-			map_allow_dups(tmp_idx, false);
-			map_set_tmp(tmp_idx);
+			tmp_idx = sl_create(NULL, NULL, NULL);
+			sl_allow_dups(tmp_idx, false);
+			sl_set_tmp(tmp_idx);
 		}
 
-		map_app(tmp_idx, (void*)(size_t)dbe->db_id, (void*)dbe);
+		sl_app(tmp_idx, (void*)(size_t)dbe->db_id, (void*)dbe);
 	}
 
-	map_done(iter);
+	sl_done(iter);
 
 	if (!tmp_idx)
 		return false;
 
 	//sl_dump(tmp_idx, dump_id, q);
 
-	iter = map_first(tmp_idx);
+	iter = sl_first(tmp_idx);
 
-	if (!map_next(iter, (void*)&q->st.curr_dbe)) {
-		map_done(iter);
+	if (!sl_next(iter, (void*)&q->st.curr_dbe)) {
+		sl_done(iter);
 		return false;
 	}
 
@@ -631,8 +624,8 @@ static void leave_predicate(query *q, predicate *pr)
 
 			if (pr->idx && pr->cnt) {
 				//predicate *pr = dbe->owner;
-				map_remove(pr->idx2, dbe);
-				map_remove(pr->idx, dbe);
+				sl_remove(pr->idx2, dbe);
+				sl_remove(pr->idx, dbe);
 			}
 
 			dbe->cl.is_deleted = true;
@@ -645,8 +638,8 @@ static void leave_predicate(query *q, predicate *pr)
 		pr->dirty_list = NULL;
 
 		if (pr->idx && !pr->cnt) {
-			map_destroy(pr->idx2);
-			map_destroy(pr->idx);
+			sl_destroy(pr->idx2);
+			sl_destroy(pr->idx);
 			pr->idx = pr->idx2 = NULL;
 		}
 	} else {
@@ -712,7 +705,7 @@ void drop_choice(query *q)
 	choice *ch = GET_CURR_CHOICE();
 
 	if (ch->st.iter) {
-		map_done(ch->st.iter);
+		sl_done(ch->st.iter);
 		ch->st.iter = NULL;
 	}
 
@@ -853,8 +846,8 @@ static void commit_me(query *q)
 		q->st.m = q->st.curr_dbe->owner->m;
 	}
 
-	bool implied_first_cut = !q->has_vars && cl->is_unique;
-	bool last_match = implied_first_cut || cl->is_first_cut || !has_next_key(q);
+	bool is_det = !q->has_vars && cl->is_unique;
+	bool last_match = is_det || cl->is_first_cut || !has_next_key(q);
 	bool tco = false;
 
 	if (q->no_tco && (cl->nbr_vars != cl->nbr_temporaries))
@@ -878,6 +871,7 @@ static void commit_me(query *q)
 		f = push_frame(q, cl->nbr_vars);
 
 	if (last_match) {
+		Trace(q, get_head(q->st.curr_dbe->cl.cells), q->st.curr_frame, EXIT);
 		leave_predicate(q, q->st.pr);
 		drop_choice(q);
 
@@ -899,6 +893,7 @@ void stash_me(query *q, const clause *cl, bool last_match)
 	pl_idx cgen = ++q->cgen;
 
 	if (last_match) {
+		Trace(q, get_head(q->st.curr_dbe->cl.cells), q->st.curr_frame, EXIT);
 		leave_predicate(q, q->st.pr);
 		drop_choice(q);
 	} else {
@@ -995,7 +990,7 @@ void cut(query *q)
 			&& (f2->actual_slots == 0)
 			) {
 				q->st.fp = ch->st.fp;
-			}
+		}
 
 		leave_predicate(q, ch->st.pr);
 		drop_choice(q);
@@ -1080,28 +1075,7 @@ bool drop_barrier(query *q, pl_idx cp)
 	return false;
 }
 
-// Prune dead frames from the top down...
-
-static void chop_frames(query *q, const frame *f)
-{
-	if (q->st.curr_frame == (q->st.fp-1)) {
-		const frame *tmpf = f;
-		pl_idx prev_frame = q->st.curr_frame - f->prev_offset;
-
-		while (q->st.fp > (prev_frame+1)) {
-			if (any_choices(q, tmpf))
-				break;
-
-			q->tot_srecovs += q->st.sp - tmpf->base;
-			q->tot_frecovs++;
-			q->st.sp = tmpf->base;
-			q->st.fp--;
-			tmpf--;
-		}
-	}
-}
-
-// Resume previous frame...
+// Resume next goal in previous clause...
 
 static bool resume_frame(query *q)
 {
@@ -1109,10 +1083,6 @@ static bool resume_frame(query *q)
 		return false;
 
 	const frame *f = GET_CURR_FRAME();
-
-	if (q->pl->opt && 0)
-		chop_frames(q, f);
-
 	q->st.curr_cell = f->curr_cell;
 	q->st.curr_frame = q->st.curr_frame - f->prev_offset;
 	f = GET_CURR_FRAME();
@@ -1120,15 +1090,15 @@ static bool resume_frame(query *q)
 	return true;
 }
 
-// Proceed to next goal in frame...
+// Proceed to next goal in current clause...
 
 static void proceed(query *q)
 {
 	q->st.curr_cell += q->st.curr_cell->nbr_cells;
+	frame *f = GET_CURR_FRAME();
 
 	while (is_end(q->st.curr_cell)) {
 		if (q->st.curr_cell->val_ret) {
-			frame *f = GET_CURR_FRAME();
 			f->cgen = q->st.curr_cell->cgen;
 			q->st.m = q->pl->modmap[q->st.curr_cell->mid];
 		}
@@ -1439,7 +1409,7 @@ static bool match_head(query *q)
 		cell *head = get_head(cl->cells);
 		try_me(q, cl->nbr_vars);
 
-		if (unify(q, q->st.save_key, q->st.key_ctx, head, q->st.fp)) {
+		if (unify(q, q->st.key, q->st.key_ctx, head, q->st.fp)) {
 			if (q->error)
 				break;
 
@@ -1626,7 +1596,6 @@ bool start(query *q)
 			if (q->run_hook && !q->in_hook)
 				do_post_unification_hook(q, false);
 		} else {
-			//Trace(q, save_cell, save_ctx, EXIT);
 			if (consultall(q, q->st.curr_cell, q->st.curr_frame) != true) {
 				q->retry = QUERY_RETRY;
 				q->tot_backtracks++;
@@ -1656,10 +1625,6 @@ bool start(query *q)
 		q->retry = QUERY_OK;
 
 		while (!q->st.curr_cell || is_end(q->st.curr_cell)) {
-			if (q->st.curr_dbe) {
-				Trace(q, get_head(q->st.curr_dbe->cl.cells), q->st.curr_frame, EXIT);
-			}
-
 			if (resume_frame(q)) {
 				proceed(q);
 				continue;

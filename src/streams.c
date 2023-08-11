@@ -426,7 +426,7 @@ int get_named_stream(prolog *pl, const char *name, size_t len)
 		if (!is_live_stream(str) || str->ignore)
 			continue;
 
-		if (map_get(str->alias, name, NULL))
+		if (sl_get(str->alias, name, NULL))
 			return i;
 
 		if (str->filename && (strlen(str->filename) == len)
@@ -521,15 +521,15 @@ static void add_stream_properties(query *q, int n)
 	}
 
 	char tmpbuf2[1024*4];
-	miter *iter = map_first(str->alias);
+	sliter *iter = sl_first(str->alias);
 
-	while (map_next(iter, NULL)) {
-		const char *alias = map_key(iter);
+	while (sl_next(iter, NULL)) {
+		const char *alias = sl_key(iter);
 		formatted(tmpbuf2, sizeof(tmpbuf2), alias, strlen(alias), false, false);
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, alias('%s')).\n", n, tmpbuf2);
 	}
 
-	map_done(iter);
+	sl_done(iter);
 
 	if (!str->is_engine && !str->is_map) {
 		formatted(tmpbuf2, sizeof(tmpbuf2), str->filename, strlen(str->filename), false, false);
@@ -561,7 +561,7 @@ static void add_stream_properties(query *q, int n)
 	if (str->is_engine)
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, engine(true)).\n", n);
 	else if (str->is_map)
-		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, map(true)).\n", n);
+		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, skiplist(true)).\n", n);
 
 	parser *p = parser_create(q->st.m);
 	p->srcptr = tmpbuf;
@@ -633,18 +633,18 @@ static bool do_stream_property(query *q)
 
 	if (!CMP_STR_TO_CSTR(q, p1, "alias")) {
 		cell tmp;
-		miter *iter = map_first(str->alias);
+		sliter *iter = sl_first(str->alias);
 		bool ok = false;
 
-		while (map_next(iter, NULL)) {
-			const char *alias = map_key(iter);
+		while (sl_next(iter, NULL)) {
+			const char *alias = sl_key(iter);
 			check_heap_error(make_cstring(&tmp, alias));
 			ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 			unshare_cell(&tmp);
 			if (ok) break;
 		}
 
-		map_done(iter);
+		sl_done(iter);
 		return ok;
 	}
 
@@ -672,7 +672,7 @@ static bool do_stream_property(query *q)
 		return ok;
 	}
 
-	if (!CMP_STR_TO_CSTR(q, p1, "map")) {
+	if (!CMP_STR_TO_CSTR(q, p1, "skiplist")) {
 		cell tmp;
 		check_heap_error(make_cstring(&tmp, str->is_map?"true":"false"));
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
@@ -816,7 +816,7 @@ static void clear_streams_properties(query *q)
 static const char *s_properties =
 	"alias,file_name,mode,encoding,type,line_count,"			\
 	"position,reposition,end_of_stream,eof_action,"				\
-	"input,output,newline,engine,map,mutex";
+	"input,output,newline,engine,skiplist,mutex";
 
 static bool fn_iso_stream_property_2(query *q)
 {
@@ -920,7 +920,7 @@ static bool fn_popen_4(query *q)
 
 	stream *str = &q->pl->streams[n];
 	str->pipe = true;
-	if (!str->alias) str->alias = map_create((void*)fake_strcmp, (void*)keyfree, NULL);
+	if (!str->alias) str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL);
 	check_heap_error(str->filename = strdup(filename));
 	check_heap_error(str->mode = DUP_STR(q, p2));
 	bool binary = false;
@@ -950,7 +950,7 @@ static bool fn_popen_4(query *q)
 				} else if (!CMP_STR_TO_CSTR(q, name, "current_error")) {
 					q->pl->current_error = n;
 				} else {
-					map_set(str->alias, DUP_STR(q, name), NULL);
+					sl_set(str->alias, DUP_STR(q, name), NULL);
 				}
 			} else if (!CMP_STR_TO_CSTR(q, c, "type")) {
 				if (is_atom(name) && !CMP_STR_TO_CSTR(q, name, "binary")) {
@@ -1349,7 +1349,7 @@ static bool fn_iso_open_4(query *q)
 	convert_path(filename);
 	stream *str = &q->pl->streams[n];
 	check_heap_error(str->filename = strdup(filename));
-	if (!str->alias) str->alias = map_create((void*)fake_strcmp, (void*)keyfree, NULL);
+	if (!str->alias) str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL);
 	check_heap_error(str->mode = DUP_STR(q, p2));
 	bool binary = false, repo = true;
 	uint8_t eof_action = eof_action_eof_code;
@@ -1405,7 +1405,7 @@ static bool fn_iso_open_4(query *q)
 			} else if (!CMP_STR_TO_CSTR(q, name, "current_error")) {
 				q->pl->current_error = n;
 			} else {
-				map_set(str->alias, DUP_STR(q, name), NULL);
+				sl_set(str->alias, DUP_STR(q, name), NULL);
 			}
 		} else if (!CMP_STR_TO_CSTR(q, c, "type")) {
 			if (is_var(name))
@@ -1591,19 +1591,19 @@ static bool fn_iso_close_1(query *q)
 	if (q->pl->current_error == n)
 		q->pl->current_error = 2;
 
-	if (map_get(str->alias, "user_input", NULL)) {
+	if (sl_get(str->alias, "user_input", NULL)) {
 		stream *str2 = &q->pl->streams[0];
-		map_set(str2->alias, strdup("user_input"), NULL);
+		sl_set(str2->alias, strdup("user_input"), NULL);
 	}
 
-	if (map_get(str->alias, "user_output", NULL)) {
+	if (sl_get(str->alias, "user_output", NULL)) {
 		stream *str2 = &q->pl->streams[1];
-		map_set(str2->alias, strdup("user_output"), NULL);
+		sl_set(str2->alias, strdup("user_output"), NULL);
 	}
 
-	if (map_get(str->alias, "user_error", NULL)) {
+	if (sl_get(str->alias, "user_error", NULL)) {
 		stream *str2 = &q->pl->streams[2];
-		map_set(str2->alias, strdup("user_error"), NULL);
+		sl_set(str2->alias, strdup("user_error"), NULL);
 	}
 
 	if (!str->socket)
@@ -1612,7 +1612,7 @@ static bool fn_iso_close_1(query *q)
 	bool ok = true;
 
 	if (is_map_stream(str)) {
-		map_destroy(str->keyval);
+		sl_destroy(str->keyval);
 		str->keyval = NULL;
 	} else if (is_memory_stream(str)) {
 		SB_free(str->sb);
@@ -1623,8 +1623,8 @@ static bool fn_iso_close_1(query *q)
 	} else
 		ok = !net_close(str);
 
-	map_destroy(str->alias);
-	str->alias = NULL; //map_create((void*)fake_strcmp, (void*)keyfree, NULL);
+	sl_destroy(str->alias);
+	str->alias = NULL; //sl_create((void*)fake_strcmp, (void*)keyfree, NULL);
 	free(str->mode);
 	free(str->filename);
 	free(str->data);
@@ -4511,7 +4511,7 @@ static bool fn_edin_seen_0(query *q)
 		&& (str->fp != stderr))
 		fclose(str->fp);
 
-	map_destroy(str->alias);
+	sl_destroy(str->alias);
 	free(str->filename);
 	free(str->mode);
 	memset(str, 0, sizeof(stream));
@@ -4532,7 +4532,7 @@ static bool fn_edin_told_0(query *q)
 		&& (str->fp != stderr))
 		fclose(str->fp);
 
-	map_destroy(str->alias);
+	sl_destroy(str->alias);
 	free(str->filename);
 	free(str->mode);
 	memset(str, 0, sizeof(stream));
@@ -4543,10 +4543,10 @@ static bool fn_edin_told_0(query *q)
 static bool fn_edin_seeing_1(query *q)
 {
 	GET_FIRST_ARG(p1,var);
-	miter *iter = map_first(q->pl->streams[q->pl->current_input].alias);
-	map_next(iter, NULL);
-	const char *alias = map_key(iter);
-	map_done(iter);
+	sliter *iter = sl_first(q->pl->streams[q->pl->current_input].alias);
+	sl_next(iter, NULL);
+	const char *alias = sl_key(iter);
+	sl_done(iter);
 	const char *name = q->pl->current_input==0?"user":alias;
 	cell tmp;
 	check_heap_error(make_cstring(&tmp, name));
@@ -4558,10 +4558,10 @@ static bool fn_edin_seeing_1(query *q)
 static bool fn_edin_telling_1(query *q)
 {
 	GET_FIRST_ARG(p1,var);
-	miter *iter = map_first(q->pl->streams[q->pl->current_output].alias);
-	map_next(iter, NULL);
-	const char *alias = map_key(iter);
-	map_done(iter);
+	sliter *iter = sl_first(q->pl->streams[q->pl->current_output].alias);
+	sl_next(iter, NULL);
+	const char *alias = sl_key(iter);
+	sl_done(iter);
 	const char *name =q->pl->current_output==1?"user":alias;
 	cell tmp;
 	check_heap_error(make_cstring(&tmp, name));
@@ -6173,8 +6173,8 @@ static bool fn_server_3(query *q)
 	}
 
 	stream *str = &q->pl->streams[n];
-	if (!str->alias) str->alias = map_create((void*)fake_strcmp, (void*)keyfree, NULL);
-	map_set(str->alias, strdup(hostname), NULL);
+	if (!str->alias) str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL);
+	sl_set(str->alias, strdup(hostname), NULL);
 	check_heap_error(str->filename = DUP_STR(q, p1));
 	check_heap_error(str->mode = strdup("update"));
 	str->nodelay = nodelay;
@@ -6223,7 +6223,7 @@ static bool fn_accept_2(query *q)
 	}
 
 	stream *str2 = &q->pl->streams[n];
-	map_set(str2->alias, strdup(str->filename), NULL);
+	sl_set(str2->alias, strdup(str->filename), NULL);
 	check_heap_error(str2->filename = strdup(str->filename));
 	check_heap_error(str2->mode = strdup("update"));
 	str2->socket = true;
@@ -6356,8 +6356,8 @@ static bool fn_client_5(query *q)
 	}
 
 	stream *str = &q->pl->streams[n];
-	if (!str->alias) str->alias = map_create((void*)fake_strcmp, (void*)keyfree, NULL);
-	map_set(str->alias, DUP_STR(q, p1), NULL);
+	if (!str->alias) str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL);
+	sl_set(str->alias, DUP_STR(q, p1), NULL);
 	check_heap_error(str->filename = DUP_STR(q, p1));
 	check_heap_error(str->mode = strdup("update"));
 	str->socket = true;
@@ -6369,7 +6369,7 @@ static bool fn_client_5(query *q)
 	str->fp = fdopen(fd, "r+");
 
 	if (!str->filename || !str->mode) {
-		map_destroy(str->alias);
+		sl_destroy(str->alias);
 		free(str->filename);
 		free(str->mode); //cehteh: maybe from pool?
 		return false;
@@ -6628,7 +6628,7 @@ static bool fn_map_create_2(query *q)
 		return throw_error(q, p1, p1_ctx, "resource_error", "too_many_streams");
 
 	stream *str = &q->pl->streams[n];
-	if (!str->alias) str->alias = map_create((void*)fake_strcmp, (void*)keyfree, NULL);
+	if (!str->alias) str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL);
 	LIST_HANDLER(p4);
 
 	while (is_list(p4)) {
@@ -6652,7 +6652,7 @@ static bool fn_map_create_2(query *q)
 			if (get_named_stream(q->pl, C_STR(q, name), C_STRLEN(q, name)) >= 0)
 				return throw_error(q, c, c_ctx, "permission_error", "open,source_sink");
 
-			map_set(str->alias, DUP_STR(q, name), NULL);
+			sl_set(str->alias, DUP_STR(q, name), NULL);
 		} else {
 			return throw_error(q, c, c_ctx, "domain_error", "stream_option");
 		}
@@ -6665,9 +6665,9 @@ static bool fn_map_create_2(query *q)
 			return throw_error(q, p4, p4_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
 	}
 
-	str->keyval = map_create((void*)fake_strcmp, (void*)keyvalfree, NULL);
+	str->keyval = sl_create((void*)fake_strcmp, (void*)keyvalfree, NULL);
 	check_heap_error(str->keyval);
-	map_allow_dups(str->keyval, false);
+	sl_allow_dups(str->keyval, false);
 	str->is_map = true;
 
 	cell tmp ;
@@ -6717,7 +6717,7 @@ static bool fn_map_set_3(query *q)
 	}
 
 	check_heap_error(val);
-	map_set(str->keyval, key, val);
+	sl_set(str->keyval, key, val);
 	return true;
 }
 
@@ -6746,7 +6746,7 @@ static bool fn_map_get_3(query *q)
 	check_heap_error(key);
 	char *val = NULL;
 
-	if (!map_get(str->keyval, key, (void*)&val)) {
+	if (!sl_get(str->keyval, key, (void*)&val)) {
 		if (key != tmpbuf) free(key);
 		return false;
 	}
@@ -6807,7 +6807,7 @@ static bool fn_map_del_2(query *q)
 		return throw_error(q, p1, p1_ctx, "type_error", "integer");
 
 	check_heap_error(key);
-	map_del(str->keyval, key);
+	sl_del(str->keyval, key);
 	return true;
 }
 
@@ -6821,14 +6821,14 @@ static bool fn_map_list_2(query *q)
 		return throw_error(q, pstr, pstr_ctx, "type_error", "not_a_map");
 
 	GET_NEXT_ARG(p1,list_or_var);
-	miter *iter = map_first(str->keyval);
+	sliter *iter = sl_first(str->keyval);
 	union { pl_flt vd; int64_t vi; void *vp; } dummy;
 	bool first = true;
 	char *val = NULL;
 	char tmpbuf[128];
 
-	while (map_next(iter, (void**)&val)) {
-		void *key = map_key(iter);
+	while (sl_next(iter, (void**)&val)) {
+		void *key = sl_key(iter);
 		cell tmpk, tmpv;
 		const char *src = key;
 		int all_digs = 1;
@@ -6890,7 +6890,7 @@ static bool fn_map_list_2(query *q)
 	}
 
 	cell *tmp = end_list(q);
-	map_done(iter);
+	sl_done(iter);
 	bool ok = unify(q, p1, p1_ctx, tmp, q->st.curr_frame);
 	return ok;
 }
@@ -6906,7 +6906,7 @@ static bool fn_map_count_2(query *q)
 
 	GET_NEXT_ARG(p1,var);
 	cell tmp;
-	make_int(&tmp, map_count(str->keyval));
+	make_int(&tmp, sl_count(str->keyval));
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 }
 
@@ -7024,7 +7024,7 @@ static bool fn_sys_memory_stream_create_2(query *q)
 		return throw_error(q, p1, p1_ctx, "resource_error", "too_many_streams");
 
 	stream *str = &q->pl->streams[n];
-	if (!str->alias) str->alias = map_create((void*)fake_strcmp, (void*)keyfree, NULL);
+	if (!str->alias) str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL);
 	LIST_HANDLER(p4);
 
 	while (is_list(p4)) {
@@ -7055,7 +7055,7 @@ static bool fn_sys_memory_stream_create_2(query *q)
 			} else if (!CMP_STR_TO_CSTR(q, name, "current_error")) {
 				q->pl->current_error = n;
 			} else {
-				map_set(str->alias, DUP_STR(q, name), NULL);
+				sl_set(str->alias, DUP_STR(q, name), NULL);
 			}
 		} else {
 			return throw_error(q, c, c_ctx, "domain_error", "stream_option");
@@ -7128,10 +7128,10 @@ static bool fn_set_stream_2(query *q)
 
 			if (n2 >= 0) {
 				stream *str2 = &q->pl->streams[n2];
-				map_del(str2->alias, C_STR(q, name));
+				sl_del(str2->alias, C_STR(q, name));
 			}
 
-			map_set(str->alias, DUP_STR(q, name), NULL);
+			sl_set(str->alias, DUP_STR(q, name), NULL);
 		}
 
 		return true;
@@ -7183,7 +7183,7 @@ static bool fn_engine_create_4(query *q)
 		return throw_error(q, q->st.curr_cell, q->st.curr_frame, "resource_error", "too_many_streams");
 
 	stream *str = &q->pl->streams[n];
-	if (!str->alias) str->alias = map_create((void*)fake_strcmp, (void*)keyfree, NULL);
+	if (!str->alias) str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL);
 	LIST_HANDLER(p4);
 
 	while (is_list(p4)) {
@@ -7207,7 +7207,7 @@ static bool fn_engine_create_4(query *q)
 			if (get_named_stream(q->pl, C_STR(q, name), C_STRLEN(q, name)) >= 0)
 				return throw_error(q, c, c_ctx, "permission_error", "open,source_sink");
 
-			map_set(str->alias, DUP_STR(q, name), NULL);
+			sl_set(str->alias, DUP_STR(q, name), NULL);
 		} else {
 			return throw_error(q, c, c_ctx, "domain_error", "stream_option");
 		}
@@ -7224,7 +7224,7 @@ static bool fn_engine_create_4(query *q)
 		if (get_named_stream(q->pl, C_STR(q, p3), C_STRLEN(q, p3)) >= 0)
 			return throw_error(q, q->st.curr_cell, q->st.curr_frame, "permission_error", "open,source_sink");
 
-		map_set(str->alias, DUP_STR(q, p3), NULL);
+		sl_set(str->alias, DUP_STR(q, p3), NULL);
 	} else {
 		cell tmp2;
 		make_int(&tmp2, n);
@@ -7528,7 +7528,6 @@ builtins g_files_bifs[] =
 	{"client", 5, fn_client_5, "+atom,-atom,-atom,-atom,+list", false, false, BLAH},
 	{"server", 3, fn_server_3, "+atom,--stream,+list", false, false, BLAH},
 	{"accept", 2, fn_accept_2, "+stream,--stream", false, false, BLAH},
-	{"$get_n_chars", 3, fn_bread_3, "+stream,?integer,-character_list", false, false, BLAH},
 	{"bread", 3, fn_bread_3, "+stream,+integer,-character_list", false, false, BLAH},
 	{"bwrite", 2, fn_bwrite_2, "+stream,-character_list", false, false, BLAH},
 
