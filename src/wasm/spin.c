@@ -64,7 +64,7 @@ extern void spin_http_handle_http_request(spin_http_request_t *request, spin_htt
 		int msg_len = snprintf(msg, sizeof(msg), "Failed to initialize server: failed to consult '%s'.", init);
 		response->status = 503;
 		response->body.is_some = true;
-		response->body.val.ptr = strdup(msg);
+		response->body.val.ptr = (uint8_t*)strdup(msg);
 		response->body.val.len = msg_len;
 		return;
 	}

@@ -418,7 +418,7 @@ static bool fn_sys_wasi_outbound_http_5(query *q)
 			} else if (c->val_off == binary_idx) {									\
 				dup_string(str, v);													\
 				value->tag = OUTBOUND_PG_PARAMETER_VALUE_BINARY;					\
-				value->val.binary.ptr = str;										\
+				value->val.binary.ptr = (uint8_t*)str;								\
 				value->val.binary.len = str_len;									\
 			} else if (c->val_off == null_idx) {									\
 				value->tag = OUTBOUND_PG_PARAMETER_VALUE_DB_NULL;					\
@@ -522,7 +522,7 @@ static bool fn_sys_outbound_pg_query_5(query *q)
 					break;
 				case OUTBOUND_PG_DB_VALUE_BINARY:
 					make_struct(tmp+nbr_cells++, binary_idx, NULL, 1, 1);
-					make_stringn(tmp+nbr_cells++, col.val.binary.ptr, col.val.binary.len);
+					make_stringn(tmp+nbr_cells++, (char*)col.val.binary.ptr, col.val.binary.len);
 					break;
 				case OUTBOUND_PG_DB_VALUE_DB_NULL:
 					make_struct(tmp+nbr_cells++, null_idx, NULL, 1, 1);
