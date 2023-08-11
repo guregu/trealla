@@ -960,26 +960,20 @@ int get_named_stream(prolog *pl, const char *name, size_t len);
 
 // Hacky way to capture error output for wasm builds
 
-__attribute__((weak))
-char g_wasm_print_buf[512];
+#define FD_TO_STREAM(pl, fp) (fp == stdout ? &(pl)->streams[1] : &(pl)->streams[2])
 
-#define PL_FPRINTF(pl, fd, fmt, ...) do { \
-	size_t wasm_print_size = snprintf(g_wasm_print_buf,						\
-		sizeof(g_wasm_print_buf), fmt, __VA_ARGS__);						\
-	if ((pl) && is_live_stream(&(pl)->streams[1]))							\
-		net_write(g_wasm_print_buf, wasm_print_size, &(pl)->streams[1]);	\
+#define fprintf_to_stream(pl, fp, fmt, ...) do {							\
+	char tmp_print_buf[512];												\
+	size_t tmp_print_len = snprintf(tmp_print_buf,							\
+		sizeof(tmp_print_buf), fmt, __VA_ARGS__);							\
+	if ((pl) && is_live_stream(FD_TO_STREAM(pl, fp)))						\
+		net_write(tmp_print_buf, tmp_print_len, FD_TO_STREAM(pl, fp));		\
 	else																	\
-		fprintf(WARN_FP, fmt, __VA_ARGS__); 								\
+		fprintf(fp, fmt, __VA_ARGS__); 										\
 } while(0)
-
-#define PRINTF(fmt, ...) PL_FPRINTF(p->pl, ERROR_FP, fmt, __VA_ARGS__)
-
-#define FPRINTF(fd, fmt, ...) PRINTF(fmt, __VA_ARGS__)
 
 #else
 #define WARN_FP stdout
 #define ERROR_FP stdout
-#define PL_FPRINTF(pl, fd, fmt, ...) fprintf(fd, fmt, __VA_ARGS__)
-#define PRINTF(fmt, ...) printf(fmt, __VA_ARGS__)
-#define FPRINTF(fd, fmt, ...) fprintf(fd, fmt, __VA_ARGS__)
+#define fprintf_to_stream(pl, fp, fmt, ...) fprintf(fp, fmt, __VA_ARGS__)
 #endif
