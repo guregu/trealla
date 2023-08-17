@@ -294,8 +294,8 @@ static void setup_key(query *q)
 static void next_key(query *q)
 {
 	if (q->st.iter) {
-		if (!sl_next(q->st.iter, (void*)&q->st.curr_dbe)) {
-			q->st.curr_dbe = NULL;
+		if (!sl_next(q->st.iter, (void*)&q->st.dbe)) {
+			q->st.dbe = NULL;
 			sl_done(q->st.iter);
 			q->st.iter = NULL;
 		}
@@ -303,7 +303,7 @@ static void next_key(query *q)
 		return;
 	}
 
-	q->st.curr_dbe = q->st.curr_dbe->next;
+	q->st.dbe = q->st.dbe->next;
 }
 
 bool has_next_key(query *q)
@@ -311,13 +311,13 @@ bool has_next_key(query *q)
 	if (q->st.iter)
 		return sl_is_next(q->st.iter, NULL);
 
-	if (!q->st.curr_dbe->next)
+	if (!q->st.dbe->next)
 		return false;
 
 	if (!q->st.key->arity || !q->pl->opt)
 		return true;
 
-	const cell *qarg1 = NULL;
+	const cell *qarg1;
 
 	if (q->st.karg1_is_ground)
 		qarg1 = deref(q, FIRST_ARG(q->st.key), q->st.key_ctx);
@@ -326,7 +326,7 @@ bool has_next_key(query *q)
 
 	//DUMP_TERM("key ", q->st.key, q->st.key_ctx, 1);
 
-	for (const db_entry *next = q->st.curr_dbe->next; next; next = next->next) {
+	for (const db_entry *next = q->st.dbe->next; next; next = next->next) {
 		const cell *dkey = next->cl.cells;
 
 		if ((dkey->val_off == g_neck_s) && (dkey->arity == 2))
@@ -340,7 +340,7 @@ bool has_next_key(query *q)
 #if 1
 		// This is needed for: tpl -g run ~/retina/retina.pl ~/retina/rdfsurfaces/lubm/lubm.s
 
-		const predicate *pr = q->st.curr_dbe->owner;
+		const predicate *pr = q->st.dbe->owner;
 
 		if (pr->is_dynamic
 			&& !q->st.karg1_is_ground
@@ -399,15 +399,10 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 	q->st.key_ctx = key_ctx;
 
 	if (!pr->idx) {
-		q->st.curr_dbe = pr->head;
+		q->st.dbe = pr->head;
 
 		if (key->arity) {
-			if (pr->is_dynamic || pr->is_multifile || pr->is_meta_predicate) {
-
-				// Because the key will also be used later
-				// to check for choice-points, we need to
-				// actually clone to the heap...
-
+			if (pr->is_multifile || pr->is_meta_predicate) {
 				q->st.key = deep_clone_to_heap(q, key, key_ctx);
 				check_heap_error(q->st.key);
 				q->st.key_ctx = q->st.curr_frame;
@@ -441,14 +436,14 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 
 	if (arg1 && (is_var(arg1) || pr->is_var_in_first_arg)) {
 		if (!pr->idx2) {
-			q->st.curr_dbe = pr->head;
+			q->st.dbe = pr->head;
 			return true;
 		}
 
 		cell *arg2 = NEXT_ARG(arg1);
 
 		if (is_var(arg2)) {
-			q->st.curr_dbe = pr->head;
+			q->st.dbe = pr->head;
 			return true;
 		}
 
@@ -462,7 +457,7 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 	DUMP_TERM("search, term = ", key, key_ctx);
 #endif
 
-	q->st.curr_dbe = NULL;
+	q->st.dbe = NULL;
 	sliter *iter;
 
 	if (!(iter = sl_find_key(idx, key)))
@@ -499,7 +494,7 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 
 	iter = sl_first(tmp_idx);
 
-	if (!sl_next(iter, (void*)&q->st.curr_dbe)) {
+	if (!sl_next(iter, (void*)&q->st.dbe)) {
 		sl_done(iter);
 		return false;
 	}
@@ -835,15 +830,15 @@ static bool are_slots_ok(const query *q, const frame *f)
 static void commit_me(query *q)
 {
 	q->in_commit = true;
-	clause *cl = &q->st.curr_dbe->cl;
+	clause *cl = &q->st.dbe->cl;
 	frame *f = GET_CURR_FRAME();
 	f->mid = q->st.m->id;
 
-	if (!q->st.curr_dbe->owner->is_prebuilt) {
-		if (q->st.m != q->st.curr_dbe->owner->m)
+	if (!q->st.dbe->owner->is_prebuilt) {
+		if (q->st.m != q->st.dbe->owner->m)
 			q->st.prev_m = q->st.m;
 
-		q->st.m = q->st.curr_dbe->owner->m;
+		q->st.m = q->st.dbe->owner->m;
 	}
 
 	bool is_det = !q->has_vars && cl->is_unique;
@@ -871,7 +866,7 @@ static void commit_me(query *q)
 		f = push_frame(q, cl->nbr_vars);
 
 	if (last_match) {
-		Trace(q, get_head(q->st.curr_dbe->cl.cells), q->st.curr_frame, EXIT);
+		Trace(q, get_head(q->st.dbe->cl.cells), q->st.curr_frame, EXIT);
 		leave_predicate(q, q->st.pr);
 		drop_choice(q);
 
@@ -879,7 +874,7 @@ static void commit_me(query *q)
 			trim_trail(q);
 	} else {
 		choice *ch = GET_CURR_CHOICE();
-		ch->st.curr_dbe = q->st.curr_dbe;
+		ch->st.dbe = q->st.dbe;
 		ch->cgen = f->cgen;
 	}
 
@@ -893,12 +888,12 @@ void stash_me(query *q, const clause *cl, bool last_match)
 	pl_idx cgen = ++q->cgen;
 
 	if (last_match) {
-		Trace(q, get_head(q->st.curr_dbe->cl.cells), q->st.curr_frame, EXIT);
+		Trace(q, get_head(q->st.dbe->cl.cells), q->st.curr_frame, EXIT);
 		leave_predicate(q, q->st.pr);
 		drop_choice(q);
 	} else {
 		choice *ch = GET_CURR_CHOICE();
-		ch->st.curr_dbe = q->st.curr_dbe;
+		ch->st.dbe = q->st.dbe;
 		ch->cgen = cgen;
 	}
 
@@ -1010,65 +1005,19 @@ void cut(query *q)
 		q->st.tp = 0;
 }
 
-void prune(query *q, bool soft_cut, pl_idx cp)
-{
-	frame *f = GET_CURR_FRAME();
-
-	while (q->cp) {
-		choice *ch = GET_CURR_CHOICE();
-		const choice *save_ch = ch;
-
-		while (soft_cut && (ch >= q->choices)) {
-			if ((q->cp-1) == cp) {
-				if (ch == save_ch) {
-					leave_predicate(q, ch->st.pr);
-					drop_choice(q);
-					f->cgen--;
-					return;
-				}
-
-				ch->fail_on_retry = true;
-				f->cgen--;
-				return;
-			}
-
-			if (ch == q->choices)
-				return;
-
-			ch--;
-		}
-
-		// A prune can break through a barrier...
-
-		if (ch->cgen < f->cgen) {
-			f->cgen = ch->cgen;
-			break;
-		}
-
-		leave_predicate(q, ch->st.pr);
-		drop_choice(q);
-
-		if (ch->register_cleanup && !ch->fail_on_retry) {
-			ch->fail_on_retry = true;
-			cell *c = ch->st.curr_cell;
-			pl_idx c_ctx = ch->st.curr_frame;
-			c = deref(q, FIRST_ARG(c), c_ctx);
-			c_ctx = q->latest_ctx;
-			do_cleanup(q, c, c_ctx);
-			break;
-		}
-	}
-
-	if (!q->cp && !q->undo_hi_tp)
-		q->st.tp = 0;
-}
-
 // If the call is det then the barrier can be dropped...
 
 bool drop_barrier(query *q, pl_idx cp)
 {
 	if ((q->cp-1) == cp) {
 		drop_choice(q);
+
+		if (q->cp) {
+			const choice *ch = GET_CURR_CHOICE();
+			frame *f = GET_CURR_FRAME();
+			f->cgen = ch->cgen;
+		}
+
 		return true;
 	}
 
@@ -1177,7 +1126,7 @@ bool match_rule(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract)
 			if (get_builtin_term(q->st.m, head, &found, NULL), found)
 				return throw_error(q, head, q->latest_ctx, "permission_error", "modify,static_procedure");
 
-			q->st.curr_dbe = NULL;
+			q->st.dbe = NULL;
 			return false;
 		}
 
@@ -1197,7 +1146,7 @@ bool match_rule(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract)
 		next_key(q);
 	}
 
-	if (!q->st.curr_dbe) {
+	if (!q->st.dbe) {
 		leave_predicate(q, q->st.pr);
 		return false;
 	}
@@ -1209,11 +1158,11 @@ bool match_rule(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract)
 	const frame *f = GET_FRAME(q->st.curr_frame);
 	check_heap_error(check_slot(q, MAX_ARITY));
 
-	for (; q->st.curr_dbe; q->st.curr_dbe = q->st.curr_dbe->next) {
-		if (!can_view(q, f->ugen, q->st.curr_dbe))
+	for (; q->st.dbe; q->st.dbe = q->st.dbe->next) {
+		if (!can_view(q, f->ugen, q->st.dbe))
 			continue;
 
-		clause *cl = &q->st.curr_dbe->cl;
+		clause *cl = &q->st.dbe->cl;
 		cell *c = cl->cells;
 		bool needs_true = false;
 		p1 = orig_p1;
@@ -1289,7 +1238,7 @@ bool match_clause(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract
 					return throw_error(q, p1, p1_ctx, "permission_error", "access,private_procedure");
 			}
 
-			q->st.curr_dbe = NULL;
+			q->st.dbe = NULL;
 			return false;
 		}
 
@@ -1313,7 +1262,7 @@ bool match_clause(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract
 		next_key(q);
 	}
 
-	if (!q->st.curr_dbe) {
+	if (!q->st.dbe) {
 		leave_predicate(q, q->st.pr);
 		return false;
 	}
@@ -1323,11 +1272,11 @@ bool match_clause(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract
 	const frame *f = GET_FRAME(q->st.curr_frame);
 	check_heap_error(check_slot(q, MAX_ARITY));
 
-	for (; q->st.curr_dbe; q->st.curr_dbe = q->st.curr_dbe->next) {
-		if (!can_view(q, f->ugen, q->st.curr_dbe))
+	for (; q->st.dbe; q->st.dbe = q->st.dbe->next) {
+		if (!can_view(q, f->ugen, q->st.dbe))
 			continue;
 
-		clause *cl = &q->st.curr_dbe->cl;
+		clause *cl = &q->st.dbe->cl;
 		cell *head = get_head(cl->cells);
 		cell *body = get_logical_body(cl->cells);
 
@@ -1391,7 +1340,7 @@ static bool match_head(query *q)
 	} else
 		next_key(q);
 
-	if (!q->st.curr_dbe) {
+	if (!q->st.dbe) {
 		leave_predicate(q, q->st.pr);
 		return false;
 	}
@@ -1401,11 +1350,11 @@ static bool match_head(query *q)
 	const frame *f = GET_FRAME(q->st.curr_frame);
 	check_heap_error(check_slot(q, MAX_ARITY));
 
-	for (; q->st.curr_dbe; next_key(q)) {
-		if (!can_view(q, f->ugen, q->st.curr_dbe))
+	for (; q->st.dbe; next_key(q)) {
+		if (!can_view(q, f->ugen, q->st.dbe))
 			continue;
 
-		clause *cl = &q->st.curr_dbe->cl;
+		clause *cl = &q->st.dbe->cl;
 		cell *head = get_head(cl->cells);
 		try_me(q, cl->nbr_vars);
 

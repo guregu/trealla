@@ -420,7 +420,7 @@ static bool fn_iso_notunify_2(query *q)
 	GET_NEXT_RAW_ARG(p2,any);
 	cell tmp2;
 	make_struct(&tmp2, g_unify_s, fn_iso_unify_2, 2, 0);
-	cell *tmp = prepare_call(q, true, &tmp2, q->st.curr_frame, p1->nbr_cells+p2->nbr_cells+4);
+	cell *tmp = prepare_call(q, true, &tmp2, q->st.curr_frame, p1->nbr_cells+p2->nbr_cells+5);
 	pl_idx nbr_cells = 1;
 	tmp[nbr_cells].nbr_cells += p1->nbr_cells+p2->nbr_cells;
 	nbr_cells++;
@@ -428,7 +428,9 @@ static bool fn_iso_notunify_2(query *q)
 	nbr_cells += p1->nbr_cells;
 	safe_copy_cells(tmp+nbr_cells, p2, p2->nbr_cells);
 	nbr_cells += p2->nbr_cells;
-	make_struct(tmp+nbr_cells++, g_sys_prune_s, fn_sys_prune_0, 0, 0);
+	make_struct(tmp+nbr_cells++, g_cut_s, fn_iso_cut_0, 0, 0);
+	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, fn_sys_drop_barrier_1, 1, 1);
+	make_uint(tmp+nbr_cells++, q->cp);
 	make_struct(tmp+nbr_cells++, g_fail_s, fn_iso_fail_0, 0, 0);
 	make_call(q, tmp+nbr_cells);
 	check_heap_error(push_barrier(q));
@@ -2270,7 +2272,7 @@ static bool fn_iso_clause_2(query *q)
 
 	while (match_clause(q, p1, p1_ctx, DO_CLAUSE)) {
 		if (q->did_throw) return true;
-		clause *cl = &q->st.curr_dbe->cl;
+		clause *cl = &q->st.dbe->cl;
 		cell *body = get_body(cl->cells);
 		bool ok;
 
@@ -2320,7 +2322,7 @@ bool do_retract(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract)
 	if (!match || q->did_throw)
 		return match;
 
-	db_entry *dbe = q->st.curr_dbe;
+	db_entry *dbe = q->st.dbe;
 	retract_from_db(dbe);
 	bool last_match = (is_retract == DO_RETRACT) && !has_next_key(q);
 	stash_me(q, &dbe->cl, last_match);
@@ -3724,7 +3726,7 @@ static bool fn_clause_3(query *q)
 			if (!dbe || (!u.u1 && !u.u2))
 				break;
 
-			q->st.curr_dbe = dbe;
+			q->st.dbe = dbe;
 			cl = &dbe->cl;
 			cell *head = get_head(cl->cells);
 
@@ -3735,12 +3737,12 @@ static bool fn_clause_3(query *q)
 				break;
 
 			char tmpbuf[128];
-			uuid_to_buf(&q->st.curr_dbe->u, tmpbuf, sizeof(tmpbuf));
+			uuid_to_buf(&q->st.dbe->u, tmpbuf, sizeof(tmpbuf));
 			cell tmp;
 			check_heap_error(make_cstring(&tmp, tmpbuf));
 			unify(q, p3, p3_ctx, &tmp, q->st.curr_frame);
 			unshare_cell(&tmp);
-			cl = &q->st.curr_dbe->cl;
+			cl = &q->st.dbe->cl;
 		}
 
 		cell *body = get_body(cl->cells);
@@ -4031,7 +4033,7 @@ static bool fn_listing_0(query *q)
 
 static void save_name(FILE *fp, query *q, pl_idx name, unsigned arity)
 {
-	module *m = q->st.curr_dbe ? q->st.curr_dbe->owner->m : q->st.m;
+	module *m = q->st.dbe ? q->st.dbe->owner->m : q->st.m;
 	q->listing = true;
 
 	for (predicate *pr = m->head; pr; pr = pr->next) {
@@ -4571,6 +4573,7 @@ static bool fn_sys_elapsed_0(query *q)
 		else if (!q->is_redo) fprintf(stderr, "");
 	}
 	//else if (!q->redo) fprintf(stdout, "");
+	if (!q->cp) return true;
 	choice *ch = GET_CURR_CHOICE();
 	ch->st.timer_started = get_time_in_usec();
 	return true;
@@ -5392,6 +5395,9 @@ static bool fn_sys_skip_max_list_4(query *q)
 
 	if (ok != true)
 		return ok;
+
+
+	unshare_cell(&tmp);
 
 	if (!is_iso_list_or_nil(c) && !(is_cstring(c) && !strcmp(C_STR(q,c), "[]")) && !is_var(c)) {
 		make_int(&tmp, -1);
@@ -6926,12 +6932,14 @@ static bool fn_call_nth_2(query *q)
 		return true;
 	}
 
-	cell *tmp = prepare_call(q, true, p1, p1_ctx, 5);
+	cell *tmp = prepare_call(q, true, p1, p1_ctx, 7);
 	pl_idx nbr_cells = 1 + p1->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_sys_ne_s, fn_sys_ne_2, 2, 2);
 	make_int(tmp+nbr_cells++, 1);
 	make_int(tmp+nbr_cells++, get_smallint(p2));
-	make_struct(tmp+nbr_cells++, g_sys_prune_s, fn_sys_prune_0, 0, 0);
+	make_struct(tmp+nbr_cells++, g_cut_s, fn_iso_cut_0, 0, 0);
+	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, fn_sys_drop_barrier_1, 1, 1);
+	make_uint(tmp+nbr_cells++, q->cp);
 	make_call(q, tmp+nbr_cells);
 	check_heap_error(push_barrier(q));
 	choice *ch = GET_CURR_CHOICE();
@@ -7603,9 +7611,11 @@ static bool fn_sys_register_cleanup_1(query *q)
 {
 	if (q->retry) {
 		GET_FIRST_ARG(p1,callable);
-		cell *tmp = prepare_call(q, true, p1, p1_ctx, 4);
+		cell *tmp = prepare_call(q, true, p1, p1_ctx, 5);
 		pl_idx nbr_cells = 1 + p1->nbr_cells;
-		make_struct(tmp+nbr_cells++, g_sys_prune_s, fn_sys_prune_0, 0, 0);
+		make_struct(tmp+nbr_cells++, g_cut_s, fn_iso_cut_0, 0, 0);
+		make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, fn_sys_drop_barrier_1, 1, 1);
+		make_uint(tmp+nbr_cells++, q->cp);
 		make_struct(tmp+nbr_cells++, g_fail_s, fn_iso_fail_0, 0, 0);
 		make_call(q, tmp+nbr_cells);
 		q->st.curr_cell = tmp;
@@ -8400,8 +8410,6 @@ builtins g_iso_bifs[] =
 	{"$call_cleanup", 3, fn_sys_call_cleanup_3, NULL, false, false, BLAH},
 	{"$block_catcher", 1, fn_sys_block_catcher_1, NULL, false, false, BLAH},
 	{"$cleanup_if_det", 1, fn_sys_cleanup_if_det_1, NULL, false, false, BLAH},
-	{"$soft_prune", 1, fn_sys_soft_prune_1, NULL, false, false, BLAH},
-	{"$prune", 0, fn_sys_prune_0, NULL, false, false, BLAH},
 	{"$drop_barrier", 1, fn_sys_drop_barrier_1, NULL, false, false, BLAH},
 	{"$timer", 0, fn_sys_timer_0, NULL, false, false, BLAH},
 	{"$elapsed", 0, fn_sys_elapsed_0, NULL, false, false, BLAH},
