@@ -73,23 +73,6 @@ bool wrap_ffi_predicate(query *q, builtins *fn_ptr);
 #define is_virtual_stream(str) (is_memory_stream(str) || is_map_stream(str) || is_engine_stream(str))
 #define is_live_stream(str) ((str)->fp || is_virtual_stream(str))
 
-void make_uint(cell *tmp, pl_uint v);
-void make_int(cell *tmp, pl_int v);
-void make_float(cell *tmp, pl_flt v);
-void make_ptr(cell *tmp, void *v);
-void make_struct(cell *tmp, pl_idx offset, void *fn, unsigned arity, pl_idx extra_cells);
-void make_ref(cell *tmp, pl_idx off, unsigned var_nbr, pl_idx ctx);
-void make_var(cell *tmp, pl_idx off, unsigned var_nbr);
-void make_var2(cell *tmp, pl_idx off);
-void make_call(query *q, cell *tmp);
-void make_call_return(query *q, cell *tmp, cell *ret);
-void make_end(cell *tmp);
-void make_atom(cell *tmp, pl_idx offset);
-cell *make_nil(void);
-void make_smalln(cell *tmp, const char *s, size_t n);
-bool make_cstringn(cell *tmp, const char *s, size_t n);
-bool make_stringn(cell *tmp, const char *s, size_t n);
-
 #if USE_FFI
 bool fn_sys_dlopen_3(query *q);
 bool fn_sys_dlsym_3(query *q);
@@ -176,96 +159,6 @@ inline static cell *get_var(query *q, cell *c, pl_idx c_ctx)
 		return &e->c;
 
 	return c;
-}
-
-bool check_trail(query *q);
-
-inline static void add_trail(query *q, pl_idx c_ctx, unsigned c_var_nbr, cell *attrs, pl_idx attrs_ctx)
-{
-	if (q->st.tp >= q->trails_size) {
-		if (!check_trail(q)) {
-			q->error = false;
-			return;
-		}
-	}
-
-	trail *tr = q->trails + q->st.tp++;
-	tr->var_ctx = c_ctx;
-	tr->var_nbr = c_var_nbr;
-	tr->attrs = attrs;
-	tr->attrs_ctx = attrs_ctx;
-}
-
-inline static void set_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx)
-{
-	const frame *f = GET_FRAME(c_ctx);
-	slot *e = GET_SLOT(f, c->var_nbr);
-	cell *c_attrs = is_empty(&e->c) ? e->c.attrs : NULL, *v_attrs = NULL;
-	pl_idx c_attrs_ctx = c_attrs ? e->c.attrs_ctx : 0;
-
-	if ((c_ctx < q->st.fp) || is_managed(v))
-		add_trail(q, c_ctx, c->var_nbr, c_attrs, c_attrs_ctx);
-
-	if (c_attrs && is_var(v)) {
-		const frame *vf = GET_FRAME(v_ctx);
-		const slot *ve = GET_SLOT(vf, v->var_nbr);
-		v_attrs = is_empty(&ve->c) ? ve->c.attrs : NULL;
-	}
-
-	// If 'c' is an attvar and either 'v' is an attvar or nonvar then run the hook
-	// If 'c' is an attvar and 'v' is a plain var then copy attributes to 'v'
-	// If 'c' is a plain var and 'v' is an attvar then copy attributes to 'c'
-
-	if (c_attrs && (v_attrs || is_nonvar(v))) {
-		q->run_hook = true;
-	} else if (c_attrs && !v_attrs && is_var(v)) {
-		const frame *vf = GET_FRAME(v_ctx);
-		slot *ve = GET_SLOT(vf, v->var_nbr);
-		add_trail(q, v_ctx, v->var_nbr, NULL, 0);
-		ve->c.attrs = c_attrs;
-		ve->c.attrs_ctx = c_attrs_ctx;
-	}
-
-	if (is_structure(v)) {
-		if ((c_ctx == q->st.fp) || (v_ctx == q->st.fp))
-			q->no_tco = true;
-
-		make_indirect(&e->c, v, v_ctx);
-	} else if (is_var(v)) {
-		e->c.tag = TAG_VAR;
-		e->c.nbr_cells = 1;
-		e->c.flags |= FLAG_VAR_REF;
-		e->c.var_nbr = v->var_nbr;
-		e->c.var_ctx = v_ctx;
-	} else {
-		share_cell(v);
-		e->c = *v;
-	}
-}
-
-inline static void reset_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx)
-{
-	const frame *f = GET_FRAME(c_ctx);
-	slot *e = GET_SLOT(f, c->var_nbr);
-
-	if ((c_ctx < q->st.fp) || is_managed(v))
-		add_trail(q, c_ctx, c->var_nbr, NULL, 0);
-
-	if (is_structure(v)) {
-		if ((c_ctx == q->st.fp) || (v_ctx == q->st.fp))
-			q->no_tco = true;
-
-		make_indirect(&e->c, v, v_ctx);
-	} else if (is_var(v)) {
-		e->c.tag = TAG_VAR;
-		e->c.nbr_cells = 1;
-		e->c.flags |= FLAG_VAR_REF;
-		e->c.var_nbr = v->var_nbr;
-		e->c.var_ctx = v_ctx;
-	} else {
-		share_cell(v);
-		e->c = *v;
-	}
 }
 
 #define deref(q,c,c_ctx) \

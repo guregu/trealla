@@ -1,5 +1,6 @@
 #pragma once
 
+#include "parser.h"
 #include "builtins.h"
 
 typedef struct {
@@ -40,7 +41,7 @@ bool match_rule(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract);
 bool match_clause(query *q, cell *p1, pl_idx p1_ctx, enum clause_type retract);
 void try_me(query *q, unsigned vars);
 void call_attrs(query *q, cell *attrs);
-void stash_me(query *q, const clause *cl, bool last_match);
+void stash_frame(query *q, const clause *cl, bool last_match);
 bool do_post_unification_hook(query *q, bool is_builtin);
 bool check_redo(query *q);
 void dump_vars(query *q, bool partial);
@@ -74,6 +75,9 @@ bool parse_write_params(query *q, cell *c, pl_idx c_ctx, cell **vnames, pl_idx *
 bool has_vars(query *q, cell *p1, pl_idx p1_ctx);
 bool accum_var(query *q, const cell *c, pl_idx c_ctx);
 bool do_parse_csv_line(query *q, csv *params, const char *src, cell *p2, pl_idx p2_ctx);
+void add_trail(query *q, pl_idx c_ctx, unsigned c_var_nbr, cell *attrs, pl_idx attrs_ctx);
+void set_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx);
+void reset_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx);
 
 int compare(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_ctx);
 bool unify(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_ctx);
