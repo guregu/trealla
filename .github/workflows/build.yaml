@@ -160,7 +160,7 @@
             mv ./build/*.wasm .
         - name: Test
           run: |
-            echo 'wasmtime --dir . tpl.wasm -- $@' > tpl
+            echo 'wasmtime run --max-wasm-stack 8388608 --dir . tpl.wasm -- $@' > tpl
             chmod +x tpl
             make test
         - name: Upload artifacts
