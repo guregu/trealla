@@ -41,7 +41,11 @@ static void msleep(int ms)
 
 bool do_yield(query *q, int msecs)
 {
+#ifdef __wasi__
+	if (!q->is_task && !q->pl->is_query)
+#else
 	if (!q->is_task)
+#endif
 		return true;
 
 	q->yield_at = 0;
