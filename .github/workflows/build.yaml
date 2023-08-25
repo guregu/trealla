@@ -138,8 +138,10 @@
         - name: Install Binaryen
           run: |
             brew install binaryen
-        - name: Install Wasmer
-          uses: wasmerio/setup-wasmer@v1
+        - name: Setup wasmtime
+          uses: mwilliamson/setup-wasmtime-action@v2
+          with:
+            wasmtime-version: "12.0.1"
         - name: Install Wizer
           run: |
             wget https://github.com/bytecodealliance/wizer/releases/download/${WIZER_VERSION}/wizer-${WIZER_VERSION_FULL}.tar.xz
@@ -158,7 +160,7 @@
             mv ./build/*.wasm .
         - name: Test
           run: |
-            echo 'wasmer --dir . tpl.wasm -- $@' > tpl
+            echo 'wasmtime --dir . tpl.wasm -- $@' > tpl
             chmod +x tpl
             make test
         - name: Upload artifacts
