@@ -177,6 +177,9 @@ release:
 tpl.wasm:
 	$(MAKE) WASI=1 TPL=tpl.wasm 'OPT=$(OPT) -DNDEBUG'
 
+tpl-debug.wasm:
+	$(MAKE) WASI=1 TPL=tpl-debug.wasm 'OPT=-O0 -g -DDEBUG'
+
 wasm: tpl.wasm
 	$(WIZER) --wasm-bulk-memory true --allow-wasi --dir . -o tpl-wizened.wasm tpl.wasm
 	$(WASMOPT) --enable-bulk-memory tpl-wizened.wasm -o tpl.wasm -O4
