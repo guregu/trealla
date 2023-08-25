@@ -19,6 +19,7 @@ struct loaded_file_ {
 	loaded_file *next;
 	char *filename;
 	char *orig_filename;
+	const char *parent;
 	time_t when_loaded;
 	bool is_loaded:1;
 };
@@ -142,7 +143,7 @@ static const char *set_known(module *m, const char *filename)
 		ptr = ptr->next;
 	}
 
-	ptr = malloc(sizeof(*ptr));
+	ptr = malloc(sizeof(loaded_file));
 	ensure(ptr);
 	ptr->next = m->loaded_files;
 	ptr->orig_filename = strdup(filename);
@@ -166,7 +167,7 @@ static const char *set_loaded(module *m, const char *filename, const char *orig_
 		ptr = ptr->next;
 	}
 
-	ptr = malloc(sizeof(*ptr));
+	ptr = malloc(sizeof(loaded_file));
 	ensure(ptr);
 	ptr->next = m->loaded_files;
 	ptr->orig_filename = strdup(orig_filename);
@@ -178,7 +179,7 @@ static const char *set_loaded(module *m, const char *filename, const char *orig_
 	return ptr->filename;
 }
 
-static void set_unloaded(module *m, const char *filename)
+void set_unloaded(module *m, const char *filename)
 {
 	loaded_file *ptr = m->loaded_files;
 
@@ -221,6 +222,34 @@ const char *get_loaded(const module *m, const char *filename)
 	return filename;
 }
 
+const char *get_parent(const module *m, const char *filename)
+{
+	loaded_file *ptr = m->loaded_files;
+
+	while (ptr) {
+		if (ptr->is_loaded && !strcmp(ptr->filename, filename))
+			return ptr->parent ? ptr->parent : filename;
+
+		ptr = ptr->next;
+	}
+
+	return filename;
+}
+
+void set_parent(const module *m, const char *filename, const char *parent)
+{
+	loaded_file *ptr = m->loaded_files;
+
+	while (ptr) {
+		if (ptr->is_loaded && !strcmp(ptr->filename, filename)) {
+			ptr->parent = parent;
+			return;
+		}
+
+		ptr = ptr->next;
+	}
+}
+
 static void clear_loaded(const module *m)
 {
 	loaded_file *ptr = m->loaded_files;
@@ -231,6 +260,32 @@ static void clear_loaded(const module *m)
 		if (save->orig_filename) free(save->orig_filename);
 		if (save->filename) free(save->filename);
 		free(save);
+	}
+}
+
+void make(module *m)
+{
+	loaded_file *ptr = m->loaded_files;
+
+	while (ptr) {
+		struct stat st = {0};
+		loaded_file *save = ptr->next;
+
+		if (stat(ptr->filename, &st) == 0) {
+			if (st.st_mtime > ptr->when_loaded) {
+				char *parent_filename = strdup(get_parent(m, ptr->filename));
+				printf("%% %s changed\n", ptr->filename);
+
+				if (strcmp(parent_filename, ptr->filename))
+					unload_file(m, ptr->filename);
+
+				unload_file(m, parent_filename);
+				load_file(m, parent_filename, false);
+				free(parent_filename);
+			}
+		}
+
+		ptr = save;
 	}
 }
 
@@ -1799,6 +1854,33 @@ module *load_fp(module *m, FILE *fp, const char *filename, bool including)
 	return save_m;
 }
 
+bool restore_log(module *m, const char *filename)
+{
+	FILE *fp = fopen(filename, "r");
+	char *line = NULL;
+
+	if (!fp)
+		return false;
+
+	FILE *save = m->pl->logfp;
+	m->pl->logfp = NULL;
+
+	for (;;) {
+		size_t n = 0;
+
+		if (getline(&line, &n, fp) < 0) {
+			free(line);
+			break;
+		}
+
+		pl_eval(m->pl, line, false);
+	}
+
+	fclose(fp);
+	m->pl->logfp = save;
+	return true;
+}
+
 module *load_file(module *m, const char *filename, bool including)
 {
 	const char *orig_filename = filename;
@@ -1899,10 +1981,11 @@ module *load_file(module *m, const char *filename, bool including)
 	if (!realbuf)
 		return NULL;
 
-	if (is_loaded(m, realbuf))
-		return m;
+	if (including)
+		set_unloaded(m, realbuf);
 
-	filename = set_loaded(m, realbuf, orig_filename);
+	else if (is_loaded(m, realbuf))
+		return m;
 
 	struct stat st = {0};
 	stat(filename, &st);
@@ -1917,12 +2000,15 @@ module *load_file(module *m, const char *filename, bool including)
 		return m;
 	}
 
+	filename = set_loaded(m, realbuf, orig_filename);
 	FILE *fp = fopen(filename, "r");
 
 	if (!fp) {
 		free(realbuf);
 		return NULL;
 	}
+
+	m->actual_filename = filename;
 
 	// Check for a BOM
 

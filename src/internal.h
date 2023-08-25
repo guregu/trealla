@@ -709,6 +709,7 @@ struct query_ {
 	bool ops_dirty:1;
 	bool noderef:1;
 	bool double_quotes:1;
+	bool end_wait:1;
 };
 
 struct parser_ {
@@ -767,7 +768,7 @@ struct module_ {
 	module *used[MAX_MODULES];
 	module *next, *orig;
 	prolog *pl;
-	const char *filename, *name;
+	const char *filename, *name, *actual_filename;
 	predicate *head, *tail;
 	parser *p;
 	FILE *fp;
@@ -803,6 +804,7 @@ struct prolog_ {
 	parser *p;
 	query *curr_query;
 	skiplist *symtab, *biftab, *keyval, *help, *fortab;
+	FILE *logfp;
 	char *pool;
 	size_t pool_offset, pool_size, tabs_size;
 	uint64_t s_last, s_cnt, seed, ugen;

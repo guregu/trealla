@@ -6,10 +6,16 @@ module *module_create(prolog *pl, const char *name);
 void module_duplicate(prolog *pl, module *m, const char *name, unsigned arity);
 void module_destroy(module *m);
 
+bool restore_log(module *m, const char *filename);
 bool save_file(module *m, const char *filename);
+
 module *load_file(module *m, const char *filename, bool including);
 module *load_fp(module *m, FILE *fp, const char *filename, bool including);
 module *load_text(module *m, const char *src, const char *filename);
+bool unload_file(module *m, const char *filename);
+void set_unloaded(module *m, const char *filename);
+const char *get_loaded(const module *m, const char *filename);
+void set_parent(const module *m, const char *filename, const char *parent);
 
 void retract_from_db(db_entry *dbe);
 void convert_to_literal(module *m, cell *c);
@@ -22,16 +28,15 @@ predicate *search_predicate(module *m, cell *c, bool *prebuilt);
 predicate *create_predicate(module *m, cell *c, bool *created);
 int index_cmpkey(const void *ptr1, const void *ptr2, const void *param, void *l);
 bool needs_quoting(module *m, const char *src, int srclen);
-bool unload_file(module *m, const char *filename);
 void xref_rule(module *m, clause *t, predicate *parent);
 void xref_db(module *m);
-const char *get_loaded(const module *m, const char *filename);
 builtins *get_module_help(module *m, const char *name, unsigned arity, bool *found, bool *evaluable);
 builtins *get_builtin_term(module *m, cell *c, bool *found, bool *evaluable);
 void format_property(module *m, char *tmpbuf, size_t buflen, const char *name, unsigned arity, const char *type, bool function);
 void format_template(module *m, char *tmpbuf, size_t buflen, const char *name, unsigned arity, const builtins *ptr, bool function, bool alt);
 void push_property(module *m, const char *name, unsigned arity, const char *type);
 void push_template(module *m, const char *name, unsigned arity, const builtins *ptr);
+void make(module *m);
 
 bool do_use_module_1(module *curr_m, cell *p);
 bool do_use_module_2(module *curr_m, cell *p);

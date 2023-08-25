@@ -55,6 +55,9 @@ size_t slicecpy(char *dst, size_t dstlen, const char *src, size_t len)
 
 bool do_yield(query *q, int msecs)
 {
+	if (!q->is_task)
+		return true;
+
 	q->yield_at = 0;
 	q->yielded = true;
 	q->tmo_msecs = get_time_in_usec() / 1000;
@@ -1823,6 +1826,11 @@ enum log_type { LOG_ASSERTA=1, LOG_ASSERTZ=2, LOG_ERASE=3 };
 
 static void db_log(query *q, db_entry *dbe, enum log_type l)
 {
+	FILE *fp = q->pl->logfp;
+
+	if (!fp)
+		return;
+
 	char tmpbuf[256];
 	char *dst;
 	q->quoted = 2;
@@ -1831,18 +1839,18 @@ static void db_log(query *q, db_entry *dbe, enum log_type l)
 	case LOG_ASSERTA:
 		dst = print_term_to_strbuf(q, dbe->cl.cells, q->st.curr_frame, 1);
 		uuid_to_buf(&dbe->u, tmpbuf, sizeof(tmpbuf));
-		fprintf(q->st.m->fp, "'$a_'(%s,'%s').\n", dst, tmpbuf);
+		fprintf(fp, "%s:'$asserta'((%s),'%s').\n", q->st.m->name, dst, tmpbuf);
 		free(dst);
 		break;
 	case LOG_ASSERTZ:
 		dst = print_term_to_strbuf(q, dbe->cl.cells, q->st.curr_frame, 1);
 		uuid_to_buf(&dbe->u, tmpbuf, sizeof(tmpbuf));
-		fprintf(q->st.m->fp, "'$z_'(%s,'%s').\n", dst, tmpbuf);
+		fprintf(fp, "%s:'$assertz'((%s),'%s').\n", q->st.m->name, dst, tmpbuf);
 		free(dst);
 		break;
 	case LOG_ERASE:
 		uuid_to_buf(&dbe->u, tmpbuf, sizeof(tmpbuf));
-		fprintf(q->st.m->fp, "'$e_'('%s').\n", tmpbuf);
+		fprintf(fp, "%s:erase('%s').\n", q->st.m->name, tmpbuf);
 		break;
 	}
 
@@ -2326,6 +2334,7 @@ bool do_retract(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract)
 	retract_from_db(dbe);
 	bool last_match = (is_retract == DO_RETRACT) && !has_next_key(q);
 	stash_me(q, &dbe->cl, last_match);
+	db_log(q, dbe, LOG_ERASE);
 	return true;
 }
 
@@ -2581,6 +2590,7 @@ static bool fn_iso_asserta_1(query *q)
 		return throw_error(q, h, q->st.curr_frame, "permission_error", "modify,static_procedure");
 
 	p->cl->cidx = 0;
+	db_log(q, dbe, LOG_ASSERTA);
 	return true;
 }
 
@@ -2636,6 +2646,7 @@ static bool fn_iso_assertz_1(query *q)
 		return throw_error(q, h, q->st.curr_frame, "permission_error", "modify,static_procedure");
 
 	p->cl->cidx = 0;
+	db_log(q, dbe, LOG_ASSERTZ);
 	return true;
 }
 
@@ -3853,6 +3864,7 @@ static bool do_asserta_2(query *q)
 		unshare_cell(&tmp2);
 	}
 
+	db_log(q, dbe, LOG_ASSERTA);
 	return true;
 }
 
@@ -3943,6 +3955,7 @@ static bool do_assertz_2(query *q)
 		unshare_cell(&tmp2);
 	}
 
+	db_log(q, dbe, LOG_ASSERTZ);
 	return true;
 }
 
@@ -4693,9 +4706,6 @@ static bool fn_sleep_1(query *q)
 
 	GET_FIRST_ARG(p1,number);
 
-	if (is_zero(p1))
-		return true;
-
 	if (is_negative(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "not_less_than_zero");
 
@@ -4723,9 +4733,6 @@ static bool fn_delay_1(query *q)
 		return true;
 
 	GET_FIRST_ARG(p1,integer);
-
-	if (is_zero(p1))
-		return true;
 
 	if (is_negative(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "not_less_than_zero");
@@ -5439,9 +5446,17 @@ static query *pop_task(query *q, query *task)
 }
 
 #ifndef WASI_TARGET_JS
+static bool fn_end_wait_0(query *q)
+{
+	if (q->parent)
+		q->parent->end_wait = true;
+
+	return true;
+}
+
 static bool fn_wait_0(query *q)
 {
-	while (q->tasks) {
+	while (q->tasks && !q->end_wait) {
 		CHECK_INTERRUPT();
 		uint64_t now = get_time_in_usec() / 1000;
 		query *task = q->tasks;
@@ -5480,9 +5495,10 @@ static bool fn_wait_0(query *q)
 		}
 
 		if (!did_something)
-			msleep(0);
+			msleep(1);
 	}
 
+	q->end_wait = false;
 	return true;
 }
 
@@ -5530,7 +5546,7 @@ static bool fn_await_0(query *q)
 		}
 
 		if (!did_something)
-			msleep(0);
+			msleep(1);
 		else
 			break;
 	}
@@ -8643,6 +8659,7 @@ builtins g_other_bifs[] =
 	{"task", 7, fn_task_n, ":callable,?term,?term,?term,?term,?term,?term", false, false, BLAH},
 	{"task", 8, fn_task_n, ":callable,?term,?term,?term,?term,?term,?term,?term", false, false, BLAH},
 
+	{"end_wait", 0, fn_end_wait_0, NULL, false, false, BLAH},
 	{"wait", 0, fn_wait_0, NULL, false, false, BLAH},
 	{"await", 0, fn_await_0, NULL, false, false, BLAH},
 	{"$cancel_future", 1, fn_sys_cancel_future_1, "+integer", false, false, BLAH},
@@ -8652,6 +8669,9 @@ builtins g_other_bifs[] =
 	{"yield", 0, fn_yield_0, NULL, false, false, BLAH},
 	{"send", 1, fn_send_1, "+term", false, false, BLAH},
 	{"recv", 1, fn_recv_1, "?term", false, false, BLAH},
+
+	{"$asserta", 2, fn_sys_asserta_2, "+term,+atom", true, false, BLAH},
+	{"$assertz", 2, fn_sys_assertz_2, "+term,+atom", true, false, BLAH},
 
 	{0}
 };

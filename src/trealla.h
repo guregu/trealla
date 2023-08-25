@@ -27,6 +27,8 @@ EXPORT(pl_isatty)
 extern bool pl_isatty(prolog*);
 EXPORT(pl_stdin)
 extern FILE *pl_stdin(prolog*);
+extern bool pl_restore(prolog*, const char *filename);
+extern bool pl_logging(prolog*, const char *filename);
 
 EXPORT(pl_query)
 extern bool pl_query(prolog*, const char *expr, pl_sub_query **q, unsigned int yield_time_in_ms);
