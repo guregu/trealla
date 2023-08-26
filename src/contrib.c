@@ -309,23 +309,23 @@ static bool fn_sys_wasi_outbound_http_5(query *q)
 		char *msg; 																\
 		switch (ret.val.err.tag) {												\
 		case OUTBOUND_PG_PG_ERROR_CONNECTION_FAILED:							\
-			kind = index_from_pool(q->pl, "connection_failed");					\
+			kind = new_atom(q->pl, "connection_failed");					\
 			COMPONENT_DUP_STR(msg, ret.val.err.val.connection_failed);			\
 			break; 																\
 		case OUTBOUND_PG_PG_ERROR_BAD_PARAMETER:								\
-			kind = index_from_pool(q->pl, "bad_parameter");						\
+			kind = new_atom(q->pl, "bad_parameter");						\
 			COMPONENT_DUP_STR(msg, ret.val.err.val.bad_parameter);				\
 			break;																\
 		case OUTBOUND_PG_PG_ERROR_QUERY_FAILED:									\
-			kind = index_from_pool(q->pl, "query_failed");						\
+			kind = new_atom(q->pl, "query_failed");						\
 			COMPONENT_DUP_STR(msg, ret.val.err.val.query_failed);				\
 			break; 																\
 		case OUTBOUND_PG_PG_ERROR_VALUE_CONVERSION_FAILED:						\
-			kind = index_from_pool(q->pl, "value_conversion_failed");			\
+			kind = new_atom(q->pl, "value_conversion_failed");			\
 			COMPONENT_DUP_STR(msg, ret.val.err.val.value_conversion_failed);	\
 			break; 																\
 		case OUTBOUND_PG_PG_ERROR_OTHER_ERROR: 									\
-			kind = index_from_pool(q->pl, "other_error");						\
+			kind = new_atom(q->pl, "other_error");						\
 			COMPONENT_DUP_STR(msg, ret.val.err.val.other_error);				\
 			break; 																\
 		} 																		\
@@ -339,22 +339,22 @@ static bool fn_sys_wasi_outbound_http_5(query *q)
 	}
 
 #define PG_ATOM_INDICES() \
-	pl_idx row_idx = index_from_pool(q->pl, "row");			\
-	pl_idx boolean_idx = index_from_pool(q->pl, "boolean");	\
-	pl_idx int8_idx = index_from_pool(q->pl, "int8");		\
-	pl_idx int16_idx = index_from_pool(q->pl, "int16");		\
-	pl_idx int32_idx = index_from_pool(q->pl, "int32");		\
-	pl_idx int64_idx = index_from_pool(q->pl, "int64");		\
-	pl_idx uint8_idx = index_from_pool(q->pl, "uint8");		\
-	pl_idx uint16_idx = index_from_pool(q->pl, "uint16");	\
-	pl_idx uint32_idx = index_from_pool(q->pl, "uint32");	\
-	pl_idx uint64_idx = index_from_pool(q->pl, "uint64");	\
-	pl_idx float32_idx = index_from_pool(q->pl, "float32");	\
-	pl_idx float64_idx = index_from_pool(q->pl, "float64");	\
-	pl_idx string_idx = index_from_pool(q->pl, "string");	\
-	pl_idx binary_idx = index_from_pool(q->pl, "binary");	\
-	pl_idx null_idx = index_from_pool(q->pl, "null");		\
-	pl_idx other_idx = index_from_pool(q->pl, "other");
+	pl_idx row_idx = new_atom(q->pl, "row");			\
+	pl_idx boolean_idx = new_atom(q->pl, "boolean");	\
+	pl_idx int8_idx = new_atom(q->pl, "int8");			\
+	pl_idx int16_idx = new_atom(q->pl, "int16");		\
+	pl_idx int32_idx = new_atom(q->pl, "int32");		\
+	pl_idx int64_idx = new_atom(q->pl, "int64");		\
+	pl_idx uint8_idx = new_atom(q->pl, "uint8");		\
+	pl_idx uint16_idx = new_atom(q->pl, "uint16");		\
+	pl_idx uint32_idx = new_atom(q->pl, "uint32");		\
+	pl_idx uint64_idx = new_atom(q->pl, "uint64");		\
+	pl_idx float32_idx = new_atom(q->pl, "float32");	\
+	pl_idx float64_idx = new_atom(q->pl, "float64");	\
+	pl_idx string_idx = new_atom(q->pl, "string");		\
+	pl_idx binary_idx = new_atom(q->pl, "binary");		\
+	pl_idx null_idx = new_atom(q->pl, "null");			\
+	pl_idx other_idx = new_atom(q->pl, "other");
 
 #define make_pg_params(p, params)													\
 	{																				\
