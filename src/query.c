@@ -269,8 +269,11 @@ void set_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx)
 		ve->c.attrs_ctx = c_attrs_ctx;
 	}
 
+	// A structure in the current frame can't be overwritten
+	// hence no TCO in this instance...
+
 	if (is_structure(v)) {
-		if ((c_ctx == q->st.fp) || (v_ctx == q->st.fp))
+		if (v_ctx == q->st.curr_frame)
 			q->no_tco = true;
 
 		make_indirect(&e->c, v, v_ctx);
@@ -295,7 +298,7 @@ void reset_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx)
 		add_trail(q, c_ctx, c->var_nbr, NULL, 0);
 
 	if (is_structure(v)) {
-		if ((c_ctx == q->st.fp) || (v_ctx == q->st.fp))
+		if (v_ctx == q->st.curr_frame)
 			q->no_tco = true;
 
 		make_indirect(&e->c, v, v_ctx);
@@ -468,7 +471,7 @@ static bool expand_meta_predicate(query *q, predicate *pr)
 		else if (m->val_off == g_colon_s) {
 			make_struct(tmp, g_colon_s, NULL, 2, 1+k->nbr_cells);
 			SET_OP(tmp, OP_XFY); tmp++;
-			make_atom(tmp++, index_from_pool(q->pl, pr->m->name));
+			make_atom(tmp++, new_atom(q->pl, pr->m->name));
 		}
 
 		tmp += safe_copy_cells(tmp, k, k->nbr_cells);
@@ -903,8 +906,14 @@ static bool are_slots_ok(const query *q, const frame *f)
 	for (unsigned i = 0; i < f->initial_slots; i++, e++) {
 		const cell *c = &e->c;
 
-		if (is_empty(c) || is_indirect(c))
+		// If a slot is empty something may be bound to it, so nok
+		// If it's indirect (a struct) then an element may bind here, so nok
+
+		if (is_empty(c))
 			return false;
+		else if (is_indirect(c) && !is_evaluable(c->val_ptr)) {
+			return false;
+		}
 	}
 
 	return true;
@@ -939,7 +948,7 @@ static void commit_frame(query *q)
 		tco = recursive && vars_ok && !choices && slots_ok;
 
 #if 0
-		printf("*** retry=%d,tco=%d,q->no_tco=%d,last_match=%d (%d),recursive=%d,choices=%d,slots_ok=%d,vars_ok=%d,cl->nbr_vars=%u,cl->nbr_temps=%u\n",
+		fprintf(stderr, "*** retry=%d,tco=%d,q->no_tco=%d,last_match=%d (%d),recursive=%d,choices=%d,slots_ok=%d,vars_ok=%d,cl->nbr_vars=%u,cl->nbr_temps=%u\n",
 			q->retry, tco, q->no_tco, last_match, cl->is_first_cut, recursive, choices, slots_ok, vars_ok, cl->nbr_vars, cl->nbr_temporaries);
 #endif
 

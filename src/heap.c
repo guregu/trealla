@@ -220,7 +220,7 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx p1_ctx, unsigned dept
 
 				const frame *f = GET_FRAME(h_ctx);
 				slot *e = GET_SLOT(f, h->var_nbr);
-				uint64_t save_vgen = e->vgen;
+				uint32_t save_vgen = e->vgen;
 
 				if (e->vgen == q->vgen) {
 					cell *rec = deep_clone2_to_tmp(q, h, h_ctx, depth+1);
@@ -293,7 +293,7 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx p1_ctx, unsigned dept
 				c_ctx = c->var_ctx;
 
 			slot *e = GET_SLOT(f, c->var_nbr);
-			uint64_t save_vgen = e->vgen;
+			uint32_t save_vgen = e->vgen;
 
 			if (e->vgen == q->vgen) {
 				cell *rec = deep_clone2_to_tmp(q, c, c_ctx, depth+1);
@@ -366,7 +366,7 @@ cell *clone_to_tmp(query *q, cell *p1)
 
 cell *prepare_call(query *q, bool prefix, cell *p1, pl_idx p1_ctx, unsigned extras)
 {
-	unsigned nbr_cells = (prefix?PREFIX_LEN:NOPREFIX_LEN) + p1->nbr_cells + extras;
+	unsigned nbr_cells = (prefix ? PREFIX_LEN : NOPREFIX_LEN) + p1->nbr_cells + extras;
 	cell *tmp = alloc_on_heap(q, nbr_cells);
 	if (!tmp) return NULL;
 
@@ -385,7 +385,7 @@ cell *prepare_call(query *q, bool prefix, cell *p1, pl_idx p1_ctx, unsigned extr
 		tmp->fn_ptr = s_fn_ptr;
 	}
 
-	cell *src = p1, *dst = tmp + (prefix?PREFIX_LEN:NOPREFIX_LEN);
+	cell *src = p1, *dst = tmp + (prefix ? PREFIX_LEN : NOPREFIX_LEN);
 
 	for (pl_idx i = 0; i < p1->nbr_cells; i++, dst++) {
 		*dst = *src++;
@@ -667,7 +667,7 @@ void allocate_structure(query *q, const char *functor, const cell *c)
 	if (!tmp) return;
 	tmp->tag = TAG_INTERNED;
 	tmp->nbr_cells = 1;
-	tmp->val_off = index_from_pool(q->pl, functor);
+	tmp->val_off = new_atom(q->pl, functor);
 	tmp->arity = 0;
 	tmp->flags = 0;
 	append_structure(q, c);

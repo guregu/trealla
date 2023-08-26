@@ -300,7 +300,7 @@ static predicate *find_predicate_(module *m, cell *c, bool abolished)
 	tmp.nbr_cells = 1;
 
 	if (is_cstring(c)) {
-		tmp.val_off = index_from_pool(m->pl, C_STR(m, c));
+		tmp.val_off = new_atom(m->pl, C_STR(m, c));
 	}
 
 	sliter *iter = sl_find_key(m->index, &tmp);
@@ -600,7 +600,7 @@ void set_discontiguous_in_db(module *m, const char *name, unsigned arity)
 {
 	cell tmp = (cell){0};
 	tmp.tag = TAG_INTERNED;
-	tmp.val_off = index_from_pool(m->pl, name);
+	tmp.val_off = new_atom(m->pl, name);
 	ensure(tmp.val_off != ERR_IDX);
 	tmp.arity = arity;
 	predicate *pr = find_predicate(m, &tmp);
@@ -617,7 +617,7 @@ void set_multifile_in_db(module *m, const char *name, pl_idx arity)
 {
 	cell tmp = (cell){0};
 	tmp.tag = TAG_INTERNED;
-	tmp.val_off = index_from_pool(m->pl, name);
+	tmp.val_off = new_atom(m->pl, name);
 	ensure(tmp.val_off != ERR_IDX);
 	tmp.arity = arity;
 	predicate *pr = find_predicate(m, &tmp);
@@ -634,7 +634,7 @@ void set_dynamic_in_db(module *m, const char *name, unsigned arity)
 {
 	cell tmp = (cell){0};
 	tmp.tag = TAG_INTERNED;
-	tmp.val_off = index_from_pool(m->pl, name);
+	tmp.val_off = new_atom(m->pl, name);
 	ensure(tmp.val_off != ERR_IDX);
 	tmp.arity = arity;
 	predicate *pr = find_predicate(m, &tmp);
@@ -653,7 +653,7 @@ void set_meta_predicate_in_db(module *m, cell *c)
 	unsigned arity = c->arity;
 	cell tmp = (cell){0};
 	tmp.tag = TAG_INTERNED;
-	tmp.val_off = index_from_pool(m->pl, name);
+	tmp.val_off = new_atom(m->pl, name);
 	ensure(tmp.val_off != ERR_IDX);
 	tmp.arity = arity;
 	predicate *pr = find_predicate(m, &tmp);
@@ -957,7 +957,7 @@ bool do_use_foreign_module(module *m, cell *p)
 void convert_to_literal(module *m, cell *c)
 {
 	char *src = DUP_STR(m, c);
-	pl_idx off = index_from_pool(m->pl, src);
+	pl_idx off = new_atom(m->pl, src);
 	unshare_cell(c);
 	c->tag = TAG_INTERNED;
 	c->val_off = off;
@@ -975,7 +975,7 @@ predicate *find_functor(module *m, const char *name, unsigned arity)
 {
 	cell tmp = (cell){0};
 	tmp.tag = TAG_INTERNED;
-	tmp.val_off = index_from_pool(m->pl, name);
+	tmp.val_off = new_atom(m->pl, name);
 	tmp.arity = arity;
 	return find_predicate(m, &tmp);
 }
