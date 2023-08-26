@@ -24,6 +24,10 @@
 	postgres_open_url/2,
 	postgres_execute/4,
 	postgres_query/5,
+	% SQLite
+	sqlite_open/2,
+	sqlite_query/5,
+	sqlite_close/1,
 	op(399, fx, /),
 	op(702, xfx, ?),
 	op(701, xfy, &),
@@ -315,6 +319,28 @@ pg_opt(port(P)) --> "port=", { number_chars(P, Cs) }, Cs.
 pg_opt(user(U)) --> "user=", U.
 pg_opt(password(Cs)) --> "password=", Cs.
 pg_opt(dbname(Cs)) --> "dbname=", Cs.
+
+/*
+	SQLite
+*/
+
+sqlite_open(Name, '$sqlite'(ID)) :-
+	must_be(atom, Name),
+	'$sqlite_open'(Name, ID).
+
+sqlite_query(Conn, Stmt, Params, Rows, Cols) :-
+	(  nonvar(Conn), Conn = '$sqlite'(ID)
+	-> true
+	;  throw(error(domain_error(sqlite_connection, Conn), sqlite_execute/4))
+	),
+	'$sqlite_query'(ID, Stmt, Params, Rows, Cols),
+	(  Rows = error(Kind, Msg)
+	-> throw(error(sqlite_error(Kind, Msg), sqlite_query/5))
+	;  true
+	).
+
+sqlite_close('$sqlite'(ID)) :-
+	'$sqlite_close'(ID).
 
 /*
 	Fancy HTTP handlers

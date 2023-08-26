@@ -154,7 +154,8 @@ SRCOBJECTS += src/wasm/spin.o \
 	src/wasm/spin-http.o \
 	src/wasm/wasi-outbound-http.o \
 	src/wasm/key-value.o \
-	src/wasm/outbound-pg.o
+	src/wasm/outbound-pg.o \
+	src/wasm/sqlite.o
 LIBOBJECTS += library/spin.o
 endif
 
@@ -226,10 +227,12 @@ wit:
 	wit-bindgen c --import $(SPINDIR)/wit/ephemeral/wasi-outbound-http.wit --out-dir ./src/wasm/
 	wit-bindgen c --import $(SPINDIR)/wit/ephemeral/key-value.wit --out-dir ./src/wasm/
 	wit-bindgen c --import $(SPINDIR)/wit/ephemeral/outbound-pg.wit --out-dir ./src/wasm/
+	wit-bindgen c --import $(SPINDIR)/wit/ephemeral/sqlite.wit --out-dir ./src/wasm/
 	sed -i '' -e 's/<spin-http.h>/"spin-http.h"/' ./src/wasm/spin-http.c
 	sed -i '' -e 's/<wasi-outbound-http.h>/"wasi-outbound-http.h"/' ./src/wasm/wasi-outbound-http.c
 	sed -i '' -e 's/<key-value.h>/"key-value.h"/' ./src/wasm/key-value.c
 	sed -i '' -e 's/<outbound-pg.h>/"outbound-pg.h"/' ./src/wasm/outbound-pg.c
+	sed -i '' -e 's/<sqlite.h>/"sqlite.h"/' ./src/wasm/sqlite.c
 
 test:
 	./tests/run.sh
