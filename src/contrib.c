@@ -14,6 +14,7 @@
 #include "wasi-outbound-http.h"
 #include "key-value.h"
 #include "outbound-pg.h"
+#include "sqlite.h"
 
 #define check_kv_error(p, ret) {															\
 		if (ret.is_err) {																	\
@@ -651,6 +652,210 @@ static bool fn_sys_outbound_pg_execute_4(query *q)
 	make_uint(tmp+1, ret.val.ok);
 	return unify(q, p4, p4_ctx, tmp, q->st.curr_frame);
 }
+
+#define check_sqlite_error(p, ret) {														\
+		if (ret.is_err) {																	\
+			switch (ret.val.err.tag) {														\
+			case SQLITE_ERROR_NO_SUCH_DATABASE:												\
+				return throw_error(q, p, p##_ctx, "sqlite_error", "no_such_database");		\
+			case SQLITE_ERROR_ACCESS_DENIED:												\
+				return throw_error(q, p, p##_ctx, "sqlite_error", "access_denied");			\
+			case SQLITE_ERROR_INVALID_CONNECTION:											\
+				return throw_error(q, p, p##_ctx, "sqlite_error", "invalid_connection");	\
+			case SQLITE_ERROR_DATABASE_FULL:												\
+				return throw_error(q, p, p##_ctx, "sqlite_error", "database_full");			\
+			case SQLITE_ERROR_IO:															\
+				return throw_error(q, p, p##_ctx, "sqlite_io_error",						\
+					COMPONENT_CSTR(ret.val.err.val.io));									\
+			default:																		\
+				return throw_error(q, p, p##_ctx, "sqlite_error", "unknown_error");			\
+			}																				\
+		}																					\
+	}
+
+#define SQLITE_ATOM_INDICES() \
+	pl_idx row_idx = new_atom(q->pl, "row");			\
+	pl_idx integer_idx = new_atom(q->pl, "integer");	\
+	pl_idx real_idx = new_atom(q->pl, "real");			\
+	pl_idx text_idx = new_atom(q->pl, "text");			\
+	pl_idx blob_idx = new_atom(q->pl, "blob");			\
+	pl_idx null_idx = new_atom(q->pl, "null");			\
+	pl_idx other_idx = new_atom(q->pl, "other");
+
+#define make_sqlite_params(p, params)												\
+	{																				\
+		cell *_##p##_head = p;														\
+		LIST_HANDLER(p);															\
+		while (is_iso_list(p) && !g_tpl_interrupt) {								\
+			cell *c = LIST_HEAD(p);													\
+			params.len++;															\
+			if (!is_structure(c)) {													\
+				return throw_error(q, c, q->latest_ctx, "type_error", "compound");	\
+			}																		\
+			p = LIST_TAIL(p);														\
+		}																			\
+		p = _##p##_head;															\
+		params.ptr = calloc(params.len, sizeof(sqlite_value_t));					\
+		size_t i = 0;																\
+		while (is_iso_list(p) && !g_tpl_interrupt) {								\
+			cell *c = LIST_HEAD(p);													\
+			c = deref(q, c, p##_ctx);												\
+			cell *v = deref(q, c+1, p##_ctx);										\
+			pl_idx v_ctx = q->latest_ctx;											\
+			sqlite_value_t *value = &params.ptr[i];									\
+			if (c->val_off == integer_idx) {										\
+				value->tag = SQLITE_VALUE_INTEGER;									\
+				value->val.integer = get_smallint(v);								\
+			} else if (c->val_off == real_idx) {									\
+				value->tag = SQLITE_VALUE_REAL;										\
+				value->val.real = get_float(v);										\
+			} else if (c->val_off == text_idx) {									\
+				dup_string(str, v);													\
+				value->tag = SQLITE_VALUE_TEXT;										\
+				value->val.text.ptr = str;											\
+				value->val.text.len = str_len;										\
+			} else if (c->val_off == blob_idx) {									\
+				dup_string(str, v);													\
+				value->tag = SQLITE_VALUE_BLOB;										\
+				value->val.blob.ptr = (uint8_t*)str;								\
+				value->val.blob.len = str_len;										\
+			} else if (c->val_off == null_idx) {									\
+				value->tag = SQLITE_VALUE_NULL;										\
+			} else {																\
+				return throw_error(q, c, q->latest_ctx, "domain_error", "sqlite_value"); \
+			}																		\
+			p = LIST_TAIL(p);														\
+			i++;																	\
+		}																			\
+		p = _##p##_head;															\
+	}
+
+static bool fn_sys_sqlite_open_2(query *q)
+{
+	GET_FIRST_ARG(p1,atom);
+	GET_NEXT_ARG(p2,var);
+
+	COMPONENT(sqlite_string) conn_name;
+	COMPONENT(sqlite_expected_connection_error) ret;
+	
+	sqlite_string_dup(&conn_name, C_STR(q, p1));
+
+	sqlite_open(&conn_name, &ret);
+	check_sqlite_error(p1, ret);
+
+	cell tmp;
+	make_int(&tmp, ret.val.ok);
+	tmp.flags |= FLAG_INT_HANDLE | FLAG_INT_OCTAL;
+	return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
+}
+
+static bool fn_sys_sqlite_close_1(query *q)
+{
+	GET_FIRST_ARG(p1,smallint);
+	const sqlite_connection_t store = get_smallint(p1);
+	sqlite_close(store);
+	return true;
+}
+
+
+static bool fn_sys_sqlite_query_5(query *q)
+{
+	GET_FIRST_ARG(p1,smallint)		// connection
+	GET_NEXT_ARG(p2,any);			// stmt
+	GET_NEXT_ARG(p3,list_or_nil); 	// params
+	GET_NEXT_ARG(p4,var);			// rows
+	GET_NEXT_ARG(p5,var);			// column info
+
+	sqlite_connection_t conn = get_smallint(p1);
+	dup_string(stmt, p2);
+	COMPONENT(sqlite_string) statement = {
+		.ptr = stmt,
+		.len = stmt_len
+	};
+	COMPONENT(sqlite_list_value) params = {0};
+	COMPONENT(sqlite_expected_query_result_error) ret = {0};
+
+	SQLITE_ATOM_INDICES();
+	make_sqlite_params(p3, params); // TODO
+
+	sqlite_execute(conn, &statement, &params, &ret);
+	check_sqlite_error(p4, ret);
+
+	cell *rows;
+	cell tmpr;
+	if (ret.val.ok.rows.len == 0) {
+		make_atom(&tmpr, g_nil_s);
+		rows = &tmpr;
+	} else {
+		for (size_t i = 0; i < ret.val.ok.rows.len; i++) {
+			sqlite_list_value_t row = ret.val.ok.rows.ptr[i].values;
+			cell *tmp;
+			tmp = alloc_on_heap(q, 1 + row.len*2);
+			check_heap_error(tmp);
+			pl_idx nbr_cells = 0;
+			make_struct(tmp+nbr_cells++, row_idx, NULL, row.len, row.len*2);
+			for (size_t i = 0; i < row.len; i++) {
+				sqlite_value_t col = row.ptr[i];
+				switch (col.tag) {
+				case SQLITE_VALUE_INTEGER:
+					make_struct(tmp+nbr_cells++, integer_idx, NULL, 1, 1);
+					make_int(tmp+nbr_cells++, col.val.integer);
+					break;
+				case SQLITE_VALUE_REAL:
+					make_struct(tmp+nbr_cells++, real_idx, NULL, 1, 1);
+					make_float(tmp+nbr_cells++, col.val.real);
+					break;
+				case SQLITE_VALUE_TEXT:
+					make_struct(tmp+nbr_cells++, text_idx, NULL, 1, 1);
+					make_stringn(tmp+nbr_cells++, col.val.text.ptr, col.val.text.len);
+					break;
+				case SQLITE_VALUE_BLOB:
+					make_struct(tmp+nbr_cells++, blob_idx, NULL, 1, 1);
+					make_stringn(tmp+nbr_cells++, (char*)col.val.blob.ptr, col.val.blob.len);
+					break;
+				case SQLITE_VALUE_NULL:
+					make_struct(tmp+nbr_cells++, null_idx, NULL, 1, 1);
+					make_atom(tmp+nbr_cells++, g_nil_s);
+					break;
+				}
+			}
+
+			if (i == 0)
+				allocate_list(q, tmp);
+			else
+				append_list(q, tmp);
+		}
+		rows = end_list(q);
+		check_heap_error(rows);
+	}
+
+	// Column info.
+	for (size_t i = 0; i < ret.val.ok.columns.len; i++) {
+		sqlite_string_t col = ret.val.ok.columns.ptr[i];
+
+		cell tmp;
+		check_heap_error(make_stringn(&tmp, col.ptr, col.len));
+
+		if (i == 0)
+			allocate_list(q, &tmp);
+		else
+			append_list(q, &tmp);
+	}
+
+	cell *cols;
+	cell tmpc;
+	if (ret.val.ok.columns.len) {
+		cols = end_list(q);
+		check_heap_error(cols);
+	} else {
+		make_atom(&tmpc, g_nil_s);
+		cols = &tmpc;
+	}
+
+	bool ok1 = unify(q, p4, p4_ctx, rows, q->st.curr_frame);
+	bool ok2 = unify(q, p5, p5_ctx, cols, q->st.curr_frame);
+	return ok1 && ok2;
+}
 #endif
 
 builtins g_contrib_bifs[] =
@@ -666,10 +871,13 @@ builtins g_contrib_bifs[] =
 	{"$wasi_kv_delete", 2, fn_sys_wasi_kv_delete_2, "+store,+string", false, false, BLAH},
 	{"$outbound_pg_query", 5, fn_sys_outbound_pg_query_5, "+string,+string,+list,-list,-list", false, false, BLAH},
 	{"$outbound_pg_execute", 4, fn_sys_outbound_pg_execute_4, "+string,+string,+list,-compound", false, false, BLAH},
+	{"$sqlite_open", 2, fn_sys_sqlite_open_2, "+atom,-store", false, false, BLAH},
+	{"$sqlite_close", 1, fn_sys_sqlite_close_1, "+store", false, false, BLAH},
+	{"$sqlite_query", 5, fn_sys_sqlite_query_5, "+string,+string,+list,-list,-list", false, false, BLAH},
 #endif
 	{0}
 };
 
 #undef check_kv_error
 #undef check_pg_error
-
+#undef check_sqlite_error
