@@ -51,8 +51,6 @@ init :-
 	map_create(_, [alias(http_headers)]),
 	'$memory_stream_create'(_, [alias(http_body)]).
 
-:- initialization(init).
-
 http_handle_request(URI, Method) :-
 	assertz(current_http_uri(URI)),
 	assertz(current_http_method(Method)),
