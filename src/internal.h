@@ -18,6 +18,10 @@
 #define USE_THREADS 0
 #endif
 
+#ifndef USE_RATIONAL_TREES
+#define USE_RATIONAL_TREES 1
+#endif
+
 typedef double pl_flt;
 typedef intmax_t pl_int;
 typedef uintmax_t pl_uint;
@@ -507,7 +511,7 @@ struct trail_ {
 
 struct slot_ {
 	cell c;
-	uint32_t vgen, vgen2;	// visit generation
+	uint32_t vgen, vgen2, save_vgen, save_vgen2;
 };
 
 // Where 'prev_offset' is the number of frames back
@@ -565,7 +569,7 @@ struct stream_ {
 		query *engine;
 	};
 
-	string_buffer sb_buf;
+	stringbuf sb_buf;
 	char *mode, *filename, *data, *src;
 	skiplist *alias;
 	void *sslptr;
@@ -646,10 +650,11 @@ struct query_ {
 	mpz_t tmp_ival;
 	mpq_t tmp_irat;
 	prolog_state st;
+	stringbuf sb_buf;
 	bool ignores[MAX_IGNORES];
 	uint64_t tot_goals, tot_backtracks, tot_retries, tot_matches;
 	uint64_t tot_tcos, tot_frecovs, tot_srecovs;
-	uint64_t step, qid, tmo_msecs, cgen;
+	uint64_t step, qid, tmo_msecs, cgen, cycle_error;
 	uint64_t get_started, autofail_n, yield_at;
 	uint64_t time_cpu_started, time_cpu_last_started, future;
 	unsigned max_depth, max_eval_depth, print_idx, tab_idx, varno, tab0_varno, curr_engine;
@@ -661,7 +666,7 @@ struct query_ {
 	pl_idx q_size[MAX_QUEUES], tmpq_size[MAX_QUEUES], qp[MAX_QUEUES];
 	prolog_flags flags;
 	enum q_retry retry;
-	uint32_t vgen;
+	uint32_t vgen, print_vgen;
 	int8_t halt_code;
 	int8_t quoted;
 	enum { WAS_OTHER, WAS_SPACE, WAS_COMMA, WAS_SYMBOL } last_thing;
@@ -696,7 +701,6 @@ struct query_ {
 	bool numbervars:1;
 	bool halt:1;
 	bool abort:1;
-	bool cycle_error:1;
 	bool spawned:1;
 	bool run_init:1;
 	bool varnames:1;
@@ -725,7 +729,7 @@ struct parser_ {
 	module *m;
 	clause *cl;
 	cell v;
-	string_buffer token_buf;
+	stringbuf token_buf;
 	prolog_flags flags;
 	char *save_line, *srcptr, *error_desc;
 	size_t token_size, n_line, pos_start;
@@ -808,9 +812,11 @@ struct prolog_ {
 	char *pool;
 	size_t pool_offset, pool_size, tabs_size;
 	uint64_t s_last, s_cnt, seed, ugen;
-	unsigned next_mod_id;
+	unsigned next_mod_id, def_max_depth;
 	uint8_t current_input, current_output, current_error;
 	int8_t halt_code, opt;
+	bool def_quoted:1;
+	bool def_double_quotes:1;
 	bool is_redo:1;
 	bool is_query:1;
 	bool halt:1;
@@ -913,7 +919,7 @@ cell *list_tail(cell *l, cell *tmp);
 
 enum clause_type { DO_CLAUSE, DO_RETRACT, DO_RETRACTALL };
 
-size_t formatted(char *dst, size_t dstlen, const char *src, int srclen, bool dq, bool json);
+char *formatted(const char *src, int srclen, bool dq, bool json);
 char *slicedup(const char *s, size_t n);
 int slicecmp(const char *s1, size_t len1, const char *s2, size_t len2);
 uint64_t get_time_in_usec(void);

@@ -90,6 +90,20 @@ catch(G, E, C) :-
 :- meta_predicate(catch(0,?,0)).
 :- help(catch(:callable,+term,:callable), [iso(true)]).
 
+countall(_, N) :-
+	integer(N),
+	(	N >= 0
+	->	true
+	; 	throw(error(domain_error(not_less_than_zero, N), countall/2))
+	),
+	fail.
+countall(G, N) :-
+	'$countall'(G, N0),
+	N = N0.
+
+:- meta_predicate(countall(0,?)).
+:- help(countall(:callable,?integer), [iso(true)]).
+
 call_det(G, Det) :-
 	'$get_level'(L1),
 	G,
@@ -500,6 +514,12 @@ strip_module(T, M, P) :- T=M:P -> true ; P=T.
 atom_number(A, N) :- atom_codes(A,Codes), number_codes(N, Codes).
 
 :- help(atom_number(+atom,-number), [iso(false)]).
+
+rational_numerator_denominator(R, N, D) :-
+	N is numerator(R),
+	D is denominator(R).
+
+:- help(rational_numerator_denominator(+rational,-integr,-integer), [iso(false)]).
 
 '$skip_list'(Skip, Xs0, Xs) :- '$skip_max_list'(Skip,_, Xs0, Xs).
 
@@ -972,13 +992,6 @@ dump_attvars :-
 	print_goals_(Gs).
 
 %:- help(dump_attvars, [iso(false)]).
-
-call_residue_vars(Goal, Atts) :-
-	Goal,
-	term_attvars(Goal, Atts).
-
-:- meta_predicate(call_residue_vars(0,-)).
-:- help(call_residue_vars(:callable, -list), [iso(false), desc('Find residual attributed variables left by Goal. This predicate is intended for reasoning about and debugging programs that use coroutining or constraints. To see why this predicate is necessary, consider a predicate that poses contradicting constraints on a variable, and where that variable does not appear in any argument of the predicate and hence does not yield any residual goals on the toplevel when the predicate is invoked. Such programs should fail, but sometimes succeed because the constraint solver is too weak to detect the contradiction. Ideally, delayed goals and constraints are all executed at the end of the computation. The meta predicate call_residue_vars/2 finds variables that are given attributes or whose attributes are modified by Goal, regardless of whether or not these variables are reachable from the arguments of Goal.')]).
 
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

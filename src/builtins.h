@@ -260,3 +260,21 @@ inline static cell *get_raw_arg(const query *q, int n)
 #define check_heap_error(expr, ...) \
 	CHECK_SENTINEL(expr, 0, __VA_ARGS__; \
 	return throw_error(q, q->st.curr_cell, q->st.curr_frame, "resource_error", "memory"))
+
+#define DEREF_SLOT(both, svg, ee, evgen, cc, cc_ctx, qvgen)			\
+	if (is_var(cc)) {												\
+		if (is_ref(cc))												\
+			cc_ctx = cc->var_ctx;									\
+																	\
+		const frame *f = GET_FRAME(cc_ctx);							\
+		ee = GET_SLOT(f, cc->var_nbr);								\
+		svg = evgen;												\
+																	\
+		if (evgen == qvgen) {										\
+			both++;													\
+		} else {													\
+			evgen = qvgen;											\
+			cc = deref(q, cc, cc_ctx);								\
+			cc_ctx = q->latest_ctx;									\
+		}															\
+	}

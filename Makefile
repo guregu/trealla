@@ -4,7 +4,9 @@ CFLAGS = -Isrc -I/usr/local/include -DVERSION='$(GIT_VERSION)' \
 	-std=gnu99 -O3 $(OPT) -D_GNU_SOURCE \
 	-Wall -Wextra \
 	-Wno-deprecated-declarations \
-	-Wno-unused-function -Wno-unused-parameter \
+	-Wno-unused-function \
+	-Wno-unused-parameter \
+	-Wno-unused-but-set-variable \
 	-Wno-unused-variable
 
 LDFLAGS = -L/usr/local/lib -lm
@@ -60,6 +62,10 @@ CFLAGS += -DUSE_OPENSSL=1 -I/usr/local/opt/openssl/include
 LDFLAGS += -L/usr/local/opt/openssl/lib -lssl -lcrypto
 endif
 
+ifdef NORATIONAL_TREES
+CFLAGS += -DUSE_RATIONAL_TREES=0
+endif
+
 ifdef THREADS
 CFLAGS += -DUSE_THREADS=1 -pthread
 LDFLAGS += -pthread
@@ -107,9 +113,11 @@ LIBOBJECTS +=  \
 	library/atts.o \
 	library/builtins.o \
 	library/charsio.o \
+	library/clpz.o \
 	library/concurrent.o \
 	library/curl.o \
 	library/dcgs.o \
+	library/debug.o \
 	library/dict.o \
 	library/dif.o \
 	library/error.o \
@@ -127,6 +135,7 @@ LIBOBJECTS +=  \
 	library/pseudojson.o \
 	library/random.o \
 	library/raylib.o \
+	library/reif.o \
 	library/si.o \
 	library/sqlite3.o \
 	library/ugraphs.o \

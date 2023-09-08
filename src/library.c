@@ -68,6 +68,12 @@ extern unsigned char library_uuid_pl[];
 extern unsigned int library_uuid_pl_len;
 extern unsigned char library_linda_pl[];
 extern unsigned int library_linda_pl_len;
+extern unsigned char library_reif_pl[];
+extern unsigned int library_reif_pl_len;
+extern unsigned char library_debug_pl[];
+extern unsigned int library_debug_pl_len;
+extern unsigned char library_clpz_pl[];
+extern unsigned int library_clpz_pl_len;
 
 #ifdef WASI_TARGET_SPIN
 extern unsigned char library_spin_pl[];
@@ -81,9 +87,11 @@ library g_libs[] = {
 	 {"atts", library_atts_pl, &library_atts_pl_len},
 	 {"builtins", library_builtins_pl, &library_builtins_pl_len},
 	 {"charsio", library_charsio_pl, &library_charsio_pl_len},
+	 {"clpz", library_clpz_pl, &library_clpz_pl_len},
 	 {"concurrent", library_concurrent_pl, &library_concurrent_pl_len},
 	 {"curl", library_curl_pl, &library_curl_pl_len},
 	 {"dcgs", library_dcgs_pl, &library_dcgs_pl_len},
+	 {"debug", library_debug_pl, &library_debug_pl_len},
 	 {"dict", library_dict_pl, &library_dict_pl_len},
 	 {"dif", library_dif_pl, &library_dif_pl_len},
 	 {"error", library_error_pl, &library_error_pl_len},
@@ -101,6 +109,7 @@ library g_libs[] = {
 	 {"pseudojson", library_pseudojson_pl, &library_pseudojson_pl_len},
 	 {"random", library_random_pl, &library_random_pl_len},
 	 {"raylib", library_raylib_pl, &library_raylib_pl_len},
+	 {"reif", library_reif_pl, &library_reif_pl_len},
 	 {"si", library_si_pl, &library_si_pl_len},
 #ifdef WASI_TARGET_SPIN
 	 {"spin", library_spin_pl, &library_spin_pl_len},

@@ -3,8 +3,26 @@
 This is a fork of [Trealla Prolog](https://github.com/trealla-prolog/trealla) for experimenting with WebAssembly/WASI.
 For more info on Trealla, check out the parent repository.
 
+<<<<<<< HEAD
 We endeavor to keep this fork as close as possible to the upstream and contribute all stable changes upstream.
 Ideally, when Wasm support is better stablized, this fork won't need to exist.
+=======
+	MIT licensed
+	Integers & Rationals are unbounded
+	Atoms are UTF-8 of unlimited length
+	The default double-quoted representation is *chars* list
+	Strings & slices are super-efficient (especially with mmap'd files)
+	REPL with history
+	Compiles in <1s with *tcc*, or ~5s with *gcc* and *clang*
+	Runs on Linux, Android, FreeBSD, macOS, and WebAssembly (WASI) & Go
+	Foreign function interface (FFI) for calling out to user C code
+	API for calling from C (or by using WASM from Go & JS)
+	Access SQLITE databases using builtin module (uses FFI)
+	Concurrency via tasks / linda / futures / engines (generators)
+	Rational trees are considered ##EXPERIMENTAL##
+	Include CLP(Z) for constraints over the Reals
+	Logtalk compatible
+>>>>>>> 8ca16ee7be2e60b6285916c6e9690d19759c6297
 
 ## Download
 

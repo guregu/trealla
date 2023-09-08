@@ -182,7 +182,6 @@ static void check_pressure(query *q)
 		printf("*** q->st.sp=%u, q->slots_size=%u\n", (unsigned)q->st.sp, (unsigned)q->slots_size);
 #endif
 		q->slots_size = alloc_grow((void**)&q->slots, sizeof(slot), q->st.sp, INITIAL_NBR_SLOTS, false);
-		q->vgen = 0;
 	}
 #endif
 }
@@ -237,81 +236,6 @@ void add_trail(query *q, pl_idx c_ctx, unsigned c_var_nbr, cell *attrs, pl_idx a
 	tr->var_nbr = c_var_nbr;
 	tr->attrs = attrs;
 	tr->attrs_ctx = attrs_ctx;
-}
-
-void set_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx)
-{
-	const frame *f = GET_FRAME(c_ctx);
-	slot *e = GET_SLOT(f, c->var_nbr);
-	cell *c_attrs = is_empty(&e->c) ? e->c.attrs : NULL, *v_attrs = NULL;
-	pl_idx c_attrs_ctx = c_attrs ? e->c.attrs_ctx : 0;
-
-	if ((c_ctx < q->st.fp) || is_managed(v))
-		add_trail(q, c_ctx, c->var_nbr, c_attrs, c_attrs_ctx);
-
-	if (c_attrs && is_var(v)) {
-		const frame *vf = GET_FRAME(v_ctx);
-		const slot *ve = GET_SLOT(vf, v->var_nbr);
-		v_attrs = is_empty(&ve->c) ? ve->c.attrs : NULL;
-	}
-
-	// If 'c' is an attvar and either 'v' is an attvar or nonvar then run the hook
-	// If 'c' is an attvar and 'v' is a plain var then copy attributes to 'v'
-	// If 'c' is a plain var and 'v' is an attvar then copy attributes to 'c'
-
-	if (c_attrs && (v_attrs || is_nonvar(v))) {
-		q->run_hook = true;
-	} else if (c_attrs && !v_attrs && is_var(v)) {
-		const frame *vf = GET_FRAME(v_ctx);
-		slot *ve = GET_SLOT(vf, v->var_nbr);
-		add_trail(q, v_ctx, v->var_nbr, NULL, 0);
-		ve->c.attrs = c_attrs;
-		ve->c.attrs_ctx = c_attrs_ctx;
-	}
-
-	// A structure in the current frame can't be overwritten
-	// hence no TCO in this instance...
-
-	if (is_structure(v)) {
-		if (v_ctx == q->st.curr_frame)
-			q->no_tco = true;
-
-		make_indirect(&e->c, v, v_ctx);
-	} else if (is_var(v)) {
-		e->c.tag = TAG_VAR;
-		e->c.nbr_cells = 1;
-		e->c.flags |= FLAG_VAR_REF;
-		e->c.var_nbr = v->var_nbr;
-		e->c.var_ctx = v_ctx;
-	} else {
-		share_cell(v);
-		e->c = *v;
-	}
-}
-
-void reset_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx)
-{
-	const frame *f = GET_FRAME(c_ctx);
-	slot *e = GET_SLOT(f, c->var_nbr);
-
-	if ((c_ctx < q->st.fp) || is_managed(v))
-		add_trail(q, c_ctx, c->var_nbr, NULL, 0);
-
-	if (is_structure(v)) {
-		if (v_ctx == q->st.curr_frame)
-			q->no_tco = true;
-
-		make_indirect(&e->c, v, v_ctx);
-	} else if (is_var(v)) {
-		e->c.tag = TAG_VAR;
-		e->c.nbr_cells = 1;
-		e->c.flags |= FLAG_VAR_REF;
-		e->c.var_nbr = v->var_nbr;
-		e->c.var_ctx = v_ctx;
-	} else {
-		share_cell(v);
-		e->c = *v;
-	}
 }
 
 static bool check_frame(query *q)
@@ -405,7 +329,7 @@ bool has_next_key(query *q)
 	if (!q->st.dbe->next)
 		return false;
 
-	if (!q->st.key->arity || !q->pl->opt)
+	if (!q->st.key->arity)
 		return true;
 
 	const cell *qarg1;
@@ -427,18 +351,6 @@ bool has_next_key(query *q)
 
 		if (index_cmpkey(qarg1, FIRST_ARG(dkey), q->st.m, NULL) == 0)
 			return true;
-
-#if 1
-		// This is needed for: tpl -g run ~/retina/retina.pl ~/retina/rdfsurfaces/lubm/lubm.s
-
-		const predicate *pr = q->st.dbe->owner;
-
-		if (pr->is_dynamic
-			&& !q->st.karg1_is_ground
-			&& (*C_STR(q, &pr->key) != '$')
-			)
-			return true;
-#endif
 	}
 
 	return false;
@@ -637,6 +549,7 @@ static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx l_ctx, bool 
 
 		l = LIST_TAIL(l);
 
+#if USE_RATIONAL_TREES
 		if (is_var(l)) {
 			frame *f = GET_FRAME(l_ctx);
 			slot *e = GET_SLOT(f, l->var_nbr);
@@ -648,6 +561,10 @@ static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx l_ctx, bool 
 			l = deref(q, l, l_ctx);
 			l_ctx = q->latest_ctx;
 		}
+#else
+		l = deref(q, l, l_ctx);
+		l_ctx = q->latest_ctx;
+#endif
 	}
 
 	if (is_var(l)) {
@@ -745,6 +662,9 @@ static void leave_predicate(query *q, predicate *pr)
 
 static void unwind_trail(query *q)
 {
+	if (!q->cp)
+		return;
+
 	const choice *ch = GET_CURR_CHOICE();
 
 	while (q->st.tp > ch->st.tp) {
@@ -1293,8 +1213,8 @@ bool match_rule(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract)
 		undo_me(q);
 	}
 
-	leave_predicate(q, q->st.pr);
 	drop_choice(q);
+	leave_predicate(q, q->st.pr);
 	return false;
 }
 
@@ -1382,8 +1302,8 @@ bool match_clause(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract
 		undo_me(q);
 	}
 
-	leave_predicate(q, q->st.pr);
 	drop_choice(q);
+	leave_predicate(q, q->st.pr);
 	return false;
 }
 
@@ -1458,10 +1378,13 @@ static bool match_head(query *q)
 		undo_me(q);
 	}
 
-	choice *ch = GET_CURR_CHOICE();
-	ch->st.iter = NULL;
+	if (q->cp) {
+		choice *ch = GET_CURR_CHOICE();
+		ch->st.iter = NULL;
+		drop_choice(q);
+	}
+
 	leave_predicate(q, q->st.pr);
-	drop_choice(q);
 	return false;
 }
 
@@ -1912,6 +1835,7 @@ query *query_create(module *m, bool is_task)
 	q->ops_dirty = true;
 	q->double_quotes = false;
 	q->st.prob = 1.0;
+	q->max_depth = 0;
 	mp_int_init(&q->tmp_ival);
 	mp_rat_init(&q->tmp_irat);
 	clr_accum(&q->accum);

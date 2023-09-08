@@ -363,7 +363,7 @@ static bool do_if_then_else(query *q, cell *p1, cell *p2, cell *p3)
 
 // if *-> then ; else
 
-static bool do_if_else(query *q, cell *p1, cell *p2, cell *p3)
+static bool soft_do_if_then_else(query *q, cell *p1, cell *p2, cell *p3)
 {
 	q->tot_goals--;
 
@@ -392,7 +392,7 @@ bool fn_if_3(query *q)
 	GET_FIRST_ARG(p1,callable);
 	GET_NEXT_ARG(p2,callable);
 	GET_NEXT_ARG(p3,callable);
-	return do_if_else(q, p1, p2, p3);
+	return soft_do_if_then_else(q, p1, p2, p3);
 }
 
 // goal , goal
@@ -426,7 +426,7 @@ bool fn_iso_disjunction_2(query *q)
 			cell *p1 = q->st.curr_cell + 2;
 			cell *p2 = p1 + p1->nbr_cells;
 			cell *p3 = p2 + p2->nbr_cells;
-			return do_if_else(q, p1, p2, p3);
+			return soft_do_if_then_else(q, p1, p2, p3);
 		}
 	}
 
@@ -582,6 +582,37 @@ bool fn_sys_call_cleanup_3(query *q)
 	make_uint(tmp+nbr_cells++, q->cp);
 	make_call(q, tmp+nbr_cells);
 	check_heap_error(push_catcher(q, QUERY_RETRY));
+	q->st.curr_cell = tmp;
+	return true;
+}
+
+bool fn_sys_countall_2(query *q)
+{
+	q->tot_goals--;
+	GET_FIRST_ARG(p1,callable);
+	GET_NEXT_ARG(p2,var);
+
+	check_heap_error(init_tmp_heap(q));
+	cell *tmp2 = deep_clone_to_tmp(q, p1, p1_ctx);
+	check_heap_error(tmp2);
+	bool status;
+
+	if (!call_check(q, tmp2, &status, false))
+		return status;
+
+	cell n;
+	make_uint(&n, 0);
+	reset_var(q, p2, p2_ctx, &n, q->st.curr_frame);
+	cell *tmp = prepare_call(q, true, tmp2, q->st.curr_frame, 4);
+	check_heap_error(tmp);
+	pl_idx nbr_cells = PREFIX_LEN + tmp2->nbr_cells;
+	make_struct(tmp+nbr_cells++, g_sys_counter_s, fn_sys_counter_1, 1, 1);
+	make_ref(tmp+nbr_cells++, g_anon_s, p2->var_nbr, p2_ctx);
+	make_struct(tmp+nbr_cells++, g_fail_s, fn_iso_fail_0, 0, 0);
+	make_call(q, tmp+nbr_cells);
+	check_heap_error(push_barrier(q));
+	choice *ch = GET_CURR_CHOICE();
+	ch->succeed_on_retry = true;
 	q->st.curr_cell = tmp;
 	return true;
 }

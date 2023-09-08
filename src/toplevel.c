@@ -470,13 +470,13 @@ void dump_vars(query *q, bool partial)
 
 		if (parens) fputc('(', stdout);
 		int saveq = q->quoted;
-		q->quoted = 1;
 		q->variable_names = vlist;
 		q->variable_names_ctx = 0;
 		q->numbervars = true;
-		q->max_depth = 9;
+		q->max_depth = q->pl->def_max_depth;
+		q->double_quotes = q->pl->def_double_quotes;
+		q->quoted = q->pl->def_quoted ? 1 : 0;
 		q->parens = parens;
-		q->double_quotes = true;
 		e->vgen = q->vgen+1;
 
 		if (!init_tmp_heap(q))
@@ -494,6 +494,7 @@ void dump_vars(query *q, bool partial)
 		q->numbervars = false;
 		q->parens = false;
 		any = true;
+		clear_write_options(q);
 	}
 
 	bool any_atts = any_attributed(q);

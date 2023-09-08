@@ -472,7 +472,8 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 				return throw_error(q, c, q->st.curr_frame, "type_error", "integer");
 			}
 
-			len = print_term_to_buf(q, NULL, 0, c, 0, 0, false);
+			print_term_to_buf(q, c, 0, 0, false);
+			len = SB_strlen(q->sb);
 			CHECK_BUF(len*10);
 			len = format_integer(dst, c, noargval?3:argval, '_', 0, 10);
 			break;
@@ -483,7 +484,8 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 				return throw_error(q, c, q->st.curr_frame, "type_error", "integer");
 			}
 
-			len = print_term_to_buf(q, NULL, 0, c, 0, 0, false);
+			print_term_to_buf(q, c, 0, 0, false);
+			len = SB_strlen(q->sb);
 			CHECK_BUF(len*10);
 			len = format_integer(dst, c, 0, ',', noargval?0:argval, 10);
 			break;
@@ -494,7 +496,8 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 				return throw_error(q, c, q->st.curr_frame, "type_error", "integer");
 			}
 
-			len = print_term_to_buf(q, NULL, 0, c, 0, 0, false);
+			print_term_to_buf(q, c, 0, 0, false);
+			len = SB_strlen(q->sb);
 			CHECK_BUF(len*10);
 			len = format_integer(dst, c, 3, ',', noargval?0:argval, 10);
 			break;
@@ -510,7 +513,8 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 				return throw_error(q, c, q->st.curr_frame, "type_error", "integer");
 			}
 
-			len = print_term_to_buf(q, NULL, 0, c, 0, 0, false);
+			print_term_to_buf(q, c, 0, 0, false);
+			len = SB_strlen(q->sb);
 			CHECK_BUF(len*10);
 			len = format_integer(dst, c, 0, ',', 0, !argval?8:argval);
 			break;
@@ -526,7 +530,8 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 				return throw_error(q, c, q->st.curr_frame, "type_error", "integer");
 			}
 
-			len = print_term_to_buf(q, NULL, 0, c, 0, 0, false);
+			print_term_to_buf(q, c, 0, 0, false);
+			len = SB_strlen(q->sb);
 			CHECK_BUF(len*10);
 			len = format_integer(dst, c, 0, ',', 0, !argval?-8:-argval);
 			break;
@@ -617,7 +622,7 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 		cell *c = deref(q, str+1, str_ctx);
 		cell tmp;
 		check_heap_error(make_cstringn(&tmp, tmpbuf, len), free(tmpbuf));
-		set_var(q, c, q->latest_ctx, &tmp, q->st.curr_frame);
+		unify(q, c, q->latest_ctx, &tmp, q->st.curr_frame);
 		unshare_cell(&tmp);
 	} else if (is_structure(str)) {
 		cell *c = deref(q, str+1, str_ctx);
@@ -628,7 +633,7 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 		else
 			make_atom(&tmp, g_nil_s);
 
-		set_var(q, c, q->latest_ctx, &tmp, q->st.curr_frame);
+		unify(q, c, q->latest_ctx, &tmp, q->st.curr_frame);
 		unshare_cell(&tmp);
 	} else if (is_stream(str)) {
 		int n = get_stream(q, str);

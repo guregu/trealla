@@ -520,20 +520,21 @@ static void add_stream_properties(query *q, int n)
 			str->ungetch = ch;
 	}
 
-	char tmpbuf2[1024*4];
 	sliter *iter = sl_first(str->alias);
 
 	while (sl_next(iter, NULL)) {
 		const char *alias = sl_key(iter);
-		formatted(tmpbuf2, sizeof(tmpbuf2), alias, strlen(alias), false, false);
-		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, alias('%s')).\n", n, tmpbuf2);
+		char *dst2 = formatted(alias, strlen(alias), false, false);
+		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, alias('%s')).\n", n, dst2);
+		free(dst2);
 	}
 
 	sl_done(iter);
 
 	if (!str->is_engine && !str->is_map) {
-		formatted(tmpbuf2, sizeof(tmpbuf2), str->filename, strlen(str->filename), false, false);
-		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, file_name('%s')).\n", n, tmpbuf2);
+		char *dst2 = formatted(str->filename, strlen(str->filename), false, false);
+		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, file_name('%s')).\n", n, dst2);
+		free(dst2);
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, file_no(%u)).\n", n, fileno(str->fp));
 
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, file(%llu)).\n", n, (unsigned long long)(size_t)str->fp);
@@ -7785,8 +7786,8 @@ builtins g_files_bifs[] =
 	{"unget_byte", 2, fn_unget_byte_2, "+stream,+integer", true, false, BLAH},
 	{"set_stream", 2, fn_set_stream_2, "+stream,+term", true, false, BLAH},
 	{"getline", 1, fn_getline_1, "-atom", false, false, BLAH},
-	{"getline", 2, fn_getline_2, "+stream,-character_list", false, false, BLAH},
-	{"getline", 3, fn_getline_3, "+stream,-character_list,+list", false, false, BLAH},
+	{"getline", 2, fn_getline_2, "+stream,-string", false, false, BLAH},
+	{"getline", 3, fn_getline_3, "+stream,-string,+list", false, false, BLAH},
 	{"getlines", 1, fn_getlines_1, "-list", false, false, BLAH},
 	{"getlines", 2, fn_getlines_2, "+stream,-list", false, false, BLAH},
 	{"getlines", 3, fn_getlines_3, "+stream,-list,+list", false, false, BLAH},
@@ -7816,13 +7817,13 @@ builtins g_files_bifs[] =
 	{"$put_chars", 2, fn_sys_put_chars_2, "+stream,+chars", false, false, BLAH},
 	{"$load_chars", 1, fn_sys_load_chars_1, "+chars", false, false, BLAH},
 	{"read_term_from_atom", 3, fn_read_term_from_atom_3, "+atom,?term,+list", false, false, BLAH},
-	{"read_term_from_chars", 3, fn_read_term_from_chars_3, "+character_list,?term,+list", false, false, BLAH},
-	{"$read_term_from_chars", 4, fn_sys_read_term_from_chars_4, "?term,+list,+character_list,-character_list", false, false, BLAH},
+	{"read_term_from_chars", 3, fn_read_term_from_chars_3, "+string,?term,+list", false, false, BLAH},
+	{"$read_term_from_chars", 4, fn_sys_read_term_from_chars_4, "?term,+list,+string,-string", false, false, BLAH},
 	{"write_term_to_atom", 3, fn_write_term_to_atom_3, "?atom,?term,+list", false, false, BLAH},
 	{"write_canonical_to_atom", 3, fn_write_canonical_to_chars_3, "?atom,?term,+list", false, false, BLAH},
-	{"write_term_to_chars", 3, fn_write_term_to_chars_3, "?term,+list,?character_list", false, false, BLAH},
-	{"write_canonical_to_chars", 3, fn_write_canonical_to_chars_3, "?character_list,?term,+list", false, false, BLAH},
-	{"read_line_to_string", 2, fn_read_line_to_string_2, "+stream,-character_list", false, false, BLAH},
+	{"write_term_to_chars", 3, fn_write_term_to_chars_3, "?term,+list,?string", false, false, BLAH},
+	{"write_canonical_to_chars", 3, fn_write_canonical_to_chars_3, "?string,?term,+list", false, false, BLAH},
+	{"read_line_to_string", 2, fn_read_line_to_string_2, "+stream,-string", false, false, BLAH},
 	{"read_file_to_string", 3, fn_read_file_to_string_3, "+atom,-string,+options", false, false, BLAH},
 
 	{"http_location", 2, fn_http_location_2, "?list,?atom", false, false, BLAH},
@@ -7830,8 +7831,8 @@ builtins g_files_bifs[] =
 	{"client", 5, fn_client_5, "+atom,-atom,-atom,-atom,+list", false, false, BLAH},
 	{"server", 3, fn_server_3, "+atom,--stream,+list", false, false, BLAH},
 	{"accept", 2, fn_accept_2, "+stream,--stream", false, false, BLAH},
-	{"bread", 3, fn_bread_3, "+stream,+integer,-character_list", false, false, BLAH},
-	{"bwrite", 2, fn_bwrite_2, "+stream,-character_list", false, false, BLAH},
+	{"bread", 3, fn_bread_3, "+stream,+integer,-string", false, false, BLAH},
+	{"bwrite", 2, fn_bwrite_2, "+stream,-string", false, false, BLAH},
 
 	{"map_create", 2, fn_map_create_2, "--stream,+list", false, false, BLAH},
 	{"map_set", 3, fn_map_set_3, "+stream,+atomic,+value", false, false, BLAH},
@@ -7860,11 +7861,11 @@ builtins g_files_bifs[] =
 	{"mutex_destroy", 1, fn_iso_true_0, "+stream", false, false, BLAH},
 
 	{"$capture_output", 0, fn_sys_capture_output_0, NULL, false, false, BLAH},
-	{"$capture_output_to_chars", 1, fn_sys_capture_output_to_chars_1, "-character_list", false, false, BLAH},
+	{"$capture_output_to_chars", 1, fn_sys_capture_output_to_chars_1, "-string", false, false, BLAH},
 	{"$capture_output_to_atom", 1, fn_sys_capture_output_to_atom_1, "-atom", false, false, BLAH},
 
 	{"$capture_error", 0, fn_sys_capture_error_0, NULL, false, false, BLAH},
-	{"$capture_error_to_chars", 1, fn_sys_capture_error_to_chars_1, "-character_list", false, false, BLAH},
+	{"$capture_error_to_chars", 1, fn_sys_capture_error_to_chars_1, "-string", false, false, BLAH},
 	{"$capture_error_to_atom", 1, fn_sys_capture_error_to_atom_1, "-atom", false, false, BLAH},
 
 	{"$memory_stream_create", 2, fn_sys_memory_stream_create_2, "-stream,+options", false, false, BLAH},

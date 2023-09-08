@@ -7,19 +7,19 @@
 
 #define SB_LEN 256
 
-typedef struct string_buffer_ {
+typedef struct {
 	char tmpbuf[SB_LEN];
 	char *buf, *dst;
 	size_t size;
-} string_buffer;
+} stringbuf;
 
-#define SB(pr) string_buffer pr##_buf;							\
+#define SB(pr) stringbuf pr##_buf;								\
 	pr##_buf.size = SB_LEN;										\
 	pr##_buf.buf = pr##_buf.tmpbuf;								\
 	pr##_buf.dst = pr##_buf.buf;								\
 	*pr##_buf.dst = '\0';
 
-#define SB_alloc(pr,len) string_buffer pr##_buf; 				\
+#define SB_alloc(pr,len) stringbuf pr##_buf; 					\
 	pr##_buf.size = len;										\
 	pr##_buf.buf = malloc((len)+1);								\
 	ensure(pr##_buf.buf);										\
@@ -71,6 +71,21 @@ typedef struct string_buffer_ {
 	}															\
 }
 
+#define SB_strcpy(pr,s) {										\
+	size_t len = strlen(s);										\
+	SB_check(pr, len);											\
+	pr##_buf.dst = pr##_buf.buf;								\
+	SB_strcatn(pr,s,len);										\
+}
+
+#define SB_strcpy_and_free(pr,s) {								\
+	char *s2 = (s);												\
+	if (s2) {													\
+		SB_strcpy(pr, s2);										\
+		free(s2);												\
+	}															\
+}
+
 #define SB_strcat(pr,s) SB_strcatn(pr,s,strlen(s))
 
 #define SB_strcatn(pr,s,len) {									\
@@ -80,11 +95,12 @@ typedef struct string_buffer_ {
 	*pr##_buf.dst = '\0';										\
 }
 
-#define SB_strcpy(pr,s) {										\
-	size_t len = strlen(s);										\
-	SB_check(pr, len);											\
-	pr##_buf.dst = pr##_buf.buf;								\
-	SB_strcatn(pr,s,len);										\
+#define SB_strcat_and_free(pr,s) {								\
+	char *s2 = (s);												\
+	if (s2) {													\
+		SB_strcat(pr, s2);										\
+		free(s2);												\
+	}															\
 }
 
 #define SB_fwrite(pr,ptr,size) {								\
@@ -103,6 +119,11 @@ typedef struct string_buffer_ {
 	*pr##_buf.dst = '\0';										\
 }
 
+#define SB_ungetchar(pr) {										\
+	SB_check(pr, 6);											\
+	if (pr##_buf.dst != pr##_buf.buf) pr##_buf.dst--;			\
+}
+
 #define SB_putchar(pr,ch) {										\
 	SB_check(pr, 6);											\
 	pr##_buf.dst += put_char_utf8(pr##_buf.dst, ch);			\
@@ -114,7 +135,7 @@ typedef struct string_buffer_ {
 
 #define SB_free(pr) {											\
 	if (pr##_buf.buf != pr##_buf.tmpbuf)						\
-		free(pr##_buf.buf);											\
+		free(pr##_buf.buf);										\
 	pr##_buf.size = 0;											\
 	pr##_buf.buf = pr##_buf.dst = NULL;							\
 }

@@ -326,8 +326,10 @@ predicate *create_predicate(module *m, cell *c, bool *created)
 	if (c->val_off == g_neck_s)
 		return NULL;
 
-	if (get_builtin_term(m, c, &found, &evaluable),
-		!evaluable && found && strcmp(m->name, "format")) {
+	builtins *b;
+
+	if (b = get_builtin_term(m, c, &found, &evaluable),
+		!evaluable && found && b->iso) {
 		return NULL;
 	}
 
@@ -710,6 +712,7 @@ bool do_use_module_1(module *curr_m, cell *p)
 			|| !strcmp(name, "loader")
 			|| !strcmp(name, "error")
 			|| !strcmp(name, "crypto")
+			|| !strcmp(name, "arithmetic")
 		    || !strcmp(name, "files"))
 			return true;
 
@@ -1273,9 +1276,10 @@ static bool check_multifile(module *m, predicate *pr, db_entry *dbe_orig)
 		&& (C_STR(m, &pr->key)[0] != '$')
 		) {
 		if ((dbe_orig->filename != pr->head->filename) || pr->is_reload) {
-			char tmpbuf[256];
-			formatted(tmpbuf, sizeof(tmpbuf), C_STR(m, &pr->key), C_STRLEN(m, &pr->key), false, false);
-			fprintf(stderr, "Warning: overwriting '%s'/%u\n", tmpbuf, pr->key.arity);
+			SB(sb);
+			char *dst2 = formatted(C_STR(m, &pr->key), C_STRLEN(m, &pr->key), false, false);
+			fprintf(stderr, "Warning: overwriting '%s'/%u\n", dst2, pr->key.arity);
+			free(dst2);
 
 			while (pr->head) {
 				db_entry *dbe = pr->head;
