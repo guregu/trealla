@@ -3,42 +3,22 @@
 This is a fork of [Trealla Prolog](https://github.com/trealla-prolog/trealla) for experimenting with WebAssembly/WASI.
 For more info on Trealla, check out the parent repository.
 
-<<<<<<< HEAD
 We endeavor to keep this fork as close as possible to the upstream and contribute all stable changes upstream.
 Ideally, when Wasm support is better stablized, this fork won't need to exist.
-=======
-	MIT licensed
-	Integers & Rationals are unbounded
-	Atoms are UTF-8 of unlimited length
-	The default double-quoted representation is *chars* list
-	Strings & slices are super-efficient (especially with mmap'd files)
-	REPL with history
-	Compiles in <1s with *tcc*, or ~5s with *gcc* and *clang*
-	Runs on Linux, Android, FreeBSD, macOS, and WebAssembly (WASI) & Go
-	Foreign function interface (FFI) for calling out to user C code
-	API for calling from C (or by using WASM from Go & JS)
-	Access SQLITE databases using builtin module (uses FFI)
-	Concurrency via tasks / linda / futures / engines (generators)
-	Rational trees are considered ##EXPERIMENTAL##
-	Include CLP(Z) for constraints over the integers
-	Logtalk compatible
->>>>>>> 8ca16ee7be2e60b6285916c6e9690d19759c6297
 
 ## Download
 
 You can find binaries on [the Releases page](https://github.com/guregu/trealla/releases).
-
-## Binaries on WAPM
-~~You can grab Wasm binary builds from [guregu/trealla on WAPM](https://wapm.io/guregu/trealla).~~
-~~These builds are uploaded automatically for each release.~~
-
-**Note**: currently WAPM builds are [temporarily disabled](https://github.com/guregu/trealla/issues/11).
 
 ## Differences from upstream
 - `library(wasm)` JSON-based programmatic toplevel.
 - `library(wasm_*)` host-guest interop.
 - `library(pseudojson)` Very fast JSON parser/generator (but not validator).
 - Wasm system predicates: `'$host_call'/2` and `'$host_resume'/1` (see `js_eval/2` in `library/wasm_js.pl`).
+
+### Note on CLP(Z)
+
+Currently we include `library(clpz)` from Markus Triska, but Trealla [doesn't officially support it yet](https://github.com/trealla-prolog/trealla/issues/335#issuecomment-1712443784) so consider it experimental/potentially broken.
 
 ## Compile targets
 
