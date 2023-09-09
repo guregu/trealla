@@ -113,6 +113,7 @@ LIBOBJECTS +=  \
 	library/atts.o \
 	library/builtins.o \
 	library/charsio.o \
+	library/clpz.o \
 	library/concurrent.o \
 	library/curl.o \
 	library/dcgs.o \
