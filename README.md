@@ -20,7 +20,6 @@ Ideally, when Wasm support is better stablized, this fork won't need to exist.
 	Access SQLITE databases using builtin module (uses FFI)
 	Concurrency via tasks / linda / futures / engines (generators)
 	Rational trees are considered ##EXPERIMENTAL##
-	Include CLP(Z) for constraints over the integers
 	Logtalk compatible
 >>>>>>> 8ca16ee7be2e60b6285916c6e9690d19759c6297
 
