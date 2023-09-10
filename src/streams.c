@@ -887,6 +887,21 @@ void convert_path(char *filename)
 	}
 }
 
+bool valid_list(query *q, cell *c, pl_idx c_ctx)
+{
+	while (is_iso_list(c)) {
+		c = c + 1;
+		c += c->nbr_cells;
+		c = deref(q, c, c_ctx);
+		c_ctx = q->latest_ctx;
+
+		if (!is_iso_list_or_nil(c))
+			return false;
+	}
+
+	return true;
+}
+
 #if !defined(_WIN32) && !defined(__wasi__)
 static bool fn_popen_4(query *q)
 {
@@ -1878,7 +1893,7 @@ static bool parse_read_params(query *q, stream *str, cell *c, pl_idx c_ctx, cell
 			}
 		}
 	} else if (!CMP_STR_TO_CSTR(q, c, "variables")) {
-		if (is_var(c1)) {
+		if (is_iso_list_or_nil_or_var(c1) && valid_list(q, c1, c1_ctx)) {
 			if (vars) *vars = c1;
 			if (vars_ctx) *vars_ctx = c1_ctx;
 		} else {
@@ -1886,7 +1901,7 @@ static bool parse_read_params(query *q, stream *str, cell *c, pl_idx c_ctx, cell
 			return false;
 		}
 	} else if (!CMP_STR_TO_CSTR(q, c, "variable_names")) {
-		if (is_var(c1)) {
+		if (is_iso_list_or_nil_or_var(c1) && valid_list(q, c1, c1_ctx)) {
 			if (varnames) *varnames = c1;
 			if (varnames_ctx) *varnames_ctx = c1_ctx;
 		} else {
@@ -1894,7 +1909,7 @@ static bool parse_read_params(query *q, stream *str, cell *c, pl_idx c_ctx, cell
 			return false;
 		}
 	} else if (!CMP_STR_TO_CSTR(q, c, "singletons")) {
-		if (is_var(c1)) {
+		if (is_iso_list_or_nil_or_var(c1) && valid_list(q, c1, c1_ctx)) {
 			if (sings) *sings = c1;
 			if (sings_ctx) *sings_ctx = c1_ctx;
 		} else {
