@@ -895,7 +895,7 @@ bool valid_list(query *q, cell *c, pl_idx c_ctx)
 		c = deref(q, c, c_ctx);
 		c_ctx = q->latest_ctx;
 
-		if (!is_iso_list_or_nil(c))
+		if (!is_iso_list_or_nil_or_var(c))
 			return false;
 	}
 
@@ -2014,13 +2014,16 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 					clearerr(str->fp);
 
 				if (vars)
-					unify(q, vars, vars_ctx, make_nil(), q->st.curr_frame);
+					if (!unify(q, vars, vars_ctx, make_nil(), q->st.curr_frame))
+						return false;
 
 				if (varnames)
-					unify(q, varnames, varnames_ctx, make_nil(), q->st.curr_frame);
+					if (!unify(q, varnames, varnames_ctx, make_nil(), q->st.curr_frame))
+						return false;
 
 				if (sings)
-					unify(q, sings, sings_ctx, make_nil(), q->st.curr_frame);
+					if (!unify(q, sings, sings_ctx, make_nil(), q->st.curr_frame))
+						return false;
 
 				cell *p22 = p2;
 				pl_idx p22_ctx = p2_ctx;
@@ -2210,9 +2213,12 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 			check_heap_error(tmp);
 			safe_copy_cells(tmp, save, idx);
 			tmp->nbr_cells = idx;
-			unify(q, vars, vars_ctx, tmp, q->st.curr_frame);
-		} else
-			unify(q, vars, vars_ctx, make_nil(), q->st.curr_frame);
+			if (!unify(q, vars, vars_ctx, tmp, q->st.curr_frame))
+				return false;
+		} else {
+			if (!unify(q, vars, vars_ctx, make_nil(), q->st.curr_frame))
+				return false;
+		}
 	}
 
 	if (varnames) {
@@ -2263,9 +2269,12 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 			check_heap_error(tmp);
 			safe_copy_cells(tmp, save, idx);
 			tmp->nbr_cells = idx;
-			unify(q, varnames, varnames_ctx, tmp, q->st.curr_frame);
-		} else
-			unify(q, varnames, varnames_ctx, make_nil(), q->st.curr_frame);
+			if (!unify(q, varnames, varnames_ctx, tmp, q->st.curr_frame))
+				return false;
+		} else {
+			if (!unify(q, varnames, varnames_ctx, make_nil(), q->st.curr_frame))
+				return false;
+		}
 	}
 
 	if (sings) {
@@ -2322,9 +2331,12 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 			check_heap_error(tmp);
 			safe_copy_cells(tmp, save, idx);
 			tmp->nbr_cells = idx;
-			unify(q, sings, sings_ctx, tmp, q->st.curr_frame);
-		} else
-			unify(q, sings, sings_ctx, make_nil(), q->st.curr_frame);
+			if (!unify(q, sings, sings_ctx, tmp, q->st.curr_frame))
+				return false;
+		} else {
+			if (!unify(q, sings, sings_ctx, make_nil(), q->st.curr_frame))
+				return false;
+		}
 	}
 
 	cell *tmp = alloc_on_heap(q, str->p->cl->cidx-1);

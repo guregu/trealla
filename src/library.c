@@ -74,6 +74,8 @@ extern unsigned char library_debug_pl[];
 extern unsigned int library_debug_pl_len;
 extern unsigned char library_clpz_pl[];
 extern unsigned int library_clpz_pl_len;
+extern unsigned char library_arithmetic_pl[];
+extern unsigned int library_arithmetic_pl_len;
 
 #ifdef WASI_TARGET_SPIN
 extern unsigned char library_spin_pl[];
@@ -83,6 +85,7 @@ extern unsigned int library_spin_pl_len;
 library g_libs[] = {
 	 {"abnf", library_abnf_pl, &library_abnf_pl_len},
 	 {"apply", library_apply_pl, &library_apply_pl_len},
+	 {"arithmetic", library_arithmetic_pl, &library_arithmetic_pl_len},
 	 {"assoc", library_assoc_pl, &library_assoc_pl_len},
 	 {"atts", library_atts_pl, &library_atts_pl_len},
 	 {"builtins", library_builtins_pl, &library_builtins_pl_len},
