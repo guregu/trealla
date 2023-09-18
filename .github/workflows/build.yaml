@@ -1,11 +1,11 @@
   name: Build
 
   on:
-    create:
-      tags:
     push:
       branches:
         - main
+      tags:
+        - '*'
     pull_request:
     release:
       types: [created]
