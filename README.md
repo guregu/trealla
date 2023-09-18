@@ -16,10 +16,6 @@ You can find binaries on [the Releases page](https://github.com/guregu/trealla/r
 - `library(pseudojson)` Very fast JSON parser/generator (but not validator).
 - Wasm system predicates: `'$host_call'/2` and `'$host_resume'/1` (see `js_eval/2` in `library/wasm_js.pl`).
 
-### Note on CLP(Z)
-
-Currently we include `library(clpz)` from Markus Triska, but Trealla [doesn't officially support it yet](https://github.com/trealla-prolog/trealla/issues/335#issuecomment-1712443784) so consider it experimental/potentially broken.
-
 ## Compile targets
 
 There's a bunch of new compile targets for Wasm.
