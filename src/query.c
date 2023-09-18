@@ -89,7 +89,8 @@ static void trace_call(query *q, cell *c, pl_idx c_ctx, box_t box)
 		return;
 #endif
 
-	q->step++;
+	if (c->val_off == g_sys_drop_barrier_s)
+		return;
 
 	if (box == CALL)
 		box = q->retry?REDO:CALL;
@@ -97,10 +98,8 @@ static void trace_call(query *q, cell *c, pl_idx c_ctx, box_t box)
 	const char *src = C_STR(q, c);
 
 #if 1
-	if (!strcmp(src, ",")) {
-		q->step--;
+	if (!strcmp(src, ","))
 		return;
-	}
 #endif
 
 #if 0
@@ -108,6 +107,7 @@ static void trace_call(query *q, cell *c, pl_idx c_ctx, box_t box)
 		return;
 #endif
 
+	q->step++;
 	SB(pr);
 
 #ifdef DEBUG
@@ -294,16 +294,10 @@ static bool can_view(query *q, size_t ugen, const db_entry *dbe)
 
 static void setup_key(query *q)
 {
-	cell *arg1 = FIRST_ARG(q->st.key);
-	arg1 = deref(q, arg1, q->st.key_ctx);
-	pl_idx arg1_ctx = q->latest_ctx;
+	cell *arg1 = deref(q, FIRST_ARG(q->st.key), q->st.key_ctx);
 
-	if (is_iso_atomic(arg1))
+	if (!is_var(arg1))
 		q->st.karg1_is_ground = true;
-	else if (arg1->arity == 1) {
-		const cell *arg11 = deref(q, FIRST_ARG(arg1), arg1_ctx);
-		q->st.karg1_is_ground = is_atomic(arg11);
-	}
 }
 
 static void next_key(query *q)
@@ -349,7 +343,10 @@ bool has_next_key(query *q)
 
 		//DUMP_TERM("next", dkey, q->st.curr_frame, 0);
 
-		if (index_cmpkey(qarg1, FIRST_ARG(dkey), q->st.m, NULL) == 0)
+		if (index_cmpkey(qarg1, FIRST_ARG(dkey), q->st.m, NULL))
+			continue;
+
+		if (index_cmpkey(q->st.key, dkey, q->st.m, NULL) == 0)
 			return true;
 	}
 
@@ -677,6 +674,7 @@ static void unwind_trail(query *q)
 		if (tr->attrs)
 			e->c.flags = FLAG_VAR_ATTR;
 
+		e->c.flags = tr->attrs ? FLAG_VAR_ATTR : 0;
 		e->c.attrs = tr->attrs;
 		e->c.attrs_ctx = tr->attrs_ctx;
 	}

@@ -165,7 +165,7 @@ static bool fn_iso_findall_3(query *q)
 			return throw_error(q, p3, p3_ctx, "type_error", "list");
 
 		if (is_structure(p1) && !is_iso_list(p1)) {	// Why is this necessary?
-			cell *p0 = deep_copy_to_heap(q, q->st.curr_cell, q->st.curr_frame, true);
+			cell *p0 = deep_copy_to_heap(q, q->st.curr_cell, q->st.curr_frame, false);
 			check_heap_error(p0);
 			unify(q, q->st.curr_cell, q->st.curr_frame, p0, q->st.curr_frame);
 			GET_FIRST_ARG0(xp1,any,p0);
@@ -207,14 +207,12 @@ static bool fn_iso_findall_3(query *q)
 
 	check_heap_error(init_tmp_heap(q), free(solns));
 
-	try_me(q, MAX_ARITY);	// Needed for some attrs/copy_term bug it seems
-
 	for (cell *c = solns; nbr_cells; nbr_cells -= c->nbr_cells, c += c->nbr_cells) {
 		cell *tmp = alloc_on_tmp(q, 1);
 		check_heap_error(tmp, free(solns));
 		make_struct(tmp, g_dot_s, NULL, 2, 0);
 		q->noderef = true;
-		tmp = deep_copy_to_tmp(q, c, q->st.curr_frame, true);
+		tmp = deep_copy_to_tmp(q, c, q->st.curr_frame, false);
 		q->noderef = false;
 		check_heap_error(tmp, free(solns));
 	}
@@ -2020,12 +2018,16 @@ static bool fn_term_singletons_2(query *q)
 	return unify(q, p2, p2_ctx, tmp2, q->st.curr_frame);
 }
 
+// Don't copy attributes as per SICStus & YAP, this
+// makes copy_term/2 the same as copy_term_nat/2
+
 static bool fn_iso_copy_term_2(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 	GET_NEXT_ARG(p2,any);
 
 	if (is_var(p1) && is_var(p2)) {
+#if 0
 		const frame *f1 = GET_FRAME(p1_ctx);
 		const slot *e1 = GET_SLOT(f1, p1->var_nbr);
 
@@ -2036,12 +2038,12 @@ static bool fn_iso_copy_term_2(query *q)
 			frame *f = GET_CURR_FRAME();
 			q->varno = f->actual_slots;
 			q->tab_idx = 0;
-			cell *tmp = deep_copy_to_heap_with_replacement(q, e1->c.attrs, e1->c.attrs_ctx, false, p1, p1_ctx, p2, p2_ctx);
+			cell *tmp = deep_copy_to_heap_with_replacement(q, e1->c.attrs, e1->c.attrs_ctx, true, p1, p1_ctx, p2, p2_ctx);
 			check_heap_error(tmp);
 			e2->c.attrs = tmp;
 			e2->c.attrs_ctx = q->st.curr_frame;
 		}
-
+#endif
 		return true;
 	}
 
@@ -2052,7 +2054,7 @@ static bool fn_iso_copy_term_2(query *q)
 		return unify(q, p1, p1_ctx, p2, p2_ctx);
 
 	GET_FIRST_RAW_ARG(p1_raw,any);
-	cell *tmp = deep_copy_to_heap(q, p1_raw, p1_raw_ctx, true);
+	cell *tmp = deep_copy_to_heap(q, p1_raw, p1_raw_ctx, false);
 	check_heap_error(tmp);
 
 	if (is_var(p1_raw) && is_var(p2)) {
@@ -6922,7 +6924,7 @@ static bool fn_sys_list_attributed_1(query *q)
 {
 	GET_FIRST_ARG(p1,var);
 	parser *p = q->p;
-	frame *f = GET_FIRST_FRAME();
+	const frame *f = GET_FIRST_FRAME();
 	bool first = true;
 
 	for (unsigned i = 0; i < p->nbr_vars; i++) {
@@ -6958,9 +6960,13 @@ static bool fn_sys_list_attributed_1(query *q)
 static bool fn_sys_erase_attributes_1(query *q)
 {
 	GET_FIRST_ARG(p1,var);
-	frame *f = GET_FRAME(p1_ctx);
+	const frame *f = GET_FRAME(p1_ctx);
 	slot *e = GET_SLOT(f, p1->var_nbr);
+	add_trail(q, p1_ctx, p1->var_nbr, e->c.attrs, e->c.attrs_ctx);
+	//DUMP_TERM("$erase_attr", p1, p1_ctx ,true);
+	e->c.flags = 0;
 	e->c.attrs = NULL;
+	e->c.attrs_ctx = 0;
 	return true;
 }
 
@@ -6968,10 +6974,18 @@ static bool fn_sys_put_attributes_2(query *q)
 {
 	GET_FIRST_ARG(p1,var);
 	GET_NEXT_ARG(p2,list_or_nil);
-	frame *f = GET_FRAME(p1_ctx);
+	const frame *f = GET_FRAME(p1_ctx);
 	slot *e = GET_SLOT(f, p1->var_nbr);
 	add_trail(q, p1_ctx, p1->var_nbr, e->c.attrs, e->c.attrs_ctx);
-	//DUMP_TERM("$put_attr", p2, p2_ctx);
+	//DUMP_TERM("$put_attr", p2, p2_ctx ,true);
+
+	if (is_nil(p2)) {
+		e->c.flags = 0;
+		e->c.attrs = NULL;
+		e->c.attrs_ctx = 0;
+		return true;
+	}
+
 	cell *tmp = deep_clone_to_heap(q, p2, p2_ctx);
 	check_heap_error(tmp);
 	e->c.flags = FLAG_VAR_ATTR;
@@ -6984,8 +6998,8 @@ static bool fn_sys_get_attributes_2(query *q)
 {
 	GET_FIRST_ARG(p1,var);
 	GET_NEXT_ARG(p2,list_or_nil_or_var);
-	frame *f = GET_FRAME(p1_ctx);
-	slot *e = GET_SLOT(f, p1->var_nbr);
+	const frame *f = GET_FRAME(p1_ctx);
+	const slot *e = GET_SLOT(f, p1->var_nbr);
 
 	if (!e->c.attrs || is_nil(e->c.attrs))
 		return false;
@@ -6996,10 +7010,10 @@ static bool fn_sys_get_attributes_2(query *q)
 static bool fn_sys_unattributed_var_1(query *q)
 {
 	GET_FIRST_ARG(p1,var);
-	frame *f = GET_FRAME(p1_ctx);
-	slot *e = GET_SLOT(f, p1->var_nbr);
+	const frame *f = GET_FRAME(p1_ctx);
+	const slot *e = GET_SLOT(f, p1->var_nbr);
 
-	if (!e->c.attrs)
+	if (!e->c.attrs || is_nil(e->c.attrs))
 		return true;
 
 	return false;
@@ -7008,8 +7022,8 @@ static bool fn_sys_unattributed_var_1(query *q)
 static bool fn_sys_attributed_var_1(query *q)
 {
 	GET_FIRST_ARG(p1,var);
-	frame *f = GET_FRAME(p1_ctx);
-	slot *e = GET_SLOT(f, p1->var_nbr);
+	const frame *f = GET_FRAME(p1_ctx);
+	const slot *e = GET_SLOT(f, p1->var_nbr);
 
 	if (!e->c.attrs || is_nil(e->c.attrs))
 		return false;
@@ -8039,7 +8053,7 @@ static void load_properties(module *m)
 
 	format_property(m, tmpbuf, sizeof(tmpbuf), "not", 1, "meta_predicate(not(0))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "\\+", 1, "meta_predicate((\\+0))", false); SB_strcat(pr, tmpbuf);
-	//format_property(m, tmpbuf, sizeof(tmpbuf), "catch", 3, "meta_predicate(catch(0,?,0))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "catch", 3, "meta_predicate(catch(0,?,0))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "", 2, "meta_predicate((0,0))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), ",", 2, "meta_predicate((0,0))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), ";", 2, "meta_predicate((0;0))", false); SB_strcat(pr, tmpbuf);
@@ -8309,7 +8323,6 @@ builtins g_iso_bifs[] =
 	{"\\=", 2, fn_iso_notunify_2, "+term,+term", true, false, BLAH},
 	{"-->", 2, fn_iso_dcgs_2, "+term,+term", true, false, BLAH},
 
-	{"$catch", 3, fn_iso_catch_3, NULL, true, false, BLAH},
 	{"$call_cleanup", 3, fn_sys_call_cleanup_3, NULL, false, false, BLAH},
 	{"$block_catcher", 1, fn_sys_block_catcher_1, NULL, false, false, BLAH},
 	{"$cleanup_if_det", 1, fn_sys_cleanup_if_det_1, NULL, false, false, BLAH},
@@ -8330,7 +8343,7 @@ builtins g_iso_bifs[] =
 	{"call", 7, fn_iso_call_n, ":callable,?term,?term,?term,?term,?term,?term", true, false, BLAH},
 	{"call", 8, fn_iso_call_n, ":callable,?term,?term,?term,?term,?term,?term,?term", true, false, BLAH},
 
-
+	{"$catch", 3, fn_iso_catch_3, ":callable,?term,:callable", true, false, BLAH},
 	{"throw", 1, fn_iso_throw_1, "+term", true, false, BLAH},
 	{"once", 1, fn_iso_once_1, ":callable", true, false, BLAH},
 	{"repeat", 0, fn_iso_repeat_0, NULL, true, false, BLAH},

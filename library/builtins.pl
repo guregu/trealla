@@ -1,5 +1,7 @@
 :- pragma(builtins, [once]).
 
+:- use_module(library(dict)).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
 
@@ -86,9 +88,6 @@ forall(Cond, Action) :-
 
 catch(G, E, C) :-
 	'$catch'(call(G), E, call(C)).
-
-:- meta_predicate(catch(0,?,0)).
-:- help(catch(:callable,+term,:callable), [iso(true)]).
 
 countall(_, N) :-
 	integer(N),
@@ -728,59 +727,48 @@ b_delete(_).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % SICStus compatible
 
-bb_b_put(K, _) :-
-	must_be(K, atom, bb_b_put/2, _),
-	\+ user:clause('$bb_global_key'(K, _), _),
-	user:asserta('$bb_global_key'(K, [])),
-	fail.
-bb_b_put(K, V) :-
-	must_be(K, atom, bb_b_put/2, _),
-	user:asserta('$bb_global_key'(K, V)).
-bb_b_put(K, _) :-
-	user:retract('$bb_global_key'(K, _)),
-	!, fail.
-
-:- help(bb_b_put(+atom,+term), [iso(false)]).
-
-bb_b_del(K) :-
-	must_be(K, atom, bb_b_del/1, _),
-	user:retract('$bb_global_key'(K, _)),
-	!.
-bb_b_del(_).
-
-:- help(bb_b_del(+atom), [iso(false)]).
-
 bb_put(K, _) :-
 	must_be(K, atom, bb_put/2, _),
 	user:retract('$bb_global_key'(K, _)),
 	fail.
 bb_put(K, V) :-
 	must_be(K, atom, bb_put/2, _),
-	user:assertz('$bb_global_key'(K, V)).
+	user:assertz('$bb_global_key'(K, {V:nb})).
 
 :- help(bb_put(+atom,+term), [iso(false)]).
 
 bb_get(K, V) :-
 	must_be(K, atom, bb_get/2, _),
-	user:catch('$bb_global_key'(K, V), _, fail),
+	user:catch('$bb_global_key'(K, {V:_}), _, fail),
 	!.
 
 :- help(bb_get(+atom,?term), [iso(false)]).
 
 bb_delete(K, V) :-
 	must_be(K, atom, bb_delete/2, _),
-	user:catch(user:retract('$bb_global_key'(K, V)), _, fail),
+	user:catch(user:retract('$bb_global_key'(K, {V:_})), _, fail),
 	!.
 
 :- help(bb_delete(+atom,+term), [iso(false)]).
 
 bb_update(K, O, V) :-
 	must_be(K, atom, bb_update/3, _),
-	user:catch(user:retract('$bb_global_key'(K, O)), _, true),
-	user:assertz('$bb_global_key'(K, V)),
+	user:catch(user:retract('$bb_global_key'(K, {O:_})), _, true),
+	user:assertz('$bb_global_key'(K, {V:nb})),
 	!.
 
 :- help(bb_update(+atom,+term,+term), [iso(false)]).
+
+% extensions
+
+bb_b_put(K, V) :-
+	must_be(K, atom, bb_b_put/2, _),
+	user:asserta('$bb_global_key'(K, {V:b})).
+bb_b_put(K, _) :-
+	user:retract('$bb_global_key'(K, {_:b})),
+	!, fail.
+
+:- help(bb_b_put(+atom,+term), [iso(false)]).
 
 bb_del(K) :-
 	must_be(K, atom, bb_del/1, _),
@@ -865,7 +853,7 @@ put_atts(Var, -Attr) :- !,
 	('$get_attributes'(Var, D) -> true ; D = []),
 	functor(Attr, Functor, Arity),
 	attribute(Module, Functor, Arity),
-	dict:del(D, Module, Attr, D2),
+	d_del(D, Module-Functor, Attr, D2),
 	'$put_attributes'(Var, D2).
 
 put_atts(Var, +Attr) :- !,
@@ -873,7 +861,7 @@ put_atts(Var, +Attr) :- !,
 	('$get_attributes'(Var, D) -> true ; D = []),
 	functor(Attr, Functor, Arity),
 	attribute(Module, Functor, Arity),
-	dict:set(D, Module, Attr, D2),
+	d_set(D, Module-Functor, Attr, D2),
 	'$put_attributes'(Var, D2).
 
 put_atts(Var, Attr) :- !,
@@ -881,47 +869,44 @@ put_atts(Var, Attr) :- !,
 	('$get_attributes'(Var, D) -> true ; D = []),
 	functor(Attr, Functor, Arity),
 	attribute(Module, Functor, Arity),
-	dict:set(D, Module, Attr, D2),
+	d_set(D, Module-Functor, Attr, D2),
 	'$put_attributes'(Var, D2).
 
 :- help(put_atts(@var,+term), [iso(false)]).
 
 get_atts(Var, L) :- var(L), !,
 	var(Var),
-	('$get_attributes'(Var, D) -> true ; D = []),
-	dict:match(D, _, L).
+	'$get_attributes'(Var, D),
+	d_match(D, _, L).
 
 get_atts(Var, -Attr) :- !,
 	var(Var),
-	('$get_attributes'(Var, D) -> true ; D = []),
+	('$get_attributes'(Var, D) -> true ; false),
 	functor(Attr, Functor, Arity),
 	attribute(Module, Functor, Arity),
-	\+ dict:get(D, Module, _),
-	true.
+	\+ d_get(D, Module-Functor, _).
 
 get_atts(Var, +Attr) :- !,
 	var(Var),
 	'$get_attributes'(Var, D),
 	functor(Attr, Functor, Arity),
 	attribute(Module, Functor, Arity),
-	dict:get(D, Module, Attr),
-	true.
+	d_get(D, Module-Functor, Attr).
 
 get_atts(Var, Attr) :- !,
 	var(Var),
 	'$get_attributes'(Var, D),
 	functor(Attr, Functor, Arity),
 	attribute(Module, Functor, Arity),
-	dict:get(D, Module, Attr),
-	true.
+	d_get(D, Module-Functor, Attr).
 
-:- help(get_atts(@var,-term), [iso(false)]).
+:- help(get_atts(@var,?term), [iso(false)]).
 
-% Ancilliary
+% Ancilliary...
 
 del_atts(Var) :-
 	var(Var),
-	'$erase_attribute'(Var).
+	'$erase_attributes'(Var).
 
 :- help(del_atts(@var), [iso(false)]).
 
@@ -930,6 +915,9 @@ attvar(Var) :-
 	'$get_attributes'(Var, _).
 
 :- help(attvar(@var), [iso(false)]).
+
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 term_attvars_([], VsIn, VsIn) :- !.
 term_attvars_([H|T], VsIn, VsOut) :-
@@ -948,10 +936,14 @@ collect_goals_(_, [], GsIn, GsIn) :- !.
 collect_goals_(V, [H|T], GsIn, GsOut) :-
 	H =.. [M, _],
 	catch(M:attribute_goals(V, Goal0, []), _, Goal0 = put_atts(V, +H)),
+	!,
 	(	Goal0 = [H2]
 	->	Goal = H2
-	;	Goal = Goal0), collect_goals_(V, T, [Goal|GsIn], GsOut
-	).
+	;	Goal = Goal0
+	),
+	collect_goals_(V, T, [Goal|GsIn], GsOut).
+collect_goals_(V, [_|T], GsIn, GsOut) :-
+	collect_goals_(V, T, GsIn, GsOut).
 
 collect_goals_([], GsIn, GsIn) :- !.
 collect_goals_([V|T], GsIn, GsOut) :-
@@ -964,7 +956,7 @@ copy_term(Term, Copy, Gs) :-
 	term_attvars(Term, Vs),
 	collect_goals_(Vs, [], Gs).
 
-:- help(copy_term(+term,-term,+list), [iso(false)]).
+:- help(copy_term(+term,?term,+list), [iso(false)]).
 
 % Debugging...
 
@@ -977,11 +969,9 @@ print_goals_([Goal|Goals]) :-
 	),
 	print_goals_(Goals).
 
-:- help(print_goals(+list), [iso(false)]).
-
 dump_attvars_([], []) :- !.
-dump_attvars_([Var|Vars], [V|Rest]) :-
-	copy_term(Var, _, V),
+dump_attvars_([Var|Vars], [Gs|Rest]) :-
+	copy_term(Var, _, Gs),
 	dump_attvars_(Vars, Rest).
 
 dump_attvars :-
@@ -990,11 +980,6 @@ dump_attvars :-
 	flatten(Gs0, Gs1),
 	sort(Gs1, Gs),
 	print_goals_(Gs).
-
-%:- help(dump_attvars, [iso(false)]).
-
-%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 plus(X,Y,S) :- nonvar(X), nonvar(Y),
 	must_be(X, integer, plus/3, _), must_be(Y, integer, plus/3, _), !,
