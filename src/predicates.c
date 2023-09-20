@@ -1618,7 +1618,7 @@ static char *uuid_to_buf(const uuid *u, char *buf, size_t buflen)
 	return buf;
 }
 
-static int uuid_from_buf(const char *s, uuid *u)
+int uuid_from_buf(const char *s, uuid *u)
 {
 	if (!s) {
 		uuid tmp = {0};
@@ -3576,6 +3576,19 @@ static bool fn_erase_1(query *q)
 	return true;
 }
 
+bool fn_sys_quantum_eraser_1(query *q)
+{
+	GET_FIRST_ARG(p1,atom);
+	cell tmp2;
+	make_cstring(&tmp2, C_STR(q, p1));
+	tmp2.flags |= FLAG_CSTR_QUATUM_ERASER;
+	unsigned var_nbr = create_vars(q, 1);
+	cell tmp;
+	make_ref(&tmp, g_anon_s, var_nbr, q->st.curr_frame);
+	return unify(q, &tmp, q->st.curr_frame, &tmp2, q->st.curr_frame);
+}
+
+
 static bool fn_instance_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
@@ -5455,7 +5468,7 @@ static bool fn_task_n(query *q)
 
 	q->st.hp = save_hp;
 	cell *tmp = prepare_call(q, false, tmp2, q->st.curr_frame, 0);
-	query *task = query_create_subquery(q, tmp);
+	query *task = query_create_task(q, tmp);
 	task->yielded = task->spawned = true;
 	push_task(q, task);
 	return true;
@@ -5473,7 +5486,7 @@ static bool fn_yield_0(query *q)
 static bool fn_fork_0(query *q)
 {
 	cell *curr_cell = q->st.curr_cell + q->st.curr_cell->nbr_cells;
-	query *task = query_create_subquery(q, curr_cell);
+	query *task = query_create_task(q, curr_cell);
 	task->yielded = true;
 	push_task(q, task);
 	return false;
@@ -6955,19 +6968,6 @@ static bool fn_sys_list_attributed_1(query *q)
 
 	cell *l = end_list(q);
 	return unify(q, p1, p1_ctx, l, 0);
-}
-
-static bool fn_sys_erase_attributes_1(query *q)
-{
-	GET_FIRST_ARG(p1,var);
-	const frame *f = GET_FRAME(p1_ctx);
-	slot *e = GET_SLOT(f, p1->var_nbr);
-	add_trail(q, p1_ctx, p1->var_nbr, e->c.attrs, e->c.attrs_ctx);
-	//DUMP_TERM("$erase_attr", p1, p1_ctx ,true);
-	e->c.flags = 0;
-	e->c.attrs = NULL;
-	e->c.attrs_ctx = 0;
-	return true;
 }
 
 static bool fn_sys_put_attributes_2(query *q)
@@ -8503,6 +8503,7 @@ builtins g_other_bifs[] =
 	{"kv_get", 3, fn_kv_get_3, "+atomic,-term,+list", false, false, BLAH},
 	{"between", 3, fn_between_3, "+integer,+integer,-integer", false, false, BLAH},
 	{"string_length", 2, fn_string_length_2, "+string,?integer", false, false, BLAH},
+	{"crypto_n_random_bytes", 2, fn_crypto_n_random_bytes_2, "+integer,-codes", false, false, BLAH},
 
 	{"must_be", 4, fn_must_be_4, "+term,+atom,+term,?any", false, false, BLAH},
 	{"can_be", 4, fn_can_be_4, "+term,+atom,+term,?any", false, false, BLAH},
@@ -8515,6 +8516,7 @@ builtins g_other_bifs[] =
 	{"sre_substp", 4, fn_sre_substp_4, "+string,+string,-string,-string,", false, false, BLAH},
 	{"sre_subst", 4, fn_sre_subst_4, "+string,+string,-string,-string,", false, false, BLAH},
 
+	{"$quantum_eraser", 1, fn_sys_quantum_eraser_1, "+string", false, false, BLAH},
 	{"$countall", 2, fn_sys_countall_2, "@callable,-integer", false, false, BLAH},
 	{"$register_cleanup", 1, fn_sys_register_cleanup_1, NULL, false, false, BLAH},
 	{"$get_level", 1, fn_sys_get_level_1, "?integer", false, false, BLAH},
@@ -8535,7 +8537,6 @@ builtins g_other_bifs[] =
 	{"$alarm", 1, fn_sys_alarm_1, "+integer", false, false, BLAH},
 	{"$put_attributes", 2, fn_sys_put_attributes_2, "@variable,+list", false, false, BLAH},
 	{"$get_attributes", 2, fn_sys_get_attributes_2, "@variable,-list", false, false, BLAH},
-	{"$erase_attributes", 1, fn_sys_erase_attributes_1, "@variable", false, false, BLAH},
 	{"$list_attributed", 1, fn_sys_list_attributed_1, "-list", false, false, BLAH},
 	{"$unattributed_var", 1, fn_sys_unattributed_var_1, "@variable", false, false, BLAH},
 	{"$attributed_var", 1, fn_sys_attributed_var_1, "@variable", false, false, BLAH},
@@ -8545,7 +8546,6 @@ builtins g_other_bifs[] =
 	{"$host_call", 2, fn_sys_host_call_2, "+string,-string", false, false, BLAH},
 	{"$host_resume", 1, fn_sys_host_resume_1, "-string", false, false, BLAH},
 #endif
-	{"crypto_n_random_bytes", 2, fn_crypto_n_random_bytes_2, "+integer,-codes", false, false, BLAH},
 
 #if USE_OPENSSL
 	{"crypto_data_hash", 3, fn_crypto_data_hash_3, "?string,?string,?list", false, false, BLAH},

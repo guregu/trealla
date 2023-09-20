@@ -966,6 +966,11 @@ static bool directives(parser *p, cell *d)
 				p->m->flags.character_escapes = true;
 			else if (!strcmp(C_STR(p, p2), "false") || !strcmp(C_STR(p, p2), "off"))
 				p->m->flags.character_escapes = false;
+		} else if (!strcmp(C_STR(p, p1), "occurs_check")) {
+			if (!strcmp(C_STR(p, p2), "true") || !strcmp(C_STR(p, p2), "on"))
+				p->m->flags.occurs_check = true;
+			else if (!strcmp(C_STR(p, p2), "false") || !strcmp(C_STR(p, p2), "off"))
+				p->m->flags.occurs_check = false;
 		} else {
 			//fprintf_to_stream(p->pl, WARN_FP, "Warning: unknown flag: %s\n", C_STR(p, p1));
 		}
@@ -1680,55 +1685,35 @@ static bool term_expansion(parser *p)
 	if (h->val_off == g_term_expansion_s)
 		return false;
 
-	query *q = query_create(p->m, false);
+	query *q = query_create(p->m, true);
 	check_error(q);
-	char *dst = print_canonical_to_strbuf(q, p->cl->cells, 0, 0);
-	SB(s);
-	SB_sprintf(s, "term_expansion((%s),_TermOut), !.", dst);
-	free(dst);
-
-	parser *p2 = parser_create(p->m);
-	check_error(p2, query_destroy(q));
-	p2->line_nbr = p->line_nbr;
-	p2->skip = true;
-	p2->srcptr = SB_cstr(s);
-	tokenize(p2, false, false);
-	xref_rule(p2->m, p2->cl, NULL);
-	execute(q, p2->cl->cells, p2->cl->nbr_vars);
-	SB_free(s);
+	cell *c = p->cl->cells;
+	cell *tmp = alloc_on_heap(q, 1+c->nbr_cells+1+1);
+	make_struct(tmp, new_atom(p->pl, "term_expansion"), NULL, 2, c->nbr_cells+1);
+	safe_copy_cells(tmp+1, p->cl->cells, c->nbr_cells);
+	make_ref(tmp+1+c->nbr_cells, g_anon_s, p->cl->nbr_vars, 0);
+	make_end(tmp+1+c->nbr_cells+1);
+	execute(q, tmp, p->cl->nbr_vars+1);
 
 	if (q->retry != QUERY_OK) {
-		parser_destroy(p2);
 		query_destroy(q);
 		return false;
 	}
 
-	frame *f = GET_FIRST_FRAME();
-	char *src = NULL;
-
-	for (unsigned i = 0; i < p2->cl->nbr_vars; i++) {
-		if (strcmp(p2->vartab.var_name[i], "_TermOut"))
-			continue;
-
-		slot *e = GET_SLOT(f, i);
-
-		if (is_empty(&e->c))
-			continue;
-
-		cell *c = deref(q, &e->c, e->c.var_ctx);
-		src = print_canonical_to_strbuf(q, c, q->latest_ctx, 1);
-		strcat(src, ".");
-		break;
-	}
+	cell *arg1 = tmp + 1;
+	cell *arg2 = arg1 + arg1->nbr_cells;
+	c = deref(q, arg2, 0);
+	char *src = print_canonical_to_strbuf(q, c, q->latest_ctx, 1);
 
 	if (!src) {
-		parser_destroy(p2);
 		query_destroy(q);
 		p->error = true;
 		return false;
 	}
 
-	reset(p2);
+	strcat(src, ".");
+	parser *p2 = parser_create(p->m);
+	check_error(p2);
 	p2->srcptr = src;
 	tokenize(p2, false, false);
 	xref_rule(p2->m, p2->cl, NULL);
@@ -1754,18 +1739,18 @@ static cell *goal_expansion(parser *p, cell *goal)
 	if ((goal->val_off == g_goal_expansion_s) || (goal->val_off == g_cut_s))
 		return goal;
 
-	predicate *pr = find_functor(p->m, "goal_expansion", 2);
-
-	if (!pr || !pr->head)
+	if (get_builtin_term(p->m, goal, NULL, NULL) /*|| is_op(goal)*/)
 		return goal;
 
-	if (get_builtin_term(p->m, goal, NULL, NULL) /*|| is_op(goal)*/)
+	predicate *pr = search_predicate(p->m, goal, NULL);
+
+	if (!pr || !pr->is_goal_expansion)
 		return goal;
 
 	//if (search_predicate(p->m, goal))
 	//	return goal;
 
-	query *q = query_create(p->m, false);
+	query *q = query_create(p->m, true);
 	check_error(q);
 	q->varnames = true;
 	char *dst = print_canonical_to_strbuf(q, goal, 0, 0);

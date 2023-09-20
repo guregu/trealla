@@ -272,6 +272,7 @@ enum {
 	FLAG_CSTR_STRING=1<<1,				// used with TAG_CSTR
 	FLAG_CSTR_QUOTED=1<<2,				// used with TAG_CSTR
 	FLAG_CSTR_SLICE=1<<3,				// used with TAG_CSTR
+	FLAG_CSTR_QUATUM_ERASER=1<<4,		// used with TAG_CSTR
 
 	FLAG_VAR_ANON=1<<0,					// used with TAG_VAR
 	FLAG_VAR_FRESH=1<<1,				// used with TAG_VAR
@@ -456,6 +457,7 @@ struct predicate_ {
 	const char *filename;
 	cell *meta_args;
 	uint64_t cnt, refcnt, db_id;
+	bool is_goal_expansion:1;
 	bool is_reload:1;
 	bool is_prebuilt:1;
 	bool is_public:1;

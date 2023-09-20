@@ -343,7 +343,7 @@ bool has_next_key(query *q)
 
 		//DUMP_TERM("next", dkey, q->st.curr_frame, 0);
 
-		if (index_cmpkey(qarg1, FIRST_ARG(dkey), q->st.m, NULL))
+		if (index_cmpkey(qarg1, FIRST_ARG(dkey), q->st.m, NULL) != 0)
 			continue;
 
 		if (index_cmpkey(q->st.key, dkey, q->st.m, NULL) == 0)
@@ -668,15 +668,23 @@ static void unwind_trail(query *q)
 		const trail *tr = q->trails + --q->st.tp;
 		const frame *f = GET_FRAME(tr->var_ctx);
 		slot *e = GET_SLOT(f, tr->var_nbr);
-		unshare_cell(&e->c);
-		init_cell(&e->c);
+		cell *c = &e->c;
+
+		if (c->flags & FLAG_CSTR_QUATUM_ERASER) {
+			uuid u;
+			uuid_from_buf(C_STR(q, c), &u);
+			erase_from_db(q->st.m, &u);
+		}
+
+		unshare_cell(c);
+		init_cell(c);
 
 		if (tr->attrs)
-			e->c.flags = FLAG_VAR_ATTR;
+			c->flags = FLAG_VAR_ATTR;
 
-		e->c.flags = tr->attrs ? FLAG_VAR_ATTR : 0;
-		e->c.attrs = tr->attrs;
-		e->c.attrs_ctx = tr->attrs_ctx;
+		c->flags = tr->attrs ? FLAG_VAR_ATTR : 0;
+		c->attrs = tr->attrs;
+		c->attrs_ctx = tr->attrs_ctx;
 	}
 }
 
@@ -1043,10 +1051,11 @@ bool drop_barrier(query *q, pl_idx cp)
 
 static bool resume_frame(query *q)
 {
-	if (!q->st.curr_frame)
+	const frame *f = GET_CURR_FRAME();
+
+	if (!f->prev_offset)
 		return false;
 
-	const frame *f = GET_CURR_FRAME();
 	q->st.curr_cell = f->curr_cell;
 	q->st.curr_frame = q->st.curr_frame - f->prev_offset;
 	f = GET_CURR_FRAME();
@@ -1709,12 +1718,14 @@ bool execute(query *q, cell *cells, unsigned nbr_vars)
 	q->cycle_error = false;
 	q->is_redo = false;
 
-	// There is an initially frame (hence fp=0 is valid), so
-	// this points to the next available frame...
+	// There is an initial frame (fp=0), so this
+	// to the next available frame...
+
 	q->st.fp = 1;
 
-	// There may not be a choice-point, so this points to the
-	// next available choice-point
+	// There may not be a choicepoint, so this points to the
+	// next available choicepoint
+
 	q->cp = 0;
 
 	frame *f = q->frames + q->st.curr_frame;
@@ -1783,8 +1794,17 @@ void query_destroy(query *q)
 
 	slot *e = q->slots;
 
-	for (pl_idx i = 0; i < q->st.sp; i++, e++)
-		unshare_cell(&e->c);
+	for (pl_idx i = 0; i < q->st.sp; i++, e++) {
+		cell *c = &e->c;
+
+		if (c->flags & FLAG_CSTR_QUATUM_ERASER) {
+			uuid u;
+			uuid_from_buf(C_STR(q, c), &u);
+			erase_from_db(q->st.m, &u);
+		}
+
+		unshare_cell(c);
+	}
 
 	while (q->tasks) {
 		query *task = q->tasks->next;
@@ -1817,39 +1837,49 @@ void query_destroy(query *q)
 	free(q);
 }
 
-query *query_create(module *m, bool is_task)
+void query_reset(query *q)
 {
-	static atomic_t uint64_t g_query_id = 0;
-
-	query *q = calloc(1, sizeof(query));
-	ensure(q);
 	q->flags.occurs_check = false;
-	q->qid = g_query_id++;
-	q->pl = m->pl;
-	q->st.prev_m = q->st.m = m;
-	q->trace = m->pl->trace;
-	q->flags = m->flags;
 	q->get_started = get_time_in_usec();
 	q->time_cpu_last_started = q->time_cpu_started = cpu_time_in_usec();
 	q->ops_dirty = true;
 	q->double_quotes = false;
 	q->st.prob = 1.0;
 	q->max_depth = 0;
+	q->halt = false;
+	q->error = false;
+	q->st.hp = 0;
+	q->st.tp = 0;
+	q->st.sp = 0;
 	mp_int_init(&q->tmp_ival);
 	mp_rat_init(&q->tmp_irat);
 	clr_accum(&q->accum);
+}
+
+query *query_create(module *m, bool is_task)
+{
+	static atomic_t uint64_t g_query_id = 0;
+
+	query *q = calloc(1, sizeof(query));
+	ensure(q);
+	q->qid = g_query_id++;
+	q->pl = m->pl;
+	q->st.prev_m = q->st.m = m;
+	q->trace = m->pl->trace;
+	q->flags = m->flags;
+
+	query_reset(q);
 
 	// Allocate these now...
 
-	q->frames_size = is_task ? INITIAL_NBR_FRAMES/10 : INITIAL_NBR_FRAMES;
-	q->slots_size = is_task ? INITIAL_NBR_SLOTS/10 : INITIAL_NBR_SLOTS;
-	q->choices_size = is_task ? INITIAL_NBR_CHOICES/10 : INITIAL_NBR_CHOICES;
-	q->trails_size = is_task ? INITIAL_NBR_TRAILS/10 : INITIAL_NBR_TRAILS;
+	q->frames_size = is_task ? 100 : INITIAL_NBR_FRAMES;
+	q->choices_size = is_task ? 100 : INITIAL_NBR_CHOICES;
+	q->slots_size = is_task ? 1000 : INITIAL_NBR_SLOTS;
+	q->trails_size = is_task ? 1000 : INITIAL_NBR_TRAILS;
 
-	bool error = false;
 	ensure(q->frames = calloc(q->frames_size, sizeof(frame)), NULL);
-	ensure(q->slots = calloc(q->slots_size, sizeof(slot)), NULL);
 	ensure(q->choices = calloc(q->choices_size, sizeof(choice)), NULL);
+	ensure(q->slots = calloc(q->slots_size, sizeof(slot)), NULL);
 	ensure(q->trails = calloc(q->trails_size, sizeof(trail)), NULL);
 
 	// Allocate these later as needed...
@@ -1860,33 +1890,27 @@ query *query_create(module *m, bool is_task)
 	for (int i = 0; i < MAX_QUEUES; i++)
 		q->q_size[i] = is_task ? INITIAL_NBR_QUEUE_CELLS/4 : INITIAL_NBR_QUEUE_CELLS;
 
-	if (error) {
-		query_destroy (q);
-		q = NULL;
-	}
-
 	return q;
 }
 
-query *query_create_subquery(query *q, cell *curr_cell)
+query *query_create_task(query *q, cell *curr_cell)
 {
-	query *subq = query_create(q->st.m, true);
-	if (!subq) return NULL;
-	subq->parent = q;
-	subq->st.fp = 1;
-	subq->is_task = true;
-	subq->p = q->p;
+	query *task = query_create(q->st.m, true);
+	if (!task) return NULL;
+	task->is_task = true;
+	task->parent = q;
+	task->st.fp = 1;
+	task->p = q->p;
 
-	cell *tmp = prepare_call(subq, false, curr_cell, q->st.curr_frame, 1);
+	cell *tmp = prepare_call(task, false, curr_cell, q->st.curr_frame, 1);
 	pl_idx nbr_cells = tmp->nbr_cells;
 	make_end(tmp+nbr_cells);
-	subq->st.curr_cell = tmp;
+	task->st.curr_cell = tmp;
 
 	frame *fsrc = GET_FRAME(q->st.curr_frame);
-	frame *fdst = subq->frames;
+	frame *fdst = task->frames;
 	fdst->initial_slots = fdst->actual_slots = fsrc->actual_slots;
 	fdst->ugen = ++q->pl->ugen;
-
-	subq->st.sp = fdst->actual_slots;
-	return subq;
+	task->st.sp = fdst->actual_slots;
+	return task;
 }

@@ -1,7 +1,5 @@
 :- pragma(builtins, [once]).
 
-:- use_module(library(dict)).
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
 
@@ -634,149 +632,45 @@ pretty(PI) :-
 :- help(pretty(+predicateindicator), [iso(false)]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% SWI compatible
-%
-% Global variables. using the namespace 'user' to make sure they
-% are truly global and not just in the current module. This a quick
-% hack using assert/retract...
-
-nb_setval(K, _) :-
-	must_be(K, atom, nb_setval/2, _),
-	user:retract('$bb_global_key'(K, _)),
-	fail.
-nb_setval(K, V) :-
-	must_be(K, atom, nb_setval/2, _),
-	user:assertz('$bb_global_key'(K, V)).
-
-:- help(nb_setval(+atom,+term), [iso(false)]).
-
-nb_getval(K, V) :-
-	must_be(K, atom, nb_getval/2, _),
-	user:catch('$bb_global_key'(K, V), _, throw(error(existence_error(var, K), nb_getval/2))),
-	!.
-
-:- help(nb_getval(+atom,?term), [iso(false)]).
-
-nb_delete(K) :-
-	must_be(K, atom, nb_delete/1, _),
-	user:retract('$bb_global_key'(K, _)),
-	!.
-nb_delete(_).
-
-:- help(nb_delete(+atom), [iso(false)]).
-
-nb_current(K, V) :-
-	can_be(K, atom, nb_current/2, _),
-	user:clause('$bb_global_key'(K, V), true).
-
-:- help(nb_current(+atom,+term), [iso(false)]).
-
-%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% SWI compatible
-%
-% Global variables. using the namespace 'user' to make sure they
-% are truly global and not just in the current module. This a quick
-% hack using assert/retract...
-% The following is not really correct.
-
-b_setval(K, _) :-
-	must_be(K, atom, b_setval/2, _),
-	\+ user:clause('$bb_global_key'(K, _), _),
-	user:asserta('$bb_global_key'(K, [])),
-	fail.
-b_setval(K, V) :-
-	must_be(K, atom, b_setval/2, _),
-	user:asserta('$bb_global_key'(K, V)).
-b_setval(K, _) :-
-	user:retract('$bb_global_key'(K, _)),
-	!, fail.
-
-:- help(b_setval(+atom,+term), [iso(false)]).
-
-b_setval0(K, _) :-
-	must_be(K, atom, b_setval0/2, _),
-	\+ user:clause('$bb_global_key'(K, _), _), asserta('$bb_global_key'(K, 0)),
-	fail.
-b_setval0(K, V) :-
-	must_be(K, atom, b_setval0/2, _),
-	user:asserta('$bb_global_key'(K, V)).
-b_setval0(K, _) :-
-	user:retract('$bb_global_key'(K, _)),
-	!, fail.
-
-:- help(b_setval0(+atom,+term), [iso(false)]).
-
-b_getval(K, V) :-
-	must_be(K, atom, b_getval/2, _),
-	user:catch('$bb_global_key'(K, V), _, throw(error(existence_error(var, K), b_getval/2))),
-	!.
-
-:- help(b_getval(+atom,?term), [iso(false)]).
-
-b_delete(K) :-
-	must_be(K, atom, b_delete/1, _),
-	user:retractall('$bb_global_key'(K, _)),
-	!.
-b_delete(_).
-
-:- help(b_delete(+atom), [iso(false)]).
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % SICStus compatible
 
-bb_put(K, _) :-
-	must_be(K, atom, bb_put/2, _),
-	user:retract('$bb_global_key'(K, _)),
-	fail.
 bb_put(K, V) :-
-	must_be(K, atom, bb_put/2, _),
-	user:assertz('$bb_global_key'(K, {V:nb})).
+	must_be(K, atomic, bb_put/2, _),
+	ignore(retract('$bb_global_key'(K, _, _))),
+	asserta('$bb_global_key'(K, V, nb)).
 
-:- help(bb_put(+atom,+term), [iso(false)]).
+:- help(bb_put(+atomic,+term), [iso(false)]).
 
 bb_get(K, V) :-
-	must_be(K, atom, bb_get/2, _),
-	user:catch('$bb_global_key'(K, {V:_}), _, fail),
+	must_be(K, atomic, bb_get/2, _),
+	catch('$bb_global_key'(K, V, _), _, fail),
 	!.
 
-:- help(bb_get(+atom,?term), [iso(false)]).
+:- help(bb_get(+atomic,?term), [iso(false)]).
 
 bb_delete(K, V) :-
-	must_be(K, atom, bb_delete/2, _),
-	user:catch(user:retract('$bb_global_key'(K, {V:_})), _, fail),
+	must_be(K, atomic, bb_delete/2, _),
+	retract('$bb_global_key'(K, V, _)),
 	!.
 
-:- help(bb_delete(+atom,+term), [iso(false)]).
+:- help(bb_delete(+atomic,+term), [iso(false)]).
 
 bb_update(K, O, V) :-
-	must_be(K, atom, bb_update/3, _),
-	user:catch(user:retract('$bb_global_key'(K, {O:_})), _, true),
-	user:assertz('$bb_global_key'(K, {V:nb})),
+	must_be(K, atomic, bb_update/3, _),
+	ignore(retract('$bb_global_key'(K, O, _))),
+	asserta('$bb_global_key'(K, V, nb)),
 	!.
 
-:- help(bb_update(+atom,+term,+term), [iso(false)]).
+:- help(bb_update(+atomic,+term,+term), [iso(false)]).
 
-% extensions
+% extension:
 
 bb_b_put(K, V) :-
-	must_be(K, atom, bb_b_put/2, _),
-	user:asserta('$bb_global_key'(K, {V:b})).
-bb_b_put(K, _) :-
-	user:retract('$bb_global_key'(K, {_:b})),
-	!, fail.
+	must_be(K, atomic, bb_b_put/2, _),
+	asserta('$bb_global_key'(K, V, b), Ref),
+	'$quantum_eraser'(Ref).
 
-:- help(bb_b_put(+atom,+term), [iso(false)]).
-
-bb_del(K) :-
-	must_be(K, atom, bb_del/1, _),
-	user:retractall('$bb_global_key'(K, _)),
-	!.
-bb_del(_).
-
-:- help(bb_del(+atom), [iso(false)]).
+:- help(bb_b_put(+atomic,+term), [iso(false)]).
 
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -809,31 +703,6 @@ current_op(A, B, C) :-
 	'$op'(C, B, A).
 
 :- help(current_op(?integer,?atom,?atom), [iso(true)]).
-
-%
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% SWI compatible
-
-get_attr(Var, Module, Value) :-
-	Access =.. [Module, Value],
-	var(Var),
-	get_atts(Var, Access).
-
-:- help(get_attr(@var,+atom,-term), [iso(false)]).
-
-put_attr(Var, Module, Value) :-
-	Access =.. [Module, Value],
-	put_atts(Var, Access).
-
-:- help(put_attr(@var,+atom,+term), [iso(false)]).
-
-del_attr(Var, Module) :-
-	Access =.. [Module, _],
-	( var(Var) -> put_atts(Var, -Access) ; true ).
-
-:- help(del_attr(@var,+atom), [iso(false)]).
 
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -902,26 +771,12 @@ get_atts(Var, Attr) :- !,
 
 :- help(get_atts(@var,?term), [iso(false)]).
 
-% Ancilliary...
-
-del_atts(Var) :-
-	var(Var),
-	'$erase_attributes'(Var).
-
-:- help(del_atts(@var), [iso(false)]).
-
-attvar(Var) :-
-	var(Var),
-	'$get_attributes'(Var, _).
-
-:- help(attvar(@var), [iso(false)]).
-
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 term_attvars_([], VsIn, VsIn) :- !.
 term_attvars_([H|T], VsIn, VsOut) :-
-	(	attvar(H)
+	(	'$attributed_var'(H)
 	->	term_attvars_(T, [H|VsIn], VsOut)
 	;	term_attvars_(T, VsIn, VsOut)
 	).
