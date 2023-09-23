@@ -111,7 +111,7 @@ static void trace_call(query *q, cell *c, pl_idx c_ctx, box_t box)
 	SB(pr);
 
 #ifdef DEBUG
-	SB_sprintf(pr, "[%s:%"PRIu64":f%u:fp:%u:cp%u:sp%u:hp%u:tp%u] ",
+	SB_sprintf(pr, "[%s:%"PRIu64":f%u:fp%u:cp%u:sp%u:hp%u:tp%u] ",
 		q->st.m->name,
 		q->step,
 		q->st.curr_frame, q->st.fp, q->cp, q->st.sp, q->st.hp, q->st.tp
@@ -265,7 +265,7 @@ bool check_slot(query *q, unsigned cnt)
 		q->hw_slots = q->st.sp;
 
 	if (nbr >= q->slots_size) {
-		pl_idx new_slotssize = alloc_grow((void**)&q->slots, sizeof(slot), nbr, q->slots_size*4/3, false);
+		pl_idx new_slotssize = alloc_grow((void**)&q->slots, sizeof(slot), nbr, nbr*4/3, false);
 
 		if (!new_slotssize) {
 			q->is_oom = q->error = true;
@@ -355,7 +355,6 @@ bool has_next_key(query *q)
 
 const char *dump_id(const void *k, const void *v, const void *p)
 {
-	const query *q = (query*)p;
 	uint64_t id = (uint64_t)(size_t)k;
 	static char tmpbuf[1024];
 	sprintf(tmpbuf, "%"PRIu64"", id);
@@ -800,7 +799,6 @@ static void reuse_frame(query *q, const clause *cl)
 		*to++ = *from++;
 	}
 
-	const choice *ch = GET_CURR_CHOICE();
 	q->st.sp = f->base + f->initial_slots;
 	q->st.hp = f->hp;
 	q->tot_tcos++;
@@ -1090,15 +1088,12 @@ unsigned create_vars(query *q, unsigned cnt)
 	if (!cnt)
 		return f->actual_slots;
 
-	if ((q->st.sp + cnt) > MAX_LOCAL_VARS) {
+	if ((f->actual_slots + cnt) > MAX_LOCAL_VARS) {
 		printf("*** Ooops %s %d\n", __FILE__, __LINE__);
 		return 0;
 	}
 
 	unsigned var_nbr = f->actual_slots;
-
-	if (!check_slot(q, cnt))
-		return 0;
 
 	if ((f->base + f->initial_slots) >= q->st.sp) {
 		f->initial_slots += cnt;
@@ -1109,9 +1104,16 @@ unsigned create_vars(query *q, unsigned cnt)
 		pl_idx save_overflow = f->overflow;
 		f->overflow = q->st.sp;
 		pl_idx cnt2 = f->actual_slots - f->initial_slots;
+
+		if (!check_slot(q, cnt2))
+			return 0;
+
 		memmove(q->slots+f->overflow, q->slots+save_overflow, sizeof(slot)*cnt2);
 		q->st.sp += cnt2;
 	}
+
+	if (!check_slot(q, cnt))
+		return 0;
 
 	q->st.sp += cnt;
 	slot *e = GET_SLOT(f, f->actual_slots);

@@ -3,12 +3,10 @@ GIT_VERSION := "$(shell git describe --abbrev=4 --dirty --always --tags)"
 CFLAGS = -Isrc -I/usr/local/include -DVERSION='$(GIT_VERSION)' \
 	-std=gnu99 -O3 $(OPT) -D_GNU_SOURCE \
 	-Wall -Wextra \
+	-Wno-unused-parameter \
 	-Wno-deprecated-declarations \
 	-Wno-unused-function \
-	-Wno-unused-parameter \
-	-Wno-unused-but-set-variable \
 	-Wno-unused-variable
-
 LDFLAGS = -L/usr/local/lib -lm
 
 ifdef HOMEBREW_PREFIX
@@ -18,6 +16,10 @@ endif
 
 ifndef TPL
 TPL = tpl
+endif
+
+ifndef NOPEDANTIC
+CFLAGS += -Wno-unused-but-set-variable
 endif
 
 ifdef WASI

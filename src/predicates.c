@@ -164,8 +164,8 @@ static bool fn_iso_findall_3(query *q)
 		if (is_iso_list(p3) && !check_list(q, p3, p3_ctx, &is_partial, NULL) && !is_partial)
 			return throw_error(q, p3, p3_ctx, "type_error", "list");
 
-		if (is_structure(p1) && !is_iso_list(p1)) {	// Why is this necessary?
-			cell *p0 = deep_copy_to_heap(q, q->st.curr_cell, q->st.curr_frame, false);
+		if (is_structure(p1)) {	// Why is this necessary?
+			cell *p0 = deep_copy_to_heap(q, q->st.curr_cell, q->st.curr_frame, true);
 			check_heap_error(p0);
 			unify(q, q->st.curr_cell, q->st.curr_frame, p0, q->st.curr_frame);
 			GET_FIRST_ARG0(xp1,any,p0);
@@ -1780,7 +1780,6 @@ static bool fn_iso_univ_2(query *q)
 		if (is_var(p22))
 			return throw_error(q, p2, p2_ctx, "instantiation_error", "not_sufficiently_instantiated");
 
-		pl_idx save_hp = q->st.hp;
 		cell *tmp = deep_clone_to_heap(q, p2, p2_ctx);
 		check_heap_error(tmp);
 		p2 = tmp;
@@ -3159,7 +3158,7 @@ static cell *nodesort(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool keysor
 		pl_idx c_ctx = q->latest_ctx;
 		cell tmp;
 
-		if (is_var(c) || is_structure(c)) {
+		if (is_structure(c)) {
 			make_ref(&tmp, c->val_off, create_vars(q, 1), q->st.curr_frame);
 			unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 			c = &tmp;
@@ -3993,7 +3992,6 @@ static bool fn_listing_1(query *q)
 
 static bool fn_help_0(query *q)
 {
-	bool found = false, evaluable = false;
 	sliter *iter = sl_first(q->pl->help);
 	builtins *fn;
 
@@ -4047,7 +4045,6 @@ static bool fn_source_info_2(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 	GET_NEXT_ARG(p2,var);
-	bool found = false, evaluable = false;
 
 	if (!is_structure(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
@@ -4068,8 +4065,6 @@ static bool fn_source_info_2(query *q)
 	if (!is_smallint(a))
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 
-	const char *functor = C_STR(q, f);
-	unsigned arity = get_smallint(a);
 	cell key;
 	key.val_off = f->val_off;
 	key.arity = get_smalluint(a);
@@ -4240,7 +4235,6 @@ static bool fn_help_2(query *q)
 static bool fn_module_help_1(query *q)
 {
 	GET_FIRST_ARG(pm,atom);
-	bool found = false, evaluable = false;
 	module *m = find_module(q->pl, C_STR(q, pm));
 
 	if (!m)
@@ -6370,7 +6364,6 @@ static bool fn_replace_4(query *q)
 	GET_NEXT_ARG(p3,atom);
 	GET_NEXT_ARG(p4,var);
 	size_t srclen = C_STRLEN(q, p1);
-	size_t dstlen = srclen * C_STRLEN(q, p3);
 	const char *src = C_STR(q, p1);
 	const char *s1 = C_STR(q, p2);
 	const char *s2 = C_STR(q, p3);
@@ -6950,7 +6943,7 @@ static bool fn_sys_list_attributed_1(query *q)
 		if (!is_empty(c))
 			continue;
 
-		if (!c->attrs || is_nil(c->attrs))
+		if (!c->attrs)
 			continue;
 
 		cell v;
@@ -6976,7 +6969,10 @@ static bool fn_sys_put_attributes_2(query *q)
 	GET_NEXT_ARG(p2,list_or_nil);
 	const frame *f = GET_FRAME(p1_ctx);
 	slot *e = GET_SLOT(f, p1->var_nbr);
-	add_trail(q, p1_ctx, p1->var_nbr, e->c.attrs, e->c.attrs_ctx);
+
+	if (e->c.attrs || !is_nil(p2))
+		add_trail(q, p1_ctx, p1->var_nbr, e->c.attrs, e->c.attrs_ctx);
+
 	//DUMP_TERM("$put_attr", p2, p2_ctx ,true);
 
 	if (is_nil(p2)) {
@@ -7001,7 +6997,7 @@ static bool fn_sys_get_attributes_2(query *q)
 	const frame *f = GET_FRAME(p1_ctx);
 	const slot *e = GET_SLOT(f, p1->var_nbr);
 
-	if (!e->c.attrs || is_nil(e->c.attrs))
+	if (!e->c.attrs)
 		return false;
 
 	return unify(q, p2, p2_ctx, e->c.attrs, e->c.attrs_ctx);
@@ -7012,11 +7008,7 @@ static bool fn_sys_unattributed_var_1(query *q)
 	GET_FIRST_ARG(p1,var);
 	const frame *f = GET_FRAME(p1_ctx);
 	const slot *e = GET_SLOT(f, p1->var_nbr);
-
-	if (!e->c.attrs || is_nil(e->c.attrs))
-		return true;
-
-	return false;
+	return !e->c.attrs;
 }
 
 static bool fn_sys_attributed_var_1(query *q)
@@ -7024,11 +7016,7 @@ static bool fn_sys_attributed_var_1(query *q)
 	GET_FIRST_ARG(p1,var);
 	const frame *f = GET_FRAME(p1_ctx);
 	const slot *e = GET_SLOT(f, p1->var_nbr);
-
-	if (!e->c.attrs || is_nil(e->c.attrs))
-		return false;
-
-	return true;
+	return e->c.attrs;
 }
 
 static bool fn_get_unbuffered_code_1(query *q)
@@ -7360,7 +7348,6 @@ static bool fn_use_module_2(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 	GET_NEXT_ARG(p2,list_or_nil);
-	LIST_HANDLER(p2);
 
 	if (!do_use_module_1(q->st.m, q->st.curr_cell))
 		return false;
@@ -7857,7 +7844,7 @@ static bool fn_parse_csv_file_2(query *q)
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p3,list_or_nil);
 	bool trim = false, numbers = false, use_strings = false;
-	bool header = false, do_assert = true, comments = false;
+	bool header = false, comments = false;
 	const char *functor = NULL;
 	int sep = ',', quote = '"', comment = '#';
 	unsigned arity = 0;
@@ -8271,7 +8258,7 @@ static void load_ops(query *q)
 	iter = sl_first(q->st.m->defops);
 
 	while (sl_next(iter, (void**)&ptr)) {
-		char specifier[80], name[1024];
+		char specifier[80];
 
 		if (!ptr->specifier)
 			continue;

@@ -28,7 +28,7 @@ struct heap_save {
 	q->tmph_size = _s.size;								\
 	q->tmphp = _s.hp;
 
-static int accum_slot(const query *q, pl_idx slot_nbr, unsigned var_nbr)
+static int accum_slot(const query *q, size_t slot_nbr, unsigned var_nbr)
 {
 	const void *vnbr;
 
@@ -241,7 +241,6 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx p1_ctx, unsigned dept
 	}
 
 	unsigned arity = p1->arity;
-	const frame *f = GET_FRAME(p1_ctx);
 	p1++;
 
 	while (arity--) {
@@ -354,7 +353,7 @@ static bool copy_vars(query *q, cell *tmp, bool copy_attrs, const cell *from, pl
 
 		const frame *f = GET_FRAME(tmp->var_ctx);
 		const slot *e = GET_SLOT(f, tmp->var_nbr);
-		const pl_idx slot_nbr = f->base + tmp->var_nbr;
+		const size_t slot_nbr = f->base + tmp->var_nbr;
 		int var_nbr;
 
 		if ((var_nbr = accum_slot(q, slot_nbr, q->varno)) == -1)
@@ -376,7 +375,7 @@ static bool copy_vars(query *q, cell *tmp, bool copy_attrs, const cell *from, pl
 
 			if (copy_attrs && (e->c.flags & FLAG_VAR_ATTR) && e->c.attrs) {
 				push_tmp_heap(q);
-				cell *tmp2 = deep_copy_to_heap_with_replacement(q, e->c.attrs, e->c.attrs_ctx, false, NULL, 0, NULL, 0);
+				cell *tmp2 = deep_clone_to_heap(q, e->c.attrs, e->c.attrs_ctx);
 				pop_tmp_heap(q);
 				check_heap_error(tmp2);
 				tmp->tmp_attrs = tmp2;
@@ -391,56 +390,38 @@ static cell *deep_copy_to_tmp_with_replacement(query *q, cell *p1, pl_idx p1_ctx
 {
 	cell *c = deref(q, p1, p1_ctx);
 	pl_idx c_ctx = q->latest_ctx;
-	void *save = q->vars;
-
-	if (!q->vars)
-		q->vars = sl_create(NULL, NULL, NULL);
-
-	if (!q->vars) {
-		q->vars = save;
-		return NULL;
-	}
-
 	const frame *f = GET_CURR_FRAME();
+	q->vars = sl_create(NULL, NULL, NULL);
+	q->varno = f->actual_slots;
+	q->tab_idx = 0;
 
-	if (!save) {
-		q->varno = f->actual_slots;
-		q->tab_idx = 0;
-
-		if (is_var(p1)) {
-			const frame *f = GET_FRAME(p1_ctx);
-			slot *e = GET_SLOT(f, p1->var_nbr);
-			const pl_idx slot_nbr = f->base + p1->var_nbr;
-			e->vgen = q->vgen+1; // +1 because that is what deep_clone_to_tmp() will do
-			if (e->vgen == 0) e->vgen++;
-			q->tab0_varno = q->varno;
-			q->tab_idx++;
-			sl_set(q->vars, (void*)(size_t)slot_nbr, (void*)(size_t)q->varno);
-			q->varno++;
-		}
+	if (is_var(p1)) {
+		const frame *f = GET_FRAME(p1_ctx);
+		slot *e = GET_SLOT(f, p1->var_nbr);
+		const pl_idx slot_nbr = f->base + p1->var_nbr;
+		e->vgen = q->vgen+1; // +1 because that is what deep_clone_to_tmp() will do
+		if (e->vgen == 0) e->vgen++;
+		q->tab0_varno = q->varno;
+		q->tab_idx++;
+		sl_set(q->vars, (void*)(size_t)slot_nbr, (void*)(size_t)q->varno);
+		q->varno++;
 	}
 
 	cell *tmp = deep_clone_to_tmp(q, c, c_ctx);
 	if (!tmp) {
-		if (!save)
-			sl_destroy(q->vars);
-
-		q->vars = save;
+		sl_destroy(q->vars);
+		q->vars = NULL;
 		return NULL;
 	}
 
 	if (!copy_vars(q, tmp, copy_attrs, from, from_ctx, to, to_ctx)) {
-		if (!save)
-			sl_destroy(q->vars);
-
-		q->vars = save;
+		sl_destroy(q->vars);
+		q->vars = NULL;
 		return NULL;
 	}
 
-	if (!save)
-		sl_destroy(q->vars);
-
-	q->vars = save;
+	sl_destroy(q->vars);
+	q->vars = NULL;
 	int cnt = q->varno - f->actual_slots;
 
 	if (cnt) {
@@ -463,7 +444,7 @@ static cell *deep_copy_to_tmp_with_replacement(query *q, cell *p1, pl_idx p1_ctx
 	c = tmp;
 
 	for (pl_idx i = 0; i < tmp->nbr_cells; i++, c++) {
-		if (is_var(c) && c->tmp_attrs) {
+		if (is_ref(c) && c->tmp_attrs) {
 			const frame *f = GET_FRAME(c->var_ctx);
 			slot *e = GET_SLOT(f, c->var_nbr);
 			e->c.flags = FLAG_VAR_ATTR;
