@@ -560,10 +560,6 @@ void pl_destroy(prolog *pl)
 
 			parser_destroy(str->p);
 			str->p = NULL;
-			sl_destroy(str->alias);
-			free(str->mode);
-			free(str->filename);
-			free(str->data);
 		}
 
 		if (str->p)
