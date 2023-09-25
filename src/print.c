@@ -407,8 +407,8 @@ void print_variable(query *q, const cell *c, pl_idx c_ctx, bool running)
 	const frame *f = GET_FRAME(running ? c_ctx : 0);
 	pl_idx slot_nbr = running ? (unsigned)(f->base + c->var_nbr) : (unsigned)c->var_nbr;
 
-	if (q->varnames && !is_anon(c) && running) {
-		if (q->p->vartab.var_name[c->var_nbr]) {
+	if ((q->varnames || q->cycle_error) && !is_anon(c) && running && (!q->cycle_error)) {
+		if (q->varnames && q->p->vartab.var_name[c->var_nbr]) {
 			SB_sprintf(q->sb, "%s", q->p->vartab.var_name[c->var_nbr]);
 		} else {
 			SB_sprintf(q->sb, "%s", get_slot_name(q, slot_nbr));
@@ -424,6 +424,39 @@ void print_variable(query *q, const cell *c, pl_idx c_ctx, bool running)
 	} else {
 		SB_sprintf(q->sb, "_%u", (unsigned)slot_nbr);
 	}
+}
+
+static bool dump_variable(query *q, cell *c, pl_idx c_ctx, bool running)
+{
+	cell *l = q->variable_names;
+	pl_idx l_ctx = q->variable_names_ctx;
+	LIST_HANDLER(l);
+
+	while (is_iso_list(l)) {
+		cell *h = LIST_HEAD(l);
+		h = running ? deref(q, h, l_ctx) : h;
+		pl_idx h_ctx = running ? q->latest_ctx : 0;
+		cell *name = running ? deref(q, h+1, h_ctx) : h+1;
+		cell *v = h+2;
+		pl_idx v_ctx = c_ctx;
+
+		if (is_var(v) && (v->var_nbr == c->var_nbr) && (v_ctx == c_ctx)) {
+			if (0 && !strcmp(C_STR(q, name), "_")) {
+				print_variable(q, v, v_ctx, running);
+			} else {
+				SB_sprintf(q->sb, "%s", C_STR(q, name));
+			}
+
+			q->last_thing = WAS_OTHER;
+			return true;
+		}
+
+		l = LIST_TAIL(l);
+		l = running ? deref(q, l, l_ctx) : l;
+		l_ctx = running ? q->latest_ctx : 0;
+	}
+
+	return false;
 }
 
 static void print_string_canonical(query *q, cell *c, pl_idx c_ctx, int running, bool cons, unsigned depth)
@@ -524,6 +557,13 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 		uint64_t save_vgen = 0;
 		int both = 0;
 		if (running) DEREF_SLOT(both, save_vgen, e, e->vgen, head, head_ctx, q->print_vgen)
+
+		if ((head == orig_c) && (head_ctx == orig_c_ctx)) {
+			head = LIST_HEAD(c);
+			head_ctx = c_ctx;
+			q->cycle_error = true;
+		}
+
 		bool special_op = false;
 
 		if (is_interned(head)) {
@@ -542,6 +582,7 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 		q->parens = parens;
 		print_term_to_buf_(q, head, head_ctx, running, -1, 0, depth+1);
 		q->parens = false;
+		q->cycle_error = false;
 		if (e) e->vgen = save_vgen;
 		if (parens) { SB_sprintf(q->sb, "%s", ")"); }
 		bool possible_chars = false;
@@ -597,7 +638,12 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 		} else if (is_iso_list(tail)) {
 			if ((tail == save_c) && (tail_ctx == save_c_ctx) && running) {
 				SB_sprintf(q->sb, "%s", "|");
-				SB_sprintf(q->sb, "%s", !is_ref(save_tail) ? C_STR(q, save_tail) : "_");
+
+				if (q->is_dump_vars) {
+					if (!dump_variable(q, save_tail, c_ctx, running))
+						print_variable(q, save_tail, c_ctx, 0);
+				} else
+					print_variable(q, save_tail, c_ctx, 0);
 			} else {
 				SB_sprintf(q->sb, "%s", ",");
 				q->last_thing = WAS_COMMA;
@@ -661,6 +707,9 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 
 static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int cons, unsigned print_depth, unsigned depth)
 {
+	cell *save_c = c;
+	pl_idx save_c_ctx = c_ctx;
+
 	if (depth > g_max_depth) {
 		//printf("*** OOPS %s %d\n", __FILE__, __LINE__);
 		q->cycle_error = true;
@@ -901,38 +950,13 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 			&& q->numbervars && !strcmp(src, "$VAR") && c1
 			&& is_integer(c1) && (get_smallint(c1) >= 0)) {
 			SB_sprintf(q->sb, "%s", varformat2(q->pl->tmpbuf, sizeof(q->pl->tmpbuf), c1, 0));
-		q->last_thing = WAS_OTHER;
+			q->last_thing = WAS_OTHER;
 			return true;
 		}
 
-		if (is_var(c) && !is_anon(c) && q->variable_names) {
-			cell *l = q->variable_names;
-			pl_idx l_ctx = q->variable_names_ctx;
-			LIST_HANDLER(l);
-
-			while (is_iso_list(l)) {
-				cell *h = LIST_HEAD(l);
-				h = running ? deref(q, h, l_ctx) : h;
-				pl_idx h_ctx = running ? q->latest_ctx : 0;
-				cell *name = running ? deref(q, h+1, h_ctx) : h+1;
-				cell *var = running ? deref(q, h+2, h_ctx) : h+2;
-				pl_idx var_ctx = running ? q->latest_ctx : h_ctx;
-
-				if (is_var(var) && (var->var_nbr == c->var_nbr) && (var_ctx == c_ctx)) {
-					if (!strcmp(C_STR(q, name), "_")) {
-						print_variable(q, var, var_ctx, running);
-					} else {
-						SB_sprintf(q->sb, "%s", C_STR(q, name));
-					}
-
-					q->last_thing = WAS_OTHER;
-					return true;
-				}
-
-				l = LIST_TAIL(l);
-				l = running ? deref(q, l, l_ctx) : l;
-				l_ctx = running ? q->latest_ctx : 0;
-			}
+		if (is_var(c) /*&& !is_anon(c)*/ && q->variable_names) {
+			if (dump_variable(q, c, c_ctx, running))
+				return true;
 		}
 
 		SB_sprintf(q->sb, "%s", !braces&&quote?dq?"\"":"'":"");
@@ -989,6 +1013,14 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 				uint64_t save_vgen = 0;
 				int both = 0;
 				if (running) DEREF_SLOT(both, save_vgen, e, e->vgen, tmp, tmp_ctx, q->print_vgen);
+
+				if ((tmp == save_c) && (tmp_ctx == save_c_ctx)) {
+					tmp = c;
+					tmp_ctx = c_ctx;
+					SB_sprintf(q->sb, "%s", !is_ref(tmp) ? C_STR(q, tmp) : "_");
+					if (e) e->vgen = save_vgen;
+					continue;
+				}
 
 				if (q->max_depth && ((depth+1) >= q->max_depth)) {
 					SB_sprintf(q->sb, "%s", "...");

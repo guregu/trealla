@@ -164,7 +164,8 @@ static bool fn_iso_findall_3(query *q)
 		if (is_iso_list(p3) && !check_list(q, p3, p3_ctx, &is_partial, NULL) && !is_partial)
 			return throw_error(q, p3, p3_ctx, "type_error", "list");
 
-		if (is_structure(p1)) {	// Why is this necessary?
+		if (is_structure(p1)
+			&& (!is_iso_list(p1) || (p1_ctx != q->st.curr_frame))) {	// Why is this necessary?
 			cell *p0 = deep_copy_to_heap(q, q->st.curr_cell, q->st.curr_frame, true);
 			check_heap_error(p0);
 			unify(q, q->st.curr_cell, q->st.curr_frame, p0, q->st.curr_frame);
@@ -2025,26 +2026,8 @@ static bool fn_iso_copy_term_2(query *q)
 	GET_FIRST_ARG(p1,any);
 	GET_NEXT_ARG(p2,any);
 
-	if (is_var(p1) && is_var(p2)) {
-#if 0
-		const frame *f1 = GET_FRAME(p1_ctx);
-		const slot *e1 = GET_SLOT(f1, p1->var_nbr);
-
-		if (e1->c.attrs) {
-			const frame *f2 = GET_FRAME(p2_ctx);
-			slot *e2 = GET_SLOT(f2, p2->var_nbr);
-			check_heap_error(init_tmp_heap(q));
-			frame *f = GET_CURR_FRAME();
-			q->varno = f->actual_slots;
-			q->tab_idx = 0;
-			cell *tmp = deep_copy_to_heap_with_replacement(q, e1->c.attrs, e1->c.attrs_ctx, true, p1, p1_ctx, p2, p2_ctx);
-			check_heap_error(tmp);
-			e2->c.attrs = tmp;
-			e2->c.attrs_ctx = q->st.curr_frame;
-		}
-#endif
+	if (is_var(p1) && is_var(p2))
 		return true;
-	}
 
 	if (is_atomic(p1) && is_var(p2))
 		return unify(q, p1, p1_ctx, p2, p2_ctx);
@@ -2052,15 +2035,16 @@ static bool fn_iso_copy_term_2(query *q)
 	if (!is_var(p2) && !has_vars(q, p1, p1_ctx))
 		return unify(q, p1, p1_ctx, p2, p2_ctx);
 
-	GET_FIRST_RAW_ARG(p1_raw,any);
-	cell *tmp = deep_copy_to_heap(q, p1_raw, p1_raw_ctx, false);
-	check_heap_error(tmp);
+	GET_FIRST_RAW_ARG(from,any);
+	cell *tmp;
 
-	if (is_var(p1_raw) && is_var(p2)) {
-		cell tmpv;
-		tmpv = *p2;
-		tmpv.var_nbr = q->tab0_varno;
-		unify(q, p2, p2_ctx, &tmpv, q->st.curr_frame);
+	if (is_var(from)) {
+		GET_NEXT_RAW_ARG(to,any);
+		tmp = deep_copy_to_heap_with_replacement(q, from, from_ctx, false, from, from_ctx, to, to_ctx);
+		check_heap_error(tmp);
+	} else {
+		tmp = deep_copy_to_heap(q, from, from_ctx, false);
+		check_heap_error(tmp);
 	}
 
 	return unify(q, p2, p2_ctx, tmp, q->st.curr_frame);
@@ -2696,8 +2680,15 @@ static bool fn_iso_current_predicate_1(query *q)
 	tmp.val_off = is_interned(p1) ? p1->val_off : new_atom(q->pl, C_STR(q, p1));
 	tmp.arity = get_smallint(p2);
 	bool is_prebuilt = false;
-	bool ok = search_predicate(q->st.m, &tmp, &is_prebuilt) != NULL;
-	return ok && !is_prebuilt;
+	predicate *pr = search_predicate(q->st.m, &tmp, &is_prebuilt);
+
+	if (is_prebuilt || !pr)
+		return false;
+
+	if (pr->is_goal_expansion && !pr->head)
+		return false;
+
+	return true;
 }
 
 static bool fn_cyclic_term_1(query *q)
@@ -3158,7 +3149,7 @@ static cell *nodesort(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool keysor
 		pl_idx c_ctx = q->latest_ctx;
 		cell tmp;
 
-		if (is_structure(c)) {
+		if (is_structure(c) && !is_iso_list(c)) {
 			make_ref(&tmp, c->val_off, create_vars(q, 1), q->st.curr_frame);
 			unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 			c = &tmp;
@@ -3858,6 +3849,7 @@ static bool fn_sys_assertz_2(query *q)
 static void save_db(FILE *fp, query *q, int logging)
 {
 	q->listing = true;
+	q->double_quotes = true;
 
 	for (predicate *pr = q->st.m->head; pr; pr = pr->next) {
 		if (pr->is_prebuilt)
@@ -3894,6 +3886,7 @@ static void save_db(FILE *fp, query *q, int logging)
 		}
 	}
 
+	q->double_quotes = false;
 	q->listing = false;
 }
 
@@ -8051,6 +8044,7 @@ static void load_properties(module *m)
 	format_property(m, tmpbuf, sizeof(tmpbuf), "ignore", 1, "meta_predicate(ignore(0))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "$call", 1, "meta_predicate('$call'(0))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "call", 1, "meta_predicate(call(0))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "task", 1, "meta_predicate(task(0))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "findall", 3, "meta_predicate(findall(?,0,-))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "with_mutex", 2, "meta_predicate(with_mutex(+,0))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "engine_create", 4, "meta_predicate(engine_create(?,0,?,+))", false); SB_strcat(pr, tmpbuf);
