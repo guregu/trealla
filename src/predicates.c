@@ -2179,12 +2179,10 @@ static bool fn_iso_retractall_1(query *q)
 
 		pr->idx = sl_create(index_cmpkey, NULL, pr->m);
 		ensure(pr->idx);
-		sl_allow_dups(pr->idx, true);
 
 		if (pr->key.arity > 1) {
 			pr->idx2 = sl_create(index_cmpkey, NULL, pr->m);
 			ensure(pr->idx2);
-			sl_allow_dups(pr->idx2, true);
 		}
 	}
 
@@ -2233,12 +2231,10 @@ static bool do_abolish(query *q, cell *c_orig, cell *c_pi, bool hard)
 	} else {
 		pr->idx = sl_create(index_cmpkey, NULL, pr->m);
 		ensure(pr->idx);
-		sl_allow_dups(pr->idx, true);
 
 		if (pr->key.arity > 1) {
 			pr->idx2 = sl_create(index_cmpkey, NULL, pr->m);
 			ensure(pr->idx2);
-			sl_allow_dups(pr->idx2, true);
 		}
 	}
 
@@ -4394,6 +4390,26 @@ const char *dump_key(const void *k, const void *v, const void *p)
 	return print_term_to_strbuf(q, c, q->st.curr_frame, 0);
 }
 
+static bool fn_sys_first_non_octet_2(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,integer_or_var);
+	unsigned len = C_STRLEN_UTF8(p1);
+	const char *src = C_STR(q, p1);
+
+	for (unsigned i = 0; i < len; i++) {
+		int ch = get_char_utf8(&src);
+
+		if (ch > 255) {
+			cell tmp;
+			make_uint(&tmp, i);
+			return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
+		}
+	}
+
+	return false;
+}
+
 static bool fn_sys_dump_keys_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
@@ -5012,8 +5028,8 @@ static bool fn_must_be_4(query *q)
 
 static bool fn_must_be_2(query *q)
 {
-	GET_FIRST_ARG(p2,callable);
-	GET_NEXT_ARG(p1,any);
+	GET_FIRST_ARG(p1,callable);
+	GET_NEXT_ARG(p2,any);
 
 	const char *src = C_STR(q, p2);
 
@@ -5194,8 +5210,8 @@ static bool fn_can_be_4(query *q)
 
 static bool fn_can_be_2(query *q)
 {
-	GET_FIRST_ARG(p2,atom);
-	GET_NEXT_ARG(p1,any);
+	GET_FIRST_ARG(p1,atom);
+	GET_NEXT_ARG(p2,any);
 
 	if (is_var(p1))
 		return true;
@@ -5569,7 +5585,7 @@ static bool fn_date_time_7(query *q)
 	struct timeval cur_time;
 	gettimeofday(&cur_time, NULL);
 	struct tm tm = {0};
-	localtime_r(&cur_time.tv_sec, &tm);
+	localtime_r((const time_t*)&cur_time.tv_sec, &tm);
 	cell tmp;
 	make_int(&tmp, tm.tm_year+1900);
 	unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
@@ -8521,6 +8537,7 @@ builtins g_other_bifs[] =
 	{"$list_attributed", 1, fn_sys_list_attributed_1, "-list", false, false, BLAH},
 	{"$unattributed_var", 1, fn_sys_unattributed_var_1, "@variable", false, false, BLAH},
 	{"$attributed_var", 1, fn_sys_attributed_var_1, "@variable", false, false, BLAH},
+	{"$first_non_octet", 2, fn_sys_first_non_octet_2, "+chars,-integer", false, false, BLAH},
 	{"$dump_keys", 1, fn_sys_dump_keys_1, NULL, false, false, BLAH},
 	{"$skip_max_list", 4, fn_sys_skip_max_list_4, "?integer,?integer?,?term,?term", false, false, BLAH},
 #ifdef __wasi__

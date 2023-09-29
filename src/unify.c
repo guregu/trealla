@@ -20,18 +20,16 @@ static int compare_lists(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_
 		uint32_t save_vgen1 = 0, save_vgen2 = 0;
 		int both = 0;
 		DEREF_SLOT(both, save_vgen1, e1, e1->vgen, h1, h1_ctx, q->vgen);
-		bool cycle1 = both ? true : false;
-		both = 0;
 		DEREF_SLOT(both, save_vgen2, e2, e2->vgen2, h2, h2_ctx, q->vgen);
-		bool cycle2 = both ? true : false;
 
-		if (cycle1 && !cycle2)
-			return 1;
-
-		if (!cycle1 && cycle2)
-			return -1;
-
-		if (!cycle1 && !cycle2) {
+		if (both == 0) {
+			int val = compare_internal(q, h1, h1_ctx, h2, h2_ctx, depth+1);
+			if (val) return val;
+		} else if (both == 1) {
+			h1 = deref(q, p1+1, p1_ctx);
+			h1_ctx = q->latest_ctx;
+			h2 = deref(q, p2+1, p2_ctx);
+			h2_ctx = q->latest_ctx;
 			int val = compare_internal(q, h1, h1_ctx, h2, h2_ctx, depth+1);
 			if (val) return val;
 		}
@@ -90,21 +88,17 @@ static int compare_structs(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p
 		uint32_t save_vgen1 = 0, save_vgen2 = 0;
 		int both = 0;
 		DEREF_SLOT(both, save_vgen1, e1, e1->vgen, c1, c1_ctx, q->vgen);
-		bool cycle1 = both ? true : false;
-		both = 0;
 		DEREF_SLOT(both, save_vgen2, e2, e2->vgen2, c2, c2_ctx, q->vgen);
-		bool cycle2 = both ? true : false;
 
-		if (cycle1 && !cycle2)
-			return 1;
-
-		if (!cycle1 && cycle2)
-			return -1;
-
-		if (!cycle1 && !cycle2) {
+		if (both == 0) {
 			int val = compare_internal(q, c1, c1_ctx, c2, c2_ctx, depth+1);
-			if (e1) e1->vgen = save_vgen1;
-			if (e2) e2->vgen2 = save_vgen2;
+			if (val) return val;
+		} else if (both == 1) {
+			c1 = deref(q, p1, p1_ctx);
+			c1_ctx = q->latest_ctx;
+			c2 = deref(q, p2, p2_ctx);
+			c2_ctx = q->latest_ctx;
+			int val = compare_internal(q, c1, c1_ctx, c2, c2_ctx, depth+1);
 			if (val) return val;
 		}
 
@@ -408,7 +402,6 @@ void collect_vars(query *q, cell *p1, pl_idx p1_ctx)
 	if (++q->vgen == 0) q->vgen = 1;
 	q->tab_idx = 0;
 	ensure(q->vars = sl_create(NULL, NULL, NULL));
-	sl_allow_dups(q->vars, false);
 	collect_vars_internal(q, p1, p1_ctx, 0);
 	sl_destroy(q->vars);
 	q->vars = NULL;

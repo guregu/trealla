@@ -13,7 +13,6 @@ extern skiplist *sl_create(
 	);
 
 extern void sl_set_tmp(skiplist *l);
-extern void sl_allow_dups(skiplist *l, bool mode);
 extern bool sl_set(skiplist *l, const void *k, const void *v);
 extern bool sl_app(skiplist *l, const void *k, const void *v);
 extern bool sl_get(skiplist *l, const void *k, const void **v);
@@ -45,6 +44,7 @@ extern void sl_remove(skiplist *l, const void *v);
 extern sliter *sl_first(skiplist *l);
 extern bool sl_is_next(sliter *i, void **v);
 extern bool sl_next(sliter *i, void **v);
+extern bool sl_next_mutable(sliter *i, void **v);
 extern void *sl_key(sliter *i);
 
 extern size_t sl_iter_count(const sliter *i);

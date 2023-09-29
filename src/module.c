@@ -41,7 +41,7 @@ static const op_table g_ops[] =
 	{"multifile", OP_FX, 1150},
 	{"attribute", OP_FX, 1150},
 	//{"op", OP_FX, 1150},
-	{"table", OP_FX, 1150},
+	//{"table", OP_FX, 1150},
 	{"dynamic", OP_FX, 1150},
 	{"initialization", OP_FX, 1150},
 	//{"set_prolog_flag", OP_FX, 1150},
@@ -1478,12 +1478,10 @@ static void assert_commit(module *m, db_entry *dbe, predicate *pr, bool append)
 
 		pr->idx = sl_create(index_cmpkey, NULL, m);
 		ensure(pr->idx);
-		sl_allow_dups(pr->idx, true);
 
 		if (pr->key.arity > 1) {
 			pr->idx2 = sl_create(index_cmpkey, NULL, m);
 			ensure(pr->idx2);
-			sl_allow_dups(pr->idx2, true);
 		}
 
 		for (db_entry *cl2 = pr->head; cl2; cl2 = cl2->next) {
@@ -1600,12 +1598,10 @@ static bool retract_from_predicate(db_entry *dbe)
 
 		pr->idx = sl_create(index_cmpkey, NULL, m);
 		ensure(pr->idx);
-		sl_allow_dups(pr->idx, true);
 
 		if (pr->key.arity > 1) {
 			pr->idx2 = sl_create(index_cmpkey, NULL, m);
 			ensure(pr->idx2);
-			sl_allow_dups(pr->idx2, true);
 		}
 	}
 
@@ -2157,7 +2153,6 @@ module *module_create(prolog *pl, const char *name)
 	m->error = false;
 	m->id = ++pl->next_mod_id;
 	m->defops = sl_create((void*)fake_strcmp, NULL, NULL);
-	sl_allow_dups(m->defops, false);
 	pl->modmap[m->id] = m;
 
 	if (strcmp(name, "system")) {
@@ -2170,9 +2165,7 @@ module *module_create(prolog *pl, const char *name)
 	}
 
 	m->ops = sl_create((void*)fake_strcmp, NULL, NULL);
-	sl_allow_dups(m->ops, false);
 	m->index = sl_create(predicate_cmpkey, NULL, m);
-	sl_allow_dups(m->index, false);
 	m->p = parser_create(m);
 	check_error(m->p);
 	set_multifile_in_db(m, "$predicate_property", 3);

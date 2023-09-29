@@ -12,7 +12,6 @@ typedef struct {
 
 query *query_create(module *m, bool sub_query);
 query *query_create_task(query *q, cell *curr_cell);
-void query_reset(query *q);
 void query_destroy(query *q);
 
 bool push_choice(query *q);
@@ -193,3 +192,8 @@ inline static cell *get_body(cell *c)
 	(c)->arity = 0;					\
 	(c)->attrs = NULL;				\
 }
+
+#ifdef _WIN32
+typedef intptr_t ssize_t;
+extern ssize_t getline(char **lineptr, size_t *n, FILE *stream);
+#endif

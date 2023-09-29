@@ -1,7 +1,12 @@
 :- pragma(builtins, [once]).
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%
+resource_error(Resource, Context) :-
+   throw(error(resource_error(Resource), Context)).
+
+error(Err, Impl) :-
+	must_be(Err, atom, error/2, _),
+	F =.. [Err, Impl],
+	throw(F).
 
 predicate_property(P, A) :-
 	nonvar(P), atom(A), !,
@@ -500,7 +505,16 @@ deconsult(Files) :- unload_files(Files).
 
 :- help(deconsult(+list), [iso(false)]).
 
-strip_module(T, M, P) :- T=M:P -> true ; P=T.
+strip_module_(T, M, P) :- T=M:P -> true ; P=T.
+
+strip_module(GRBody, Module, GRBody0) :-
+    strip_module_(GRBody, Module, GRBody0),
+    (  nonvar(Module) ->
+       true
+    ;  prolog_load_context(module, Module) ->
+       true
+    ;  true
+    ).
 
 :- help(strip_module(+term,-atom,-term), [iso(false)]).
 

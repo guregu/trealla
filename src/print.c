@@ -643,7 +643,7 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 					if (!dump_variable(q, save_tail, c_ctx, running))
 						print_variable(q, save_tail, c_ctx, 0);
 				} else
-					print_variable(q, save_tail, c_ctx, 0);
+					print_variable(q, save_tail, c_ctx, 1);
 			} else {
 				SB_sprintf(q->sb, "%s", ",");
 				q->last_thing = WAS_COMMA;
@@ -746,8 +746,8 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		return true;
 	}
 
-	if (q->is_dump_vars && is_blob(c)) {
-		SB_sprintf(q->sb, "'<$blob>'(0x%X)", (int)get_smallint(c));
+	if (is_blob(c)) {
+		SB_sprintf(q->sb, "'<$blob>'(%p)", c->val_ptr);
 		q->last_thing = WAS_OTHER;
 		return true;
 	}
@@ -1068,6 +1068,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 
 	if (is_postfix(c)) {
 		cell *lhs = c + 1;
+		cell *save_lhs = lhs;
 		pl_idx lhs_ctx = c_ctx;
 
 		slot *e = NULL;
@@ -1088,6 +1089,16 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		bool space = (c->val_off == g_minus_s) && (is_number(lhs) || search_op(q->st.m, C_STR(q, lhs), NULL, true));
 		if ((c->val_off == g_plus_s) && search_op(q->st.m, C_STR(q, lhs), NULL, true) && lhs->arity) space = true;
 		if (isalpha(*src)) space = true;
+
+		if ((lhs == save_c) && (lhs_ctx == save_c_ctx)) {
+			if (q->is_dump_vars) {
+				SB_sprintf(q->sb, "%s", !is_ref(save_lhs) ? C_STR(q, save_lhs) : "_");
+			} else
+				print_variable(q, save_lhs, lhs_ctx, 1);
+
+			q->last_thing = WAS_OTHER;
+			return true;
+		}
 
 		if ((q->last_thing != WAS_SPACE) && space) {
 			SB_sprintf(q->sb, "%s", " ");
@@ -1110,6 +1121,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		}
 
 		cell *rhs = c + 1;
+		cell *save_rhs = rhs;
 		pl_idx rhs_ctx = c_ctx;
 		slot *e = NULL;
 		uint32_t save_vgen = 0;
@@ -1150,6 +1162,16 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		SB_strcatn(q->sb, src, srclen);
 		if (quote) { SB_sprintf(q->sb, "%s", quote?"' ":""); }
 
+		if ((rhs == save_c) && (rhs_ctx == save_c_ctx)) {
+			if (q->is_dump_vars) {
+				SB_sprintf(q->sb, "%s", !is_ref(save_rhs) ? C_STR(q, save_rhs) : "_");
+			} else
+				print_variable(q, save_rhs, rhs_ctx, 1);
+
+			q->last_thing = WAS_OTHER;
+			return true;
+		}
+
 		if (space || parens) {
 			SB_sprintf(q->sb, "%s", " ");
 			q->last_thing = WAS_SPACE;
@@ -1162,6 +1184,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 			return true;
 		}
 
+		q->last_thing = WAS_OTHER;
 		if (parens) { SB_sprintf(q->sb, "%s", "("); q->last_thing = WAS_OTHER; }
 		q->parens = parens;
 		print_term_to_buf_(q, rhs, rhs_ctx, running, 0, 0, depth+1);
@@ -1173,8 +1196,10 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 	// Infix..
 
 	cell *lhs = c + 1;
+	cell *save_lhs = lhs;
 	pl_idx lhs_ctx = c_ctx;
 	cell *rhs = lhs + lhs->nbr_cells;
+	cell *save_rhs = rhs;
 	pl_idx rhs_ctx = c_ctx;
 	slot *e = NULL;
 	uint32_t save_vgen = 0;
@@ -1207,6 +1232,13 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		if (q->last_thing != WAS_SPACE) SB_sprintf(q->sb, "%s", " ");
 		SB_sprintf(q->sb, "%s", "...");
 		q->last_thing = WAS_SYMBOL;
+	} else if ((lhs == save_c) && (lhs_ctx == save_c_ctx)) {
+		if (q->is_dump_vars) {
+			SB_sprintf(q->sb, "%s", !is_ref(save_lhs) ? C_STR(q, save_lhs) : "_");
+		} else
+			print_variable(q, save_lhs, lhs_ctx, 1);
+
+		q->last_thing = WAS_OTHER;
 	} else {
 		if (lhs_parens) { SB_sprintf(q->sb, "%s", "("); }
 		q->parens = lhs_parens;
@@ -1306,6 +1338,13 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		if (q->last_thing != WAS_SPACE) SB_sprintf(q->sb, "%s", " ");
 		SB_sprintf(q->sb, "%s", "...");
 		q->last_thing = WAS_SYMBOL;
+	} else if ((rhs == save_c) && (rhs_ctx == save_c_ctx)) {
+		if (q->is_dump_vars) {
+			SB_sprintf(q->sb, "%s", !is_ref(save_rhs) ? C_STR(q, save_rhs) : "_");
+		} else
+			print_variable(q, save_rhs, rhs_ctx, 1);
+
+		q->last_thing = WAS_OTHER;
 	} else {
 		if (rhs_parens) { SB_sprintf(q->sb, "%s", "("); q->last_thing = WAS_OTHER; }
 		q->parens = rhs_parens || space;
