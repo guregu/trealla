@@ -19,8 +19,10 @@ lcm(_X, _N, _) :- writeln(oops).
 
 process_vars_([], Goals, Goals) :- !.
 process_vars_([Var-Val|Vars], SoFar, Goals) :-
-	get_atts(Var, Atts),
-	process_var_(Atts, Var, Val, SoFar, MoreGoals),
+	(	get_atts(Var, Atts) ->
+		process_var_(Atts, Var, Val, SoFar, MoreGoals)
+	; true
+	),
 	process_vars_(Vars, MoreGoals, Goals).
 
 process_var_([], _, _, Goals, Goals) :- !.
@@ -29,6 +31,7 @@ process_var_([Att|Atts], Var, Val, SoFar, Goals) :-
 	attribute(M, F, A),
 	M:verify_attributes(Var, Val, NewGoals),
 	append(SoFar, NewGoals, MoreGoals),
+	!,
 	process_var_(Atts, Var, Val, MoreGoals, Goals).
 
 call_residue_vars(Goal, Atts) :-
