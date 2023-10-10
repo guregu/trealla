@@ -4,6 +4,7 @@
 #include <string.h>
 #include <time.h>
 
+#include "atts.h"
 #include "heap.h"
 #include "module.h"
 #include "network.h"
@@ -81,7 +82,7 @@ static void trace_call(query *q, cell *c, pl_idx c_ctx, box_t box)
 	if (!c || is_empty(c))
 		return;
 
-	if (c->fn_ptr && !c->fn_ptr->fn)
+	if (is_builtin(c) && c->fn_ptr && !c->fn_ptr->fn)
 		return;
 
 #if 0
@@ -694,10 +695,17 @@ static void unwind_trail(query *q)
 		slot *e = GET_SLOT(f, tr->var_nbr);
 		cell *c = &e->c;
 
-		if (c->flags & FLAG_CSTR_QUATUM_ERASER) {
+		if (is_cstring(c) && (c->flags & FLAG_CSTR_QUANTUM_ERASER)) {
+			//printf("*** quantum eraser '%s'\n", C_STR(q, c));
 			uuid u;
 			uuid_from_buf(C_STR(q, c), &u);
-			erase_from_db(q->st.m, &u);
+			db_entry *dbe = find_in_db(q->st.m, &u);
+			if (dbe) {
+				dbe->owner->cnt--;
+				delink(dbe->owner, dbe);
+				clear_rule(&dbe->cl);
+				free(dbe);
+			}
 		}
 
 		unshare_cell(c);
@@ -754,7 +762,6 @@ int retry_choice(query *q)
 		const choice *ch = GET_CHOICE(curr_choice);
 		q->st = ch->st;
 		q->save_m = NULL;
-		trim_heap(q);
 
 		frame *f = GET_CURR_FRAME();
 		f->ugen = ch->ugen;
@@ -763,9 +770,6 @@ int retry_choice(query *q)
 		f->actual_slots = ch->actual_slots;
 		f->overflow = ch->overflow;
 		f->base = ch->base;
-
-		if (ch->succeed_on_retry)
-			return -1;
 
 		if (ch->catchme_exception || ch->fail_on_retry)
 			continue;
@@ -776,9 +780,15 @@ int retry_choice(query *q)
 		if (ch->register_cleanup && q->noretry)
 			q->noretry = false;
 
+		trim_heap(q);
+
+		if (ch->succeed_on_retry)
+			return -1;
+
 		return 1;
 	}
 
+	trim_heap(q);
 	return 0;
 }
 
@@ -820,7 +830,8 @@ static void reuse_frame(query *q, const clause *cl)
 	slot *to = GET_SLOT(f, 0);
 
 	for (pl_idx i = 0; i < f->initial_slots; i++) {
-		unshare_cell(&to->c);
+		cell *c = &to->c;
+		unshare_cell(c);
 		*to++ = *from++;
 	}
 
@@ -863,9 +874,10 @@ static bool are_slots_ok(const query *q, const frame *f)
 
 		if (is_empty(c))
 			return false;
-		else if (is_indirect(c) && !is_evaluable(c->val_ptr)) {
+		else if (is_indirect(c))
 			return false;
-		}
+		else if (is_cstring(c) && (c->flags & FLAG_CSTR_QUANTUM_ERASER))
+			return false;
 	}
 
 	return true;
@@ -879,7 +891,7 @@ static void commit_frame(query *q)
 	f->mid = q->st.m->id;
 
 	if (!q->st.dbe->owner->is_prebuilt) {
-		if (q->st.m != q->st.dbe->owner->m)
+		//if (q->st.m != q->st.dbe->owner->m)
 			q->st.prev_m = q->st.m;
 
 		q->st.m = q->st.dbe->owner->m;
@@ -911,8 +923,9 @@ static void commit_frame(query *q)
 	else
 		f = push_frame(q, cl->nbr_vars);
 
+	Trace(q, get_head(q->st.dbe->cl.cells), q->st.curr_frame, EXIT);
+
 	if (last_match) {
-		Trace(q, get_head(q->st.dbe->cl.cells), q->st.curr_frame, EXIT);
 		leave_predicate(q, q->st.pr);
 		drop_choice(q);
 
@@ -1358,6 +1371,8 @@ static bool match_head(query *q)
 		q->save_m = q->st.m;
 
 		if (!pr || is_evaluable(c) || is_builtin(c)) {
+			//static unsigned s_cnt = 1;
+			//printf("*** %s / %u ... %u\n", C_STR(q, c), c->arity, s_cnt++);
 			pr = search_predicate(q->st.m, c, NULL);
 
 			if (!pr || (pr->is_goal_expansion && !pr->head)) {
@@ -1502,7 +1517,6 @@ bool start(query *q)
 		}
 
 		if (q->retry) {
-			Trace(q, q->st.curr_cell, q->st.curr_frame, FAIL);
 			int ok = retry_choice(q);
 
 			if (!ok)
@@ -1570,6 +1584,7 @@ bool start(query *q)
 			}
 
 			if ((!status && !q->is_oom) || q->abort) {
+				Trace(q, q->st.curr_cell, q->st.curr_frame, FAIL);
 				q->retry = QUERY_RETRY;
 
 				if (q->yielded)
@@ -1584,17 +1599,9 @@ bool start(query *q)
 
 			Trace(q, save_cell, save_ctx, EXIT);
 			proceed(q);
-		} else if (!is_iso_list(q->st.curr_cell)) {
-			if (!match_head(q) && !q->is_oom) {
-				q->retry = QUERY_RETRY;
-				q->tot_backtracks++;
-				continue;
-			}
-
-			if (q->run_hook)
-				do_post_unification_hook(q, false);
-		} else {
-			if (consultall(q, q->st.curr_cell, q->st.curr_frame) != true) {
+		} else if (is_iso_list(q->st.curr_cell)) {
+			if (!consultall(q, q->st.curr_cell, q->st.curr_frame)) {
+				Trace(q, q->st.curr_cell, q->st.curr_frame, FAIL);
 				q->retry = QUERY_RETRY;
 				q->tot_backtracks++;
 				continue;
@@ -1602,6 +1609,16 @@ bool start(query *q)
 
 			Trace(q, save_cell, save_ctx, EXIT);
 			proceed(q);
+		} else {
+			if (!match_head(q) && !q->is_oom) {
+				Trace(q, q->st.curr_cell, q->st.curr_frame, FAIL);
+				q->retry = QUERY_RETRY;
+				q->tot_backtracks++;
+				continue;
+			}
+
+			if (q->run_hook)
+				do_post_unification_hook(q, false);
 		}
 
 		if (q->is_oom) {
@@ -1823,13 +1840,6 @@ void query_destroy(query *q)
 
 	for (pl_idx i = 0; i < q->st.sp; i++, e++) {
 		cell *c = &e->c;
-
-		if (c->flags & FLAG_CSTR_QUATUM_ERASER) {
-			uuid u;
-			uuid_from_buf(C_STR(q, c), &u);
-			erase_from_db(q->st.m, &u);
-		}
-
 		unshare_cell(c);
 	}
 
@@ -1852,6 +1862,38 @@ void query_destroy(query *q)
 		}
 	}
 #endif
+
+	module *m = q->pl->modules;
+
+	while (m) {
+		if (m) {
+			predicate *pr = find_functor(m, "$bb_key", 3);
+
+			if (pr) {
+				db_entry *dbe = pr->head;
+
+				while (dbe) {
+					cell *c = dbe->cl.cells;
+					cell *arg1 = c + 1;
+					cell *arg2 = arg1 + arg1->nbr_cells;
+					cell *arg3 = arg2 + arg2->nbr_cells;
+
+					if (!CMP_STR_TO_CSTR(m, arg3, "b")) {
+						//printf("*** quantum cleaner '%s'\n", C_STR(m, arg1));
+						pr->cnt--;
+						delink(pr, dbe);
+						db_entry *save = dbe;
+						dbe = dbe->next;
+						clear_rule(&save->cl);
+						free(save);
+					} else
+						dbe = dbe->next;
+				}
+			}
+		}
+
+		m = m->next;
+	}
 
 	mp_int_clear(&q->tmp_ival);
 	mp_rat_clear(&q->tmp_irat);

@@ -602,7 +602,7 @@ static bool do_stream_property(query *q)
 
 	if (!CMP_STR_TO_CSTR(q, p1, "file_name")) {
 		cell tmp;
-		check_heap_error(make_cstring(&tmp, str->filename));
+		make_cstring(&tmp, str->filename);
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 		unshare_cell(&tmp);
 		return ok;
@@ -637,7 +637,7 @@ static bool do_stream_property(query *q)
 
 		while (sl_next(iter, NULL)) {
 			const char *alias = sl_key(iter);
-			check_heap_error(make_cstring(&tmp, alias));
+			make_cstring(&tmp, alias);
 			ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 			unshare_cell(&tmp);
 			if (ok) break;
@@ -649,7 +649,7 @@ static bool do_stream_property(query *q)
 
 	if (!CMP_STR_TO_CSTR(q, p1, "mode")) {
 		cell tmp;
-		check_heap_error(make_cstring(&tmp, str->mode));
+		make_cstring(&tmp, str->mode);
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 		unshare_cell(&tmp);
 		return ok;
@@ -657,7 +657,7 @@ static bool do_stream_property(query *q)
 
 	if (!CMP_STR_TO_CSTR(q, p1, "engine")) {
 		cell tmp;
-		check_heap_error(make_cstring(&tmp, str->is_engine?"true":"false"));
+		make_cstring(&tmp, str->is_engine?"true":"false");
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 		unshare_cell(&tmp);
 		return ok;
@@ -665,7 +665,7 @@ static bool do_stream_property(query *q)
 
 	if (!CMP_STR_TO_CSTR(q, p1, "mutex")) {
 		cell tmp;
-		check_heap_error(make_cstring(&tmp, false?"true":"false"));
+		make_cstring(&tmp, false?"true":"false");
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 		unshare_cell(&tmp);
 		return ok;
@@ -673,7 +673,7 @@ static bool do_stream_property(query *q)
 
 	if (!CMP_STR_TO_CSTR(q, p1, "skiplist")) {
 		cell tmp;
-		check_heap_error(make_cstring(&tmp, str->is_map?"true":"false"));
+		make_cstring(&tmp, str->is_map?"true":"false");
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 		unshare_cell(&tmp);
 		return ok;
@@ -681,7 +681,7 @@ static bool do_stream_property(query *q)
 
 	if (!CMP_STR_TO_CSTR(q, p1, "bom") && !str->binary) {
 		cell tmp;
-		check_heap_error(make_cstring(&tmp, str->bom?"true":"false"));
+		make_cstring(&tmp, str->bom?"true":"false");
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 		unshare_cell(&tmp);
 		return ok;
@@ -689,7 +689,7 @@ static bool do_stream_property(query *q)
 
 	if (!CMP_STR_TO_CSTR(q, p1, "type")) {
 		cell tmp;
-		check_heap_error(make_cstring(&tmp, str->binary ? "binary" : "text"));
+		make_cstring(&tmp, str->binary ? "binary" : "text");
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 		unshare_cell(&tmp);
 		return ok;
@@ -697,7 +697,7 @@ static bool do_stream_property(query *q)
 
 	if (!CMP_STR_TO_CSTR(q, p1, "reposition")) {
 		cell tmp;
-		check_heap_error(make_cstring(&tmp, str->socket || (n <= 2) ? "false" : str->repo ? "true" : "false"));
+		make_cstring(&tmp, str->socket || (n <= 2) ? "false" : str->repo ? "true" : "false");
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 		unshare_cell(&tmp);
 		return ok;
@@ -705,7 +705,7 @@ static bool do_stream_property(query *q)
 
 	if (!CMP_STR_TO_CSTR(q, p1, "encoding") && !str->binary) {
 		cell tmp;
-		check_heap_error(make_cstring(&tmp, "UTF-8"));
+		make_cstring(&tmp, "UTF-8");
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 		unshare_cell(&tmp);
 		return ok;
@@ -713,7 +713,7 @@ static bool do_stream_property(query *q)
 
 	if (!CMP_STR_TO_CSTR(q, p1, "newline")) {
 		cell tmp;
-		check_heap_error(make_cstring(&tmp, NEWLINE_MODE));
+		make_cstring(&tmp, NEWLINE_MODE);
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 		unshare_cell(&tmp);
 		return ok;
@@ -4207,9 +4207,9 @@ static bool fn_sys_read_term_from_chars_4(query *q)
 		size_t len = srclen - off;
 
 		if (!is_string(p_chars))
-			check_heap_error(make_string(&tmp, rest));
+			make_string(&tmp, rest);
 		else
-			check_heap_error(make_slice(q, &tmp, p_chars, off, len));
+			make_slice(q, &tmp, p_chars, off, len);
 	} else {
 		make_atom(&tmp, g_nil_s);
 	}
@@ -4360,7 +4360,7 @@ static bool fn_write_term_to_atom_3(query *q)
 	char *dst = print_term_to_strbuf(q, p_term, p_term_ctx, 1);
 	clear_write_options(q);
 	cell tmp;
-	check_heap_error(make_cstring(&tmp, dst), free(dst));
+	make_cstring(&tmp, dst);
 	free(dst);
 	bool ok = unify(q, p_chars, p_chars_ctx, &tmp, q->st.curr_frame);
 	unshare_cell(&tmp);
@@ -4392,7 +4392,7 @@ static bool fn_write_term_to_chars_3(query *q)
 	char *dst = print_term_to_strbuf(q, p_term, p_term_ctx, 1);
 	clear_write_options(q);
 	cell tmp;
-	check_heap_error(make_string(&tmp, dst), free(dst));
+	make_string(&tmp, dst);
 	free(dst);
 	bool ok = unify(q, p_chars, p_chars_ctx, &tmp, q->st.curr_frame);
 	unshare_cell(&tmp);
@@ -4422,7 +4422,7 @@ static bool fn_write_canonical_to_chars_3(query *q)
 	char *dst = print_canonical_to_strbuf(q, p_term, p_term_ctx, 1);
 	clear_write_options(q);
 	cell tmp;
-	check_heap_error(make_string(&tmp, dst), free(dst));
+	make_string(&tmp, dst);
 	free(dst);
 	bool ok = unify(q, p_chars, p_chars_ctx, &tmp, q->st.curr_frame);
 	unshare_cell(&tmp);
@@ -4580,7 +4580,7 @@ static bool fn_edin_seeing_1(query *q)
 	sl_done(iter);
 	const char *name = q->pl->current_input==0?"user":alias;
 	cell tmp;
-	check_heap_error(make_cstring(&tmp, name));
+	make_cstring(&tmp, name);
 	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 	unshare_cell(&tmp);
 	return ok;
@@ -4595,7 +4595,7 @@ static bool fn_edin_telling_1(query *q)
 	sl_done(iter);
 	const char *name =q->pl->current_output==1?"user":alias;
 	cell tmp;
-	check_heap_error(make_cstring(&tmp, name));
+	make_cstring(&tmp, name);
 	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 	unshare_cell(&tmp);
 	return ok;
@@ -4641,7 +4641,7 @@ static bool fn_read_line_to_string_2(query *q)
 	}
 
 	cell tmp;
-	check_heap_error(make_string(&tmp, line), free(line));
+	make_string(&tmp, line);
 	free(line);
 	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 	unshare_cell(&tmp);
@@ -4747,7 +4747,7 @@ static bool fn_read_file_to_string_3(query *q)
 	s[st.st_size] = '\0';
 	fclose(fp);
 	cell tmp;
-	check_heap_error(make_stringn(&tmp, s, len), free(s));
+	make_stringn(&tmp, s, len);
 	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 	unshare_cell(&tmp);
 	free(s);
@@ -4967,7 +4967,7 @@ static bool fn_loadfile_2(query *q)
 	s[st.st_size] = '\0';
 	fclose(fp);
 	cell tmp;
-	check_heap_error(make_stringn(&tmp, s, len), free(s));
+	make_stringn(&tmp, s, len);
 	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 	unshare_cell(&tmp);
 	free(s);
@@ -5022,7 +5022,7 @@ static bool fn_getfile_2(query *q)
 		}
 
 		cell tmp;
-		check_heap_error(make_stringn(&tmp, line, len));
+		make_stringn(&tmp, line, len);
 
 		if (nbr++ == 1)
 			allocate_list(q, &tmp);
@@ -5126,7 +5126,7 @@ static bool fn_getfile_3(query *q)
 		}
 
 		cell tmp;
-		check_heap_error(make_stringn(&tmp, line, len));
+		make_stringn(&tmp, line, len);
 
 		if (nbr++ == 1)
 			allocate_list(q, &tmp);
@@ -5173,7 +5173,7 @@ static bool fn_getlines_1(query *q)
 		}
 
 		cell tmp;
-		check_heap_error(make_stringn(&tmp, line, len));
+		make_stringn(&tmp, line, len);
 
 		if (nbr++ == 1)
 			allocate_list(q, &tmp);
@@ -5220,7 +5220,7 @@ static bool fn_getlines_2(query *q)
 		}
 
 		cell tmp;
-		check_heap_error(make_stringn(&tmp, line, len));
+		make_stringn(&tmp, line, len);
 
 		if (nbr++ == 1)
 			allocate_list(q, &tmp);
@@ -5271,7 +5271,7 @@ static bool fn_getlines_3(query *q)
 		}
 
 		cell tmp;
-		check_heap_error(make_stringn(&tmp, line, len));
+		make_stringn(&tmp, line, len);
 
 		if (nbr++ == 1)
 			allocate_list(q, &tmp);
@@ -5454,9 +5454,9 @@ static bool fn_absolute_file_name_3(query *q)
 	cell tmp;
 
 	if (is_string(p1))
-		check_heap_error(make_string(&tmp, tmpbuf), free(tmpbuf));
+		make_string(&tmp, tmpbuf);
 	else
-		check_heap_error(make_cstring(&tmp, tmpbuf), free(tmpbuf));
+		make_cstring(&tmp, tmpbuf);
 
 	free(tmpbuf);
 	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
@@ -5495,7 +5495,7 @@ static bool fn_getline_1(query *q)
 	}
 
 	cell tmp;
-	check_heap_error(make_string(&tmp, line), free(line));
+	make_string(&tmp, line);
 	free(line);
 	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 	unshare_cell(&tmp);
@@ -5536,7 +5536,7 @@ static bool fn_getline_2(query *q)
 		line[strlen(line)-1] = '\0';
 
 	cell tmp;
-	check_heap_error(make_string(&tmp, line), free(line));
+	make_string(&tmp, line);
 	free(line);
 	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 	unshare_cell(&tmp);
@@ -5581,7 +5581,7 @@ static bool fn_getline_3(query *q)
 	}
 
 	cell tmp;
-	check_heap_error(make_string(&tmp, line), free(line));
+	make_string(&tmp, line);
 	free(line);
 	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 	unshare_cell(&tmp);
@@ -5706,17 +5706,17 @@ static bool fn_directory_files_2(query *q)
 	cell tmp;
 
 	if (is_string(p1))
-		check_heap_error(make_string(&tmp, dire->d_name));
+		make_string(&tmp, dire->d_name);
 	else
-		check_heap_error(make_cstring(&tmp, dire->d_name));
+		make_cstring(&tmp, dire->d_name);
 
 	allocate_list(q, &tmp);
 
 	for (dire = readdir(dirp); dire; dire = readdir(dirp)) {
 		if (is_string(p1))
-			check_heap_error(make_string(&tmp, dire->d_name));
+			make_string(&tmp, dire->d_name);
 		else
-			check_heap_error(make_cstring(&tmp, dire->d_name));
+			make_cstring(&tmp, dire->d_name);
 
 		append_list(q, &tmp);
 	}
@@ -6050,7 +6050,7 @@ static bool fn_working_directory_2(query *q)
 	convert_path(tmpbuf2);
 	oldpath = tmpbuf2;
 	cell tmp;
-	check_heap_error(make_string(&tmp, oldpath));
+	make_string(&tmp, oldpath);
 
 	if (is_atom_or_list(p_new)) {
 		char *filename;
@@ -6718,10 +6718,10 @@ static bool fn_client_5(query *q)
 		net_set_nonblocking(str);
 
 	cell tmp;
-	check_heap_error(make_string(&tmp, hostname));
+	make_string(&tmp, hostname);
 	unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 	unshare_cell(&tmp);
-	check_heap_error(make_string(&tmp, path));
+	make_string(&tmp, path);
 	unify(q, p3, p3_ctx, &tmp, q->st.curr_frame);
 	unshare_cell(&tmp);
 	cell tmp2;
@@ -6771,7 +6771,7 @@ static bool fn_bread_3(query *q)
 		}
 
 		cell tmp;
-		check_heap_error(make_stringn(&tmp, str->data, str->data_len), free(str->data));
+		make_stringn(&tmp, str->data, str->data_len);
 		bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 		unshare_cell(&tmp);
 		free(str->data);
@@ -6791,7 +6791,7 @@ static bool fn_bread_3(query *q)
 		str->data = realloc(str->data, nbytes+1);
 		check_heap_error(str->data);
 		cell tmp;
-		check_heap_error(make_stringn(&tmp, str->data, nbytes), free(str->data));
+		make_stringn(&tmp, str->data, nbytes);
 		bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 		unshare_cell(&tmp);
 		free(str->data);
@@ -6826,7 +6826,7 @@ static bool fn_bread_3(query *q)
 	cell tmp2;
 
 	if (str->data_len)
-		check_heap_error(make_stringn(&tmp2, str->data, str->data_len), free(str->data));
+		make_stringn(&tmp2, str->data, str->data_len);
 	else
 		make_atom(&tmp2, g_nil_s);
 
@@ -7105,7 +7105,7 @@ static bool fn_map_get_3(query *q)
 		pl_flt v = strtod(val, NULL);
 		make_float(&tmp, v);
 	} else
-		check_heap_error(make_cstring(&tmp, val));
+		make_cstring(&tmp, val);
 
 	if (key != tmpbuf) free(key);
 	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
@@ -7172,7 +7172,7 @@ static bool fn_map_list_2(query *q)
 			pl_int v = strtoll(key, NULL, 10);
 			make_int(&tmpk, v);
 		} else
-			check_heap_error(make_cstring(&tmpk, key));
+			make_cstring(&tmpk, key);
 
 		src = val;
 		src = val;
@@ -7200,7 +7200,7 @@ static bool fn_map_list_2(query *q)
 			pl_flt v = strtod(val, NULL);
 			make_float(&tmpv, v);
 		} else
-			check_heap_error(make_cstring(&tmpv, val));
+			make_cstring(&tmpv, val);
 
 		cell tmp2[3];
 		make_struct(tmp2+0, g_colon_s, NULL, 2, 2);
@@ -7835,7 +7835,7 @@ static bool fn_sys_capture_output_to_chars_1(query *q)
 	const char *src = SB_cstr(str->sb);
 	size_t len = SB_strlen(str->sb);
 	cell tmp;
-	check_heap_error(make_stringn(&tmp, src, len));
+	make_stringn(&tmp, src, len);
 	str->is_memory = false;
 	SB_free(str->sb);
 	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);;
@@ -7851,7 +7851,7 @@ static bool fn_sys_capture_output_to_atom_1(query *q)
 	const char *src = SB_cstr(str->sb);
 	size_t len = SB_strlen(str->sb);
 	cell tmp;
-	check_heap_error(make_cstringn(&tmp, src, len));
+	make_cstringn(&tmp, src, len);
 	str->is_memory = false;
 	SB_free(str->sb);
 	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);;
@@ -7881,7 +7881,7 @@ static bool fn_sys_capture_error_to_chars_1(query *q)
 	const char *src = SB_cstr(str->sb);
 	size_t len = SB_strlen(str->sb);
 	cell tmp;
-	check_heap_error(make_stringn(&tmp, src, len));
+	make_stringn(&tmp, src, len);
 	str->is_memory = false;
 	SB_free(str->sb);
 	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);;
@@ -7897,7 +7897,7 @@ static bool fn_sys_capture_error_to_atom_1(query *q)
 	const char *src = SB_cstr(str->sb);
 	size_t len = SB_strlen(str->sb);
 	cell tmp;
-	check_heap_error(make_cstringn(&tmp, src, len));
+	make_cstringn(&tmp, src, len);
 	str->is_memory = false;
 	SB_free(str->sb);
 	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);;

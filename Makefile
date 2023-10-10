@@ -83,6 +83,7 @@ WASMOPT = wasm-opt
 endif
 
 SRCOBJECTS = tpl.o \
+	src/atts.o \
 	src/base64.o \
 	src/contrib.o \
 	src/control.o \
@@ -116,8 +117,9 @@ LIBOBJECTS +=  \
 	library/atts.o \
 	library/builtins.o \
 	library/charsio.o \
-	library/clpz.o \
 	library/concurrent.o \
+	library/clpb.o \
+	library/clpz.o \
 	library/curl.o \
 	library/dcgs.o \
 	library/debug.o \
@@ -256,6 +258,8 @@ clean:
 
 # from [gcc|clang] -MM src/*.c src/imath/*.c src/isocline/src/*.c src/sre/*.c
 
+src/atts.o: src/atts.c src/atts.h src/trealla.h src/internal.h \
+  src/cdebug.h src/stringbuf.h src/query.h src/builtins.h
 src/base64.o: src/base64.c src/base64.h
 src/contrib.o: src/contrib.c src/trealla.h src/internal.h \
   src/skiplist.h src/cdebug.h src/stringbuf.h src/imath/imath.h src/imath/imrat.h \
@@ -295,7 +299,7 @@ src/parser.o: src/parser.c src/heap.h src/internal.h src/skiplist.h \
 src/posix.o: src/posix.c src/trealla.h src/internal.h \
   src/skiplist.h src/cdebug.h src/stringbuf.h src/imath/imath.h src/imath/imrat.h \
   src/heap.h src/prolog.h src/query.h src/builtins.h
-src/predicates.o: src/predicates.c src/base64.h src/heap.h src/internal.h \
+src/predicates.o: src/predicates.c src/atts.h src/base64.h src/heap.h src/internal.h \
   src/skiplist.h src/trealla.h src/cdebug.h src/stringbuf.h \
   src/imath/imath.h src/imath/imrat.h src/history.h src/library.h src/module.h src/sre/re.h \
   src/parser.h src/prolog.h src/query.h src/builtins.h src/utf8.h
@@ -306,7 +310,7 @@ src/print.o: src/print.c src/heap.h src/internal.h src/skiplist.h \
 src/prolog.o: src/prolog.c src/library.h src/module.h src/internal.h \
   src/skiplist.h src/trealla.h src/cdebug.h src/stringbuf.h \
   src/imath/imath.h src/imath/imrat.h src/parser.h src/prolog.h src/query.h src/builtins.h
-src/query.o: src/query.c src/heap.h src/internal.h src/skiplist.h \
+src/query.o: src/query.c src/atts.h src/heap.h src/internal.h src/skiplist.h \
   src/trealla.h src/cdebug.h src/stringbuf.h src/imath/imath.h src/imath/imrat.h \
   src/module.h src/network.h src/parser.h src/prolog.h src/query.h \
   src/builtins.h src/utf8.h

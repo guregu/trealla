@@ -554,6 +554,9 @@ int index_cmpkey(const void *ptr1, const void *ptr2, const void *param, void *l)
 db_entry *find_in_db(module *m, uuid *ref)
 {
 	for (predicate *pr = m->head; pr; pr = pr->next) {
+		if (!pr->is_dynamic)
+			continue;
+
 		for (db_entry *dbe = pr->head ; dbe; dbe = dbe->next) {
 			if (dbe->cl.dgen_erased)
 				continue;
@@ -703,6 +706,9 @@ bool do_use_module_1(module *curr_m, cell *p)
 
 			return true;
 		}
+
+		// There's a TCO bug manifesting with clpb:sat_rewite
+		// so this is a temporary fix...
 
 		if (!strcmp(name, "between")
 		    || !strcmp(name, "samsort")
@@ -1330,16 +1336,6 @@ static void check_goal_expansion(module *m, cell *p1)
 		return;
 
 	cell *arg1 = h + 1;
-
-	if ((arg1->val_off == new_atom(m->pl, "get_attr")) && (arg1->arity == 3))
-		return;
-
-	if ((arg1->val_off == new_atom(m->pl, "put_attr")) && (arg1->arity == 3))
-		return;
-
-	if ((arg1->val_off == new_atom(m->pl, "del_attr")) && (arg1->arity == 2))
-		return;
-
 	predicate *pr = NULL;
 
 	if ((pr = find_predicate(m, arg1)) == NULL)
@@ -1640,8 +1636,9 @@ static void xref_cell(module *m, clause *cl, cell *c, predicate *parent)
 			c->flags |= FLAG_BUILTIN;
 
 		return;
-	} else
-		c->fn_ptr = NULL;
+	}
+
+	c->match = search_predicate(m, c, NULL);
 
 	if ((c+c->nbr_cells) >= (cl->cells + cl->cidx-1)) {
 		if (parent && (parent->key.val_off == c->val_off) && (parent->key.arity == c->arity))
@@ -1716,7 +1713,7 @@ module *load_text(module *m, const char *src, const char *filename)
 			p->consulting = false;
 			p->command = true;
 			SB(src);
-			SB_sprintf(src, "forall(%s:retract(('$-'(initialization(__G_)))), (once(__G_) -> true ; format('Warning: Initialization goal failed: ~w~n', [__G_])))", p->m->name);
+			SB_sprintf(src, "forall(%s:retract(('$directive'(initialization(__G_)))), (once(__G_) -> true ; format('Warning: Initialization goal failed: ~w~n', [__G_])))", p->m->name);
 
 			if (run(p, SB_cstr(src), false, NULL, 0))
 				p->m->pl->status = false;
@@ -2195,6 +2192,7 @@ module *module_create(prolog *pl, const char *name)
 	set_dynamic_in_db(m, "term_expansion", 2);
 	set_dynamic_in_db(m, "goal_expansion", 2);
 	set_dynamic_in_db(m, "$directive", 1);
+	set_dynamic_in_db(m, "$bb_key", 3);
 
 	return m;
 }
