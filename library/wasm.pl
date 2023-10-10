@@ -28,8 +28,7 @@ js_ask(Input) :-
 		Error,
 		(
 			write(stdout, '\u0002\u0003'),
-			result_json(error, Vars, Error, JSON),
-			write_result(JSON),
+			result_json(error, Vars, Error),
 			flush_output(stdout)
 		)
 	),
@@ -39,8 +38,17 @@ js_ask(Input) :-
 		Status = error
 	),
 	write(stdout, '\u0003'),
-	result_json(Status, Vars, Error, JSON),
-	write_result(JSON),
+	% write(Vars),
+	setup_call_cleanup(
+		'$memory_stream_create'(Stream, [alias(js_ask)]),
+		(
+			result_json(Status, Vars, Error),
+			'$memory_stream_to_chars'(Stream, Got),
+			'$put_chars'(Got)
+		),
+		close(Stream)
+	),
+	% write_result(JSON),
 	flush_output(stdout).
 
 query(Query, Status) :-
@@ -53,68 +61,103 @@ query(Query, Status) :-
 write_result(JSON) :-
 	% hack to get Go interop to work:
 	set_output(stdout),
-	json_value(JS, JSON),
-	json_chars(JS, Cs),
-	'$put_chars'(stdout, Cs),
+	% json_value(JS, JSON),
+	% json_chars(JS, Cs),
+	write(JSON),
+	% '$put_chars'(stdout, Cs),
 	nl.
 
-result_json(success, Vars, _, pairs([string("status")-string("success"), string("answer")-Solution])) :-
-	once(solution_json(Vars, Solution)).
-result_json(failure, _, _, pairs([string("status")-string("failure")])).
-result_json(error, Vars, Error, pairs([string("status")-string("error"), string("error")-ErrorJS])) :-
-	once(term_json(Vars, Error, ErrorJS)).
+result_json(success, Vars, _) :-
+	write(js_ask, '{"status":"success", "answer":'),
+	once(solution_json(Vars)),
+	write(js_ask, '}').
+result_json(failure, _, _) :-
+	write(js_ask, '{"status":"failure"}').
+result_json(error, Vars, Error) :-
+	write(js_ask, '{"status":"error", "error":'),
+	once(term_json(Vars, Error)),
+	write(js_ask, '}').
 
-solution_json([], pairs([])).
-solution_json(Vars, pairs(Subs)) :- maplist(sub_json(Vars), Vars, Subs).
+solution_json([]) :-
+	write(js_ask, '{}').
+solution_json(Vars) :-
+	maplist(sub_json(Vars), Vars).
 
-sub_json(Vars, Var0=Value0, string(Var)-Value) :-
-	atom_chars(Var0, Var),
-	once(term_json_top(Vars, Value0, Value)).
+sub_json(Vars, _=Value0) :-
+	% atom_chars(Var0, Var),
+	once(term_json_top(Vars, Value0)).
 
-term_json(_, Value, list([])) :- Value == [].
+term_json(_, Value) :-
+	Value == [],
+	write(js_ask, '[]').
 
-term_json(_, Value0, pairs([string("functor")-string(Value)])) :-
+term_json(_, Value0) :-
 	atom(Value0),
-	atom_chars(Value0, Value).
+	write(js_ask, '{"functor":"'),
+	write(js_ask, Value0),
+	write(js_ask, '"}').
+	% atom_chars(Value0, Value).
 
-term_json(_, Value, string(Value)) :- string(Value).
+term_json(_, Value) :-
+	string(Value),
+	write(js_ask, '"'),
+	'$put_chars'(Value),
+	write(js_ask, '"').
 
-term_json(_, Value, number(Value)) :- float(Value).
-term_json(_, Value, number(Value)) :-
+term_json(_, Value) :-
+	float(Value),
+	write(js_ask, Value).
+term_json(_, Value) :-
 	number(Value),
 	% safe value range for JS integers
 	Value =< 9007199254740991,
-	Value >= -9007199254740991.
-term_json(_, Value, pairs([string("number")-string(Cs)])) :-
+	Value >= -9007199254740991,
+	write(js_ask, Value).
+term_json(_, Value) :-
 	number(Value),
-	number_chars(Value, Cs).
+	write(js_ask, '{"number":"'),
+	write(js_ask, Value),
+	write(js_ask, '"}').
 
-term_json(Vars, Value, list(L)) :-
+term_json(Vars, Value) :-
 	is_list(Value),
-	once(maplist(term_json(Vars), Value, L)).
+	once(maplist(term_json(Vars), Value)).
 
-term_json(Vars, Value, pairs([string("functor")-string(Functor), string("args")-list(Args)])) :-
+term_json(Vars, Value) :-
 	compound(Value),
 	Value =.. [Functor0|Args0],
-	atom_chars(Functor0, Functor),
-	once(maplist(term_json(Vars), Args0, Args)).
+	write(js_ask, '{"functor":"'),
+	write(js_ask, Functor0),
+	write(js_ask, '","args":['),
+	once(maplist(term_json(Vars), Args0)),
+	write(js_ask, ']}').
 
-term_json(Vars, Value, pairs([string("var")-string(Name)])) :-
-	var(Value),
-	once(var_name(Vars, Value, Name)).
-
-term_json(_, Value, pairs([string("stream")-number(-1)])) :-
-	% TODO: grab alias/fd from stream
-	is_stream(Value).
-
-term_json(_, Value, pairs([string("blob")-string(Cs)])) :-
-	write_term_to_chars(Value, [], Cs).
-
-term_json_top(Vars, Value, pairs([string("var")-string(Name), string("attr")-Attr])) :-
+term_json(Vars, Value) :-
 	var(Value),
 	once(var_name(Vars, Value, Name)),
-	attvar_json(Vars, Value, Attr).
-term_json_top(Vars, Value, JS) :- term_json(Vars, Value, JS).
+	write(js_ask, '{"var":"'),
+	write(js_ask, Name),
+	write(js_ask, '"}').
+
+term_json(_, Value) :-
+	is_stream(Value),
+	% TODO: grab alias/fd from stream
+	write(js_ask, '{"stream": -1}').
+
+term_json(_, _) :-
+	write(js_ask, '{"blob": "?"}').
+	% write_term_to_chars(Value, [], Cs).
+
+term_json_top(Vars, Value) :-
+% pairs([string("var")-string(Name), string("attr")-Attr])
+	var(Value),
+	once(var_name(Vars, Value, Name)),
+	write('{"var":"'),
+	write(Name),
+	write('","attr":'),
+	attvar_json(Vars, Value),
+	write('}').
+term_json_top(Vars, Value) :- term_json(Vars, Value).
 
 var_name([K=V|_], Var, Name) :-
 	V == Var,
@@ -124,6 +167,6 @@ var_name([_=V|Vs], Var, Name) :-
 	var_name(Vs, Var, Name).
 var_name([], _, "_").
 
-attvar_json(Vars, Var, JS) :-
+attvar_json(Vars, Var) :-
 	copy_term(Var, Var, Attr),
-	once(term_json(Vars, Attr, JS)).
+	once(term_json(Vars, Attr)).
