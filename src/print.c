@@ -952,6 +952,10 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		if ((c->arity == 1) && is_interned(c) && !strcmp(src, "{}")) braces = 1;
 		cell *c1 = c->arity ? deref(q, FIRST_ARG(c), c_ctx) : NULL;
 
+		if (!braces && q->json && is_atom(c)) {
+			dq = quote = 1;
+		}
+
 		if (running && is_interned(c) && c->arity
 			&& q->numbervars && !strcmp(src, "$VAR") && c1
 			&& is_integer(c1) && (get_smallint(c1) >= 0)) {
@@ -1156,7 +1160,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		if ((c->val_off == g_minus_s) && search_op(q->st.m, C_STR(q, rhs), NULL, true) && !rhs->arity) parens = true;
 		if ((c->val_off == g_plus_s) && search_op(q->st.m, C_STR(q, rhs), NULL, true) && !rhs->arity) parens = true;
 
-		bool quote = q->quoted && has_spaces(src, src_len);
+		bool quote = q->quoted && (has_spaces(src, src_len) || q->json);
 
 		if (is_interned(rhs) && !rhs->arity && !parens) {
 			const char *rhs_src = C_STR(q, rhs);

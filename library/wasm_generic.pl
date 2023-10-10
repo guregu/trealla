@@ -14,9 +14,15 @@ host_resume_(Goal) :-
 
 host_rpc(Goal) :-
 	unique_variable_names(Goal, Vars0),
-	once(wasm:term_json(Vars0, Goal, ArgValue)),
-	json_value(JSON, ArgValue),
-	json_chars(JSON, Req),
+	setup_call_cleanup(
+		'$memory_stream_create'(Stream, []),
+		(
+			once(term_json(Stream, Vars0, Goal)),
+			'$memory_stream_to_chars'(Stream, Req)
+		),
+		close(Stream)
+	),
+	% format("host rpc req: ~s~n", [Req]),
 	host_call(Req, Resp),
 	read_term_from_chars(Resp, Reply, [variable_names(Vars1)]),
 	host_rpc_eval(Reply, Goal, Vars0, Vars1).
