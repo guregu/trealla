@@ -33,8 +33,7 @@ js_ask(Stream, Input) :-
 		Error,
 		(
 			write(Stream, '\u0002\u0003'),
-			result_json(error, Stream, Vars, Error),
-			dump_stream(Stream)
+			result_json(error, Stream, Vars, Error)
 		)
 	),
 	% '$memory_stream_create'(Stream, []),
@@ -45,17 +44,6 @@ js_ask(Stream, Input) :-
 	),
 	write(Stream, '\u0003'),
 	result_json(Status, Stream, Vars, Error).
-	% dump_stream(Stream).
-	% result_json(Status, Vars, Error),
-	% ,,
-
-dump_stream(Stream) :-
-	'$memory_stream_to_chars'(Stream, Got),
-	(  Got \= ''
-	-> '$put_chars'(Got)
-	;  true
-	).
-	% close(Stream).
 
 query(Stream, Query, Status) :-
 	write(stdout, '\u0002'),  % START OF TEXT
@@ -94,10 +82,8 @@ solution_json_(Stream, [V|Vs]) :-
 	solution_json_(Stream, Vs).
 
 sub_json(Stream, Vars, Var=Value0) :-
-	% write_json_term(Stream, '"'),
 	write_json_term(Stream, Var),
 	write(Stream, ':'),
-	% atom_chars(Var0, Var),
 	once(term_json_top(Stream, Vars, Value0)).
 
 term_json(Stream, _, Value) :-
@@ -113,12 +99,10 @@ term_json(Stream, _, Value0) :-
 
 term_json(Stream, _, Value) :-
 	string(Value),
-	% write_json_term(Stream, '"'),
 	(  Value == ''
 	-> true
 	;  write_json_term(Stream, Value)
 	).
-	% write_json_term(Stream, '"').
 
 term_json(Stream, _, Value) :-
 	float(Value),
@@ -137,12 +121,8 @@ term_json(Stream, _, Value) :-
 
 term_json(Stream, Vars, Value) :-
 	is_list(Value),
-	% Value = [V|Vs],
-	% term_json(Vars, V),
     term_json_list_(Stream, Vars, Value),
 	!.
-    %Value = 'asdasdasdas'.
-	%maplist(term_json(Vars), Value).
 
 term_json(Stream, Vars, Value) :-
 	compound(Value),
@@ -180,7 +160,8 @@ term_json_top(Stream, Vars, Value) :-
 	write(Stream, '{"var":'),
 	write_json_term(Stream, Name),
 	attvar_json(Stream, Vars, Value),
-	write(Stream, '}').
+	write(Stream, '}'),
+	!.
 term_json_top(Stream, Vars, Value) :-
 	once(term_json(Stream, Vars, Value)).
 
@@ -211,8 +192,8 @@ term_json_list_(Stream, Vars, [V|Vs]) :-
 term_json_list_tail_(_, _, []) :- !.
 term_json_list_tail_(Stream, Vars, [V|Vs]) :-
 	write(Stream, ','),
-    term_json(Stream, Vars, V), !,
-    term_json_list_tail_(Stream, Vars, Vs).
+	term_json(Stream, Vars, V), !,
+	term_json_list_tail_(Stream, Vars, Vs).
 
 write_json_term(Stream, T) :-
 	write_term(Stream, T, [json(true), double_quotes(true), quoted(true)]).
