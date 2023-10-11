@@ -207,7 +207,7 @@ term_json_stream_(Stream, V) :-
 	stream_property(V, file(Number)),
 	write(Stream, Number),
 	!.
-term_json_stream_(Stream, V) :-
+term_json_stream_(Stream, _) :-
 	write(Stream, '"_"').
 
 write_json_term(Stream, T) :-

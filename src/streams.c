@@ -558,7 +558,7 @@ static void add_stream_properties(query *q, int n)
 	}
 
 	if (is_virtual_stream(str))
-		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, file(%llu)).\n", n, (size_t)str);
+		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, file(%zu)).\n", n, (size_t)str);
 
 	if (is_engine_stream(str))
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, engine(true)).\n", n);
