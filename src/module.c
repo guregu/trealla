@@ -1616,7 +1616,7 @@ void retract_from_db(db_entry *dbe)
 	pr->dirty_list = dbe;
 }
 
-static void xref_cell(module *m, clause *cl, cell *c, predicate *parent)
+static void xref_cell(module *m, clause *cl, cell *c, predicate *parent, int last_was_colon)
 {
 	unsigned specifier;
 
@@ -1640,7 +1640,8 @@ static void xref_cell(module *m, clause *cl, cell *c, predicate *parent)
 		return;
 	}
 
-	c->match = search_predicate(m, c, NULL);
+	if (last_was_colon < 1)
+		c->match = search_predicate(m, c, NULL);
 
 	if ((c+c->nbr_cells) >= (cl->cells + cl->cidx-1)) {
 		if (parent && (parent->key.val_off == c->val_off) && (parent->key.arity == c->arity))
@@ -1657,6 +1658,8 @@ void xref_rule(module *m, clause *cl, predicate *parent)
 	if (c->val_off == g_sys_record_key_s)
 		return;
 
+	int last_was_colon = 0;
+
 	for (pl_idx i = 0; i < cl->cidx; i++) {
 		cell *c = cl->cells + i;
 		c->flags &= ~FLAG_TAIL_REC;
@@ -1664,7 +1667,15 @@ void xref_rule(module *m, clause *cl, predicate *parent)
 		if (!is_interned(c))
 			continue;
 
-		xref_cell(m, cl, c, parent);
+		// Don't want to match on module qualified predicates
+
+		if (c->val_off == g_colon_s) {
+			xref_cell(m, cl, c, parent, 0);
+			last_was_colon = 3;
+		} else {
+			last_was_colon--;
+			xref_cell(m, cl, c, parent, last_was_colon);
+		}
 	}
 }
 
