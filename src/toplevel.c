@@ -460,7 +460,6 @@ void dump_vars(query *q, bool partial)
 		}
 
 		if (parens) fputc('(', stdout);
-		int saveq = q->quoted;
 		q->variable_names = vlist;
 		q->variable_names_ctx = 0;
 		q->numbervars = true;
@@ -470,8 +469,8 @@ void dump_vars(query *q, bool partial)
 		q->parens = parens;
 		e->vgen = q->vgen+1;
 
-		if (!init_tmp_heap(q))
-			return;
+		//if (!init_tmp_heap(q))
+		//	return;
 
 		//cell *tmp = deep_clone_to_tmp(q, c, c_ctx);
 		//ensure(tmp)
@@ -480,10 +479,6 @@ void dump_vars(query *q, bool partial)
 		if (parens) fputc(')', stdout);
 		if (q->last_thing == WAS_SYMBOL) space = true;
 		if (q->did_quote) space = false;
-		q->double_quotes = false;
-		q->quoted = saveq;
-		q->numbervars = false;
-		q->parens = false;
 		any = true;
 	}
 
