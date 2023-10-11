@@ -397,7 +397,9 @@ int net_getc(stream *str)
 		return ptr[0];
 	}
 #endif
-
+	if (!str->fp) {
+		return EOF;
+	}
 	return fgetc(str->fp);
 }
 

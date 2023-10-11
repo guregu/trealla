@@ -46,14 +46,14 @@ js_ask(Stream, Input) :-
 	result_json(Status, Stream, Vars, Error).
 
 query(Stream, Query, Status) :-
-	write(stdout, '\u0002'),  % START OF TEXT
+	write(Stream, '\u0002'),  % START OF TEXT
 	(   call(Query)
 	*-> Status = success
 	;   Status = failure
 	).
 
 result_json(success, Stream, Vars, _) :-
-	write(Stream, '{"status":"success", "answer":'),
+	write(Stream, '{"status":"success","answer":'),
 	once(solution_json(Stream, Vars)),
 	write(Stream, '}'),
 	nl(Stream).
@@ -61,7 +61,7 @@ result_json(failure, Stream, _, _) :-
 	write(Stream, '{"status":"failure"}'),
 	nl(Stream).
 result_json(error, Stream, Vars, Error) :-
-	write(Stream, '{"status":"error", "error":'),
+	write(Stream, '{"status":"error","error":'),
 	once(term_json(Stream, Vars, Error)),
 	write(Stream, '}'),
 	nl(Stream).
@@ -144,17 +144,17 @@ term_json(Stream, Vars, Value) :-
 
 term_json(Stream, _, Value) :-
 	is_stream(Value),
-	% TODO: grab alias/fd from stream
-	write(Stream, '{"stream": -1}'),
+	write(Stream, '{"stream":'),
+	term_json_stream_(Stream, Value),
+	write(Stream, '}'),
 	!.
 
 term_json(Stream, _, _) :-
-	write(Stream, '{"blob": "?"}'),
+	write(Stream, '{"blob": "_"}'),
 	!.
 	% write_term_to_chars(Value, [], Cs).
 
 term_json_top(Stream, Vars, Value) :-
-% pairs([string("var")-string(Name), string("attr")-Attr])
 	var(Value),
 	once(var_name(Vars, Value, Name)),
 	write(Stream, '{"var":'),
@@ -194,6 +194,21 @@ term_json_list_tail_(Stream, Vars, [V|Vs]) :-
 	write(Stream, ','),
 	term_json(Stream, Vars, V), !,
 	term_json_list_tail_(Stream, Vars, Vs).
+
+term_json_stream_(Stream, V) :-
+	stream_property(V, alias(Alias)),
+	write_json_term(Stream, Alias),
+	!.
+term_json_stream_(Stream, V) :-
+	stream_property(V, file_no(Number)),
+	write(Stream, Number),
+	!.
+term_json_stream_(Stream, V) :-
+	stream_property(V, file(Number)),
+	write(Stream, Number),
+	!.
+term_json_stream_(Stream, V) :-
+	write(Stream, '"_"').
 
 write_json_term(Stream, T) :-
 	write_term(Stream, T, [json(true), double_quotes(true), quoted(true)]).

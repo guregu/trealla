@@ -493,10 +493,10 @@ static void add_stream_properties(query *q, int n)
 	char tmpbuf[1024*8];
 	char *dst = tmpbuf;
 	*dst = '\0';
-	off_t pos = !str->is_map && !str->is_engine ? ftello(str->fp) : 0;
+	off_t pos = !is_virtual_stream(str) ? ftello(str->fp) : 0;
 	bool at_end_of_file = false;
 
-	if (!str->at_end_of_file && (n > 2) && !str->is_engine && !str->is_map && !str->p) {
+	if (!str->at_end_of_file && (n > 2) && !is_virtual_stream(str) && !str->p) {
 #if 0
 		if (str->p) {
 			if (str->p->srcptr && *str->p->srcptr) {
@@ -529,7 +529,7 @@ static void add_stream_properties(query *q, int n)
 
 	sl_done(iter);
 
-	if (!str->is_engine && !str->is_map) {
+	if (!is_virtual_stream(str)) {
 		char *dst2 = formatted(str->filename, strlen(str->filename), false, false);
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, file_name('%s')).\n", n, dst2);
 		free(dst2);
@@ -557,10 +557,15 @@ static void add_stream_properties(query *q, int n)
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, newline(%s)).\n", n, NEWLINE_MODE);
 	}
 
-	if (str->is_engine)
+	if (is_virtual_stream(str))
+		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, file(%llu)).\n", n, (size_t)str);
+
+	if (is_engine_stream(str))
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, engine(true)).\n", n);
-	else if (str->is_map)
+	else if (is_map_stream(str))
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, skiplist(true)).\n", n);
+	else if (is_memory_stream(str))
+		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, memory(true)).\n", n);
 
 	parser *p = parser_create(q->st.m);
 	p->srcptr = tmpbuf;
