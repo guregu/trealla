@@ -2089,8 +2089,13 @@ static bool fn_iso_clause_2(query *q)
 
 	if (p1->val_off == g_colon_s) {
 		p1 = p1 + 1;
-		cell *m = deref(q, p1, p1_ctx);
-		q->st.m = find_module(q->pl, C_STR(q, m));
+		cell *cm = deref(q, p1, p1_ctx);
+		module *m = find_module(q->pl, C_STR(q, cm));
+
+		if (!m)
+			return throw_error(q, cm, p1_ctx, "existence_error", "module");
+
+		q->st.m = m;
 		p1 += p1->nbr_cells;
 	}
 
@@ -2160,8 +2165,12 @@ static bool fn_iso_retract_1(query *q)
 
 	if (p1->val_off == g_colon_s) {
 		p1 = p1 + 1;
-		cell *m = deref(q, p1, p1_ctx);
-		q->st.m = find_module(q->pl, C_STR(q, m));
+		cell *cm = deref(q, p1, p1_ctx);
+		module *m = find_module(q->pl, C_STR(q, cm));
+
+		if (!m)
+			return throw_error(q, cm, p1_ctx, "existence_error", "module");
+
 		p1 += p1->nbr_cells;
 	}
 
@@ -2174,8 +2183,12 @@ static bool fn_iso_retractall_1(query *q)
 
 	if (p1->val_off == g_colon_s) {
 		p1 = p1 + 1;
-		cell *m = deref(q, p1, p1_ctx);
-		q->st.m = find_module(q->pl, C_STR(q, m));
+		cell *cm = deref(q, p1, p1_ctx);
+		module *m = find_module(q->pl, C_STR(q, cm));
+
+		if (!m)
+			return throw_error(q, cm, p1_ctx, "existence_error", "module");
+
 		p1 += p1->nbr_cells;
 	}
 
@@ -3621,8 +3634,12 @@ static bool fn_clause_3(query *q)
 	if (!is_var(p1)) {
 		if (p1->val_off == g_colon_s) {
 			p1 = p1 + 1;
-			cell *m = deref(q, p1, p1_ctx);
-			q->st.m = find_module(q->pl, C_STR(q, m));
+			cell *cm = deref(q, p1, p1_ctx);
+			module *m = find_module(q->pl, C_STR(q, cm));
+
+			if (!m)
+				return throw_error(q, cm, p1_ctx, "existence_error", "module");
+
 			p1 += p1->nbr_cells;
 		}
 	}
@@ -3989,8 +4006,12 @@ static bool fn_listing_1(query *q)
 
 	if (p1->val_off == g_colon_s) {
 		p1 = p1 + 1;
-		cell *m = deref(q, p1, p1_ctx);
-		q->st.m = find_module(q->pl, C_STR(q, m));
+		cell *cm = deref(q, p1, p1_ctx);
+		module *m = find_module(q->pl, C_STR(q, cm));
+
+		if (!m)
+			return throw_error(q, cm, p1_ctx, "existence_error", "module");
+
 		p1 += p1->nbr_cells;
 	}
 
