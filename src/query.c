@@ -54,7 +54,7 @@ static bool any_choices(const query *q, const frame *f)
 		return false;
 
 	const choice *ch = q->in_commit ? GET_PREV_CHOICE() : GET_CURR_CHOICE();
-	return ch->cgen >= f->cgen;
+	return ch->chgen >= f->chgen;
 }
 
 void dump_term(query *q, const char *s, const cell *c)
@@ -150,7 +150,7 @@ static void trace_call(query *q, cell *c, pl_idx c_ctx, box_t box)
 	q->max_depth = save_depth;
 
 	if (q->creep) {
-		msleep(500);
+		msleep(250);
 	}
 }
 
@@ -279,15 +279,15 @@ bool check_slot(query *q, unsigned cnt)
 	return true;
 }
 
-static bool can_view(query *q, size_t ugen, const db_entry *dbe)
+static bool can_view(query *q, uint64_t dbgen, const db_entry *dbe)
 {
 	if (dbe->cl.is_deleted)
 		return false;
 
-	if (dbe->cl.dgen_created > ugen)
+	if (dbe->cl.dbgen_created > dbgen)
 		return false;
 
-	if (dbe->cl.dgen_erased && (dbe->cl.dgen_erased <= ugen))
+	if (dbe->cl.dbgen_erased && (dbe->cl.dbgen_erased <= dbgen))
 		return false;
 
 	return true;
@@ -296,9 +296,16 @@ static bool can_view(query *q, size_t ugen, const db_entry *dbe)
 static void setup_key(query *q)
 {
 	cell *arg1 = deref(q, FIRST_ARG(q->st.key), q->st.key_ctx);
+	cell *arg2 = NULL;
+
+	if (q->st.key->arity > 1)
+		arg2 = deref(q, NEXT_ARG(FIRST_ARG(q->st.key)), q->st.key_ctx);
 
 	if (!is_var(arg1))
 		q->st.karg1_is_ground = true;
+
+	if (arg2 && !is_var(arg2))
+		q->st.karg2_is_ground = true;
 }
 
 static void next_key(query *q)
@@ -327,12 +334,13 @@ bool has_next_key(query *q)
 	if (!q->st.key->arity)
 		return true;
 
-	const cell *qarg1;
+	const cell *qarg1 = NULL, *qarg2 = NULL;
 
 	if (q->st.karg1_is_ground)
 		qarg1 = deref(q, FIRST_ARG(q->st.key), q->st.key_ctx);
-	else
-		qarg1 = FIRST_ARG(q->st.key);
+
+	if (q->st.karg2_is_ground)
+		qarg2 = deref(q, NEXT_ARG(FIRST_ARG(q->st.key)), q->st.key_ctx);
 
 	//DUMP_TERM("key ", q->st.key, q->st.key_ctx, 1);
 
@@ -344,8 +352,15 @@ bool has_next_key(query *q)
 
 		//DUMP_TERM("next", dkey, q->st.curr_frame, 0);
 
-		if (index_cmpkey(qarg1, FIRST_ARG(dkey), q->st.m, NULL) != 0)
-			continue;
+		if (qarg1) {
+			if (index_cmpkey(qarg1, FIRST_ARG(dkey), q->st.m, NULL) != 0)
+				continue;
+		}
+
+		if (qarg2) {
+			if (index_cmpkey(qarg2, NEXT_ARG(FIRST_ARG(dkey)), q->st.m, NULL) != 0)
+				continue;
+		}
 
 		if (index_cmpkey(q->st.key, dkey, q->st.m, NULL) == 0)
 			return true;
@@ -395,6 +410,7 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 {
 	q->st.iter = NULL;
 	q->st.karg1_is_ground = false;
+	q->st.karg2_is_ground = false;
 	q->st.key = key;
 	q->st.key_ctx = key_ctx;
 
@@ -602,13 +618,12 @@ static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx l_ctx, bool 
 
 size_t scan_is_chars_list2(query *q, cell *l, pl_idx l_ctx, bool allow_codes, bool *has_var, bool *is_partial)
 {
-	q->vgen++;
+	if (++q->vgen == 0) q->vgen = 1;
 	return scan_is_chars_list_internal(q, l, l_ctx, allow_codes, has_var, is_partial);
 }
 
 size_t scan_is_chars_list(query *q, cell *l, pl_idx l_ctx, bool allow_codes)
 {
-	q->vgen++;
 	bool has_var, is_partial;
 	return scan_is_chars_list2(q, l, l_ctx, allow_codes, &has_var, &is_partial);
 }
@@ -636,6 +651,10 @@ static void leave_predicate(query *q, predicate *pr)
 		return;
 
 	if (!pr->is_abolished) {
+#if 0
+		purge_predicate_dirty_list(pr);
+#else
+
 		// Just because this predicate is no longer in use doesn't
 		// mean there are no shared references to terms contained
 		// within. So move items on the dirty-list to the query
@@ -661,6 +680,7 @@ static void leave_predicate(query *q, predicate *pr)
 		}
 
 		pr->dirty_list = NULL;
+#endif
 
 		if (pr->idx && !pr->cnt) {
 			sl_destroy(pr->idx2);
@@ -694,20 +714,6 @@ static void unwind_trail(query *q)
 		const frame *f = GET_FRAME(tr->var_ctx);
 		slot *e = GET_SLOT(f, tr->var_nbr);
 		cell *c = &e->c;
-
-		if (is_cstring(c) && (c->flags & FLAG_CSTR_QUANTUM_ERASER)) {
-			uuid u;
-			uuid_from_buf(C_STR(q, c), &u);
-			db_entry *dbe = find_in_db(q->st.m, &u);
-			if (dbe) {
-				//printf("*** quantum eraser '%s'\n", C_STR(q, c));
-				dbe->owner->cnt--;
-				delink(dbe->owner, dbe);
-				clear_rule(&dbe->cl);
-				free(dbe);
-			}
-		}
-
 		unshare_cell(c);
 		init_cell(c);
 		c->flags = tr->attrs ? FLAG_VAR_ATTR : 0;
@@ -760,8 +766,8 @@ int retry_choice(query *q)
 		q->save_m = NULL;
 
 		frame *f = GET_CURR_FRAME();
-		f->ugen = ch->ugen;
-		f->cgen = ch->frame_cgen;
+		f->dbgen = ch->dbgen;
+		f->chgen = ch->frame_cgen;
 		f->initial_slots = ch->initial_slots;
 		f->actual_slots = ch->actual_slots;
 		f->overflow = ch->overflow;
@@ -805,7 +811,7 @@ static frame *push_frame(query *q, unsigned nbr_vars)
 		f->curr_cell = q->st.curr_cell;
 	}
 
-	f->cgen = ++q->cgen;
+	f->chgen = ++q->chgen;
 	f->overflow = 0;
 	f->hp = q->st.hp;
 
@@ -819,7 +825,7 @@ static void reuse_frame(query *q, const clause *cl)
 	frame *f = GET_CURR_FRAME();
 	const frame *newf = GET_FRAME(q->st.fp);
 	f->initial_slots = f->actual_slots = cl->nbr_vars - cl->nbr_temporaries;
-	f->cgen = ++q->cgen;
+	f->chgen = ++q->chgen;
 	f->overflow = 0;
 
 	const slot *from = GET_SLOT(newf, 0);
@@ -872,14 +878,12 @@ static bool are_slots_ok(const query *q, const frame *f)
 			return false;
 		else if (is_indirect(c))
 			return false;
-		else if (is_cstring(c) && (c->flags & FLAG_CSTR_QUANTUM_ERASER))
-			return false;
 	}
 
 	return true;
 }
 
-static void commit_frame(query *q)
+static void commit_frame(query *q, cell *body)
 {
 	q->in_commit = true;
 	clause *cl = &q->st.dbe->cl;
@@ -890,7 +894,8 @@ static void commit_frame(query *q)
 		q->st.m = q->st.dbe->owner->m;
 
 	bool is_det = !q->has_vars && cl->is_unique;
-	bool last_match = is_det || cl->is_first_cut || !has_next_key(q);
+	bool next_key = has_next_key(q);
+	bool last_match = is_det || cl->is_first_cut || !next_key;
 	bool empty_frame = cl->nbr_vars == cl->nbr_temporaries;
 	bool tco = false;
 
@@ -904,16 +909,24 @@ static void commit_frame(query *q)
 		tco = recursive && vars_ok && !choices && slots_ok;
 
 #if 0
-		fprintf(stderr, "*** retry=%d,tco=%d,q->no_tco=%d,last_match=%d (%d),recursive=%d,choices=%d,slots_ok=%d,vars_ok=%d,cl->nbr_vars=%u,cl->nbr_temps=%u\n",
-			q->retry, tco, q->no_tco, last_match, cl->is_first_cut, recursive, choices, slots_ok, vars_ok, cl->nbr_vars, cl->nbr_temporaries);
+		fprintf(stderr, "*** retry=%d,tco=%d,q->no_tco=%d,last_match=%d,is_det=%d,is_first_cut=%d,next_key=%d,recursive=%d,choices=%d,slots_ok=%d,vars_ok=%d,cl->nbr_vars=%u,cl->nbr_temps=%u\n",
+			q->retry, tco, q->no_tco, last_match, is_det, cl->is_first_cut, next_key, recursive, choices, slots_ok, vars_ok, cl->nbr_vars, cl->nbr_temporaries);
 #endif
 
 	}
 
 	if (q->pl->opt && tco)
 		reuse_frame(q, cl);
-	else
+	else {
 		f = push_frame(q, cl->nbr_vars);
+
+		// If matching against a fact then drop new frame...
+
+		if (!cl->nbr_vars && !body && last_match) {
+			f = GET_FRAME(q->st.curr_frame-f->prev_offset);
+			q->st.fp--;
+		}
+	}
 
 	Trace(q, get_head(q->st.dbe->cl.cells), q->st.curr_frame, EXIT);
 
@@ -926,17 +939,17 @@ static void commit_frame(query *q)
 	} else {
 		choice *ch = GET_CURR_CHOICE();
 		ch->st.dbe = q->st.dbe;
-		ch->cgen = f->cgen;
+		ch->chgen = f->chgen;
 	}
 
-	q->st.curr_cell = get_body(cl->cells);
+	q->st.curr_cell = body;
 	q->in_commit = false;
 	q->st.iter = NULL;
 }
 
 void stash_frame(query *q, const clause *cl, bool last_match)
 {
-	pl_idx cgen = ++q->cgen;
+	pl_idx chgen = ++q->chgen;
 
 	if (last_match) {
 		Trace(q, get_head(q->st.dbe->cl.cells), q->st.curr_frame, EXIT);
@@ -945,7 +958,7 @@ void stash_frame(query *q, const clause *cl, bool last_match)
 	} else {
 		choice *ch = GET_CURR_CHOICE();
 		ch->st.dbe = q->st.dbe;
-		ch->cgen = cgen;
+		ch->chgen = chgen;
 	}
 
 	unsigned nbr_vars = cl->nbr_vars;
@@ -955,7 +968,7 @@ void stash_frame(query *q, const clause *cl, bool last_match)
 		frame *f = GET_FRAME(new_frame);
 		f->prev_offset = new_frame - q->st.curr_frame;
 		f->curr_cell = NULL;
-		f->cgen = cgen;
+		f->chgen = chgen;
 		f->overflow = 0;
 		q->st.sp += nbr_vars;
 	}
@@ -970,8 +983,8 @@ bool push_choice(query *q)
 	pl_idx curr_choice = q->cp++;
 	choice *ch = GET_CHOICE(curr_choice);
 	ch->st = q->st;
-	ch->ugen = f->ugen;
-	ch->frame_cgen = ch->cgen = f->cgen;
+	ch->dbgen = f->dbgen;
+	ch->frame_cgen = ch->chgen = f->chgen;
 	ch->initial_slots = f->initial_slots;
 	ch->actual_slots = f->actual_slots;
 	ch->overflow = f->overflow;
@@ -992,7 +1005,7 @@ bool push_barrier(query *q)
 	check_heap_error(push_choice(q));
 	frame *f = GET_CURR_FRAME();
 	choice *ch = GET_CURR_CHOICE();
-	ch->cgen = f->cgen = ++q->cgen;
+	ch->chgen = f->chgen = ++q->chgen;
 	ch->barrier = true;
 	return true;
 }
@@ -1023,10 +1036,10 @@ void cut(query *q)
 		// A normal cut can't break out of a barrier...
 
 		if (ch->barrier) {
-			if (ch->cgen <= f->cgen)
+			if (ch->chgen <= f->chgen)
 				break;
 		} else {
-			if (ch->cgen < f->cgen)
+			if (ch->chgen < f->chgen)
 				break;
 		}
 
@@ -1066,7 +1079,7 @@ bool drop_barrier(query *q, pl_idx cp)
 		if (q->cp) {
 			const choice *ch = GET_CURR_CHOICE();
 			frame *f = GET_CURR_FRAME();
-			f->cgen = ch->cgen;
+			f->chgen = ch->chgen;
 		}
 
 		return true;
@@ -1100,7 +1113,7 @@ static void proceed(query *q)
 
 	while (is_end(q->st.curr_cell)) {
 		if (q->st.curr_cell->val_ret) {
-			f->cgen = q->st.curr_cell->cgen;
+			f->chgen = q->st.curr_cell->chgen;
 			q->st.m = q->pl->modmap[q->st.curr_cell->mid];
 		}
 
@@ -1192,7 +1205,7 @@ bool match_rule(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract)
 		find_key(q, pr, c, p1_ctx);
 		enter_predicate(q, pr);
 		frame *f = GET_FRAME(q->st.curr_frame);
-		f->ugen = q->pl->ugen;
+		f->dbgen = q->pl->dbgen;
 	} else {
 		next_key(q);
 	}
@@ -1202,15 +1215,15 @@ bool match_rule(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract)
 		return false;
 	}
 
+	check_heap_error(check_slot(q, MAX_ARITY));
 	check_heap_error(check_frame(q));
 	check_heap_error(push_choice(q));
+	const frame *f = GET_FRAME(q->st.curr_frame);
 	cell *p1_body = deref(q, get_logical_body(p1), p1_ctx);
 	cell *orig_p1 = p1;
-	const frame *f = GET_FRAME(q->st.curr_frame);
-	check_heap_error(check_slot(q, MAX_ARITY));
 
 	for (; q->st.dbe; q->st.dbe = q->st.dbe->next) {
-		if (!can_view(q, f->ugen, q->st.dbe))
+		if (!can_view(q, f->dbgen, q->st.dbe))
 			continue;
 
 		clause *cl = &q->st.dbe->cl;
@@ -1300,7 +1313,7 @@ bool match_clause(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract
 
 		if (!pr->is_dynamic) {
 			if (is_retract == DO_CLAUSE) {
-				if (!q->flags.not_strict_iso)
+				if (!q->access_private)
 					return throw_error(q, p1, p1_ctx, "permission_error", "access,private_procedure");
 			} else
 				return throw_error(q, p1, p1_ctx, "permission_error", "modify,static_procedure");
@@ -1309,7 +1322,7 @@ bool match_clause(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract
 		find_key(q, pr, c, p1_ctx);
 		enter_predicate(q, pr);
 		frame *f = GET_FRAME(q->st.curr_frame);
-		f->ugen = q->pl->ugen;
+		f->dbgen = q->pl->dbgen;
 	} else {
 		next_key(q);
 	}
@@ -1319,13 +1332,13 @@ bool match_clause(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract
 		return false;
 	}
 
+	check_heap_error(check_slot(q, MAX_ARITY));
 	check_heap_error(check_frame(q));
 	check_heap_error(push_choice(q));
 	const frame *f = GET_FRAME(q->st.curr_frame);
-	check_heap_error(check_slot(q, MAX_ARITY));
 
 	for (; q->st.dbe; q->st.dbe = q->st.dbe->next) {
-		if (!can_view(q, f->ugen, q->st.dbe))
+		if (!can_view(q, f->dbgen, q->st.dbe))
 			continue;
 
 		clause *cl = &q->st.dbe->cl;
@@ -1390,7 +1403,7 @@ static bool match_head(query *q)
 		find_key(q, pr, q->st.curr_cell, q->st.curr_frame);
 		enter_predicate(q, pr);
 		frame *f = GET_FRAME(q->st.curr_frame);
-		f->ugen = q->pl->ugen;
+		f->dbgen = q->pl->dbgen;
 	} else
 		next_key(q);
 
@@ -1399,13 +1412,13 @@ static bool match_head(query *q)
 		return false;
 	}
 
+	check_heap_error(check_slot(q, MAX_ARITY));
 	check_heap_error(check_frame(q));
 	check_heap_error(push_choice(q));
 	const frame *f = GET_FRAME(q->st.curr_frame);
-	check_heap_error(check_slot(q, MAX_ARITY));
 
 	for (; q->st.dbe; next_key(q)) {
-		if (!can_view(q, f->ugen, q->st.dbe))
+		if (!can_view(q, f->dbgen, q->st.dbe))
 			continue;
 
 		clause *cl = &q->st.dbe->cl;
@@ -1416,7 +1429,7 @@ static bool match_head(query *q)
 			if (q->error)
 				break;
 
-			commit_frame(q);
+			commit_frame(q, get_body(cl->cells));
 			return true;
 		}
 
@@ -1767,41 +1780,24 @@ bool execute(query *q, cell *cells, unsigned nbr_vars)
 
 	frame *f = q->frames + q->st.curr_frame;
 	f->initial_slots = f->actual_slots = nbr_vars;
-	f->ugen = ++q->pl->ugen;
+	f->dbgen = ++q->pl->dbgen;
 	return start(q);
-}
-
-void purge_predicate_dirty_list(query *q, predicate *pr)
-{
-	if (pr->refcnt)
-		return;
-
-	db_entry *save = NULL;
-
-	while (q->dirty_list) {
-		db_entry *dbe = q->dirty_list;
-		q->dirty_list = dbe->dirty;
-
-		if (dbe->owner == pr) {
-			clear_rule(&dbe->cl);
-			free(dbe);
-		} else {
-			dbe->dirty = save;
-			save = dbe;
-		}
-	}
-
-	q->dirty_list = save;
 }
 
 void purge_dirty_list(query *q)
 {
+	unsigned cnt = 0;
+
 	while (q->dirty_list) {
 		db_entry *dbe = q->dirty_list;
 		q->dirty_list = dbe->dirty;
 		clear_rule(&dbe->cl);
 		free(dbe);
+		cnt++;
 	}
+
+	if (cnt && 0)
+		printf("*** purge_dirty_list %u\n", cnt);
 }
 
 void query_destroy(query *q)
@@ -1864,7 +1860,6 @@ void query_destroy(query *q)
 
 			if (pr) {
 				db_entry *dbe = pr->head;
-				unsigned cnt = 0;
 
 				while (dbe) {
 					cell *c = dbe->cl.cells;
@@ -1873,7 +1868,6 @@ void query_destroy(query *q)
 					cell *arg3 = arg2 + arg2->nbr_cells;
 
 					if (!CMP_STR_TO_CSTR(m, arg3, "b")) {
-						cnt++;
 						pr->cnt--;
 						delink(pr, dbe);
 						db_entry *save = dbe;
@@ -1883,9 +1877,6 @@ void query_destroy(query *q)
 					} else
 						dbe = dbe->next;
 				}
-
-				if (cnt && 0)
-					printf("*** quantum cleaner: %u items\n", cnt);
 			}
 		}
 
@@ -1965,7 +1956,7 @@ query *query_create_task(query *q, cell *curr_cell)
 	frame *fsrc = GET_FRAME(q->st.curr_frame);
 	frame *fdst = task->frames;
 	fdst->initial_slots = fdst->actual_slots = fsrc->actual_slots;
-	fdst->ugen = ++q->pl->ugen;
+	fdst->dbgen = ++q->pl->dbgen;
 	task->st.sp = fdst->actual_slots;
 	return task;
 }

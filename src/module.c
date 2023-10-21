@@ -559,7 +559,7 @@ db_entry *find_in_db(module *m, uuid *ref)
 				continue;
 
 			for (db_entry *dbe = pr->head ; dbe; dbe = dbe->next) {
-				if (dbe->cl.dgen_erased)
+				if (dbe->cl.dbgen_erased)
 					continue;
 
 				if (!memcmp(&dbe->u, ref, sizeof(uuid)))
@@ -599,7 +599,7 @@ db_entry *erase_from_db(module *m, uuid *ref)
 {
 	db_entry *dbe = find_in_db(m, ref);
 	if (!dbe) return 0;
-	dbe->cl.dgen_erased = ++m->pl->ugen;
+	dbe->cl.dbgen_erased = ++m->pl->dbgen;
 	return dbe;
 }
 
@@ -1315,7 +1315,7 @@ static void optimize_rule(module *m, db_entry *dbe_orig)
 	cl->is_unique = false;
 
 	for (db_entry *dbe = dbe_orig->next; dbe; dbe = dbe->next) {
-		if (dbe->cl.dgen_erased)
+		if (dbe->cl.dbgen_erased)
 			continue;
 
 		cell *head2 = get_head(dbe->cl.cells);
@@ -1442,9 +1442,9 @@ static db_entry *assert_begin(module *m, unsigned nbr_vars, unsigned nbr_tempora
 	dbe->cl.cells[p1->nbr_cells].tag = TAG_END;
 	dbe->cl.nbr_temporaries = nbr_temporaries;
 	dbe->cl.nbr_vars = nbr_vars;
-	dbe->cl.allocated_cells = p1->nbr_cells;
+	dbe->cl.nbr_allocated_cells = p1->nbr_cells;
 	dbe->cl.cidx = p1->nbr_cells+1;
-	dbe->cl.dgen_created = ++m->pl->ugen;
+	dbe->cl.dbgen_created = ++m->pl->dbgen;
 	dbe->filename = m->filename;
 	dbe->owner = pr;
 	return dbe;
@@ -1485,7 +1485,7 @@ static void assert_commit(module *m, db_entry *dbe, predicate *pr, bool append)
 		for (db_entry *cl2 = pr->head; cl2; cl2 = cl2->next) {
 			cell *c = get_head(cl2->cl.cells);
 
-			if (cl2->cl.dgen_erased)
+			if (cl2->cl.dbgen_erased)
 				continue;
 
 			sl_app(pr->idx, c, cl2);
@@ -1576,44 +1576,6 @@ db_entry *assertz_to_db(module *m, unsigned nbr_vars, unsigned nbr_temporaries, 
 		pr->is_processed = false;
 
 	return dbe;
-}
-
-static bool retract_from_predicate(db_entry *dbe)
-{
-	if (dbe->cl.dgen_erased)
-		return false;
-
-	predicate *pr = dbe->owner;
-	module *m = pr->m;
-	dbe->cl.dgen_erased = ++m->pl->ugen;
-	dbe->filename = NULL;
-	pr->cnt--;
-
-	if (pr->idx && !pr->cnt && !pr->refcnt) {
-		sl_destroy(pr->idx2);
-		sl_destroy(pr->idx);
-		pr->idx2 = NULL;
-
-		pr->idx = sl_create(index_cmpkey, NULL, m);
-		ensure(pr->idx);
-
-		if (pr->key.arity > 1) {
-			pr->idx2 = sl_create(index_cmpkey, NULL, m);
-			ensure(pr->idx2);
-		}
-	}
-
-	return true;
-}
-
-void retract_from_db(db_entry *dbe)
-{
-	if (!retract_from_predicate(dbe))
-		return;
-
-	predicate *pr = dbe->owner;
-	dbe->dirty = pr->dirty_list;
-	pr->dirty_list = dbe;
 }
 
 static void xref_cell(module *m, clause *cl, cell *c, predicate *parent, int last_was_colon)
@@ -1751,11 +1713,11 @@ static bool unload_realfile(module *m, const char *filename)
 			continue;
 
 		for (db_entry *dbe = pr->head; dbe; dbe = dbe->next) {
-			if (dbe->cl.dgen_erased)
+			if (dbe->cl.dbgen_erased)
 				continue;
 
 			if (dbe->filename && !strcmp(dbe->filename, filename)) {
-				if (!retract_from_predicate(dbe))
+				if (!remove_from_predicate(pr, dbe))
 					continue;
 
 				dbe->dirty = pr->dirty_list;
@@ -2071,7 +2033,7 @@ static void module_save_fp(module *m, FILE *fp, int canonical, int dq)
 			continue;
 
 		for (db_entry *dbe = pr->head; dbe; dbe = dbe->next) {
-			if (dbe->cl.dgen_erased)
+			if (dbe->cl.dbgen_erased)
 				continue;
 
 			if (canonical)

@@ -17,7 +17,6 @@ void set_unloaded(module *m, const char *filename);
 const char *get_loaded(const module *m, const char *filename);
 void set_parent(const module *m, const char *filename, const char *parent);
 
-void retract_from_db(db_entry *dbe);
 void convert_to_literal(module *m, cell *c);
 unsigned find_op(module *m, const char *name, unsigned specifier);
 unsigned search_op(module *m, const char *name, unsigned *specifier, bool hint_prefix);
@@ -37,6 +36,8 @@ void format_template(module *m, char *tmpbuf, size_t buflen, const char *name, u
 void push_property(module *m, const char *name, unsigned arity, const char *type);
 void push_template(module *m, const char *name, unsigned arity, const builtins *ptr);
 void make(module *m);
+
+void purge_predicate_dirty_list(predicate *pr);
 
 bool do_use_module_1(module *curr_m, cell *p);
 bool do_use_module_2(module *curr_m, cell *p);

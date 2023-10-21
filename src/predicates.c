@@ -69,7 +69,7 @@ void make_call(query *q, cell *tmp)
 	cell *c = q->st.curr_cell;
 	frame *f = GET_CURR_FRAME();
 	tmp->val_ret = c ? c + c->nbr_cells : NULL;	// save next as the return instruction
-	tmp->cgen = f->cgen;						// ... choice-generation
+	tmp->chgen = f->chgen;						// ... choice-generation
 	tmp->mid = q->st.m->id;						// ... current-module
 }
 
@@ -78,7 +78,7 @@ void make_call_redo(query *q, cell *tmp)
 	make_end(tmp);
 	frame *f = GET_CURR_FRAME();
 	tmp->val_ret = q->st.curr_cell;				// save the return instruction
-	tmp->cgen = f->cgen;						// ... choice-generation
+	tmp->chgen = f->chgen;						// ... choice-generation
 	tmp->mid = q->st.m->id;						// ... current-module
 }
 
@@ -514,7 +514,7 @@ static bool fn_iso_atom_chars_2(query *q)
 
 	const char *src = C_STR(q, p1);
 	size_t len = C_STRLEN(q, p1);
-	bool first = true;
+	check_heap_error(init_tmp_heap(q));
 
 	while (len) {
 		size_t n = len_char_utf8(src);
@@ -522,12 +522,7 @@ static bool fn_iso_atom_chars_2(query *q)
 		make_smalln(&tmp2, src, n);
 		src += n;
 		len -= n;
-
-		if (first) {
-			allocate_list(q, &tmp2);
-			first = false;
-		} else
-			append_list(q, &tmp2);
+		append_list(q, &tmp2);
 	}
 
 	cell *l = end_list(q);
@@ -1040,7 +1035,7 @@ static bool fn_hex_bytes_2(query *q)
 	}
 
 	LIST_HANDLER(p1);
-	bool first = true;
+	check_heap_error(init_tmp_heap(q));
 
 	while (is_list(p1)) {
 		cell *h = LIST_HEAD(p1);
@@ -1091,13 +1086,7 @@ static bool fn_hex_bytes_2(query *q)
 
 		cell tmp;
 		make_int(&tmp, (int)val);
-
-		if (first) {
-			allocate_list(q, &tmp);
-			first = false;
-		} else
-			append_list(q, &tmp);
-
+		append_list(q, &tmp);
 		p1 = LIST_TAIL(p1);
 		p1 = deref(q, p1, p1_ctx);
 		p1_ctx = q->latest_ctx;
@@ -1105,9 +1094,6 @@ static bool fn_hex_bytes_2(query *q)
 
 	if (!is_nil(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "hex_encoding");
-
-	if (first)
-		return unify(q, p2, p2_ctx, make_nil(), q->st.curr_frame);
 
 	cell *l = end_list(q);
 	check_heap_error(l);
@@ -1613,7 +1599,7 @@ void uuid_gen(prolog *pl, uuid *u)
 	u->u2 |= pl->seed;
 }
 
-static char *uuid_to_buf(const uuid *u, char *buf, size_t buflen)
+char *uuid_to_buf(const uuid *u, char *buf, size_t buflen)
 {
 	snprintf(buf, buflen, "%016"PRIx64"-%04"PRIx64"-%012"PRIx64"",
 		 u->u1,
@@ -1643,41 +1629,6 @@ int uuid_from_buf(const char *s, uuid *u)
 	u->u2 = p2 << 48;
 	u->u2 |= p3 & MASK_FINAL;
 	return 1;
-}
-
-enum log_type { LOG_ASSERTA=1, LOG_ASSERTZ=2, LOG_ERASE=3 };
-
-static void db_log(query *q, db_entry *dbe, enum log_type l)
-{
-	FILE *fp = q->pl->logfp;
-
-	if (!fp)
-		return;
-
-	char tmpbuf[256];
-	char *dst;
-	q->quoted = 2;
-
-	switch(l) {
-	case LOG_ASSERTA:
-		dst = print_term_to_strbuf(q, dbe->cl.cells, q->st.curr_frame, 1);
-		uuid_to_buf(&dbe->u, tmpbuf, sizeof(tmpbuf));
-		fprintf(fp, "%s:'$asserta'((%s),'%s').\n", q->st.m->name, dst, tmpbuf);
-		free(dst);
-		break;
-	case LOG_ASSERTZ:
-		dst = print_term_to_strbuf(q, dbe->cl.cells, q->st.curr_frame, 1);
-		uuid_to_buf(&dbe->u, tmpbuf, sizeof(tmpbuf));
-		fprintf(fp, "%s:'$assertz'((%s),'%s').\n", q->st.m->name, dst, tmpbuf);
-		free(dst);
-		break;
-	case LOG_ERASE:
-		uuid_to_buf(&dbe->u, tmpbuf, sizeof(tmpbuf));
-		fprintf(fp, "%s:erase('%s').\n", q->st.m->name, tmpbuf);
-		break;
-	}
-
-	q->quoted = 0;
 }
 
 static bool fn_iso_arg_3(query *q)
@@ -2080,415 +2031,6 @@ static bool fn_copy_term_nat_2(query *q)
 	}
 
 	return unify(q, p2, p2_ctx, tmp, q->st.curr_frame);
-}
-
-static bool fn_iso_clause_2(query *q)
-{
-	GET_FIRST_ARG(p1,callable);
-	GET_NEXT_ARG(p2,callable_or_var);
-
-	if (p1->val_off == g_colon_s) {
-		p1 = p1 + 1;
-		cell *cm = deref(q, p1, p1_ctx);
-		module *m = find_module(q->pl, C_STR(q, cm));
-
-		if (!m)
-			return throw_error(q, cm, p1_ctx, "existence_error", "module");
-
-		q->st.m = m;
-		p1 += p1->nbr_cells;
-	}
-
-	while (match_clause(q, p1, p1_ctx, DO_CLAUSE)) {
-		if (q->did_throw) return true;
-		clause *cl = &q->st.dbe->cl;
-		cell *body = get_body(cl->cells);
-		bool ok;
-
-		if (body)
-			ok = unify(q, p2, p2_ctx, body, q->st.fp);
-		else {
-			cell tmp;
-			make_atom(&tmp, g_true_s);
-			ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-		}
-
-		if (ok) {
-			bool last_match = !has_next_key(q);
-			stash_frame(q, cl, last_match);
-			return true;
-		}
-
-		q->retry = QUERY_RETRY;
-		q->tot_backtracks++;
-		retry_choice(q);
-	}
-
-	return false;
-}
-
-bool do_retract(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract)
-{
-	if (!q->retry) {
-		cell *head = deref(q, get_head(p1), p1_ctx);
-
-		if (is_var(head))
-			return throw_error(q, head, q->latest_ctx, "instantiation_error", "not_sufficiently_instantiated");
-
-		if (!is_callable(head))
-			return throw_error(q, head, q->latest_ctx, "type_error", "callable");
-	}
-
-	bool match;
-
-	if (is_a_rule(p1) && get_logical_body(p1)) {
-		match = match_rule(q, p1, p1_ctx, is_retract);
-	} else {
-		p1 = get_head(p1);
-		match = match_clause(q, p1, p1_ctx, is_retract);
-	}
-
-	if (!match || q->did_throw)
-		return match;
-
-	db_entry *dbe = q->st.dbe;
-	retract_from_db(dbe);
-	bool last_match = (is_retract == DO_RETRACT) && !has_next_key(q);
-	stash_frame(q, &dbe->cl, last_match);
-	db_log(q, dbe, LOG_ERASE);
-	return true;
-}
-
-static bool fn_iso_retract_1(query *q)
-{
-	GET_FIRST_ARG(p1,callable);
-
-	if (p1->val_off == g_colon_s) {
-		p1 = p1 + 1;
-		cell *cm = deref(q, p1, p1_ctx);
-		module *m = find_module(q->pl, C_STR(q, cm));
-
-		if (!m)
-			return throw_error(q, cm, p1_ctx, "existence_error", "module");
-
-		p1 += p1->nbr_cells;
-	}
-
-	return do_retract(q, p1, p1_ctx, DO_RETRACT);
-}
-
-static bool fn_iso_retractall_1(query *q)
-{
-	GET_FIRST_ARG(p1,callable);
-
-	if (p1->val_off == g_colon_s) {
-		p1 = p1 + 1;
-		cell *cm = deref(q, p1, p1_ctx);
-		module *m = find_module(q->pl, C_STR(q, cm));
-
-		if (!m)
-			return throw_error(q, cm, p1_ctx, "existence_error", "module");
-
-		p1 += p1->nbr_cells;
-	}
-
-	cell *head = deref(q, get_head(p1), p1_ctx);
-	predicate *pr = search_predicate(q->st.m, head, NULL);
-
-	if (!pr) {
-		bool found = false;
-
-		if (get_builtin_term(q->st.m, head, &found, NULL), found)
-			return throw_error(q, head, q->latest_ctx, "permission_error", "modify,static_procedure");
-
-		return true;
-	}
-
-	while (do_retract(q, p1, p1_ctx, DO_RETRACTALL)) {
-		if (q->did_throw) return true;
-		q->retry = QUERY_RETRY;
-		q->tot_backtracks++;
-		retry_choice(q);
-	}
-
-	if (pr->idx && !pr->cnt) {
-		purge_predicate_dirty_list(q, pr);
-		sl_destroy(pr->idx2);
-		sl_destroy(pr->idx);
-		pr->idx2 = NULL;
-
-		pr->idx = sl_create(index_cmpkey, NULL, pr->m);
-		ensure(pr->idx);
-
-		if (pr->key.arity > 1) {
-			pr->idx2 = sl_create(index_cmpkey, NULL, pr->m);
-			ensure(pr->idx2);
-		}
-	}
-
-	return true;
-}
-
-static bool do_abolish(query *q, cell *c_orig, cell *c_pi, bool hard)
-{
-	predicate *pr = search_predicate(q->st.m, c_pi, NULL);
-	if (!pr) return true;
-
-	if (!pr->is_dynamic)
-		return throw_error(q, c_orig, q->st.curr_frame, "permission_error", "modify,static_procedure");
-
-	for (db_entry *dbe = pr->head; dbe; dbe = dbe->next)
-		retract_from_db(dbe);
-
-	if (!pr->refcnt) {
-		db_entry *dbe = pr->dirty_list;
-
-		while (dbe) {
-			delink(pr, dbe);
-			db_entry *save = dbe->dirty;
-			clear_rule(&dbe->cl);
-			free(dbe);
-			dbe = save;
-		}
-
-		pr->dirty_list = NULL;
-	} else {
-		while (pr->dirty_list) {
-			db_entry *dbe = pr->dirty_list;
-			pr->dirty_list = dbe->dirty;
-			dbe->dirty = q->dirty_list;
-			q->dirty_list = dbe;
-		}
-	}
-
-	sl_destroy(pr->idx2);
-	sl_destroy(pr->idx);
-	pr->idx2 = pr->idx = NULL;
-	pr->is_processed = false;
-
-	if (hard) {
-		pr->is_abolished = true;
-	} else {
-		pr->idx = sl_create(index_cmpkey, NULL, pr->m);
-		ensure(pr->idx);
-
-		if (pr->key.arity > 1) {
-			pr->idx2 = sl_create(index_cmpkey, NULL, pr->m);
-			ensure(pr->idx2);
-		}
-	}
-
-	pr->head = pr->tail = NULL;
-	pr->cnt = 0;
-	return true;
-}
-
-static bool fn_iso_abolish_1(query *q)
-{
-	GET_FIRST_ARG(p1,callable);
-
-	if (p1->arity != 2)
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	if (CMP_STR_TO_CSTR(q, p1, "/") && CMP_STR_TO_CSTR(q, p1, "//"))
-		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-	cell *p1_name = p1 + 1;
-	p1_name = deref(q, p1_name, p1_ctx);
-
-	if (!is_atom(p1_name))
-		return throw_error(q, p1_name, p1_ctx, "type_error", "atom");
-
-	cell *p1_arity = p1 + 2;
-	p1_arity = deref(q, p1_arity, p1_ctx);
-
-	if (!CMP_STR_TO_CSTR(q, p1, "//"))
-		p1_arity += 2;
-
-	if (!is_integer(p1_arity))
-		return throw_error(q, p1_arity, p1_ctx, "type_error", "integer");
-
-	if (is_negative(p1_arity))
-		return throw_error(q, p1_arity, p1_ctx, "domain_error", "not_less_than_zero");
-
-	if (get_smallint(p1_arity) > MAX_ARITY)
-		return throw_error(q, p1_arity, p1_ctx, "representation_error", "max_arity");
-
-	bool found = false;
-
-	if (get_builtin(q->pl, C_STR(q, p1_name), C_STRLEN(q, p1_name), get_smallint(p1_arity), &found, NULL), found)
-		return throw_error(q, p1, p1_ctx, "permission_error", "modify,static_procedure");
-
-	cell tmp;
-	tmp = *p1_name;
-	tmp.arity = get_smallint(p1_arity);
-	CLR_OP(&tmp);
-	return do_abolish(q, p1, &tmp, true);
-}
-
-static unsigned count_non_anons(uint8_t *mask, unsigned bit)
-{
-	unsigned bits = 0;
-
-	for (unsigned i = 0; i < bit; i++) {
-		if (mask[i] > 1)
-			bits++;
-	}
-
-	return bits;
-}
-
-static void do_term_assign_vars(parser *p)
-{
-	pl_idx nbr_cells = p->cl->cidx;
-	term_assign_vars(p, 0, true);
-	memset(p->vartab.vars, 0, sizeof(p->vartab.vars));
-
-	for (pl_idx i = 0; i < nbr_cells; i++) {
-		cell *c = p->cl->cells+i;
-
-		if (!is_var(c))
-			continue;
-
-		assert(c->var_nbr < MAX_VARS);
-		p->vartab.vars[c->var_nbr]++;
-	}
-
-	for (pl_idx i = 0; i < nbr_cells; i++) {
-		cell *c = p->cl->cells+i;
-
-		if (!is_var(c))
-			continue;
-
-		unsigned var_nbr = count_non_anons(p->vartab.vars, c->var_nbr);
-
-		char ch = 'A';
-		ch += var_nbr % 26;
-		unsigned n = var_nbr / 26;
-		char tmpbuf[80];
-
-		if (p->vartab.vars[c->var_nbr] == 1)
-			snprintf(tmpbuf, sizeof(tmpbuf), "%s", "_");
-		else if (var_nbr < 26)
-			snprintf(tmpbuf, sizeof(tmpbuf), "%c", ch);
-		else
-			snprintf(tmpbuf, sizeof(tmpbuf), "%c%d", ch, n);
-
-		c->val_off = new_atom(p->m->pl, tmpbuf);
-		c->flags = 0;
-	}
-}
-
-static bool fn_iso_asserta_1(query *q)
-{
-	GET_FIRST_ARG(p1,callable);
-	check_heap_error(init_tmp_heap(q));
-	cell *tmp = deep_copy_to_tmp(q, p1, p1_ctx, false);
-	check_heap_error(tmp);
-	cell *head = get_head(tmp);
-
-	if (is_var(head))
-		return throw_error(q, head, q->st.curr_frame, "instantiation_error", "args_not_sufficiently_instantiated");
-
-	if (!is_interned(head) && !is_cstring(head))
-		return throw_error(q, head, q->st.curr_frame, "type_error", "callable");
-
-	bool found = false;
-
-	if (get_builtin_term(q->st.m, head, &found, NULL), found) {
-		if (!GET_OP(head))
-			return throw_error(q, head, q->st.curr_frame, "permission_error", "modify,static_procedure");
-	}
-
-	cell *tmp2, *body = get_body(tmp);
-
-	if (body && ((tmp2 = check_body_callable(body)) != NULL))
-		return throw_error(q, tmp2, q->st.curr_frame, "type_error", "callable");
-
-	pl_idx nbr_cells = tmp->nbr_cells;
-	parser *p = q->st.m->p;
-
-	if (nbr_cells > p->cl->allocated_cells) {
-		p->cl = realloc(p->cl, sizeof(clause)+(sizeof(cell)*(nbr_cells+1)));
-		check_heap_error(p->cl);
-		p->cl->allocated_cells = nbr_cells;
-	}
-
-	p->cl->cidx = safe_copy_cells(p->cl->cells, tmp, nbr_cells);
-	do_term_assign_vars(p);
-	term_to_body(p);
-	cell *h = get_head(p->cl->cells);
-
-	if (is_cstring(h))
-		convert_to_literal(q->st.m, h);
-
-	if (!is_interned(h))
-		return throw_error(q, h, q->st.curr_frame, "type_error", "callable");
-
-	db_entry *dbe = asserta_to_db(q->st.m, p->cl->nbr_vars, p->cl->nbr_temporaries, p->cl->cells, 0);
-
-	if (!dbe)
-		return throw_error(q, h, q->st.curr_frame, "permission_error", "modify,static_procedure");
-
-	p->cl->cidx = 0;
-	db_log(q, dbe, LOG_ASSERTA);
-	return true;
-}
-
-static bool fn_iso_assertz_1(query *q)
-{
-	GET_FIRST_ARG(p1,callable);
-	check_heap_error(init_tmp_heap(q));
-	cell *tmp = deep_copy_to_tmp(q, p1, p1_ctx, false);
-	check_heap_error(tmp);
-	cell *head = get_head(tmp);
-
-	if (is_var(head))
-		return throw_error(q, head, q->st.curr_frame, "instantiation_error", "args_not_sufficiently_instantiated");
-
-	if (!is_interned(head) && !is_cstring(head))
-		return throw_error(q, head, q->st.curr_frame, "type_error", "callable");
-
-	bool found = false, evaluable = false;
-
-	if (get_builtin_term(q->st.m, head, &found, &evaluable), found && !evaluable) {
-		if (!GET_OP(head))
-			return throw_error(q, head, q->st.curr_frame, "permission_error", "modify,static_procedure");
-	}
-
-	cell *tmp2, *body = get_body(tmp);
-
-	if (body && ((tmp2 = check_body_callable(body)) != NULL))
-		return throw_error(q, tmp2, q->st.curr_frame, "type_error", "callable");
-
-	pl_idx nbr_cells = tmp->nbr_cells;
-	parser *p = q->st.m->p;
-
-	if (nbr_cells > p->cl->allocated_cells) {
-		p->cl = realloc(p->cl, sizeof(clause)+(sizeof(cell)*(nbr_cells+1)));
-		check_heap_error(p->cl);
-		p->cl->allocated_cells = nbr_cells;
-	}
-
-	p->cl->cidx = safe_copy_cells(p->cl->cells, tmp, nbr_cells);
-	do_term_assign_vars(p);
-	term_to_body(p);
-	cell *h = get_head(p->cl->cells);
-
-	if (is_cstring(h))
-		convert_to_literal(q->st.m, h);
-
-	if (!is_interned(h))
-		return throw_error(q, h, q->st.curr_frame, "type_error", "callable");
-
-	db_entry *dbe = assertz_to_db(q->st.m, p->cl->nbr_vars, p->cl->nbr_temporaries, p->cl->cells, false);
-
-	if (!dbe)
-		return throw_error(q, h, q->st.curr_frame, "permission_error", "modify,static_procedure");
-
-	p->cl->cidx = 0;
-	db_log(q, dbe, LOG_ASSERTZ);
-	return true;
 }
 
 static bool fn_iso_functor_3(query *q)
@@ -3602,18 +3144,6 @@ static bool fn_erase_1(query *q)
 	return true;
 }
 
-bool fn_sys_quantum_eraser_2(query *q)
-{
-	GET_FIRST_ARG(p1,var);
-	GET_NEXT_ARG(p2,atom);
-	cell tmp2;
-	make_cstring(&tmp2, C_STR(q, p2));
-	tmp2.flags |= FLAG_CSTR_QUANTUM_ERASER;
-	bool ok = unify(q, p1, p1_ctx, &tmp2, q->st.curr_frame);
-	unshare_cell(&tmp2);
-	return ok;
-}
-
 static bool fn_instance_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
@@ -3623,340 +3153,6 @@ static bool fn_instance_2(query *q)
 	db_entry *dbe = find_in_db(q->st.m, &u);
 	check_heap_error(dbe);
 	return unify(q, p2, p2_ctx, dbe->cl.cells, q->st.curr_frame);
-}
-
-static bool fn_clause_3(query *q)
-{
-	GET_FIRST_ARG(p1,callable_or_var);
-	GET_NEXT_ARG(p2,callable_or_var);
-	GET_NEXT_ARG(p3,atom_or_var);
-
-	if (!is_var(p1)) {
-		if (p1->val_off == g_colon_s) {
-			p1 = p1 + 1;
-			cell *cm = deref(q, p1, p1_ctx);
-			module *m = find_module(q->pl, C_STR(q, cm));
-
-			if (!m)
-				return throw_error(q, cm, p1_ctx, "existence_error", "module");
-
-			p1 += p1->nbr_cells;
-		}
-	}
-
-	if (is_var(p1) && is_var(p2) && is_var(p3))
-		return throw_error(q, p3, p3_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
-
-	for (;;) {
-		clause *cl;
-
-		if (!is_var(p3)) {
-			uuid u;
-			uuid_from_buf(C_STR(q, p3), &u);
-			db_entry *dbe = find_in_db(q->st.m, &u);
-
-			if (!dbe || (!u.u1 && !u.u2))
-				break;
-
-			q->st.dbe = dbe;
-			cl = &dbe->cl;
-			cell *head = get_head(cl->cells);
-
-			if (!unify(q, p1, p1_ctx, head, q->st.fp))
-				break;
-		} else {
-			if (match_clause(q, p1, p1_ctx, DO_CLAUSE) != true)
-				break;
-
-			char tmpbuf[128];
-			uuid_to_buf(&q->st.dbe->u, tmpbuf, sizeof(tmpbuf));
-			cell tmp;
-			make_cstring(&tmp, tmpbuf);
-			unify(q, p3, p3_ctx, &tmp, q->st.curr_frame);
-			unshare_cell(&tmp);
-			cl = &q->st.dbe->cl;
-		}
-
-		cell *body = get_body(cl->cells);
-		bool ok;
-
-		if (body)
-			ok = unify(q, p2, p2_ctx, body, q->st.fp);
-		else {
-			cell tmp;
-			make_atom(&tmp, g_true_s);
-			ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-		}
-
-		if (ok) {
-			bool last_match;
-
-			if (is_var(p3)) {
-				last_match = !has_next_key(q);
-			} else {
-				last_match = true;
-			}
-
-			stash_frame(q, cl, last_match);
-			return true;
-		}
-
-		if (!is_var(p3))
-			break;
-
-		q->retry = QUERY_RETRY;
-		q->tot_backtracks++;
-		retry_choice(q);
-	}
-
-	return false;
-}
-
-static bool do_asserta_2(query *q)
-{
-	GET_FIRST_ARG(p1,any);
-	cell *head = deref(q, get_head(p1), p1_ctx);
-
-	if (is_var(head))
-		return throw_error(q, head, q->latest_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
-
-	bool found = false;
-
-	if (get_builtin_term(q->st.m, head, &found, NULL), found) {
-		if (!GET_OP(head))
-			return throw_error(q, head, q->latest_ctx, "permission_error", "modify,static_procedure");
-	}
-
-	cell *body = get_body(p1);
-
-	if (body)
-		body = deref(q, body, p1_ctx);
-
-	if (body && !is_callable(body))
-		return throw_error(q, body, q->latest_ctx, "type_error", "callable");
-
-	cell *tmp2;
-
-	if (body && ((tmp2 = check_body_callable(body)) != NULL))
-		return throw_error(q, tmp2, q->latest_ctx, "type_error", "callable");
-
-	GET_NEXT_ARG(p2,atom_or_var);
-	check_heap_error(init_tmp_heap(q));
-	cell *tmp = deep_copy_to_tmp(q, p1, p1_ctx, false);
-	check_heap_error(tmp);
-	pl_idx nbr_cells = tmp->nbr_cells;
-	parser *p = q->st.m->p;
-
-	if (nbr_cells > p->cl->allocated_cells) {
-		p->cl = realloc(p->cl, sizeof(clause)+(sizeof(cell)*(nbr_cells+1)));
-		check_heap_error(p->cl);
-		p->cl->allocated_cells = nbr_cells;
-	}
-
-	p->cl->cidx = safe_copy_cells(p->cl->cells, tmp, nbr_cells);
-	do_term_assign_vars(p);
-	term_to_body(p);
-	cell *h = get_head(p->cl->cells);
-
-	if (is_cstring(h))
-		convert_to_literal(q->st.m, h);
-
-	if (!is_interned(h))
-		return throw_error(q, h, q->latest_ctx, "type_error", "callable");
-
-	db_entry *dbe = asserta_to_db(q->st.m, p->cl->nbr_vars, p->cl->nbr_temporaries, p->cl->cells, 0);
-
-	if (!dbe)
-		return throw_error(q, h, q->st.curr_frame, "permission_error", "modify,static_procedure");
-
-	p->cl->cidx = 0;
-
-	if (!is_var(p2)) {
-		uuid u;
-		uuid_from_buf(C_STR(q, p2), &u);
-		dbe->u = u;
-	} else {
-		uuid_gen(q->pl, &dbe->u);
-		char tmpbuf[128];
-		uuid_to_buf(&dbe->u, tmpbuf, sizeof(tmpbuf));
-		cell tmp2;
-		make_cstring(&tmp2, tmpbuf);
-		unify(q, p2, p2_ctx, &tmp2, q->st.curr_frame);
-		unshare_cell(&tmp2);
-	}
-
-	db_log(q, dbe, LOG_ASSERTA);
-	return true;
-}
-
-static bool fn_asserta_2(query *q)
-{
-	GET_FIRST_ARG(p1,nonvar);
-	GET_NEXT_ARG(p2,var);
-	return do_asserta_2(q);
-}
-
-static bool fn_sys_asserta_2(query *q)
-{
-	GET_FIRST_ARG(p1,nonvar);
-	GET_NEXT_ARG(p2,atom);
-	return do_asserta_2(q);
-}
-
-static bool do_assertz_2(query *q)
-{
-	GET_FIRST_ARG(p1,any);
-	cell *head = deref(q, get_head(p1), p1_ctx);
-
-	if (is_var(head))
-		return throw_error(q, head, q->latest_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
-
-	bool found = false;
-
-	if (get_builtin_term(q->st.m, head, &found, NULL), found) {
-		if (!GET_OP(head))
-			return throw_error(q, head, q->latest_ctx, "permission_error", "modify,static_procedure");
-	}
-
-	cell *body = get_body(p1);
-
-	if (body)
-		body = deref(q, body, p1_ctx);
-
-	if (body && !is_callable(body))
-		return throw_error(q, body, q->latest_ctx, "type_error", "callable");
-
-	cell *tmp2;
-
-	if (body && ((tmp2 = check_body_callable(body)) != NULL))
-		return throw_error(q, tmp2, q->latest_ctx, "type_error", "callable");
-
-	GET_NEXT_ARG(p2,atom_or_var);
-	check_heap_error(init_tmp_heap(q));
-	cell *tmp = deep_copy_to_tmp(q, p1, p1_ctx, false);
-	check_heap_error(tmp);
-	pl_idx nbr_cells = tmp->nbr_cells;
-	parser *p = q->st.m->p;
-
-	if (nbr_cells > p->cl->allocated_cells) {
-		p->cl = realloc(p->cl, sizeof(clause)+(sizeof(cell)*(nbr_cells+1)));
-		check_heap_error(p->cl);
-		p->cl->allocated_cells = nbr_cells;
-	}
-
-	p->cl->cidx = safe_copy_cells(p->cl->cells, tmp, nbr_cells);
-	do_term_assign_vars(p);
-	term_to_body(p);
-	cell *h = get_head(p->cl->cells);
-
-	if (is_cstring(h))
-		convert_to_literal(q->st.m, h);
-
-	if (!is_interned(h))
-		return throw_error(q, h, q->latest_ctx, "type_error", "callable");
-
-	db_entry *dbe = assertz_to_db(q->st.m, p->cl->nbr_vars, p->cl->nbr_temporaries, p->cl->cells, false);
-
-	if (!dbe)
-		return throw_error(q, h, q->st.curr_frame, "permission_error", "modify,static_procedure");
-
-	p->cl->cidx = 0;
-
-	if (!is_var(p2)) {
-		uuid u;
-		uuid_from_buf(C_STR(q, p2), &u);
-		dbe->u = u;
-	} else {
-		uuid_gen(q->pl, &dbe->u);
-		char tmpbuf[128];
-		uuid_to_buf(&dbe->u, tmpbuf, sizeof(tmpbuf));
-		cell tmp2;
-		make_cstring(&tmp2, tmpbuf);
-		unify(q, p2, p2_ctx, &tmp2, q->st.curr_frame);
-		unshare_cell(&tmp2);
-	}
-
-	db_log(q, dbe, LOG_ASSERTZ);
-	return true;
-}
-
-static bool fn_assertz_2(query *q)
-{
-	GET_FIRST_ARG(p1,nonvar);
-	GET_NEXT_ARG(p2,var);
-	return do_assertz_2(q);
-}
-
-static bool fn_sys_assertz_2(query *q)
-{
-	GET_FIRST_ARG(p1,nonvar);
-	GET_NEXT_ARG(p2,atom);
-	return do_assertz_2(q);
-}
-
-static void save_db(FILE *fp, query *q, int logging)
-{
-	q->listing = true;
-	q->double_quotes = true;
-
-	for (predicate *pr = q->st.m->head; pr; pr = pr->next) {
-		if (pr->is_prebuilt)
-			continue;
-
-		const char *src = C_STR(q, &pr->key);
-
-		if (src[0] == '$')
-			continue;
-
-		for (db_entry *dbe = pr->head; dbe; dbe = dbe->next) {
-			if (dbe->cl.dgen_erased)
-				continue;
-
-			if (logging)
-				fprintf(fp, "z_(");
-
-			for (unsigned i = 0; i < MAX_IGNORES; i++)
-				q->ignores[i] = false;
-
-			q->print_idx = 0;
-			print_term(q, fp, dbe->cl.cells, 0, 0);
-
-			if (logging) {
-				char tmpbuf[256];
-				uuid_to_buf(&dbe->u, tmpbuf, sizeof(tmpbuf));
-				fprintf(fp, ",'%s')", tmpbuf);
-			}
-
-			if (q->last_thing == WAS_SYMBOL)
-				fprintf(fp, " ");
-
-			fprintf(fp, ".\n");
-		}
-	}
-
-	q->double_quotes = false;
-	q->listing = false;
-}
-
-static bool fn_load_all_modules_0(query *q)
-{
-	prolog *pl = q->pl;
-
-	for (library *lib = g_libs; lib->name; lib++) {
-		size_t len = *lib->len;
-		char *src = malloc(len+1);
-		check_error(src);
-		memcpy(src, lib->start, len);
-		src[len] = '\0';
-		SB(s1);
-		SB_sprintf(s1, "library/%s", lib->name);
-		module *m = load_text(pl->user_m, src, SB_cstr(s1));
-		SB_free(s1);
-		free(src);
-		check_error(m, pl_destroy(pl));
-	}
-
-	return true;
 }
 
 static bool fn_listing_0(query *q)
@@ -3983,7 +3179,7 @@ static void save_name(FILE *fp, query *q, pl_idx name, unsigned arity)
 			continue;
 
 		for (db_entry *dbe = pr->head; dbe; dbe = dbe->next) {
-			if (dbe->cl.dgen_erased)
+			if (dbe->cl.dbgen_erased)
 				continue;
 
 			for (unsigned i = 0; i < MAX_IGNORES; i++)
@@ -4067,7 +3263,7 @@ static bool fn_module_info_2(query *q)
 	if (!m)
 		return false;
 
-	bool first_time = true;
+	check_heap_error(init_tmp_heap(q));
 
 	for (predicate *pr = m->head; pr; pr = pr->next) {
 		if (!pr->is_public)
@@ -4078,16 +3274,8 @@ static bool fn_module_info_2(query *q)
 		SET_OP(tmp, OP_YFX);
 		make_atom(tmp+1, pr->key.val_off);
 		make_int(tmp+2, pr->key.arity);
-
-		if (first_time) {
-			allocate_list(q, tmp);
-			first_time = false;
-		} else
-			append_list(q, tmp);
+		append_list(q, tmp);
 	}
-
-	if (first_time)
-		return unify(q, p2, p2_ctx, make_nil(), q->st.curr_frame);
 
 	cell *l = end_list(q);
 	check_heap_error(l);
@@ -4126,7 +3314,7 @@ static bool fn_source_info_2(query *q)
 	if (!pr || pr->is_dynamic)
 		return false;
 
-	bool first_time = true;
+	check_heap_error(init_tmp_heap(q));
 
 	for (db_entry *dbe = pr->head; dbe; dbe = dbe->next) {
 		cell tmp[8];
@@ -4138,16 +3326,8 @@ static bool fn_source_info_2(query *q)
 		make_uint(tmp+5, dbe->line_nbr_start);
 		make_uint(tmp+6, dbe->line_nbr_end);
 		make_atom(tmp+7, g_nil_s);
-
-		if (first_time) {
-			allocate_list(q, tmp);
-			first_time = false;
-		} else
-			append_list(q, tmp);
+		append_list(q, tmp);
 	}
-
-	if (first_time)
-		return unify(q, p2, p2_ctx, make_nil(), q->st.curr_frame);
 
 	cell *l = end_list(q);
 	check_heap_error(l);
@@ -4475,45 +3655,6 @@ static bool fn_sys_first_non_octet_2(query *q)
 	return false;
 }
 
-static bool fn_sys_dump_keys_1(query *q)
-{
-	GET_FIRST_ARG(p1,any);
-	const char *name = NULL;
-	unsigned arity = -1;
-
-	if (p1->arity) {
-		if (CMP_STR_TO_CSTR(q, p1, "/") && CMP_STR_TO_CSTR(q, p1, "//"))
-			return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-		cell *p2 = p1 + 1;
-
-		if (!is_atom(p2))
-			return throw_error(q, p2, p1_ctx, "type_error", "atom");
-
-		cell *p3 = p2 + p2->nbr_cells;
-
-		if (!is_integer(p3))
-			return throw_error(q, p3, p1_ctx, "type_error", "integer");
-
-		name = C_STR(q, p2);
-		arity = get_smallint(p3);
-
-		if (!CMP_STR_TO_CSTR(q, p1, "//"))
-			arity += 2;
-	}
-
-	predicate *pr = find_functor(q->st.m, name, arity);
-
-	if (!pr)
-		return false;
-
-	if (!pr->idx)
-		return true;
-
-	fprintf(stderr, "\n"); sl_dump(pr->idx, dump_key, q);
-	return true;
-}
-
 static bool fn_sys_timer_0(query *q)
 {
 	q->st.timer_started = get_time_in_usec();
@@ -4818,10 +3959,12 @@ static bool fn_split_string_4(query *q)
 	int pad = peek_char_utf8(C_STR(q, p3));
 	const char *start = src, *ptr;
 	cell *l = NULL;
-	int nbr = 1, in_list = 0;
+	int nbr = 1;
 
 	if (!*start)
 		return unify(q, p4, p4_ctx, make_nil(), q->st.curr_frame);
+
+	check_heap_error(init_tmp_heap(q));
 
 	// FIXME: sep & pad are not a single char...
 
@@ -4832,13 +3975,7 @@ static bool fn_split_string_4(query *q)
 		if (ptr-start) {
 			cell tmp;
 			check_heap_error(make_slice(q, &tmp, p1, start-src, ptr-start));
-
-			if (nbr++ == 1)
-				allocate_list(q, &tmp);
-			else
-				append_list(q, &tmp);
-
-			in_list = 1;
+			append_list(q, &tmp);
 		}
 
 		start = ptr + 1;
@@ -4851,12 +3988,8 @@ static bool fn_split_string_4(query *q)
 		cell tmp;
 		check_heap_error(make_slice(q, &tmp, p1, start-src, C_STRLEN(q, p1)-(start-src)));
 
-		if (C_STRLEN(q, p1)-(start-src)) {
-			if (!in_list)
-				allocate_list(q, &tmp);
-			else
-				append_list(q, &tmp);
-		}
+		if (C_STRLEN(q, p1)-(start-src))
+			append_list(q, &tmp);
 	}
 
 	l = end_list(q);
@@ -5762,22 +4895,18 @@ static bool fn_crypto_n_random_bytes_2(query *q)
 
 	GET_FIRST_ARG(p1,integer);
 	GET_NEXT_ARG(p2,list_or_var);
-	bool first_time = true;
 	int n = get_smallint(p1);
 
 	if (n < 1)
 		return throw_error(q, p1, p1_ctx, "domain_error", "not_less_than_zero");
 
+	check_heap_error(init_tmp_heap(q));
+
 	while (n--) {
 		int i = rand() % 256;
 		cell tmp;
 		make_int(&tmp, i);
-
-		if (first_time) {
-			first_time = false;
-			allocate_list(q, &tmp);
-		} else
-			append_list(q, &tmp);
+		append_list(q, &tmp);
 	}
 
 	cell *l = end_list(q);
@@ -6734,20 +5863,6 @@ static bool fn_char_type_2(query *q)
 	return false;
 }
 
-static bool fn_abolish_2(query *q)
-{
-	GET_FIRST_ARG(p1,atom);
-	GET_NEXT_ARG(p2,integer);
-
-	if (is_bigint(p2))
-		return throw_error(q, p2, p2_ctx, "domain_error", "small_integer_range");
-
-	cell tmp = *p1;
-	tmp.arity = get_smallint(p2);
-	CLR_OP(&tmp);
-	return do_abolish(q, &tmp, &tmp, true);
-}
-
 static bool fn_sys_lt_2(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
@@ -6959,7 +6074,7 @@ static bool fn_sys_unifiable_3(query *q)
 		return false;
 	}
 
-	bool first = true;
+	check_heap_error(init_tmp_heap(q));
 
 	// Go thru trail, getting the bindings...
 
@@ -6976,13 +6091,7 @@ static bool fn_sys_unifiable_3(query *q)
 		make_ref(&v, g_anon_s, tr->var_nbr, q->st.curr_frame);
 		tmp[1] = v;
 		safe_copy_cells(tmp+2, c, c->nbr_cells);
-
-		if (first) {
-			allocate_list(q, tmp);
-			first = false;
-		} else
-			append_list(q, tmp);
-
+		append_list(q, tmp);
 		free(tmp);
 		before_hook_tp++;
 	}
@@ -7122,165 +6231,6 @@ static bool fn_get_unbuffered_char_1(query *q)
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 }
 
-static bool fn_kv_set_3(query *q)
-{
-	GET_FIRST_ARG(p1,smallint_or_atom);
-	GET_NEXT_ARG(p2,smallint_or_atom);
-	GET_NEXT_ARG(p3,list_or_nil);
-	bool do_create = false;
-	LIST_HANDLER(p3);
-
-	while (is_list(p3)) {
-		cell *h = LIST_HEAD(p3);
-		h = deref(q, h, p3_ctx);
-
-		if (is_var(h))
-			return throw_error(q, p3, p3_ctx, "instantiation_error", "read_option");
-
-		if (is_structure(h) && (h->arity == 1)) {
-			cell *n = h + 0;
-			if (!CMP_STR_TO_CSTR(q, n, "create")) {
-				cell *v = n + 1;
-				v = deref(q, v, q->latest_ctx);
-
-				if (is_var(v))
-					return throw_error(q, p3, p3_ctx, "instantiation_error", "read_option");
-
-				if (is_atom(v) && !CMP_STR_TO_CSTR(q, v, "true"))
-					do_create = true;
-			}
-		}
-
-		p3 = LIST_TAIL(p3);
-		p3 = deref(q, p3, p3_ctx);
-		p3_ctx = q->latest_ctx;
-	}
-
-	char *key;
-
-	if (is_integer(p1)) {
-		char tmpbuf[128];
-		snprintf(tmpbuf, sizeof(tmpbuf), "%"PRId64"", (int64_t)get_smallint(p1));
-		key = strdup(tmpbuf);
-	} else if (is_atom(p1))
-		key = DUP_STR(q, p1);
-	else
-		return throw_error(q, p1, p1_ctx, "type_error", "integer");
-
-	check_heap_error(key);
-
-	if (do_create) {
-		if (sl_get(q->pl->keyval, key, NULL)) {
-			free(key);
-			return false;
-		}
-	}
-
-	char *val;
-
-	if (is_integer(p2)) {
-		char tmpbuf[128];
-		snprintf(tmpbuf, sizeof(tmpbuf), "%"PRId64"", (int64_t)get_smallint(p2));
-		val = strdup(tmpbuf);
-	} else if (is_atom(p2))
-		val = DUP_STR(q, p2);
-	else {
-		free(key);
-		return throw_error(q, p2, p2_ctx, "type_error", "integer");
-	}
-
-	check_heap_error(val);
-	sl_set(q->pl->keyval, key, val);
-	return true;
-}
-
-static bool fn_kv_get_3(query *q)
-{
-	GET_FIRST_ARG(p1,atomic);
-	GET_NEXT_ARG(p2,atomic_or_var);
-	GET_NEXT_ARG(p3,list_or_nil);
-	bool do_delete = false;
-	LIST_HANDLER(p3);
-
-	if (is_bigint(p1))
-		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
-
-	if (is_bigint(p2))
-		return throw_error(q, p2, p2_ctx, "domain_error", "small_integer_range");
-
-	while (is_list(p3)) {
-		cell *h = LIST_HEAD(p3);
-		h = deref(q, h, p3_ctx);
-
-		if (is_var(h))
-			return throw_error(q, p3, p3_ctx, "instantiation_error", "read_option");
-
-		if (is_structure(h) && (h->arity == 1)) {
-			cell *n = h + 0;
-			if (!CMP_STR_TO_CSTR(q, n, "delete")) {
-				cell *v = n + 1;
-				v = deref(q, v, q->latest_ctx);
-
-				if (is_var(v))
-					return throw_error(q, p3, p3_ctx, "instantiation_error", "read_option");
-
-				if (is_atom(v) && !CMP_STR_TO_CSTR(q, v, "true"))
-					do_delete = true;
-			}
-		}
-
-		p3 = LIST_TAIL(p3);
-		p3 = deref(q, p3, p3_ctx);
-		p3_ctx = q->latest_ctx;
-	}
-
-	char *key;
-	char tmpbuf[128];
-
-	if (is_integer(p1)) {
-		snprintf(tmpbuf, sizeof(tmpbuf), "%"PRId64"", (int64_t)get_smallint(p1));
-		key = tmpbuf;
-	} else if (is_atom(p1))
-		key = DUP_STR(q, p1);
-	else
-		return throw_error(q, p2, p2_ctx, "type_error", "integer");
-
-	check_heap_error(key);
-	char *val = NULL;
-
-	if (!sl_get(q->pl->keyval, key, (void*)&val)) {
-		if (key != tmpbuf) free(key);
-		return false;
-	}
-
-	cell tmp;
-	const char *src = val;
-	int all_digs = 1;
-
-	while (*src) {
-		if (!isdigit(*src)) {
-			all_digs = 0;
-			break;
-		}
-
-		src++;
-	}
-
-	if (all_digs) {
-		pl_int v = strtoll(val, NULL, 10);
-		make_int(&tmp, v);
-	} else
-		make_cstring(&tmp, val);
-
-	if (do_delete)
-		sl_del(q->pl->keyval, key);
-
-	if (key != tmpbuf) free(key);
-	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	unshare_cell(&tmp);
-	return ok;
-}
-
 static bool fn_current_module_1(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_var);
@@ -7370,7 +6320,7 @@ static bool fn_module_1(query *q)
 static bool fn_modules_1(query *q)
 {
 	GET_FIRST_ARG(p1,var);
-	bool first = true;
+	check_heap_error(init_tmp_heap(q));
 
 	for (module *m = q->pl->modules; m; m = m->next) {
 		if (m->orig)
@@ -7378,12 +6328,7 @@ static bool fn_modules_1(query *q)
 
 		cell tmp;
 		make_atom(&tmp,  new_atom(q->pl, m->name));
-
-		if (first) {
-			allocate_list(q, &tmp);
-			first = false;
-		} else
-			append_list(q, &tmp);
+		append_list(q, &tmp);
 	}
 
 	cell *l = end_list(q);
@@ -7589,307 +6534,6 @@ static bool fn_sys_host_resume_1(query *q) {
 #endif
 }
 #endif
-
-static bool fn_sre_compile_2(query *q)
-{
-	GET_FIRST_ARG(p1,atom);
-	GET_NEXT_ARG(p2,var);
-	const char *pattern = C_STR(q, p1);
-	unsigned char *buf;
-	re_t reg = re_compile(pattern, &buf);
-	if (!reg) return false;
-	cell tmp = {0};
-	tmp.tag = TAG_BLOB;
-	tmp.flags = FLAG_MANAGED | FLAG_BLOB_SRE;
-	tmp.nbr_cells = 1;
-	tmp.val_blob = malloc(sizeof(blob));
-	check_heap_error(tmp.val_blob);
-	tmp.val_blob->ptr = (void*)reg;
-	tmp.val_blob->ptr2 = (void*)buf;
-	tmp.val_blob->refcnt = 1;
-	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	unshare_cell(&tmp);
-	return ok;
-}
-
-static bool fn_sre_matchp_4(query *q)
-{
-	GET_FIRST_ARG(p1,sregex);
-	GET_NEXT_ARG(p2,atom);
-	GET_NEXT_ARG(p3,atom_or_var);
-	GET_NEXT_ARG(p4,atom_or_var);
-	re_t re = (void*)p1->val_blob->ptr;
-	const char *text = C_STR(q, p2);
-	int len = 0;
-	int off = re_matchp(re, text, &len);
-	cell tmp1, tmp2;
-
-	if (!len)
-		make_atom(&tmp1, g_nil_s);
-	else
-		make_slice(q, &tmp1, p2, off, len);
-
-	bool ok = unify(q, p3, p3_ctx, &tmp1, q->st.curr_frame);
-	unshare_cell(&tmp1);
-	if (!ok) return false;
-
-	if ((size_t)(off + len) >= C_STRLEN(q, p2))
-		make_atom(&tmp2, g_nil_s);
-	else
-		make_slice(q, &tmp2, p2, off + len, C_STRLEN(q, p2)-(off+len));
-
-	ok = unify(q, p4, p4_ctx, &tmp2, q->st.curr_frame);
-	unshare_cell(&tmp2);
-	return ok;
-}
-
-static bool fn_sre_match_4(query *q)
-{
-	GET_FIRST_ARG(p1,atom);
-	GET_NEXT_ARG(p2,atom);
-	GET_NEXT_ARG(p3,atom_or_var);
-	GET_NEXT_ARG(p4,atom_or_var);
-	const char *pattern = C_STR(q, p1);
-	const char *text = C_STR(q, p2);
-	int len = 0;
-	int off = re_match(pattern, text, &len);
-	cell tmp1, tmp2;
-
-	if (!len)
-		make_atom(&tmp1, g_nil_s);
-	else
-		make_slice(q, &tmp1, p2, off, len);
-
-	bool ok = unify(q, p3, p3_ctx, &tmp1, q->st.curr_frame);
-	unshare_cell(&tmp1);
-	if (!ok) return false;
-
-	if ((size_t)(off + len) >= C_STRLEN(q, p2))
-		make_atom(&tmp2, g_nil_s);
-	else
-		make_slice(q, &tmp2, p2, off + len, C_STRLEN(q, p2)-(off+len));
-
-	ok = unify(q, p4, p4_ctx, &tmp2, q->st.curr_frame);
-	unshare_cell(&tmp2);
-	return ok;
-}
-
-static bool fn_sre_substp_4(query *q)
-{
-	GET_FIRST_ARG(p1,sregex);
-	GET_NEXT_ARG(p2,atom);
-	GET_NEXT_ARG(p3,atom_or_var);
-	GET_NEXT_ARG(p4,atom_or_var);
-	re_t re = (void*)p1->val_blob->ptr;
-	const char *text = C_STR(q, p2);
-	int len = 0;
-	int off = re_matchp(re, text, &len);
-	cell tmp1, tmp2;
-
-	if (!len)
-		make_stringn(&tmp1, text, C_STRLEN(q, p2));
-	else
-		make_slice(q, &tmp1, p2, 0, off);
-
-	bool ok = unify(q, p3, p3_ctx, &tmp1, q->st.curr_frame);
-	unshare_cell(&tmp1);
-	if (!ok) return false;
-
-	if ((size_t)(off + len) >= C_STRLEN(q, p2))
-		make_atom(&tmp2, g_nil_s);
-	else
-		make_slice(q, &tmp2, p2, off + len, C_STRLEN(q, p2)-(off+len));
-
-	ok = unify(q, p4, p4_ctx, &tmp2, q->st.curr_frame);
-	unshare_cell(&tmp2);
-	return ok;
-}
-
-static bool fn_sre_subst_4(query *q)
-{
-	GET_FIRST_ARG(p1,atom);
-	GET_NEXT_ARG(p2,atom);
-	GET_NEXT_ARG(p3,atom_or_var);
-	GET_NEXT_ARG(p4,atom_or_var);
-	const char *pattern = C_STR(q, p1);
-	const char *text = C_STR(q, p2);
-	int len = 0;
-	int off = re_match(pattern, text, &len);
-	cell tmp1, tmp2;
-
-	if (!len)
-		make_stringn(&tmp1, text, C_STRLEN(q, p2));
-	else
-		make_slice(q, &tmp1, p2, 0, off);
-
-	bool ok = unify(q, p3, p3_ctx, &tmp1, q->st.curr_frame);
-	unshare_cell(&tmp1);
-	if (!ok) return false;
-
-	if ((size_t)(off + len) >= C_STRLEN(q, p2))
-		make_atom(&tmp2, g_nil_s);
-	else
-		make_slice(q, &tmp2, p2, off + len, C_STRLEN(q, p2)-(off+len));
-
-	ok = unify(q, p4, p4_ctx, &tmp2, q->st.curr_frame);
-	unshare_cell(&tmp2);
-	return ok;
-}
-
-static bool fn_parse_csv_line_2(query *q)
-{
-	GET_FIRST_ARG(p1,atom);
-	GET_NEXT_ARG(p2,var);
-	csv params = {.sep=',', .quote='"', .arity=0, .trim=false, .numbers=false, .use_strings=is_string(p1), .functor=NULL};
-	return do_parse_csv_line(q, &params, C_STR(q,p1), p2, p2_ctx);
-}
-
-static bool fn_parse_csv_line_3(query *q)
-{
-	GET_FIRST_ARG(p1,atom);
-	GET_NEXT_ARG(p2,var);
-	GET_NEXT_ARG(p3,list_or_nil);
-	bool trim = false, numbers = false, use_strings = is_string(p1), do_assert = false;
-	const char *functor = NULL;
-	int sep = ',', quote = '"';
-	unsigned arity = 0;
-	LIST_HANDLER(p3);
-
-	while (is_list(p3)) {
-		cell *h = LIST_HEAD(p3);
-		h = deref(q,h,p3_ctx);
-
-		if (is_structure(h) && (h->arity == 1)) {
-			cell *c = h + 1;
-
-			if (!strcmp("trim", C_STR(q, h)) && is_atom(c) && (c->val_off == g_true_s))
-				trim = true;
-			else if (!strcmp("numbers", C_STR(q, h)) && is_atom(c) && (c->val_off == g_true_s))
-				numbers = true;
-			else if (!strcmp("strings", C_STR(q, h)) && is_atom(c) && (c->val_off == g_true_s))
-				use_strings = true;
-			else if (!strcmp("strings", C_STR(q, h)) && is_atom(c) && (c->val_off == g_false_s))
-				use_strings = false;
-			else if (!strcmp("arity", C_STR(q, h)) && is_smallint(c))
-				arity = get_smallint(c);
-			else if (!strcmp("functor", C_STR(q, h)) && is_atom(c))
-				functor = C_STR(q, c);
-			else if (!strcmp("assert", C_STR(q, h)) && is_atom(c) && (c->val_off == g_true_s))
-				do_assert = true;
-			else if (!strcmp("sep", C_STR(q, h)) && is_atom(c) && (C_STRLEN_UTF8(c) == 1))
-				sep = peek_char_utf8(C_STR(q, c));
-			else if (!strcmp("quote", C_STR(q, h)) && is_atom(c) && (C_STRLEN_UTF8(c) == 1))
-				quote = peek_char_utf8(C_STR(q, c));
-		}
-
-		p3 = LIST_TAIL(p3);
-		p3 = deref(q,p3,p3_ctx);
-		p3_ctx = q->latest_ctx;
-	}
-
-	csv params = {.sep=sep, .quote=quote, .arity=arity, .trim=trim, .numbers=numbers, .use_strings=use_strings, .functor=functor};
-	return do_parse_csv_line(q, &params, C_STR(q,p1), !do_assert||!functor ? p2 : NULL, p2_ctx);
-}
-
-static bool fn_parse_csv_file_2(query *q)
-{
-	GET_FIRST_ARG(p1,atom);
-	GET_NEXT_ARG(p3,list_or_nil);
-	bool trim = false, numbers = false, use_strings = false;
-	bool header = false, comments = false;
-	const char *functor = NULL;
-	int sep = ',', quote = '"', comment = '#';
-	unsigned arity = 0;
-	LIST_HANDLER(p3);
-
-	const char *ext = strrchr(C_STR(q, p1), '.');
-
-	if (ext && !strcmp(ext, ".tsv"))
-		sep = '\t';
-
-	while (is_list(p3)) {
-		cell *h = LIST_HEAD(p3);
-		h = deref(q,h,p3_ctx);
-
-		if (is_structure(h) && (h->arity == 1)) {
-			cell *c = h + 1;
-
-			if (!strcmp("trim", C_STR(q, h)) && is_atom(c) && (c->val_off == g_true_s))
-				trim = true;
-			else if (!strcmp("numbers", C_STR(q, h)) && is_atom(c) && (c->val_off == g_true_s))
-				numbers = true;
-			else if (!strcmp("comments", C_STR(q, h)) && is_atom(c) && (c->val_off == g_true_s))
-				comments = true;
-			else if (!strcmp("header", C_STR(q, h)) && is_atom(c) && (c->val_off == g_true_s))
-				header = true;
-			else if (!strcmp("strings", C_STR(q, h)) && is_atom(c) && (c->val_off == g_true_s))
-				use_strings = true;
-			else if (!strcmp("strings", C_STR(q, h)) && is_atom(c) && (c->val_off == g_false_s))
-				use_strings = false;
-			else if (!strcmp("arity", C_STR(q, h)) && is_smallint(c))
-				arity = get_smallint(c);
-			else if (!strcmp("functor", C_STR(q, h)) && is_atom(c))
-				functor = C_STR(q, c);
-			else if (!strcmp("comment", C_STR(q, h)) && is_atom(c) && (C_STRLEN_UTF8(c) == 1))
-				comment = peek_char_utf8(C_STR(q, c));
-			else if (!strcmp("sep", C_STR(q, h)) && is_atom(c) && (C_STRLEN_UTF8(c) == 1))
-				sep = peek_char_utf8(C_STR(q, c));
-			else if (!strcmp("quote", C_STR(q, h)) && is_atom(c) && (C_STRLEN_UTF8(c) == 1))
-				quote = peek_char_utf8(C_STR(q, c));
-		}
-
-		p3 = LIST_TAIL(p3);
-		p3 = deref(q,p3,p3_ctx);
-		p3_ctx = q->latest_ctx;
-	}
-
-	if (!functor)
-		return throw_error(q, p3, p3_ctx, "domain_error", "missing_functor");
-
-	q->p->fp = fopen(C_STR(q, p1), "r");
-	if (!q->p->fp) return throw_error(q, p1, p1_ctx, "existence_error", "source_sink");
-	unsigned line_nbr = 0;
-	pl_idx save_hp = q->st.hp;
-	frame *f = GET_CURR_FRAME();
-	frame save_f = *f;
-	ssize_t len;
-	csv params = {.sep=sep, .quote=quote, .arity=arity, .trim=trim, .numbers=numbers, .use_strings=use_strings, .functor=functor};
-
-	while ((len = getline(&q->p->save_line, &q->p->n_line, q->p->fp)) != -1) {
-		char *line = q->p->save_line;
-		line_nbr++;
-
-		if (header) {
-			header = false;
-			continue;
-		}
-
-		if ((comments && (line[0] == comment)) || !line[0] || (line[0] == '\r') || (line[0] == '\n'))
-			continue;
-
-		if (!do_parse_csv_line(q, &params, line, NULL, 0)) {
-			//fprintf(stderr, "Error: line %u\n", line_nbr);
-			free(q->p->save_line);
-			q->p->save_line = NULL;
-			fclose(q->p->fp);
-			q->p->fp = NULL;
-			return false;
-		}
-
-		*f = save_f;
-		q->st.hp = save_hp;
-	}
-
-	free(q->p->save_line);
-	q->p->save_line = NULL;
-	fclose(q->p->fp);
-	q->p->fp = NULL;
-
-	if (!q->pl->quiet)
-		printf("%% Parsed %u lines\n", line_nbr);
-
-	return true;
-}
 
 bool fn_sys_counter_1(query *q)
 {
@@ -8250,6 +6894,7 @@ builtins g_iso_bifs[] =
 {
 	{"true", 0, fn_iso_true_0, NULL, true, false, BLAH},
 	{"fail", 0, fn_iso_fail_0, NULL, true, false, BLAH},
+	{"false", 0, fn_iso_fail_0, NULL, true, false, BLAH},
 
 	{",", 2, fn_iso_conjunction_2, ":callable,:callable", true, false, BLAH},
 	{";", 2, fn_iso_disjunction_2, ":callable,:callable", true, false, BLAH},
@@ -8287,7 +6932,6 @@ builtins g_iso_bifs[] =
 	{"throw", 1, fn_iso_throw_1, "+term", true, false, BLAH},
 	{"once", 1, fn_iso_once_1, ":callable", true, false, BLAH},
 	{"repeat", 0, fn_iso_repeat_0, NULL, true, false, BLAH},
-	{"false", 0, fn_iso_fail_0, NULL, true, false, BLAH},
 	{"atom", 1, fn_iso_atom_1, "+term", true, false, BLAH},
 	{"atomic", 1, fn_iso_atomic_1, "+term", true, false, BLAH},
 	{"number", 1, fn_iso_number_1, "+term", true, false, BLAH},
@@ -8338,17 +6982,6 @@ builtins g_other_bifs[] =
 {
 	{"*->", 2, fn_if_2, "+term,+term", false, false, BLAH},
 	{"if", 3, fn_if_3, "+term,+term,+term", false, false, BLAH},
-
-	{"cyclic_term", 1, fn_cyclic_term_1, "+term", false, false, BLAH},
-	{"current_module", 1, fn_current_module_1, "-atom", false, false, BLAH},
-	{"prolog_load_context", 2, fn_prolog_load_context_2, "+atom,?term", false, false, BLAH},
-	{"module", 1, fn_module_1, "?atom", false, false, BLAH},
-	{"modules", 1, fn_modules_1, "-list", false, false, BLAH},
-	{"attribute", 3, fn_attribute_3, "?atom,+atom,+integer", false, false, BLAH},
-	{"using", 0, fn_using_0, NULL, false, false, BLAH},
-	{"use_module", 1, fn_use_module_1, "+term", false, false, BLAH},
-	{"use_module", 2, fn_use_module_2, "+term,+list", false, false, BLAH},
-
 #ifndef WASI_TARGET_JS
 	{"sleep", 1, fn_sleep_1, "+number", false, false, BLAH},
 	{"delay", 1, fn_delay_1, "+number", false, false, BLAH},
@@ -8364,17 +6997,29 @@ builtins g_other_bifs[] =
 	{"time", 1, fn_time_1, ":callable", false, false, BLAH},
 	{"trace", 0, fn_trace_0, NULL, false, false, BLAH},
 	{"notrace", 0, fn_notrace_0, NULL, false, false, BLAH},
+	{"statistics", 0, fn_statistics_0, NULL, false, false, BLAH},
+	{"statistics", 2, fn_statistics_2, "+atom,-term", false, false, BLAH},
+
+	{"attribute", 3, fn_attribute_3, "?atom,+atom,+integer", false, false, BLAH},
+	{"put_atts", 2, fn_put_atts_2, "@variable,+term", false, false, BLAH},
+	{"get_atts", 2, fn_get_atts_2, "@variable,-term", false, false, BLAH},
+
+	{"current_module", 1, fn_current_module_1, "-atom", false, false, BLAH},
+	{"prolog_load_context", 2, fn_prolog_load_context_2, "+atom,?term", false, false, BLAH},
+	{"module", 1, fn_module_1, "?atom", false, false, BLAH},
+	{"modules", 1, fn_modules_1, "-list", false, false, BLAH},
+	{"using", 0, fn_using_0, NULL, false, false, BLAH},
+	{"use_module", 1, fn_use_module_1, "+term", false, false, BLAH},
+	{"use_module", 2, fn_use_module_2, "+term,+list", false, false, BLAH},
 	{"module_info", 2, fn_module_info_2, "+atom,-list", false, false, BLAH},
 	{"source_info", 2, fn_source_info_2, "+predicate_indicator,-list", false, false, BLAH},
+
 	{"help", 2, fn_help_2, "+predicate_indicator,+atom", false, false, BLAH},
 	{"help", 1, fn_help_1, "+predicate_indicator", false, false, BLAH},
 	{"help", 0, fn_help_0, NULL, false, false, BLAH},
 	{"module_help", 3, fn_module_help_3, "+atom,+predicate_indicator,+atom", false, false, BLAH},
 	{"module_help", 2, fn_module_help_2, "+atom,+predicate_indicator", false, false, BLAH},
 	{"module_help", 1, fn_module_help_1, "+atom", false, false, BLAH},
-	{"load_all_modules", 0, fn_load_all_modules_0, NULL, false, false, BLAH},
-
-	// Miscellaneous...
 
 	{"parse_csv_line", 2, fn_parse_csv_line_2, "+atom,-list", false, false, BLAH},
 	{"parse_csv_line", 3, fn_parse_csv_line_3, "+atom,-list,+list", false, false, BLAH},
@@ -8432,20 +7077,15 @@ builtins g_other_bifs[] =
 	{"getenv", 2, fn_getenv_2, "+atom,-atom", false, false, BLAH},
 	{"setenv", 2, fn_setenv_2, "+atom,+atom", false, false, BLAH},
 	{"unsetenv", 1, fn_unsetenv_1, "+atom", false, false, BLAH},
-	{"statistics", 0, fn_statistics_0, NULL, false, false, BLAH},
-	{"statistics", 2, fn_statistics_2, "+atom,-term", false, false, BLAH},
 	{"duplicate_term", 2, fn_iso_copy_term_2, "+term,-term", false, false, BLAH},
 	{"call_nth", 2, fn_call_nth_2, ":callable,+integer", false, false, BLAH},
 	{"limit", 2, fn_limit_2, "+integer,:callable", false, false, BLAH},
 	{"offset", 2, fn_offset_2, "+integer,+callable", false, false, BLAH},
 	{"unifiable", 3, fn_sys_unifiable_3, "+term,+term,-list", false, false, BLAH},
-	{"kv_set", 3, fn_kv_set_3, "+atomic,+term,+list", false, false, BLAH},
-	{"kv_get", 3, fn_kv_get_3, "+atomic,-term,+list", false, false, BLAH},
 	{"between", 3, fn_between_3, "+integer,+integer,-integer", false, false, BLAH},
 	{"string_length", 2, fn_string_length_2, "+string,?integer", false, false, BLAH},
 	{"crypto_n_random_bytes", 2, fn_crypto_n_random_bytes_2, "+integer,-codes", false, false, BLAH},
-	{"put_atts", 2, fn_put_atts_2, "@variable,+term", false, false, BLAH},
-	{"get_atts", 2, fn_get_atts_2, "@variable,-term", false, false, BLAH},
+	{"cyclic_term", 1, fn_cyclic_term_1, "+term", false, false, BLAH},
 
 	{"must_be", 4, fn_must_be_4, "+term,+atom,+term,?any", false, false, BLAH},
 	{"can_be", 4, fn_can_be_4, "+term,+atom,+term,?any", false, false, BLAH},
@@ -8458,7 +7098,6 @@ builtins g_other_bifs[] =
 	{"sre_substp", 4, fn_sre_substp_4, "+string,+string,-string,-string,", false, false, BLAH},
 	{"sre_subst", 4, fn_sre_subst_4, "+string,+string,-string,-string,", false, false, BLAH},
 
-	{"$quantum_eraser", 2, fn_sys_quantum_eraser_2, "-var,+string", false, false, BLAH},
 	{"$countall", 2, fn_sys_countall_2, "@callable,-integer", false, false, BLAH},
 	{"$register_cleanup", 1, fn_sys_register_cleanup_1, NULL, false, false, BLAH},
 	{"$get_level", 1, fn_sys_get_level_1, "?integer", false, false, BLAH},
@@ -8481,12 +7120,17 @@ builtins g_other_bifs[] =
 	{"$unattributed_var", 1, fn_sys_unattributed_var_1, "@variable", false, false, BLAH},
 	{"$attributed_var", 1, fn_sys_attributed_var_1, "@variable", false, false, BLAH},
 	{"$first_non_octet", 2, fn_sys_first_non_octet_2, "+chars,-integer", false, false, BLAH},
-	{"$dump_keys", 1, fn_sys_dump_keys_1, NULL, false, false, BLAH},
 	{"$skip_max_list", 4, fn_sys_skip_max_list_4, "?integer,?integer?,?term,?term", false, false, BLAH},
 #ifdef __wasi__
 	{"$host_call", 2, fn_sys_host_call_2, "+string,-string", false, false, BLAH},
 	{"$host_resume", 1, fn_sys_host_resume_1, "-string", false, false, BLAH},
 #endif
+	{"$cancel_future", 1, fn_sys_cancel_future_1, "+integer", false, false, BLAH},
+	{"$set_future", 1, fn_sys_set_future_1, "+integer", false, false, BLAH},
+	{"$asserta", 2, fn_sys_asserta_2, "+term,+atom", true, false, BLAH},
+	{"$assertz", 2, fn_sys_assertz_2, "+term,+atom", true, false, BLAH},
+	{"$clause", 2, fn_sys_clause_2, "?term,?term", false, false, BLAH},
+	{"$clause", 3, fn_sys_clause_3, "?term,?term,-string", false, false, BLAH},
 
 #if USE_OPENSSL
 	{"crypto_data_hash", 3, fn_crypto_data_hash_3, "?string,?string,?list", false, false, BLAH},
@@ -8505,16 +7149,12 @@ builtins g_other_bifs[] =
 	{"end_wait", 0, fn_end_wait_0, NULL, false, false, BLAH},
 	{"wait", 0, fn_wait_0, NULL, false, false, BLAH},
 	{"await", 0, fn_await_0, NULL, false, false, BLAH},
-	{"$cancel_future", 1, fn_sys_cancel_future_1, "+integer", false, false, BLAH},
-	{"$set_future", 1, fn_sys_set_future_1, "+integer", false, false, BLAH},
 #endif
-	{"fork", 0, fn_fork_0, NULL, false, false, BLAH},
+
 	{"yield", 0, fn_yield_0, NULL, false, false, BLAH},
+	{"fork", 0, fn_fork_0, NULL, false, false, BLAH},
 	{"send", 1, fn_send_1, "+term", false, false, BLAH},
 	{"recv", 1, fn_recv_1, "?term", false, false, BLAH},
-
-	{"$asserta", 2, fn_sys_asserta_2, "+term,+atom", true, false, BLAH},
-	{"$assertz", 2, fn_sys_assertz_2, "+term,+atom", true, false, BLAH},
 
 	{0}
 };

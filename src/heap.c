@@ -206,6 +206,9 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx p1_ctx, unsigned dept
 		return tmp;
 
 	if (is_iso_list(p1)) {
+		cell *save_p1 = p1;
+		pl_idx save_p1_ctx = p1_ctx;
+
 		while (is_iso_list(p1)) {
 			slot *e = NULL;
 			cell *h = p1 + 1;
@@ -222,7 +225,8 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx p1_ctx, unsigned dept
 			pl_idx t_ctx = p1_ctx;
 
 			both = 0;
-			if (deep_copy(t)) DEREF_SLOT(both, save_vgen, e, e->vgen, t, t_ctx, q->vgen);
+			if (deep_copy(t)) DEREF_SLOT(both, e->vgen2, e, e->vgen, t, t_ctx, q->vgen);
+			if (both) q->cycle_error = true;
 			p1 = t;
 			p1_ctx = t_ctx;
 
@@ -235,6 +239,24 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx p1_ctx, unsigned dept
 
 		cell *rec = deep_clone2_to_tmp(q, p1, p1_ctx, depth+1);
 		if (!rec) return NULL;
+
+		p1 = save_p1;
+		p1_ctx = save_p1_ctx;
+
+		while (is_iso_list(p1) && !q->cycle_error) {
+			p1 = p1 + 1; p1 += p1->nbr_cells;
+			cell *c = p1;
+			pl_idx c_ctx = p1_ctx;
+
+			if (is_var(c)) {
+				const frame *f = GET_FRAME(c_ctx);
+				slot *e = GET_SLOT(f, c->var_nbr);
+				e->vgen = e->vgen2;
+				p1 = deref(q, c, c_ctx);
+				p1_ctx = q->latest_ctx;
+			}
+		}
+
 		tmp = get_tmp_heap(q, save_idx);
 		tmp->nbr_cells = tmp_heap_used(q) - save_idx;
 		return tmp;
