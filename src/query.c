@@ -532,7 +532,7 @@ static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx l_ctx, bool 
 		slot *e = NULL;
 		uint32_t save_vgen = 0;
 		int both = 0;
-		DEREF_SLOT(both, save_vgen, e, e->vgen, h, h_ctx, q->vgen);
+		DEREF_CHECKED(both, save_vgen, e, e->vgen, h, h_ctx, q->vgen);
 		q->suspect = h;
 
 		if (is_var(h)) {
@@ -864,27 +864,6 @@ static void trim_trail(query *q)
 	}
 }
 
-static bool are_slots_ok(const query *q, const frame *f)
-{
-	const slot *e = GET_SLOT(f, 0);
-
-	for (unsigned i = 0; i < f->initial_slots; i++, e++) {
-		const cell *c = &e->c;
-
-		// If a slot is empty something may be bound to it, so nok
-		// If it's indirect (a struct) then an element may bind here, so nok
-
-		if (is_empty(c))
-			return false;
-		else if (is_var(c) && (c->var_ctx == q->st.curr_frame))
-			return false;
-		else if (is_indirect(c) && (c->var_ctx == q->st.curr_frame))
-			return false;
-	}
-
-	return true;
-}
-
 static void commit_frame(query *q, cell *body)
 {
 	q->in_commit = true;
@@ -908,8 +887,7 @@ static void commit_frame(query *q, cell *body)
 		bool tail_recursive = last_match && is_tail_recursive(q->st.curr_cell) && !choices;
 		bool tail_call = last_match && is_tail_call(q->st.curr_cell) && !choices;
 		bool vars_ok = !f->overflow && (f->initial_slots == cl->nbr_vars);
-		bool slots_ok = are_slots_ok(q, GET_NEW_FRAME());
-		tco = tail_recursive && vars_ok && slots_ok;
+		tco = tail_recursive && vars_ok;
 
 #if 0
 		fprintf(stderr,
