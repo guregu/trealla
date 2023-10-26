@@ -947,7 +947,9 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		if ((c->arity == 1) && is_interned(c) && !strcmp(src, "{}")) braces = 1;
 		cell *c1 = c->arity ? deref(q, FIRST_ARG(c), c_ctx) : NULL;
 
-		if (!braces && q->json && is_atom(c) && !is_nil(c)) {
+		if (q->json && (!strcmp(src, "true") || !strcmp(src, "false") || !strcmp(src, "null"))) {
+			dq = quote = 0;
+		} else if (!braces && q->json && is_atom(c) && !is_nil(c)) {
 			dq = quote = 1;
 		}
 
