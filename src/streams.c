@@ -802,9 +802,9 @@ static void clear_streams_properties(query *q)
 	predicate *pr = find_predicate(q->st.m, &tmp);
 
 	if (pr) {
-		for (db_entry *dbe = pr->head; dbe;) {
-			db_entry *save = dbe;
-			dbe = dbe->next;
+		for (rule *r = pr->head; r;) {
+			rule *save = r;
+			r = r->next;
 			retract_from_db(save);
 		}
 
@@ -867,7 +867,7 @@ static bool fn_iso_stream_property_2(query *q)
 		return false;
 	}
 
-	clause *cl = &q->st.dbe->cl;
+	clause *cl = &q->st.r->cl;
 	GET_FIRST_ARG(pstrx,any);
 	pstrx->flags |= FLAG_INT_STREAM | FLAG_INT_HEX;
 	stash_frame(q, cl, false);
@@ -2219,7 +2219,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 		return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 	}
 
-	xref_rule(str->p->m, str->p->cl, NULL);
+	xref_clause(str->p->m, str->p->cl, NULL);
 
 	if (str->p->nbr_vars) {
 		if (!create_vars(q, str->p->nbr_vars))
@@ -2390,7 +2390,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 	check_heap_error(tmp);
 	safe_copy_cells(tmp, str->p->cl->cells, str->p->cl->cidx-1);
 	bool ok = unify(q, p1, p1_ctx, tmp, q->st.curr_frame);
-	clear_rule(str->p->cl);
+	clear_clause(str->p->cl);
 	return ok;
 }
 

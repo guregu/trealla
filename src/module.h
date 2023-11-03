@@ -27,7 +27,7 @@ predicate *search_predicate(module *m, cell *c, bool *prebuilt);
 predicate *create_predicate(module *m, cell *c, bool *created);
 int index_cmpkey(const void *ptr1, const void *ptr2, const void *param, void *l);
 bool needs_quoting(module *m, const char *src, int srclen);
-void xref_rule(module *m, clause *t, predicate *parent);
+void xref_clause(module *m, clause *t, predicate *parent);
 void xref_db(module *m);
 builtins *get_module_help(module *m, const char *name, unsigned arity, bool *found, bool *evaluable);
 builtins *get_builtin_term(module *m, cell *c, bool *found, bool *evaluable);
@@ -47,10 +47,10 @@ bool do_foreign_struct(module *m, cell *p);
 bool do_use_foreign_module(module *m, cell *p);
 #endif
 
-db_entry *asserta_to_db(module *m, unsigned nbr_vars, cell *p1, bool consulting);
-db_entry *assertz_to_db(module *m, unsigned nbr_vars, cell *p1, bool consulting);
-db_entry *find_in_db(module *m, uuid *ref);
-db_entry *erase_from_db(module *m, uuid *ref);
+rule *asserta_to_db(module *m, unsigned nbr_vars, unsigned nbr_temporaries, cell *p1, bool consulting);
+rule *assertz_to_db(module *m, unsigned nbr_vars, unsigned nbr_temporaries, cell *p1, bool consulting);
+rule *find_in_db(module *m, uuid *ref);
+rule *erase_from_db(module *m, uuid *ref);
 
 void set_meta_predicate_in_db(module *m, cell *c);
 void set_discontiguous_in_db(module *m, const char *name, unsigned arity);
