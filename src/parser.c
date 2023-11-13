@@ -397,7 +397,7 @@ static void do_op(parser *p, cell *c, bool make_public)
 	}
 
 	unsigned specifier;
-	char *spec = DUP_STR(p, p2);
+	char *spec = DUP_STRING(p, p2);
 
 	if (!strcmp(spec, "fx"))
 		specifier = OP_FX;
@@ -428,7 +428,7 @@ static void do_op(parser *p, cell *c, bool make_public)
 		cell *h = LIST_HEAD(p3);
 
 		if (is_atom(h)) {
-			char *name = DUP_STR(p, h);
+			char *name = DUP_STRING(p, h);
 
 			if (!set_op(p->m, name, specifier, get_smallint(p1))) {
 				if (DUMP_ERRS || !p->do_read_term)
@@ -455,7 +455,7 @@ static void do_op(parser *p, cell *c, bool make_public)
 	}
 
 	if (is_atom(p3) && !is_nil(p3)) {
-		char *name = DUP_STR(p, p3);
+		char *name = DUP_STRING(p, p3);
 
 		if (!set_op(p->m, name, specifier, get_smallint(p1))) {
 			if (DUMP_ERRS || !p->do_read_term)
@@ -603,7 +603,7 @@ static bool directives(parser *p, cell *d)
 	cell *p1 = c + 1;
 
 	if (!strcmp(dirname, "help") && (c->arity == 2)) {
-		if (!is_structure(p1)) return true;
+		if (!is_compound(p1)) return true;
 		cell *p2 = p1 + p1->nbr_cells;
 		if (!is_iso_list_or_nil(p2)) return true;
 		LIST_HANDLER(p2);
@@ -613,14 +613,14 @@ static bool directives(parser *p, cell *d)
 		while (is_iso_list(p2)) {
 			cell *h = LIST_HEAD(p2);
 
-			if (is_structure(h) && is_atom(h+1) && !strcmp(C_STR(p, h), "iso")) {
+			if (is_compound(h) && is_atom(h+1) && !strcmp(C_STR(p, h), "iso")) {
 				cell *arg = h + 1;
 				iso = !strcmp(C_STR(p, arg), "true");
 			}
 
-			if (is_structure(h) && is_atom(h+1) && !strcmp(C_STR(p, h), "desc")) {
+			if (is_compound(h) && is_atom(h+1) && !strcmp(C_STR(p, h), "desc")) {
 				cell *arg = h + 1;
-				desc = DUP_STR(p, arg);
+				desc = DUP_STRING(p, arg);
 			}
 
 			p2 = LIST_TAIL(p2);
@@ -781,7 +781,7 @@ static bool directives(parser *p, cell *d)
 		while (arg->val_off == g_conjunction_s) {
 			cell *f = arg + 1;
 
-			if (!is_structure(f))
+			if (!is_compound(f))
 				break;
 
 			if (f->val_off != g_slash_s)
@@ -854,7 +854,7 @@ static bool directives(parser *p, cell *d)
 		while (is_iso_list(p2) && !g_tpl_interrupt) {
 			cell *head = LIST_HEAD(p2);
 
-			if (is_structure(head)) {
+			if (is_compound(head)) {
 				if (!strcmp(C_STR(p, head), "/")
 					|| !strcmp(C_STR(p, head), "//")) {
 					cell *f = head+1, *a = f+1;
@@ -925,7 +925,7 @@ static bool directives(parser *p, cell *d)
 #endif
 
 	if (!strcmp(dirname, "meta_predicate") && (c->arity == 1)) {
-		if (!is_structure(p1))
+		if (!is_compound(p1))
 			return true;
 	}
 
@@ -1888,30 +1888,6 @@ static cell *goal_expansion(parser *p, cell *goal)
 	return goal;
 }
 
-static cell *insert_syscall_here(parser *p, cell *c, cell *p1)
-{
-	pl_idx c_idx = c - p->cl->cells, p1_idx = p1 - p->cl->cells;
-	make_room(p, 1);
-
-	cell *last = p->cl->cells + (p->cl->cidx - 1);
-	pl_idx cells_to_move = p->cl->cidx - p1_idx;
-	cell *dst = last + 1;
-
-	while (cells_to_move--)
-		*dst-- = *last--;
-
-	p1 = p->cl->cells + p1_idx;
-	p1->tag = TAG_INTERNED;
-	p1->flags = FLAG_BUILTIN;
-	p1->fn_ptr = get_fn_ptr(fn_iso_call_1);
-	p1->val_off = g_syscall_s;
-	p1->nbr_cells = 2;
-	p1->arity = 1;
-
-	p->cl->cidx++;
-	return p->cl->cells + c_idx;
-}
-
 static cell *insert_call_here(parser *p, cell *c, cell *p1)
 {
 	pl_idx c_idx = c - p->cl->cells, p1_idx = p1 - p->cl->cells;
@@ -1971,15 +1947,11 @@ static cell *term_to_body_conversion(parser *p, cell *c)
 			c->nbr_cells = 1 + lhs->nbr_cells + rhs->nbr_cells;
 		}
 	} else if (is_prefix(c)) {
-		if ((c->val_off == g_neck_s) || (c->val_off == g_negation_s)) {
+		if (c->val_off == g_neck_s) {
 			cell *rhs = c + 1;
 
 			if (is_var(rhs)) {
-				if (c->val_off == g_negation_s)
-					c = insert_syscall_here(p, c, rhs);
-				else
-					c = insert_call_here(p, c, rhs);
-
+				c = insert_call_here(p, c, rhs);
 				rhs = c + 1;
 			} else {
 				rhs = goal_expansion(p, rhs);
@@ -1991,9 +1963,12 @@ static cell *term_to_body_conversion(parser *p, cell *c)
 	} else if (c->arity) {
 		predicate *pr = find_predicate(p->m, c);
 		bool meta = !pr || (pr && pr->is_meta_predicate);
+		bool control = false;
 
-		if (c->val_off == g_call_s)
-			meta = true;
+		if ((c->val_off == g_throw_s) && (c->arity == 1))
+			control = true;
+		else if ((c->val_off == g_catch_s) && (c->arity == 3))
+			control = true;
 
 		cell *arg = c + 1;
 		unsigned arity = c->arity;
@@ -2001,10 +1976,13 @@ static cell *term_to_body_conversion(parser *p, cell *c)
 		while (arity--) {
 			c->nbr_cells -= arg->nbr_cells;
 
-			if (meta)
+			if (meta) {
 				arg = goal_expansion(p, arg);
 
-			//arg = term_to_body_conversion(p, arg);
+			if (control)
+				arg = term_to_body_conversion(p, arg);
+			}
+
 			c->nbr_cells += arg->nbr_cells;
 			arg += arg->nbr_cells;
 		}
@@ -3602,7 +3580,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 			((*p->srcptr == ')') || (*p->srcptr == ';') || (*p->srcptr == ',') || (*p->srcptr == '.')))
 			p->quote_char = 1;
 
-		if (p->quote_char) {
+		if (p->quote_char && last_op) {
 			specifier = 0;
 			priority = 0;
 		}

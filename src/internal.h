@@ -57,8 +57,6 @@ typedef uint32_t pl_idx;
 char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #endif
 
-extern unsigned g_string_cnt, g_interned_cnt;
-
 // Sentinel Value
 #define ERR_IDX (~(pl_idx)0)
 #define IDX_MAX (ERR_IDX-1)
@@ -172,8 +170,8 @@ extern unsigned g_string_cnt, g_interned_cnt;
 #define is_ref(c) (is_var(c) && ((c)->flags & FLAG_VAR_REF))
 #define is_op(c) (c->flags & 0xE000) ? true : false
 #define is_callable(c) (is_interned(c) || (is_cstring(c) && !is_string(c)))
-#define is_structure(c) (is_interned(c) && (c)->arity)
-#define is_compound(c) (is_structure(c) || is_string(c))
+#define is_compound(c) (is_interned(c) && (c)->arity)
+#define is_structure(c) (is_compound(c) || is_string(c))
 #define is_number(c) (is_integer(c) || is_float(c) || is_rational(c))
 #define is_atomic(c) (is_atom(c) || is_number(c))
 #define is_iso_atomic(c) (is_iso_atom(c) || is_number(c))
@@ -202,7 +200,6 @@ typedef struct {
 	strb->cstr[n] = 0;											\
 	strb->len = n;												\
 	strb->refcnt = 1;											\
-	g_string_cnt++;												\
 	(c)->val_strb = strb;										\
 	(c)->strb_off = off;										\
 	(c)->strb_len = n;											\
@@ -242,10 +239,10 @@ typedef struct {
 #define _CMP_SLICES(pl,c1,c2) slicecmp(_C_STR(pl, c1), _C_STRLEN(pl, c1), _C_STR(pl, c2), _C_STRLEN(pl, c2))
 #define _DUP_SLICE(pl,c) slicedup(_C_STR(pl, c), _C_STRLEN(pl, c))
 
-#define CMP_STR_TO_CSTRN(x,c,str,len) _CMP_SLICE((x)->pl, c, str, len)
-#define CMP_STR_TO_CSTR(x,c,str) _CMP_SLICE2((x)->pl, c, str)
-#define CMP_STR_TO_STR(x,c1,c2) _CMP_SLICES((x)->pl, c1, c2)
-#define DUP_STR(x,c) _DUP_SLICE((x)->pl, c)
+#define CMP_STRING_TO_CSTRN(x,c,str,len) _CMP_SLICE((x)->pl, c, str, len)
+#define CMP_STRING_TO_CSTR(x,c,str) _CMP_SLICE2((x)->pl, c, str)
+#define CMP_STRING_TO_STRING(x,c1,c2) _CMP_SLICES((x)->pl, c1, c2)
+#define DUP_STRING(x,c) _DUP_SLICE((x)->pl, c)
 
 // If changing the order of these: see unify.c dispatch table
 
@@ -277,13 +274,12 @@ enum {
 	FLAG_VAR_ANON=1<<0,					// used with TAG_VAR
 	FLAG_VAR_FRESH=1<<1,				// used with TAG_VAR
 	FLAG_VAR_REF=1<<2,					// used with TAG_VAR
-	FLAG_VAR_ATTR=1<<3,					// used with TAG_VAR
-	FLAG_VAR_TEMPORARY=1<<4,			// used with TAG_VAR
+	FLAG_VAR_TEMPORARY=1<<3,			// used with TAG_VAR
 
 	FLAG_HANDLE_DLL=1<<0,				// used with FLAG_INT_HANDLE
 	FLAG_HANDLE_FUNC=1<<1,				// used with FLAG_INT_HANDLE
 
-	FLAG_BLOB_SRE=1<<0,					// used with TAG_BLOB
+	FLAG_BLOB_SREGEX=1<<0,					// used with TAG_BLOB
 
 	FLAG_TAIL_CALL=1<<7,
 	FLAG_TAIL_RECURSIVE=1<<8,
@@ -440,7 +436,7 @@ struct rule_ {
 	const char *filename;
 	rule *dirty;
 	uuid u;
-	uint64_t db_id;
+	uint64_t db_id, matched, attempted, tcos;
 	unsigned line_nbr_start, line_nbr_end;
 	clause cl;
 };
@@ -524,7 +520,8 @@ struct slot_ {
 struct frame_ {
 	cell *curr_cell;
 	uint64_t dbgen, chgen;
-	pl_idx prev_offset, hp, base, overflow, initial_slots, actual_slots;
+	pl_idx prev_offset, hp;
+	pl_idx base, overflow, initial_slots, actual_slots;
 	uint32_t mid;
 };
 
@@ -536,13 +533,13 @@ struct prolog_state_ {
 	module *m;
 
 	union {
-		struct { cell *key; bool karg1_is_ground:1; bool karg2_is_ground:1; };
+		struct { cell *key; bool karg1_is_ground:1, karg2_is_ground:1, karg1_is_atomic:1, karg2_is_atomic:1; };
 		struct { uint64_t v1, v2; };
 		int64_t cnt;
 	};
 
 	uint64_t timer_started;
-	pl_idx curr_frame, fp, hp, tp, sp, pp, key_ctx;
+	pl_idx curr_frame, fp, hp, tp, sp, heap_nbr, key_ctx;
 	float prob;
 	uint8_t qnbr;
 };
@@ -609,8 +606,8 @@ struct stream_ {
 
 struct page_ {
 	page *next;
-	cell *heap;
-	pl_idx hp, max_hp_used, h_size;
+	cell *cells;
+	pl_idx idx, max_idx_used, page_size;
 	unsigned nbr;
 };
 
@@ -643,7 +640,7 @@ struct query_ {
 	trail *trails;
 	cell *tmp_heap, *last_arg, *variable_names, *ball, *suspect;
 	cell *queue[MAX_QUEUES], *tmpq[MAX_QUEUES];
-	page *pages;
+	page *heap_pages;
 	slot *save_e;
 	rule *dirty_list;
 	query *tasks;
@@ -664,7 +661,7 @@ struct query_ {
 	pl_idx frames_size, slots_size, trails_size, choices_size;
 	pl_idx hw_choices, hw_frames, hw_slots, hw_trails;
 	pl_idx cp, before_hook_tp, qcnt[MAX_QUEUES];
-	pl_idx h_size, tmph_size, tot_heaps, tot_heapsize, undo_lo_tp, undo_hi_tp;
+	pl_idx heap_size, tmph_size, tot_heaps, tot_heapsize, undo_lo_tp, undo_hi_tp;
 	pl_idx q_size[MAX_QUEUES], tmpq_size[MAX_QUEUES], qp[MAX_QUEUES];
 	prolog_flags flags;
 	enum q_retry retry;
@@ -707,7 +704,6 @@ struct query_ {
 	bool run_init:1;
 	bool varnames:1;
 	bool listing:1;
-	bool in_commit:1;
 	bool did_quote:1;
 	bool is_input:1;
 	bool is_engine:1;
@@ -861,7 +857,6 @@ inline static void unshare_cell_(cell *c)
 		if (--(c)->val_strb->refcnt == 0) {
 			free((c)->val_strb);
 			c->flags = 0;
-			g_string_cnt--;
 		}
 	} else if (is_bigint(c)) {
 		if (--(c)->val_bigint->refcnt == 0)	{
@@ -903,6 +898,22 @@ inline static pl_idx safe_copy_cells(cell *dst, const cell *src, pl_idx nbr_cell
 
 	for (pl_idx i = 0; i < nbr_cells; i++, src++)
 		share_cell(src);
+
+	return nbr_cells;
+}
+
+inline static pl_idx safe_copy_cells_by_ref(cell *dst, const cell *src, pl_idx src_ctx, pl_idx nbr_cells)
+{
+	memcpy(dst, src, sizeof(cell)*nbr_cells);
+
+	for (pl_idx i = 0; i < nbr_cells; i++, dst++) {
+		share_cell(dst);
+
+		if (is_var(dst) && !is_ref(dst)) {
+			dst->flags |= FLAG_VAR_REF;
+			dst->var_ctx = src_ctx;
+		}
+	}
 
 	return nbr_cells;
 }
@@ -950,7 +961,7 @@ inline static int fake_strcmp(const void *ptr1, const void *ptr2, const void *pa
 	char *str;																\
 	size_t str##_len;														\
 	if (is_cstring(p)) {													\
-		str = DUP_STR(q, p);												\
+		str = DUP_STRING(q, p);												\
 		str##_len = C_STRLEN(q, p);											\
 	} else if ((str##_len = scan_is_chars_list(q, p, p##_ctx, true)) > 0) {	\
 		str = chars_list_to_string(q, p, p##_ctx, str##_len);				\

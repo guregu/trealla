@@ -274,7 +274,7 @@ size_t sprint_int(char *dst, size_t dstlen, pl_int n, int base)
 		else
 			dst++;
 
-		// NOTE: according to the man pages:
+		// NOTE: according to the man heap_pages:
 		//
 		//		"Trying to take the absolute value of
 		// 		the most negative integer is not defined."
@@ -431,8 +431,8 @@ static bool dump_variable(query *q, cell *c, pl_idx c_ctx, bool running)
 		h = running ? deref(q, h, l_ctx) : h;
 		pl_idx h_ctx = running ? q->latest_ctx : 0;
 		cell *name = running ? deref(q, h+1, h_ctx) : h+1;
-		cell *v = running ? deref(q, h+2, h_ctx) : h + 2;
-		pl_idx v_ctx = c_ctx;
+		cell *v = running ? deref(q, h+2, h_ctx) : h+2;
+		pl_idx v_ctx = running ? q->latest_ctx : 0;
 
 		if (is_var(v) && (v->var_nbr == c->var_nbr) && (v_ctx == c_ctx)) {
 			if (0 && !strcmp(C_STR(q, name), "_")) {
@@ -524,6 +524,7 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 	cell *orig_c = c;
 	pl_idx orig_c_ctx = c_ctx;
 	unsigned print_list = 0;
+	bool any1 = false, any2 = false;
 
 	while (is_iso_list(c)) {
 		if (g_tpl_interrupt)
@@ -550,7 +551,7 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 		slot *e = NULL;
 		uint64_t save_vgen = 0;
 		int both = 0;
-		if (running) DEREF_CHECKED(both, save_vgen, e, e->vgen, head, head_ctx, q->print_vgen)
+		if (running) DEREF_CHECKED(any1, both, save_vgen, e, e->vgen, head, head_ctx, q->print_vgen)
 
 		if ((head == orig_c) && (head_ctx == orig_c_ctx)) {
 			head = c + 1;
@@ -571,7 +572,7 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 				|| !strcmp(C_STR(q, head), "-->"));
 		}
 
-		int parens = is_structure(head) && special_op;
+		int parens = is_compound(head) && special_op;
 		if (parens) {  SB_sprintf(q->sb, "%s", "("); }
 		q->parens = parens;
 		print_term_to_buf_(q, head, head_ctx, running, -1, 0, depth+1);
@@ -589,7 +590,7 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 		cell *save_tail = tail;
 		both = 0;
 
-		if (running) DEREF_CHECKED(both, e->save_vgen, e, e->vgen, tail, tail_ctx, q->print_vgen);
+		if (running) DEREF_CHECKED(any2, both, e->save_vgen, e, e->vgen, tail, tail_ctx, q->print_vgen);
 
 		if (both || q->cycle_error || (q->max_depth && (print_depth >= q->max_depth))) {
 			SB_sprintf(q->sb, "%s", "|...]");
@@ -600,7 +601,7 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 
 		size_t tmp_len = 0;
 
-		if (is_interned(tail) && !is_structure(tail)) {
+		if (is_interned(tail) && !is_compound(tail)) {
 			const char *src = C_STR(q, tail);
 
 			if (strcmp(src, "[]")) {
@@ -1008,10 +1009,11 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		SB_sprintf(q->sb, "%s", !braces&&quote?dq?"\"":"'":"");
 		q->did_quote = !braces&&quote;
 
-		if (is_structure(c) && !is_string(c)) {
+		if (is_compound(c) && !is_string(c)) {
 			pl_idx arity = c->arity;
 			SB_sprintf(q->sb, "%s", braces&&!q->ignore_ops?"{":"(");
 			q->parens = true;
+			bool any = false;
 
 			for (c++; arity--; c += c->nbr_cells) {
 				cell *tmp = c;
@@ -1019,13 +1021,14 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 				slot *e = NULL;
 				uint64_t save_vgen = 0;
 				int both = 0;
-				if (running) DEREF_CHECKED(both, save_vgen, e, e->vgen, tmp, tmp_ctx, q->print_vgen);
+				if (running) DEREF_CHECKED(any, both, save_vgen, e, e->vgen, tmp, tmp_ctx, q->print_vgen);
 
 				if ((tmp == save_c) && (tmp_ctx == save_c_ctx)) {
 					tmp = c;
 					tmp_ctx = c_ctx;
 					SB_sprintf(q->sb, "%s", !is_ref(tmp) ? C_STR(q, tmp) : "_");
 					if (e) e->vgen = save_vgen;
+					if (arity) {SB_sprintf(q->sb, "%s", ","); }
 					continue;
 				}
 
@@ -1080,8 +1083,9 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 
 		slot *e = NULL;
 		uint32_t save_vgen = 0;
+		bool any = false;
 		int both = 0;
-		if (running) DEREF_CHECKED(both, save_vgen, e, e->vgen, lhs, lhs_ctx, q->print_vgen);
+		if (running) DEREF_CHECKED(any, both, save_vgen, e, e->vgen, lhs, lhs_ctx, q->print_vgen);
 
 		if (!is_var(lhs) && q->max_depth && ((depth+1) >= q->max_depth)) {
 			if (q->last_thing != WAS_SPACE) SB_sprintf(q->sb, "%s", " ");
@@ -1132,8 +1136,9 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		pl_idx rhs_ctx = c_ctx;
 		slot *e = NULL;
 		uint32_t save_vgen = 0;
+		bool any = false;
 		int both = 0;
-		if (running) DEREF_CHECKED(both, save_vgen, e, e->vgen, rhs, rhs_ctx, q->print_vgen);
+		if (running) DEREF_CHECKED(any, both, save_vgen, e, e->vgen, rhs, rhs_ctx, q->print_vgen);
 
 		unsigned my_priority = search_op(q->st.m, src, NULL, true);
 		unsigned rhs_pri = is_interned(rhs) ? search_op(q->st.m, C_STR(q, rhs), NULL, true) : 0;
@@ -1210,11 +1215,12 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 	pl_idx rhs_ctx = c_ctx;
 	slot *e = NULL;
 	uint32_t save_vgen = 0;
+	bool any = false;
 	int both = 0;
-	if (running) DEREF_CHECKED(both, save_vgen, e, e->vgen, lhs, lhs_ctx, q->print_vgen);
+	if (running) DEREF_CHECKED(any, both, save_vgen, e, e->vgen, lhs, lhs_ctx, q->print_vgen);
 	if (e) e->vgen = save_vgen;
 	e = NULL;
-	if (running) DEREF_CHECKED(both, save_vgen, e, e->vgen, rhs, rhs_ctx, q->print_vgen);
+	if (running) DEREF_CHECKED(any, both, save_vgen, e, e->vgen, rhs, rhs_ctx, q->print_vgen);
 	if (e) e->vgen = save_vgen;
 
 	unsigned lhs_pri_1 = is_interned(lhs) ? search_op(q->st.m, C_STR(q, lhs), NULL, is_prefix(rhs)) : 0;
@@ -1227,7 +1233,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 	bool lhs_parens = lhs_pri_1 >= my_priority;
 	if ((lhs_pri_1 == my_priority) && is_yfx(c)) lhs_parens = false;
 	if (lhs_pri_2 > 0) lhs_parens = true;
-	if (is_structure(lhs) && (lhs_pri_1 <= my_priority) && (lhs->val_off == g_plus_s)) { lhs_parens = false; }
+	if (is_compound(lhs) && (lhs_pri_1 <= my_priority) && (lhs->val_off == g_plus_s)) { lhs_parens = false; }
 	bool lhs_space = false;
 
 	if ((q->last_thing != WAS_SPACE) && lhs_space) {

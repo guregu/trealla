@@ -5,7 +5,6 @@
 builtins *get_builtin(prolog *pl, const char *name, size_t len, unsigned arity, bool *found, bool *evaluable);
 builtins *get_help(prolog *pl, const char *name, unsigned arity, bool *found, bool *evaluable);
 module *find_module(prolog *pl, const char *name);
-module *find_next_module(prolog *pl, module *m);
 pl_idx new_atom(prolog *pl, const char *name);
 bool is_multifile_in_db(prolog *pl, const char *mod, const char *name, unsigned arity);
 void load_builtins(prolog *pl);
@@ -24,8 +23,8 @@ extern pl_idx g_dcg_s, g_throw_s, g_sys_block_catcher_s, g_sys_drop_barrier_s;
 extern pl_idx g_if_then_s, g_soft_cut_s, g_negation_s;
 extern pl_idx g_error_s, g_slash_s, g_sys_cleanup_if_det_s;
 extern pl_idx g_goal_expansion_s, g_term_expansion_s, g_tm_s, g_float_s;
-extern pl_idx g_sys_cut_if_det_s, g_as_s, g_colon_s;
-extern pl_idx g_caret_s, g_syscall_s, g_sys_counter_s;
+extern pl_idx g_sys_cut_if_det_s, g_as_s, g_colon_s, g_member_s;
+extern pl_idx g_caret_s, g_sys_counter_s, g_catch_s, g_memberchk_s;
 
 extern void convert_path(char *filename);
 

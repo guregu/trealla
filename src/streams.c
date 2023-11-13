@@ -601,7 +601,7 @@ static bool do_stream_property(query *q)
 	c = deref(q, c, p1_ctx);
 	pl_idx c_ctx = q->latest_ctx;
 
-	if (!CMP_STR_TO_CSTR(q, p1, "file_name")) {
+	if (!CMP_STRING_TO_CSTR(q, p1, "file_name")) {
 		cell tmp;
 		make_cstring(&tmp, str->filename);
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
@@ -609,7 +609,7 @@ static bool do_stream_property(query *q)
 		return ok;
 	}
 
-	if (!CMP_STR_TO_CSTR(q, p1, "file_no")) {
+	if (!CMP_STRING_TO_CSTR(q, p1, "file_no")) {
 		if (!str->fp)
 			return false;
 
@@ -620,7 +620,7 @@ static bool do_stream_property(query *q)
 		return ok;
 	}
 
-	if (!CMP_STR_TO_CSTR(q, p1, "file")) {
+	if (!CMP_STRING_TO_CSTR(q, p1, "file")) {
 		if (!str->fp)
 			return false;
 
@@ -631,7 +631,7 @@ static bool do_stream_property(query *q)
 		return ok;
 	}
 
-	if (!CMP_STR_TO_CSTR(q, p1, "alias")) {
+	if (!CMP_STRING_TO_CSTR(q, p1, "alias")) {
 		cell tmp;
 		sliter *iter = sl_first(str->alias);
 		bool ok = false;
@@ -648,7 +648,7 @@ static bool do_stream_property(query *q)
 		return ok;
 	}
 
-	if (!CMP_STR_TO_CSTR(q, p1, "mode")) {
+	if (!CMP_STRING_TO_CSTR(q, p1, "mode")) {
 		cell tmp;
 		make_cstring(&tmp, str->mode);
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
@@ -656,7 +656,7 @@ static bool do_stream_property(query *q)
 		return ok;
 	}
 
-	if (!CMP_STR_TO_CSTR(q, p1, "engine")) {
+	if (!CMP_STRING_TO_CSTR(q, p1, "engine")) {
 		cell tmp;
 		make_cstring(&tmp, str->is_engine?"true":"false");
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
@@ -664,7 +664,7 @@ static bool do_stream_property(query *q)
 		return ok;
 	}
 
-	if (!CMP_STR_TO_CSTR(q, p1, "mutex")) {
+	if (!CMP_STRING_TO_CSTR(q, p1, "mutex")) {
 		cell tmp;
 		make_cstring(&tmp, false?"true":"false");
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
@@ -672,7 +672,7 @@ static bool do_stream_property(query *q)
 		return ok;
 	}
 
-	if (!CMP_STR_TO_CSTR(q, p1, "skiplist")) {
+	if (!CMP_STRING_TO_CSTR(q, p1, "skiplist")) {
 		cell tmp;
 		make_cstring(&tmp, str->is_map?"true":"false");
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
@@ -680,7 +680,7 @@ static bool do_stream_property(query *q)
 		return ok;
 	}
 
-	if (!CMP_STR_TO_CSTR(q, p1, "bom") && !str->binary) {
+	if (!CMP_STRING_TO_CSTR(q, p1, "bom") && !str->binary) {
 		cell tmp;
 		make_cstring(&tmp, str->bom?"true":"false");
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
@@ -688,7 +688,7 @@ static bool do_stream_property(query *q)
 		return ok;
 	}
 
-	if (!CMP_STR_TO_CSTR(q, p1, "type")) {
+	if (!CMP_STRING_TO_CSTR(q, p1, "type")) {
 		cell tmp;
 		make_cstring(&tmp, str->binary ? "binary" : "text");
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
@@ -696,7 +696,7 @@ static bool do_stream_property(query *q)
 		return ok;
 	}
 
-	if (!CMP_STR_TO_CSTR(q, p1, "reposition")) {
+	if (!CMP_STRING_TO_CSTR(q, p1, "reposition")) {
 		cell tmp;
 		make_cstring(&tmp, str->socket || (n <= 2) ? "false" : str->repo ? "true" : "false");
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
@@ -704,7 +704,7 @@ static bool do_stream_property(query *q)
 		return ok;
 	}
 
-	if (!CMP_STR_TO_CSTR(q, p1, "encoding") && !str->binary) {
+	if (!CMP_STRING_TO_CSTR(q, p1, "encoding") && !str->binary) {
 		cell tmp;
 		make_cstring(&tmp, "UTF-8");
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
@@ -712,7 +712,7 @@ static bool do_stream_property(query *q)
 		return ok;
 	}
 
-	if (!CMP_STR_TO_CSTR(q, p1, "newline")) {
+	if (!CMP_STRING_TO_CSTR(q, p1, "newline")) {
 		cell tmp;
 		make_cstring(&tmp, NEWLINE_MODE);
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
@@ -720,13 +720,13 @@ static bool do_stream_property(query *q)
 		return ok;
 	}
 
-	if (!CMP_STR_TO_CSTR(q, p1, "input"))
+	if (!CMP_STRING_TO_CSTR(q, p1, "input"))
 		return !strcmp(str->mode, "read");
 
-	if (!CMP_STR_TO_CSTR(q, p1, "output"))
+	if (!CMP_STRING_TO_CSTR(q, p1, "output"))
 		return strcmp(str->mode, "read");
 
-	if (!CMP_STR_TO_CSTR(q, p1, "eof_action") && is_stream(pstr)) {
+	if (!CMP_STRING_TO_CSTR(q, p1, "eof_action") && is_stream(pstr)) {
 		cell tmp;
 
 		if (str->eof_action == eof_action_eof_code)
@@ -741,7 +741,7 @@ static bool do_stream_property(query *q)
 		return unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 	}
 
-	if (!CMP_STR_TO_CSTR(q, p1, "end_of_stream") && is_stream(pstr)) {
+	if (!CMP_STRING_TO_CSTR(q, p1, "end_of_stream") && is_stream(pstr)) {
 		bool at_end_of_file = false;
 
 		if (!str->at_end_of_file && (n > 2)) {
@@ -777,13 +777,13 @@ static bool do_stream_property(query *q)
 		return unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 	}
 
-	if (!CMP_STR_TO_CSTR(q, p1, "position") && !is_var(pstr)) {
+	if (!CMP_STRING_TO_CSTR(q, p1, "position") && !is_var(pstr)) {
 		cell tmp;
 		make_int(&tmp, ftello(str->fp));
 		return unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 	}
 
-	if (!CMP_STR_TO_CSTR(q, p1, "line_count") && !is_var(pstr)) {
+	if (!CMP_STRING_TO_CSTR(q, p1, "line_count") && !is_var(pstr)) {
 		cell tmp;
 		make_int(&tmp, str->p->line_nbr);
 		return unify(q, c, c_ctx, &tmp, q->st.curr_frame);
@@ -917,7 +917,7 @@ static bool fn_popen_4(query *q)
 	char *filename;
 
 	if (is_atom(p1))
-		filename = src = DUP_STR(q, p1);
+		filename = src = DUP_STRING(q, p1);
 	else
 		return throw_error(q, p1, p1_ctx, "domain_error", "source_sink");
 
@@ -937,7 +937,7 @@ static bool fn_popen_4(query *q)
 	str->pipe = true;
 	if (!str->alias) str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL);
 	check_heap_error(str->filename = strdup(filename));
-	check_heap_error(str->mode = DUP_STR(q, p2));
+	check_heap_error(str->mode = DUP_STRING(q, p2));
 	bool binary = false;
 	uint8_t eof_action = eof_action_eof_code;
 	LIST_HANDLER(p4);
@@ -949,7 +949,7 @@ static bool fn_popen_4(query *q)
 		if (is_var(c))
 			return throw_error(q, c, q->latest_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
 
-		if (is_structure(c) && (c->arity == 1)) {
+		if (is_compound(c) && (c->arity == 1)) {
 			cell *name = c + 1;
 			name = deref(q, name, q->latest_ctx);
 
@@ -957,27 +957,27 @@ static bool fn_popen_4(query *q)
 			if (get_named_stream(q->pl, C_STR(q, name), C_STRLEN(q, name)) >= 0)
 				return throw_error(q, c, q->latest_ctx, "permission_error", "open,source_sink");
 
-			if (!CMP_STR_TO_CSTR(q, c, "alias")) {
-				if (!CMP_STR_TO_CSTR(q, name, "current_input")) {
+			if (!CMP_STRING_TO_CSTR(q, c, "alias")) {
+				if (!CMP_STRING_TO_CSTR(q, name, "current_input")) {
 					q->pl->current_input = n;
-				} else if (!CMP_STR_TO_CSTR(q, name, "current_output")) {
+				} else if (!CMP_STRING_TO_CSTR(q, name, "current_output")) {
 					q->pl->current_output = n;
-				} else if (!CMP_STR_TO_CSTR(q, name, "current_error")) {
+				} else if (!CMP_STRING_TO_CSTR(q, name, "current_error")) {
 					q->pl->current_error = n;
 				} else {
-					sl_set(str->alias, DUP_STR(q, name), NULL);
+					sl_set(str->alias, DUP_STRING(q, name), NULL);
 				}
-			} else if (!CMP_STR_TO_CSTR(q, c, "type")) {
-				if (is_atom(name) && !CMP_STR_TO_CSTR(q, name, "binary")) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "type")) {
+				if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "binary")) {
 					binary = true;
-				} else if (is_atom(name) && !CMP_STR_TO_CSTR(q, name, "text"))
+				} else if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "text"))
 					binary = false;
-			} else if (!CMP_STR_TO_CSTR(q, c, "eof_action")) {
-				if (is_atom(name) && !CMP_STR_TO_CSTR(q, name, "error")) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "eof_action")) {
+				if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "error")) {
 					eof_action = eof_action_error;
-				} else if (is_atom(name) && !CMP_STR_TO_CSTR(q, name, "eof_code")) {
+				} else if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "eof_code")) {
 					eof_action = eof_action_eof_code;
-				} else if (is_atom(name) && !CMP_STR_TO_CSTR(q, name, "reset")) {
+				} else if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "reset")) {
 					eof_action = eof_action_reset;
 				}
 			}
@@ -1030,7 +1030,7 @@ static bool fn_process_create_3(query *q)
 	char *filename;
 
 	if (is_atom(p1))
-		filename = src = DUP_STR(q, p1);
+		filename = src = DUP_STRING(q, p1);
 	else
 		return throw_error(q, p1, p1_ctx, "domain_error", "source_sink");
 
@@ -1063,7 +1063,7 @@ static bool fn_process_create_3(query *q)
 		if (!is_atom(c))
 			return throw_error(q, c, c_ctx, "domain_error", "args");
 
-		arguments[args++] = DUP_STR(q, c);
+		arguments[args++] = DUP_STRING(q, c);
 		p2 = LIST_TAIL(p2);
 		p2 = deref(q, p2, p2_ctx);
 		p2_ctx = q->latest_ctx;
@@ -1084,28 +1084,28 @@ static bool fn_process_create_3(query *q)
 		cell *c = deref(q, h, p3_ctx);
 		pl_idx c_ctx = q->latest_ctx;
 
-		if (is_structure(c) && (c->arity == 1)) {
+		if (is_compound(c) && (c->arity == 1)) {
 			cell *name = c + 1;
 			name = deref(q, name, c_ctx);
 			pl_idx name_ctx = q->latest_ctx;
 
-			if (!CMP_STR_TO_CSTR(q, c, "process") || !CMP_STR_TO_CSTR(q, c, "pid")) {
+			if (!CMP_STRING_TO_CSTR(q, c, "process") || !CMP_STRING_TO_CSTR(q, c, "pid")) {
 				ppid = name;
 				ppid_ctx = name_ctx;
-			} else if (!CMP_STR_TO_CSTR(q, c, "detached")) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "detached")) {
 #if (defined(__GLIBC__) && (__GLIBC__ < 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ < 26))) || !defined(POSIX_SPAWN_SETSID)
 				return throw_error(q, c, c_ctx, "not available", "posix_spawnattr_setflags");
 #else
 				posix_spawnattr_setflags(&attrp, POSIX_SPAWN_SETSID);
 #endif
-			} else if (!CMP_STR_TO_CSTR(q, c, "cwd")) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "cwd")) {
 #ifndef posix_spawn_file_actions_addchdir_np
 				return throw_error(q, c, c_ctx, "not available", "posix_spawn_file_actions_addchdir_np");
 #else
 				cwd = C_STR(q, name);
 				posix_spawn_file_actions_addchdir_np(&file_actions, cwd);
 #endif
-			} else if (!CMP_STR_TO_CSTR(q, c, "env") && is_list_or_nil(name)) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "env") && is_list_or_nil(name)) {
 				LIST_HANDLER(name);
 				memset(environments, 0, sizeof(environments));
 				envs = 0;
@@ -1114,7 +1114,7 @@ static bool fn_process_create_3(query *q)
 					cell *h = LIST_HEAD(name);
 					cell *c = deref(q, h, name_ctx);
 
-					if (is_structure(c) && (c->arity == 2) && (c->val_off == g_eq_s)) {
+					if (is_compound(c) && (c->arity == 2) && (c->val_off == g_eq_s)) {
 						cell *p1 = c + 1, *p2 = c + 2;
 						SB(pr);
 
@@ -1132,14 +1132,14 @@ static bool fn_process_create_3(query *q)
 					name_ctx = q->latest_ctx;
 				}
 
-			} else if (!CMP_STR_TO_CSTR(q, c, "environment") && is_list_or_nil(name)) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "environment") && is_list_or_nil(name)) {
 				LIST_HANDLER(name);
 
 				while (is_iso_list(name)) {
 					cell *h = LIST_HEAD(name);
 					cell *c = deref(q, h, name_ctx);
 
-					if (is_structure(c) && (c->arity == 2) && (c->val_off == g_eq_s)) {
+					if (is_compound(c) && (c->arity == 2) && (c->val_off == g_eq_s)) {
 						cell *p1 = c + 1, *p2 = c + 2;
 						SB(pr);
 
@@ -1157,12 +1157,12 @@ static bool fn_process_create_3(query *q)
 					name_ctx = q->latest_ctx;
 				}
 
-			} else if (!CMP_STR_TO_CSTR(q, c, "stdin") && !CMP_STR_TO_CSTR(q, name, "std")) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stdin") && !CMP_STRING_TO_CSTR(q, name, "std")) {
 				posix_spawn_file_actions_adddup2(&file_actions, q->pl->current_input, 0);
-			} else if (!CMP_STR_TO_CSTR(q, c, "stdin") && !CMP_STR_TO_CSTR(q, name, "null")) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stdin") && !CMP_STRING_TO_CSTR(q, name, "null")) {
 				posix_spawn_file_actions_addopen(&file_actions, 0, "/dev/null", O_RDONLY, 0);
-			} else if (!CMP_STR_TO_CSTR(q, c, "stdin") && !CMP_STR_TO_CSTR(q, name, "pipe")
-				&& is_structure(name) && (name->arity == 1) && is_var(name+1)) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stdin") && !CMP_STRING_TO_CSTR(q, name, "pipe")
+				&& is_compound(name) && (name->arity == 1) && is_var(name+1)) {
 				cell *ns = deref(q, name+1, name_ctx);
 				pl_idx ns_ctx = q->latest_ctx;
 				int n = new_stream(q->pl);
@@ -1176,17 +1176,17 @@ static bool fn_process_create_3(query *q)
 				tmp.flags |= FLAG_INT_STREAM | FLAG_INT_HEX;
 				unify(q, ns, ns_ctx, &tmp, q->st.curr_frame);
 
-			} else if (!CMP_STR_TO_CSTR(q, c, "stdin") && !CMP_STR_TO_CSTR(q, name, "stream")) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stdin") && !CMP_STRING_TO_CSTR(q, name, "stream")) {
 				cell *ns = deref(q, name, name_ctx);
 				int n = get_stream(q, ns);
 				posix_spawn_file_actions_adddup2(&file_actions, fileno(q->pl->streams[n].fp), 0);
 
-			} else if (!CMP_STR_TO_CSTR(q, c, "stdout") && !CMP_STR_TO_CSTR(q, name, "std")) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stdout") && !CMP_STRING_TO_CSTR(q, name, "std")) {
 				posix_spawn_file_actions_adddup2(&file_actions, q->pl->current_output, 1);
-			} else if (!CMP_STR_TO_CSTR(q, c, "stdout") && !CMP_STR_TO_CSTR(q, name, "null")) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stdout") && !CMP_STRING_TO_CSTR(q, name, "null")) {
 				posix_spawn_file_actions_addopen(&file_actions, 1, "/dev/null", O_WRONLY, 0);
-			} else if (!CMP_STR_TO_CSTR(q, c, "stdout") && !CMP_STR_TO_CSTR(q, name, "pipe")
-				&& is_structure(name) && (name->arity == 1) && is_var(name+1)) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stdout") && !CMP_STRING_TO_CSTR(q, name, "pipe")
+				&& is_compound(name) && (name->arity == 1) && is_var(name+1)) {
 				cell *ns = deref(q, name+1, name_ctx);
 				pl_idx ns_ctx = q->latest_ctx;
 				int n = new_stream(q->pl);
@@ -1200,17 +1200,17 @@ static bool fn_process_create_3(query *q)
 				tmp.flags |= FLAG_INT_STREAM | FLAG_INT_HEX;
 				unify(q, ns, ns_ctx, &tmp, q->st.curr_frame);
 
-			} else if (!CMP_STR_TO_CSTR(q, c, "stdout") && !CMP_STR_TO_CSTR(q, name, "stream")) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stdout") && !CMP_STRING_TO_CSTR(q, name, "stream")) {
 				cell *ns = deref(q, name, name_ctx);
 				int n = get_stream(q, ns);
 				posix_spawn_file_actions_adddup2(&file_actions, fileno(q->pl->streams[n].fp), 1);
 
-			} else if (!CMP_STR_TO_CSTR(q, c, "stderr") && !CMP_STR_TO_CSTR(q, name, "std")) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stderr") && !CMP_STRING_TO_CSTR(q, name, "std")) {
 				posix_spawn_file_actions_adddup2(&file_actions, q->pl->current_error, 2);
-			} else if (!CMP_STR_TO_CSTR(q, c, "stderr") && !CMP_STR_TO_CSTR(q, name, "null")) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stderr") && !CMP_STRING_TO_CSTR(q, name, "null")) {
 				posix_spawn_file_actions_addopen(&file_actions, 2, "/dev/null", O_WRONLY, 0);
-			} else if (!CMP_STR_TO_CSTR(q, c, "stderr") && !CMP_STR_TO_CSTR(q, name, "pipe")
-				&& is_structure(name) && (name->arity == 1) && is_var(name+1)) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stderr") && !CMP_STRING_TO_CSTR(q, name, "pipe")
+				&& is_compound(name) && (name->arity == 1) && is_var(name+1)) {
 				cell *ns = deref(q, name+1, name_ctx);
 				pl_idx ns_ctx = q->latest_ctx;
 				int n = new_stream(q->pl);
@@ -1224,7 +1224,7 @@ static bool fn_process_create_3(query *q)
 				tmp.flags |= FLAG_INT_STREAM | FLAG_INT_HEX;
 				unify(q, ns, ns_ctx, &tmp, q->st.curr_frame);
 
-			} else if (!CMP_STR_TO_CSTR(q, c, "stderr") && !CMP_STR_TO_CSTR(q, name, "stream")) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stderr") && !CMP_STRING_TO_CSTR(q, name, "stream")) {
 				cell *ns = deref(q, name, name_ctx);
 				int n = get_stream(q, ns);
 				posix_spawn_file_actions_adddup2(&file_actions, fileno(q->pl->streams[n].fp), 2);
@@ -1274,10 +1274,10 @@ static bool fn_process_wait_2(query *q)
 		cell *h = LIST_HEAD(p2);
 		cell *c = deref(q, h, p2_ctx);
 
-		if (is_structure(c) && (c->arity == 1) && !CMP_STR_TO_CSTR(q, c, "timeout")) {
+		if (is_compound(c) && (c->arity == 1) && !CMP_STRING_TO_CSTR(q, c, "timeout")) {
 			if (is_integer(FIRST_ARG(c)))
 				secs = get_smallint(FIRST_ARG(c));
-			else if (is_atom(FIRST_ARG(c)) && !CMP_STR_TO_CSTR(q, FIRST_ARG(c), "infinite"))
+			else if (is_atom(FIRST_ARG(c)) && !CMP_STRING_TO_CSTR(q, FIRST_ARG(c), "infinite"))
 				secs = -1;
 		} else
 			return throw_error(q, c, q->latest_ctx, "domain_error", "process_wait_option");
@@ -1373,7 +1373,7 @@ static void *mmap(void *start, size_t length, int prot, int flags, int fd, off_t
 
 static bool fn_iso_open_4(query *q)
 {
-	GET_FIRST_ARG(p1,atom_or_structure);
+	GET_FIRST_ARG(p1,atom_or_compound);
 	GET_NEXT_ARG(p2,atom);
 	GET_NEXT_ARG(p3,var);
 	GET_NEXT_ARG(p4,list_or_nil);
@@ -1386,7 +1386,7 @@ static bool fn_iso_open_4(query *q)
 	char *filename;
 	stream *oldstr = NULL;
 
-	if (is_structure(p1) && (p1->arity == 1) && !CMP_STR_TO_CSTR(q, p1, "stream")) {
+	if (is_compound(p1) && (p1->arity == 1) && !CMP_STRING_TO_CSTR(q, p1, "stream")) {
 		int oldn = get_stream(q, p1+1);
 
 		if (oldn < 0)
@@ -1395,7 +1395,7 @@ static bool fn_iso_open_4(query *q)
 		oldstr = &q->pl->streams[oldn];
 		filename = oldstr->filename;
 	} else if (is_atom(p1))
-		filename = src = DUP_STR(q, p1);
+		filename = src = DUP_STRING(q, p1);
 	else
 		return throw_error(q, p1, p1_ctx, "domain_error", "source_sink");
 
@@ -1412,7 +1412,7 @@ static bool fn_iso_open_4(query *q)
 	stream *str = &q->pl->streams[n];
 	check_heap_error(str->filename = strdup(filename));
 	if (!str->alias) str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL);
-	check_heap_error(str->mode = DUP_STR(q, p2));
+	check_heap_error(str->mode = DUP_STRING(q, p2));
 	bool binary = false, repo = true;
 	uint8_t eof_action = eof_action_eof_code;
 	free(src);
@@ -1438,19 +1438,19 @@ static bool fn_iso_open_4(query *q)
 
 		//printf("*** %s %s : %s\n", str->filename, C_STR(q, c), C_STR(q, name));
 
-		if (!CMP_STR_TO_CSTR(q, c, "mmap")) {
+		if (!CMP_STRING_TO_CSTR(q, c, "mmap")) {
 #if USE_MMAP
 			mmap_var = name;
 			mmap_var = deref(q, mmap_var, q->latest_ctx);
 			mmap_ctx = q->latest_ctx;
 #endif
-		} else if (!CMP_STR_TO_CSTR(q, c, "encoding")) {
+		} else if (!CMP_STRING_TO_CSTR(q, c, "encoding")) {
 			if (is_var(name))
 				return throw_error(q, name, q->latest_ctx, "instantiation_error", "stream_option");
 
 			if (!is_atom(name))
 				return throw_error(q, c, c_ctx, "domain_error", "stream_option");
-		} else if (!CMP_STR_TO_CSTR(q, c, "alias")) {
+		} else if (!CMP_STRING_TO_CSTR(q, c, "alias")) {
 			if (is_var(name))
 				return throw_error(q, name, q->latest_ctx, "instantiation_error", "stream_option");
 
@@ -1460,29 +1460,29 @@ static bool fn_iso_open_4(query *q)
 			if (get_named_stream(q->pl, C_STR(q, name), C_STRLEN(q, name)) >= 0)
 				return throw_error(q, c, c_ctx, "permission_error", "open,source_sink");
 
-			if (!CMP_STR_TO_CSTR(q, name, "current_input")) {
+			if (!CMP_STRING_TO_CSTR(q, name, "current_input")) {
 				q->pl->current_input = n;
-			} else if (!CMP_STR_TO_CSTR(q, name, "current_output")) {
+			} else if (!CMP_STRING_TO_CSTR(q, name, "current_output")) {
 				q->pl->current_output = n;
-			} else if (!CMP_STR_TO_CSTR(q, name, "current_error")) {
+			} else if (!CMP_STRING_TO_CSTR(q, name, "current_error")) {
 				q->pl->current_error = n;
 			} else {
-				sl_set(str->alias, DUP_STR(q, name), NULL);
+				sl_set(str->alias, DUP_STRING(q, name), NULL);
 			}
-		} else if (!CMP_STR_TO_CSTR(q, c, "type")) {
+		} else if (!CMP_STRING_TO_CSTR(q, c, "type")) {
 			if (is_var(name))
 				return throw_error(q, name, q->latest_ctx, "instantiation_error", "stream_option");
 
 			if (!is_atom(name))
 				return throw_error(q, c, c_ctx, "domain_error", "stream_option");
 
-			if (is_atom(name) && !CMP_STR_TO_CSTR(q, name, "binary")) {
+			if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "binary")) {
 				binary = true;
-			} else if (is_atom(name) && !CMP_STR_TO_CSTR(q, name, "text"))
+			} else if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "text"))
 				binary = false;
 			else
 				return throw_error(q, c, c_ctx, "domain_error", "stream_option");
-		} else if (!CMP_STR_TO_CSTR(q, c, "bom")) {
+		} else if (!CMP_STRING_TO_CSTR(q, c, "bom")) {
 			if (is_var(name))
 				return throw_error(q, name, q->latest_ctx, "instantiation_error", "stream_option");
 
@@ -1491,33 +1491,33 @@ static bool fn_iso_open_4(query *q)
 
 			bom_specified = true;
 
-			if (is_atom(name) && !CMP_STR_TO_CSTR(q, name, "true"))
+			if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "true"))
 				use_bom = true;
-			else if (is_atom(name) && !CMP_STR_TO_CSTR(q, name, "false"))
+			else if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "false"))
 				use_bom = false;
-		} else if (!CMP_STR_TO_CSTR(q, c, "reposition")) {
+		} else if (!CMP_STRING_TO_CSTR(q, c, "reposition")) {
 			if (is_var(name))
 				return throw_error(q, name, q->latest_ctx, "instantiation_error", "stream_option");
 
 			if (!is_atom(name))
 				return throw_error(q, c, c_ctx, "domain_error", "stream_option");
 
-			if (is_atom(name) && !CMP_STR_TO_CSTR(q, name, "true"))
+			if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "true"))
 				repo = true;
-			else if (is_atom(name) && !CMP_STR_TO_CSTR(q, name, "false"))
+			else if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "false"))
 				repo = false;
-		} else if (!CMP_STR_TO_CSTR(q, c, "eof_action")) {
+		} else if (!CMP_STRING_TO_CSTR(q, c, "eof_action")) {
 			if (is_var(name))
 				return throw_error(q, name, q->latest_ctx, "instantiation_error", "stream_option");
 
 			if (!is_atom(name))
 				return throw_error(q, c, c_ctx, "domain_error", "stream_option");
 
-			if (is_atom(name) && !CMP_STR_TO_CSTR(q, name, "error")) {
+			if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "error")) {
 				eof_action = eof_action_error;
-			} else if (is_atom(name) && !CMP_STR_TO_CSTR(q, name, "eof_code")) {
+			} else if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "eof_code")) {
 				eof_action = eof_action_eof_code;
-			} else if (is_atom(name) && !CMP_STR_TO_CSTR(q, name, "reset")) {
+			} else if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "reset")) {
 				eof_action = eof_action_reset;
 			}
 		} else {
@@ -1710,9 +1710,9 @@ static bool fn_iso_close_2(query *q)
 		cell *h = LIST_HEAD(p1);
 		h = deref(q, h, p1_ctx);
 
-		if (!is_structure(h)
-			|| CMP_STR_TO_CSTR(q, h, "force")
-			|| CMP_STR_TO_CSTR(q, h+1, "true"))
+		if (!is_compound(h)
+			|| CMP_STRING_TO_CSTR(q, h, "force")
+			|| CMP_STRING_TO_CSTR(q, h+1, "true"))
 			return throw_error(q, h, q->latest_ctx, "domain_error", "close_option");
 
 		p1 = LIST_TAIL(p1);
@@ -1909,7 +1909,7 @@ static bool parse_read_params(query *q, stream *str, cell *c, pl_idx c_ctx, cell
 {
 	parser *p = str->p;
 
-	if (!is_structure(c)) {
+	if (!is_compound(c)) {
 		throw_error(q, c, c_ctx, "domain_error", "read_option");
 		return false;
 	}
@@ -1917,29 +1917,29 @@ static bool parse_read_params(query *q, stream *str, cell *c, pl_idx c_ctx, cell
 	cell *c1 = deref(q, FIRST_ARG(c), c_ctx);
 	pl_idx c1_ctx = q->latest_ctx;
 
-	if (!CMP_STR_TO_CSTR(q, c, "character_escapes")) {
+	if (!CMP_STRING_TO_CSTR(q, c, "character_escapes")) {
 		if (is_interned(c1))
-			p->flags.character_escapes = !CMP_STR_TO_CSTR(q, c1, "true");
-	} else if (!CMP_STR_TO_CSTR(q, c, "json")) {
+			p->flags.character_escapes = !CMP_STRING_TO_CSTR(q, c1, "true");
+	} else if (!CMP_STRING_TO_CSTR(q, c, "json")) {
 		if (is_interned(c1))
-			p->flags.json = !CMP_STR_TO_CSTR(q, c1, "true");
-	} else if (!CMP_STR_TO_CSTR(q, c, "var_prefix")) {
+			p->flags.json = !CMP_STRING_TO_CSTR(q, c1, "true");
+	} else if (!CMP_STRING_TO_CSTR(q, c, "var_prefix")) {
 		if (is_interned(c1))
-			p->flags.var_prefix = !CMP_STR_TO_CSTR(q, c1, "true");
-	} else if (!CMP_STR_TO_CSTR(q, c, "double_quotes")) {
+			p->flags.var_prefix = !CMP_STRING_TO_CSTR(q, c1, "true");
+	} else if (!CMP_STRING_TO_CSTR(q, c, "double_quotes")) {
 		if (is_interned(c1)) {
-			if (!CMP_STR_TO_CSTR(q, c1, "atom")) {
+			if (!CMP_STRING_TO_CSTR(q, c1, "atom")) {
 				p->flags.double_quote_codes = p->flags.double_quote_chars = false;
 				p->flags.double_quote_atom = true;
-			} else if (!CMP_STR_TO_CSTR(q, c1, "chars")) {
+			} else if (!CMP_STRING_TO_CSTR(q, c1, "chars")) {
 				p->flags.double_quote_atom = p->flags.double_quote_codes = false;
 				p->flags.double_quote_chars = true;
-			} else if (!CMP_STR_TO_CSTR(q, c1, "codes")) {
+			} else if (!CMP_STRING_TO_CSTR(q, c1, "codes")) {
 				p->flags.double_quote_atom = p->flags.double_quote_chars = false;
 				p->flags.double_quote_codes = true;
 			}
 		}
-	} else if (!CMP_STR_TO_CSTR(q, c, "variables")) {
+	} else if (!CMP_STRING_TO_CSTR(q, c, "variables")) {
 		if (is_iso_list_or_nil_or_var(c1) && valid_list(q, c1, c1_ctx)) {
 			if (vars) *vars = c1;
 			if (vars_ctx) *vars_ctx = c1_ctx;
@@ -1947,7 +1947,7 @@ static bool parse_read_params(query *q, stream *str, cell *c, pl_idx c_ctx, cell
 			throw_error(q, c, c_ctx, "domain_error", "read_option");
 			return false;
 		}
-	} else if (!CMP_STR_TO_CSTR(q, c, "variable_names")) {
+	} else if (!CMP_STRING_TO_CSTR(q, c, "variable_names")) {
 		if (is_iso_list_or_nil_or_var(c1) && valid_list(q, c1, c1_ctx)) {
 			if (varnames) *varnames = c1;
 			if (varnames_ctx) *varnames_ctx = c1_ctx;
@@ -1955,7 +1955,7 @@ static bool parse_read_params(query *q, stream *str, cell *c, pl_idx c_ctx, cell
 			throw_error(q, c, c_ctx, "domain_error", "read_option");
 			return false;
 		}
-	} else if (!CMP_STR_TO_CSTR(q, c, "singletons")) {
+	} else if (!CMP_STRING_TO_CSTR(q, c, "singletons")) {
 		if (is_iso_list_or_nil_or_var(c1) && valid_list(q, c1, c1_ctx)) {
 			if (sings) *sings = c1;
 			if (sings_ctx) *sings_ctx = c1_ctx;
@@ -1963,9 +1963,9 @@ static bool parse_read_params(query *q, stream *str, cell *c, pl_idx c_ctx, cell
 			throw_error(q, c, c_ctx, "domain_error", "read_option");
 			return false;
 		}
-	} else if (!CMP_STR_TO_CSTR(q, c, "positions") && (c->arity == 2) && str->fp) {
+	} else if (!CMP_STRING_TO_CSTR(q, c, "positions") && (c->arity == 2) && str->fp) {
 		p->pos_start = ftello(str->fp);
-	} else if (!CMP_STR_TO_CSTR(q, c, "line_counts") && (c->arity == 2)) {
+	} else if (!CMP_STRING_TO_CSTR(q, c, "line_counts") && (c->arity == 2)) {
 	} else {
 		throw_error(q, c, c_ctx, "domain_error", "read_option");
 		return false;
@@ -2084,7 +2084,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 					if (is_var(h))
 						return throw_error(q, p2, p2_ctx, "instantiation_error", "read_option");
 
-					if (!CMP_STR_TO_CSTR(q, h, "positions") && (h->arity == 2)) {
+					if (!CMP_STRING_TO_CSTR(q, h, "positions") && (h->arity == 2)) {
 						cell *p = h+1;
 						p = deref(q, p, h_ctx);
 						pl_idx p_ctx = q->latest_ctx;
@@ -2096,7 +2096,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 						p_ctx = q->latest_ctx;
 						make_int(&tmp, ftello(str->fp));
 						unify(q, p, p_ctx, &tmp, q->st.curr_frame);
-					} else if (!CMP_STR_TO_CSTR(q, h, "line_counts") && (h->arity == 2)) {
+					} else if (!CMP_STRING_TO_CSTR(q, h, "line_counts") && (h->arity == 2)) {
 						cell *p = h+1;
 						p = deref(q, p, h_ctx);
 						pl_idx p_ctx = q->latest_ctx;
@@ -2172,7 +2172,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 		if (is_var(h))
 			return throw_error(q, p2, p2_ctx, "instantiation_error", "read_option");
 
-		if (!CMP_STR_TO_CSTR(q, h, "positions") && (h->arity == 2)) {
+		if (!CMP_STRING_TO_CSTR(q, h, "positions") && (h->arity == 2)) {
 			cell *p = h+1;
 			p = deref(q, p, h_ctx);
 			pl_idx p_ctx = q->latest_ctx;
@@ -2189,7 +2189,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 
 			if (!unify(q, p, p_ctx, &tmp, q->st.curr_frame))
 				return false;
-		} else if (!CMP_STR_TO_CSTR(q, h, "line_counts") && (h->arity == 2)) {
+		} else if (!CMP_STRING_TO_CSTR(q, h, "line_counts") && (h->arity == 2)) {
 			cell *p = h+1;
 			p = deref(q, p, h_ctx);
 			pl_idx p_ctx = q->latest_ctx;
@@ -2609,7 +2609,7 @@ bool parse_write_params(query *q, cell *c, pl_idx c_ctx, cell **vnames, pl_idx *
 		return false;
 	}
 
-	if (!is_interned(c) || !is_structure(c)) {
+	if (!is_interned(c) || !is_compound(c)) {
 		throw_error(q, c, c_ctx, "domain_error", "write_option");
 		return false;
 	}
@@ -2617,7 +2617,7 @@ bool parse_write_params(query *q, cell *c, pl_idx c_ctx, cell **vnames, pl_idx *
 	cell *c1 = deref(q, FIRST_ARG(c), c_ctx);
 	pl_idx c1_ctx = q->latest_ctx;
 
-	if (!CMP_STR_TO_CSTR(q, c, "max_depth")) {
+	if (!CMP_STRING_TO_CSTR(q, c, "max_depth")) {
 		if (is_var(c1)) {
 			throw_error(q, c1, c_ctx, "instantiation_error", "write_option");
 			return false;
@@ -2629,103 +2629,103 @@ bool parse_write_params(query *q, cell *c, pl_idx c_ctx, cell **vnames, pl_idx *
 			throw_error(q, c, c_ctx, "domain_error", "write_option");
 			return false;
 		}
-	} else if (!CMP_STR_TO_CSTR(q, c, "fullstop")) {
+	} else if (!CMP_STRING_TO_CSTR(q, c, "fullstop")) {
 		if (is_var(c1)) {
 			throw_error(q, c1, c_ctx, "instantiation_error", "write_option");
 			return false;
 		}
 
-		if (!is_interned(c1) || (CMP_STR_TO_CSTR(q, c1, "true") && CMP_STR_TO_CSTR(q, c1, "false"))) {
+		if (!is_interned(c1) || (CMP_STRING_TO_CSTR(q, c1, "true") && CMP_STRING_TO_CSTR(q, c1, "false"))) {
 			throw_error(q, c, c_ctx, "domain_error", "write_option");
 			return false;
 		}
 
-		q->fullstop = !CMP_STR_TO_CSTR(q, c1, "true");
-	} else if (!CMP_STR_TO_CSTR(q, c, "nl")) {
+		q->fullstop = !CMP_STRING_TO_CSTR(q, c1, "true");
+	} else if (!CMP_STRING_TO_CSTR(q, c, "nl")) {
 		if (is_var(c1)) {
 			throw_error(q, c1, c_ctx, "instantiation_error", "write_option");
 			return false;
 		}
 
-		if (!is_interned(c1) || (CMP_STR_TO_CSTR(q, c1, "true") && CMP_STR_TO_CSTR(q, c1, "false"))) {
+		if (!is_interned(c1) || (CMP_STRING_TO_CSTR(q, c1, "true") && CMP_STRING_TO_CSTR(q, c1, "false"))) {
 			throw_error(q, c, c_ctx, "domain_error", "write_option");
 			return false;
 		}
 
-		q->nl = !CMP_STR_TO_CSTR(q, c1, "true");
-	} else if (!CMP_STR_TO_CSTR(q, c, "json")) {
+		q->nl = !CMP_STRING_TO_CSTR(q, c1, "true");
+	} else if (!CMP_STRING_TO_CSTR(q, c, "json")) {
 		if (is_var(c1)) {
 			throw_error(q, c1, c_ctx, "instantiation_error", "write_option");
 			return false;
 		}
 
-		if (!is_interned(c1) || (CMP_STR_TO_CSTR(q, c1, "true") && CMP_STR_TO_CSTR(q, c1, "false"))) {
+		if (!is_interned(c1) || (CMP_STRING_TO_CSTR(q, c1, "true") && CMP_STRING_TO_CSTR(q, c1, "false"))) {
 			throw_error(q, c, c_ctx, "domain_error", "write_option");
 			return false;
 		}
 
-		q->json = !CMP_STR_TO_CSTR(q, c1, "true");
-	} else if (!CMP_STR_TO_CSTR(q, c, "quoted")) {
+		q->json = !CMP_STRING_TO_CSTR(q, c1, "true");
+	} else if (!CMP_STRING_TO_CSTR(q, c, "quoted")) {
 		if (is_var(c1)) {
 			throw_error(q, c1, c_ctx, "instantiation_error", "write_option");
 			return false;
 		}
 
-		if (!is_interned(c1) || (CMP_STR_TO_CSTR(q, c1, "true") && CMP_STR_TO_CSTR(q, c1, "false"))) {
+		if (!is_interned(c1) || (CMP_STRING_TO_CSTR(q, c1, "true") && CMP_STRING_TO_CSTR(q, c1, "false"))) {
 			throw_error(q, c, c_ctx, "domain_error", "write_option");
 			return false;
 		}
 
-		q->quoted = !CMP_STR_TO_CSTR(q, c1, "true");
-	} else if (!CMP_STR_TO_CSTR(q, c, "varnames")) {
+		q->quoted = !CMP_STRING_TO_CSTR(q, c1, "true");
+	} else if (!CMP_STRING_TO_CSTR(q, c, "varnames")) {
 		if (is_var(c1)) {
 			throw_error(q, c1, c_ctx, "instantiation_error", "write_option");
 			return false;
 		}
 
-		if (!is_interned(c1) || (CMP_STR_TO_CSTR(q, c1, "true") && CMP_STR_TO_CSTR(q, c1, "false"))) {
+		if (!is_interned(c1) || (CMP_STRING_TO_CSTR(q, c1, "true") && CMP_STRING_TO_CSTR(q, c1, "false"))) {
 			throw_error(q, c, c_ctx, "domain_error", "write_option");
 			return false;
 		}
 
-		q->varnames = !CMP_STR_TO_CSTR(q, c1, "true");
-	} else if (!CMP_STR_TO_CSTR(q, c, "ignore_ops")) {
+		q->varnames = !CMP_STRING_TO_CSTR(q, c1, "true");
+	} else if (!CMP_STRING_TO_CSTR(q, c, "ignore_ops")) {
 		if (is_var(c1)) {
 			throw_error(q, c1, c_ctx, "instantiation_error", "write_option");
 			return false;
 		}
 
-		if (!is_interned(c1) || (CMP_STR_TO_CSTR(q, c1, "true") && CMP_STR_TO_CSTR(q, c1, "false"))) {
+		if (!is_interned(c1) || (CMP_STRING_TO_CSTR(q, c1, "true") && CMP_STRING_TO_CSTR(q, c1, "false"))) {
 			throw_error(q, c, c_ctx, "domain_error", "write_option");
 			return false;
 		}
 
-		q->ignore_ops = !CMP_STR_TO_CSTR(q, c1, "true");
-	} else if (!CMP_STR_TO_CSTR(q, c, "numbervars")) {
+		q->ignore_ops = !CMP_STRING_TO_CSTR(q, c1, "true");
+	} else if (!CMP_STRING_TO_CSTR(q, c, "numbervars")) {
 		if (is_var(c1)) {
 			throw_error(q, c1, c_ctx, "instantiation_error", "write_option");
 			return false;
 		}
 
-		if (!is_interned(c1) || (CMP_STR_TO_CSTR(q, c1, "true") && CMP_STR_TO_CSTR(q, c1, "false"))) {
+		if (!is_interned(c1) || (CMP_STRING_TO_CSTR(q, c1, "true") && CMP_STRING_TO_CSTR(q, c1, "false"))) {
 			throw_error(q, c, c_ctx, "domain_error", "write_option");
 			return false;
 		}
 
-		q->numbervars = !CMP_STR_TO_CSTR(q, c1, "true");
-	} else if (!CMP_STR_TO_CSTR(q, c, "double_quotes")) {
+		q->numbervars = !CMP_STRING_TO_CSTR(q, c1, "true");
+	} else if (!CMP_STRING_TO_CSTR(q, c, "double_quotes")) {
 		if (is_var(c1)) {
 			throw_error(q, c1, c_ctx, "instantiation_error", "write_option");
 			return false;
 		}
 
-		if (!is_interned(c1) || (CMP_STR_TO_CSTR(q, c1, "true") && CMP_STR_TO_CSTR(q, c1, "false"))) {
+		if (!is_interned(c1) || (CMP_STRING_TO_CSTR(q, c1, "true") && CMP_STRING_TO_CSTR(q, c1, "false"))) {
 			throw_error(q, c, c_ctx, "domain_error", "write_option");
 			return false;
 		}
 
-		q->double_quotes = !CMP_STR_TO_CSTR(q, c1, "true");
-	} else if (!CMP_STR_TO_CSTR(q, c, "variable_names")) {
+		q->double_quotes = !CMP_STRING_TO_CSTR(q, c1, "true");
+	} else if (!CMP_STRING_TO_CSTR(q, c, "variable_names")) {
 		if (is_var(c1)) {
 			throw_error(q, c1, c_ctx, "instantiation_error", "write_option");
 			return false;
@@ -2750,12 +2750,12 @@ bool parse_write_params(query *q, cell *c, pl_idx c_ctx, cell **vnames, pl_idx *
 				return false;
 			}
 
-			if (!is_structure(h)) {
+			if (!is_compound(h)) {
 				throw_error(q, c, c_ctx, "domain_error", "write_option");
 				return false;
 			}
 
-			if (CMP_STR_TO_CSTR(q, h, "=")) {
+			if (CMP_STRING_TO_CSTR(q, h, "=")) {
 				throw_error(q, c, c_ctx, "domain_error", "write_option");
 				return false;
 			}
@@ -4666,7 +4666,7 @@ static bool fn_read_file_to_string_3(query *q)
 		src = chars_list_to_string(q, p1, p1_ctx, len);
 		filename = src;
 	} else
-		filename = src = DUP_STR(q, p1);
+		filename = src = DUP_STRING(q, p1);
 
 	convert_path(filename);
 
@@ -4680,23 +4680,23 @@ static bool fn_read_file_to_string_3(query *q)
 		if (is_var(c))
 			return throw_error(q, c, q->latest_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
 
-		if (is_structure(c) && (c->arity == 1)) {
+		if (is_compound(c) && (c->arity == 1)) {
 			cell *name = c + 1;
 			name = deref(q, name, q->latest_ctx);
 
-			if (!CMP_STR_TO_CSTR(q, c, "type")) {
-				if (is_atom(name) && !CMP_STR_TO_CSTR(q, name, "binary")) {
+			if (!CMP_STRING_TO_CSTR(q, c, "type")) {
+				if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "binary")) {
 					is_binary = true;
-				} else if (is_atom(name) && !CMP_STR_TO_CSTR(q, name, "text"))
+				} else if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "text"))
 					is_binary = false;
 				else
 					return throw_error(q, c, q->latest_ctx, "domain_error", "stream_option");
-			} else if (!CMP_STR_TO_CSTR(q, c, "bom")) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "bom")) {
 				bom_specified = true;
 
-				if (is_atom(name) && !CMP_STR_TO_CSTR(q, name, "true"))
+				if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "true"))
 					use_bom = true;
-				else if (is_atom(name) && !CMP_STR_TO_CSTR(q, name, "false"))
+				else if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "false"))
 					use_bom = false;
 			}
 		} else
@@ -4758,7 +4758,7 @@ static bool fn_read_file_to_string_3(query *q)
 static bool do_consult(query *q, cell *p1, pl_idx p1_ctx)
 {
 	if (is_atom(p1)) {
-		char *src = DUP_STR(q, p1);
+		char *src = DUP_STRING(q, p1);
 		char *filename = relative_to(q->st.m->filename, src);
 		convert_path(filename);
 		unload_file(q->st.m, filename);
@@ -4773,10 +4773,10 @@ static bool do_consult(query *q, cell *p1, pl_idx p1_ctx)
 		return true;
 	}
 
-	if (!is_structure(p1))
+	if (!is_compound(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "atom");
 
-	if (CMP_STR_TO_CSTR(q, p1, ":"))
+	if (CMP_STRING_TO_CSTR(q, p1, ":"))
 		return throw_error(q, p1, p1_ctx, "type_error", "atom");
 
 	cell *mod = deref(q, p1+1, p1_ctx);
@@ -4805,7 +4805,7 @@ static bool do_consult(query *q, cell *p1, pl_idx p1_ctx)
 static bool do_deconsult(query *q, cell *p1, pl_idx p1_ctx)
 {
 	if (is_atom(p1)) {
-		char *src = DUP_STR(q, p1);
+		char *src = DUP_STRING(q, p1);
 		char *filename = relative_to(q->st.m->filename, src);
 		convert_path(filename);
 		unload_file(q->st.m, filename);
@@ -4814,10 +4814,10 @@ static bool do_deconsult(query *q, cell *p1, pl_idx p1_ctx)
 		return true;
 	}
 
-	if (!is_structure(p1))
+	if (!is_compound(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "source_sink");
 
-	if (CMP_STR_TO_CSTR(q, p1, ":"))
+	if (CMP_STRING_TO_CSTR(q, p1, ":"))
 		return throw_error(q, p1, p1_ctx, "type_error", "source_sink");
 
 	cell *mod = deref(q, p1+1, p1_ctx);
@@ -4862,7 +4862,7 @@ static bool fn_load_files_2(query *q)
 
 static bool fn_unload_files_1(query *q)
 {
-	GET_FIRST_ARG(p1,atom_or_structure);
+	GET_FIRST_ARG(p1,atom_or_compound);
 
 	if (is_atom(p1)) {
 		check_heap_error(do_deconsult(q, p1, p1_ctx));
@@ -4906,7 +4906,7 @@ static bool fn_savefile_2(query *q)
 
 		filename = chars_list_to_string(q, p1, p1_ctx, len);
 	} else
-		filename = DUP_STR(q, p1);
+		filename = DUP_STRING(q, p1);
 
 	convert_path(filename);
 	FILE *fp = fopen(filename, "wb");
@@ -4931,7 +4931,7 @@ static bool fn_loadfile_2(query *q)
 
 		filename = chars_list_to_string(q, p1, p1_ctx, len);
 	} else
-		filename = DUP_STR(q, p1);
+		filename = DUP_STRING(q, p1);
 
 	convert_path(filename);
 	FILE *fp = fopen(filename, "rb");
@@ -4989,7 +4989,7 @@ static bool fn_getfile_2(query *q)
 
 		filename = chars_list_to_string(q, p1, p1_ctx, len);
 	} else
-		filename = DUP_STR(q, p1);
+		filename = DUP_STRING(q, p1);
 
 	convert_path(filename);
 	FILE *fp = fopen(filename, "r");
@@ -5046,13 +5046,13 @@ static bool get_terminator(query *q, cell *l, pl_idx l_ctx)
 		h = deref(q, h, l_ctx);
 		pl_idx h_ctx = q->latest_ctx;
 
-		if (is_structure(h)) {
-			if (!CMP_STR_TO_CSTR(q, h, "terminator")) {
+		if (is_compound(h)) {
+			if (!CMP_STRING_TO_CSTR(q, h, "terminator")) {
 				h = h + 1;
 				h = deref(q, h, h_ctx);
 
 				if (is_atom(h))
-					terminator = !CMP_STR_TO_CSTR(q, h, "true");
+					terminator = !CMP_STRING_TO_CSTR(q, h, "true");
 			}
 		}
 
@@ -5080,7 +5080,7 @@ static bool fn_getfile_3(query *q)
 
 		filename = chars_list_to_string(q, p1, p1_ctx, len);
 	} else
-		filename = DUP_STR(q, p1);
+		filename = DUP_STRING(q, p1);
 
 	convert_path(filename);
 	FILE *fp = fopen(filename, "r");
@@ -5302,7 +5302,7 @@ static bool fn_absolute_file_name_3(query *q)
 
 		filename = chars_list_to_string(q, p1, p1_ctx, len);
 	} else
-		filename = DUP_STR(q, p1);
+		filename = DUP_STRING(q, p1);
 
 	convert_path(filename);
 	LIST_HANDLER(p_opts);
@@ -5311,15 +5311,15 @@ static bool fn_absolute_file_name_3(query *q)
 		cell *h = LIST_HEAD(p_opts);
 		h = deref(q, h, p_opts_ctx);
 
-		if (is_structure(h) && (h->arity == 1)) {
-			if (!CMP_STR_TO_CSTR(q, h, "expand")) {
+		if (is_compound(h) && (h->arity == 1)) {
+			if (!CMP_STRING_TO_CSTR(q, h, "expand")) {
 				if (is_interned(h+1)) {
-					if (!CMP_STR_TO_CSTR(q, h+1, "true"))
+					if (!CMP_STRING_TO_CSTR(q, h+1, "true"))
 						expand = true;
 				}
-			} else if (!CMP_STR_TO_CSTR(q, h, "relative_to")) {
+			} else if (!CMP_STRING_TO_CSTR(q, h, "relative_to")) {
 				if (is_atom(h+1))
-					cwd = DUP_STR(q, h+1);
+					cwd = DUP_STRING(q, h+1);
 			}
 		}
 
@@ -5548,19 +5548,19 @@ static bool fn_access_file_2(query *q)
 
 		filename = chars_list_to_string(q, p1, p1_ctx, len);
 	} else
-		filename = DUP_STR(q, p1);
+		filename = DUP_STRING(q, p1);
 
 	int amode = R_OK;
 
-	if (!CMP_STR_TO_CSTR(q, p2, "read"))
+	if (!CMP_STRING_TO_CSTR(q, p2, "read"))
 		amode = R_OK;
-	else if (!CMP_STR_TO_CSTR(q, p2, "write"))
+	else if (!CMP_STRING_TO_CSTR(q, p2, "write"))
 		amode = W_OK;
-	else if (!CMP_STR_TO_CSTR(q, p2, "append"))
+	else if (!CMP_STRING_TO_CSTR(q, p2, "append"))
 		amode = W_OK;
-	else if (!CMP_STR_TO_CSTR(q, p2, "execute"))
+	else if (!CMP_STRING_TO_CSTR(q, p2, "execute"))
 		amode = X_OK;
-	else if (!CMP_STR_TO_CSTR(q, p2, "none")) {
+	else if (!CMP_STRING_TO_CSTR(q, p2, "none")) {
 		free(filename);
 		return true;
 	} else {
@@ -5572,12 +5572,12 @@ static bool fn_access_file_2(query *q)
 	struct stat st = {0};
 	int status = stat(filename, &st);
 
-	if (status && (!CMP_STR_TO_CSTR(q, p2, "read") || !CMP_STR_TO_CSTR(q, p2, "exist") || !CMP_STR_TO_CSTR(q, p2, "execute") || !CMP_STR_TO_CSTR(q, p2, "none"))) {
+	if (status && (!CMP_STRING_TO_CSTR(q, p2, "read") || !CMP_STRING_TO_CSTR(q, p2, "exist") || !CMP_STRING_TO_CSTR(q, p2, "execute") || !CMP_STRING_TO_CSTR(q, p2, "none"))) {
 		free(filename);
 		return false;
 	}
 
-	if (status && (!CMP_STR_TO_CSTR(q, p2, "write") || !CMP_STR_TO_CSTR(q, p2, "append"))) {
+	if (status && (!CMP_STRING_TO_CSTR(q, p2, "write") || !CMP_STRING_TO_CSTR(q, p2, "append"))) {
 		free(filename);
 		return true;
 	}
@@ -5600,7 +5600,7 @@ static bool fn_exists_file_1(query *q)
 
 		filename = chars_list_to_string(q, p1, p1_ctx, len);
 	} else
-		filename = DUP_STR(q, p1);
+		filename = DUP_STRING(q, p1);
 
 	convert_path(filename);
 	struct stat st = {0};
@@ -5632,7 +5632,7 @@ static bool fn_directory_files_2(query *q)
 
 		filename = chars_list_to_string(q, p1, p1_ctx, len);
 	} else
-		filename = DUP_STR(q, p1);
+		filename = DUP_STRING(q, p1);
 
 	struct stat st = {0};
 	if (stat(filename, &st)) {
@@ -5687,7 +5687,7 @@ static bool fn_delete_file_1(query *q)
 
 		filename = chars_list_to_string(q, p1, p1_ctx, len);
 	} else
-		filename = DUP_STR(q, p1);
+		filename = DUP_STRING(q, p1);
 
 	convert_path(filename);
 	struct stat st = {0};
@@ -5716,7 +5716,7 @@ static bool fn_rename_file_2(query *q)
 
 		filename1 = chars_list_to_string(q, p1, p1_ctx, len);
 	} else
-		filename1 = DUP_STR(q, p1);
+		filename1 = DUP_STRING(q, p1);
 
 	if (is_iso_list(p2)) {
 		size_t len = scan_is_chars_list(q, p2, p2_ctx, true);
@@ -5728,7 +5728,7 @@ static bool fn_rename_file_2(query *q)
 
 		filename2 = chars_list_to_string(q, p2, p2_ctx, len);
 	} else
-		filename2 = DUP_STR(q, p2);
+		filename2 = DUP_STRING(q, p2);
 
 	convert_path(filename1);
 	convert_path(filename2);
@@ -5760,7 +5760,7 @@ static bool fn_copy_file_2(query *q)
 
 		filename1 = chars_list_to_string(q, p1, p1_ctx, len);
 	} else
-		filename1 = DUP_STR(q, p1);
+		filename1 = DUP_STRING(q, p1);
 
 	if (is_iso_list(p2)) {
 		size_t len = scan_is_chars_list(q, p2, p2_ctx, true);
@@ -5772,7 +5772,7 @@ static bool fn_copy_file_2(query *q)
 
 		filename2 = chars_list_to_string(q, p2, p2_ctx, len);
 	} else
-		filename2 = DUP_STR(q, p2);
+		filename2 = DUP_STRING(q, p2);
 
 	convert_path(filename1);
 	convert_path(filename2);
@@ -5830,7 +5830,7 @@ static bool fn_time_file_2(query *q)
 
 		filename = chars_list_to_string(q, p1, p1_ctx, len);
 	} else
-		filename = DUP_STR(q, p1);
+		filename = DUP_STRING(q, p1);
 
 	convert_path(filename);
 	struct stat st = {0};
@@ -5860,7 +5860,7 @@ static bool fn_size_file_2(query *q)
 
 		filename = chars_list_to_string(q, p1, p1_ctx, len);
 	} else
-		filename = DUP_STR(q, p1);
+		filename = DUP_STRING(q, p1);
 
 	convert_path(filename);
 	struct stat st = {0};
@@ -5889,7 +5889,7 @@ static bool fn_exists_directory_1(query *q)
 
 		filename = chars_list_to_string(q, p1, p1_ctx, len);
 	} else
-		filename = DUP_STR(q, p1);
+		filename = DUP_STRING(q, p1);
 
 	convert_path(filename);
 	struct stat st = {0};
@@ -5920,7 +5920,7 @@ static bool fn_make_directory_1(query *q)
 
 		filename = chars_list_to_string(q, p1, p1_ctx, len);
 	} else
-		filename = DUP_STR(q, p1);
+		filename = DUP_STRING(q, p1);
 
 	convert_path(filename);
 	struct stat st = {0};
@@ -5952,7 +5952,7 @@ static bool fn_make_directory_path_1(query *q)
 
 		filename = chars_list_to_string(q, p1, p1_ctx, len);
 	} else
-		filename = DUP_STR(q, p1);
+		filename = DUP_STRING(q, p1);
 
 	convert_path(filename);
 	struct stat st = {0};
@@ -6011,7 +6011,7 @@ static bool fn_working_directory_2(query *q)
 
 			filename = chars_list_to_string(q, p_new, p_new_ctx, len);
 		} else
-			filename = DUP_STR(q, p_new);
+			filename = DUP_STRING(q, p_new);
 
 		if (chdir(filename)) {
 			unshare_cell(&tmp);
@@ -6035,7 +6035,7 @@ static bool fn_chdir_1(query *q)
 		size_t len = scan_is_chars_list(q, p1, p1_ctx, true);
 		filename = chars_list_to_string(q, p1, p1_ctx, len);
 	} else
-		filename = DUP_STR(q, p1);
+		filename = DUP_STRING(q, p1);
 
 	convert_path(filename);
 	bool ok = !chdir(filename);
@@ -6084,50 +6084,50 @@ static bool fn_server_3(query *q)
 		cell *h = LIST_HEAD(p3);
 		cell *c = deref(q, h, p3_ctx);
 
-		if (is_structure(c) && (c->arity == 1)) {
-			if (!CMP_STR_TO_CSTR(q, c, "udp")) {
+		if (is_compound(c) && (c->arity == 1)) {
+			if (!CMP_STRING_TO_CSTR(q, c, "udp")) {
 				c = c + 1;
 
 				if (is_atom(c))
-					udp = !CMP_STR_TO_CSTR(q, c, "true") ? 1 : 0;
-			} else if (!CMP_STR_TO_CSTR(q, c, "nodelay")) {
+					udp = !CMP_STRING_TO_CSTR(q, c, "true") ? 1 : 0;
+			} else if (!CMP_STRING_TO_CSTR(q, c, "nodelay")) {
 				c = c + 1;
 
 				if (is_atom(c))
-					nodelay = !CMP_STR_TO_CSTR(q, c, "true") ? 1 : 0;
-			} else if (!CMP_STR_TO_CSTR(q, c, "ssl")) {
+					nodelay = !CMP_STRING_TO_CSTR(q, c, "true") ? 1 : 0;
+			} else if (!CMP_STRING_TO_CSTR(q, c, "ssl")) {
 				c = c + 1;
 
 				if (is_atom(c))
-					ssl = !CMP_STR_TO_CSTR(q, c, "true") ? 1 : 0;
-			} else if (!CMP_STR_TO_CSTR(q, c, "keyfile")) {
+					ssl = !CMP_STRING_TO_CSTR(q, c, "true") ? 1 : 0;
+			} else if (!CMP_STRING_TO_CSTR(q, c, "keyfile")) {
 				c = c + 1;
 
 				if (is_atom(c))
 					keyfile = C_STR(q, c);
-			} else if (!CMP_STR_TO_CSTR(q, c, "certfile")) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "certfile")) {
 				c = c + 1;
 
 				if (is_atom(c))
 					certfile = C_STR(q, c);
-			} else if (!CMP_STR_TO_CSTR(q, c, "hostname")) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "hostname")) {
 				c = c + 1;
 
 				if (is_atom(c))
 					slicecpy(hostname, sizeof(hostname), C_STR(q, c), C_STRLEN(q, c));
-			} else if (!CMP_STR_TO_CSTR(q, c, "scheme")) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "scheme")) {
 				c = c + 1;
 
 				if (is_atom(c)) {
-					ssl = !CMP_STR_TO_CSTR(q, c, "https") ? 1 : 0;
+					ssl = !CMP_STRING_TO_CSTR(q, c, "https") ? 1 : 0;
 					port = 443;
 				}
-			} else if (!CMP_STR_TO_CSTR(q, c, "port")) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "port")) {
 				c = c + 1;
 
 				if (is_integer(c))
 					port = get_smallint(c);
-			} else if (!CMP_STR_TO_CSTR(q, c, "level")) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "level")) {
 				c = c + 1;
 
 				if (is_integer(c))
@@ -6159,7 +6159,7 @@ static bool fn_server_3(query *q)
 	stream *str = &q->pl->streams[n];
 	if (!str->alias) str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL);
 	sl_set(str->alias, strdup(hostname), NULL);
-	check_heap_error(str->filename = DUP_STR(q, p1));
+	check_heap_error(str->filename = DUP_STRING(q, p1));
 	check_heap_error(str->mode = strdup("update"));
 	str->nodelay = nodelay;
 	str->nonblock = nonblock;
@@ -6288,7 +6288,7 @@ static bool do_parse_parts(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p
 				cell *c = LIST_HEAD(h1);
 				c = deref(q, c, h1_ctx);
 
-				if (!is_structure(c) || (c->val_off != g_eq_s) || (c->arity != 2))
+				if (!is_compound(c) || (c->val_off != g_eq_s) || (c->arity != 2))
 					return throw_error(q, c, h1_ctx, "type_error", "compound");
 
 				if (!is_atom(c+1))
@@ -6550,40 +6550,40 @@ static bool fn_client_5(query *q)
 		cell *h = LIST_HEAD(p5);
 		cell *c = deref(q, h, p5_ctx);
 
-		if (is_structure(c) && (c->arity == 1)) {
-			if (!CMP_STR_TO_CSTR(q, c, "udp")) {
+		if (is_compound(c) && (c->arity == 1)) {
+			if (!CMP_STRING_TO_CSTR(q, c, "udp")) {
 				c = c + 1;
 
 				if (is_atom(c))
-					udp = !CMP_STR_TO_CSTR(q, c, "true") ? 1 : 0;
-			} else if (!CMP_STR_TO_CSTR(q, c, "nodelay")) {
+					udp = !CMP_STRING_TO_CSTR(q, c, "true") ? 1 : 0;
+			} else if (!CMP_STRING_TO_CSTR(q, c, "nodelay")) {
 				c = c + 1;
 
 				if (is_atom(c))
-					nodelay = !CMP_STR_TO_CSTR(q, c, "true") ? 1 : 0;
-			} else if (!CMP_STR_TO_CSTR(q, c, "ssl")) {
+					nodelay = !CMP_STRING_TO_CSTR(q, c, "true") ? 1 : 0;
+			} else if (!CMP_STRING_TO_CSTR(q, c, "ssl")) {
 				c = c + 1;
 
 				if (is_atom(c))
-					ssl = !CMP_STR_TO_CSTR(q, c, "true") ? 1 : 0;
-			} else if (!CMP_STR_TO_CSTR(q, c, "certfile")) {
+					ssl = !CMP_STRING_TO_CSTR(q, c, "true") ? 1 : 0;
+			} else if (!CMP_STRING_TO_CSTR(q, c, "certfile")) {
 				c = c + 1;
 
 				if (is_atom(c))
 					certfile = C_STR(q, c);
-			} else if (!CMP_STR_TO_CSTR(q, c, "scheme")) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "scheme")) {
 				c = c + 1;
 
 				if (is_atom(c)) {
-					ssl = !CMP_STR_TO_CSTR(q, c, "https") ? 1 : 0;
+					ssl = !CMP_STRING_TO_CSTR(q, c, "https") ? 1 : 0;
 					port = 443;
 				}
-			} else if (!CMP_STR_TO_CSTR(q, c, "port")) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "port")) {
 				c = c + 1;
 
 				if (is_integer(c))
 					port = (int)get_smallint(c);
-			} else if (!CMP_STR_TO_CSTR(q, c, "level")) {
+			} else if (!CMP_STRING_TO_CSTR(q, c, "level")) {
 				c = c + 1;
 
 				if (is_integer(c))
@@ -6604,12 +6604,12 @@ static bool fn_client_5(query *q)
 		cell *h = LIST_HEAD(p5);
 		cell *c = deref(q, h, p5_ctx);
 
-		if (is_structure(c) && (c->arity == 1)) {
-			if (!CMP_STR_TO_CSTR(q, c, "host")) {
+		if (is_compound(c) && (c->arity == 1)) {
+			if (!CMP_STRING_TO_CSTR(q, c, "host")) {
 				c = c + 1;
 
 				//if (is_atom(c))
-				//	;//udp = !CMP_STR_TO_CSTR(q, c, "true") ? 1 : 0;
+				//	;//udp = !CMP_STRING_TO_CSTR(q, c, "true") ? 1 : 0;
 			}
 		}
 
@@ -6632,8 +6632,8 @@ static bool fn_client_5(query *q)
 
 	stream *str = &q->pl->streams[n];
 	if (!str->alias) str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL);
-	sl_set(str->alias, DUP_STR(q, p1), NULL);
-	check_heap_error(str->filename = DUP_STR(q, p1));
+	sl_set(str->alias, DUP_STRING(q, p1), NULL);
+	check_heap_error(str->filename = DUP_STRING(q, p1));
 	check_heap_error(str->mode = strdup("update"));
 	str->socket = true;
 	str->nodelay = nodelay;
@@ -7009,7 +7009,7 @@ static bool fn_sys_memory_stream_create_2(query *q)
 		cell *name = c + 1;
 		name = deref(q, name, c_ctx);
 
-		if (!CMP_STR_TO_CSTR(q, c, "alias")) {
+		if (!CMP_STRING_TO_CSTR(q, c, "alias")) {
 			if (is_var(name))
 				return throw_error(q, name, q->latest_ctx, "instantiation_error", "stream_option");
 
@@ -7019,14 +7019,14 @@ static bool fn_sys_memory_stream_create_2(query *q)
 			if (get_named_stream(q->pl, C_STR(q, name), C_STRLEN(q, name)) >= 0)
 				return throw_error(q, c, c_ctx, "permission_error", "open,source_sink");
 
-			if (!CMP_STR_TO_CSTR(q, name, "current_input")) {
+			if (!CMP_STRING_TO_CSTR(q, name, "current_input")) {
 				q->pl->current_input = n;
-			} else if (!CMP_STR_TO_CSTR(q, name, "current_output")) {
+			} else if (!CMP_STRING_TO_CSTR(q, name, "current_output")) {
 				q->pl->current_output = n;
-			} else if (!CMP_STR_TO_CSTR(q, name, "current_error")) {
+			} else if (!CMP_STRING_TO_CSTR(q, name, "current_error")) {
 				q->pl->current_error = n;
 			} else {
-				sl_set(str->alias, DUP_STR(q, name), NULL);
+				sl_set(str->alias, DUP_STRING(q, name), NULL);
 			}
 		} else {
 			return throw_error(q, c, c_ctx, "domain_error", "stream_option");
@@ -7078,21 +7078,21 @@ static bool fn_set_stream_2(query *q)
 	cell *name = p1 + 1;
 	name = deref(q, name, p1_ctx);
 
-	if (!is_compound(p1))
+	if (!is_structure(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "stream_property");
 
-	if (!CMP_STR_TO_CSTR(q, p1, "alias")) {
+	if (!CMP_STRING_TO_CSTR(q, p1, "alias")) {
 		if (is_var(name))
 			return throw_error(q, name, q->latest_ctx, "instantiation_error", "stream_option");
 
 		if (!is_atom(name))
 			return throw_error(q, p1, p1_ctx, "domain_error", "stream_property");
 
-		if (!CMP_STR_TO_CSTR(q, name, "current_input")) {
+		if (!CMP_STRING_TO_CSTR(q, name, "current_input")) {
 			q->pl->current_input = n;
-		} else if (!CMP_STR_TO_CSTR(q, name, "current_output")) {
+		} else if (!CMP_STRING_TO_CSTR(q, name, "current_output")) {
 			q->pl->current_output = n;
-		} else if (!CMP_STR_TO_CSTR(q, name, "current_error")) {
+		} else if (!CMP_STRING_TO_CSTR(q, name, "current_error")) {
 			q->pl->current_error = n;
 		} else {
 			int n2 = get_named_stream(q->pl, C_STR(q, name), C_STRLEN(q, name));
@@ -7102,7 +7102,7 @@ static bool fn_set_stream_2(query *q)
 				sl_del(str2->alias, C_STR(q, name));
 			}
 
-			sl_set(str->alias, DUP_STR(q, name), NULL);
+			sl_set(str->alias, DUP_STRING(q, name), NULL);
 		}
 
 		return true;
@@ -7168,7 +7168,7 @@ static bool fn_engine_create_4(query *q)
 		cell *name = c + 1;
 		name = deref(q, name, c_ctx);
 
-		if (!CMP_STR_TO_CSTR(q, c, "alias")) {
+		if (!CMP_STRING_TO_CSTR(q, c, "alias")) {
 			if (is_var(name))
 				return throw_error(q, name, q->latest_ctx, "instantiation_error", "stream_option");
 
@@ -7178,7 +7178,7 @@ static bool fn_engine_create_4(query *q)
 			if (get_named_stream(q->pl, C_STR(q, name), C_STRLEN(q, name)) >= 0)
 				return throw_error(q, c, c_ctx, "permission_error", "open,source_sink");
 
-			sl_set(str->alias, DUP_STR(q, name), NULL);
+			sl_set(str->alias, DUP_STRING(q, name), NULL);
 		} else {
 			return throw_error(q, c, c_ctx, "domain_error", "stream_option");
 		}
@@ -7195,7 +7195,7 @@ static bool fn_engine_create_4(query *q)
 		if (get_named_stream(q->pl, C_STR(q, p3), C_STRLEN(q, p3)) >= 0)
 			return throw_error(q, q->st.curr_cell, q->st.curr_frame, "permission_error", "open,source_sink");
 
-		sl_set(str->alias, DUP_STR(q, p3), NULL);
+		sl_set(str->alias, DUP_STRING(q, p3), NULL);
 	} else {
 		cell tmp2;
 		make_int(&tmp2, n);

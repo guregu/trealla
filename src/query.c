@@ -28,14 +28,13 @@ static void msleep(int ms)
 #define Trace if (!(q->trace /*&& !consulting*/)) q->step++; else  trace_call
 
 static const unsigned INITIAL_NBR_QUEUE_CELLS = 1000;
-static const unsigned INITIAL_NBR_HEAP_CELLS = 16000;
+static const unsigned INITIAL_NBR_HEAP_CELLS = 8000;
 static const unsigned INITIAL_NBR_FRAMES = 8000;
-static const unsigned INITIAL_NBR_SLOTS = 64000;
-static const unsigned INITIAL_NBR_TRAILS = 64000;
+static const unsigned INITIAL_NBR_SLOTS = 32000;
+static const unsigned INITIAL_NBR_TRAILS = 32000;
 static const unsigned INITIAL_NBR_CHOICES = 8000;
 static const unsigned INITIAL_NBR_CELLS = 1000;
 
-unsigned g_string_cnt = 0, g_interned_cnt = 0;
 volatile int g_tpl_interrupt = 0;
 
 typedef enum { CALL, EXIT, REDO, NEXT, FAIL } box_t;
@@ -44,18 +43,6 @@ typedef enum { CALL, EXIT, REDO, NEXT, FAIL } box_t;
 #define REDUCE_PRESSURE 1
 #define PRESSURE_FACTOR 4
 #define TRACE_MEM 0
-
-// Note: when in commit there is a provisional choice point
-// that we should ignore, hence the '1' ...
-
-static bool any_choices(const query *q, const frame *f)
-{
-	if (q->cp == (unsigned)(q->in_commit ? 1 : 0))
-		return false;
-
-	const choice *ch = q->in_commit ? GET_PREV_CHOICE() : GET_CURR_CHOICE();
-	return ch->chgen >= f->chgen;
-}
 
 void dump_term(query *q, const char *s, const cell *c)
 {
@@ -70,7 +57,7 @@ void dump_term(query *q, const char *s, const cell *c)
 			printf("%s ", C_STR(q, c));
 		else if (is_var(c))
 			printf("_%u ", c->var_nbr);
-		else if (is_structure(c))
+		else if (is_compound(c))
 			printf("%s/%u ", C_STR(q, c), c->arity);
 
 		printf("\n");
@@ -82,16 +69,20 @@ static void trace_call(query *q, cell *c, pl_idx c_ctx, box_t box)
 	if (!c || is_empty(c))
 		return;
 
+#if 1
 	if (is_builtin(c) && c->fn_ptr && !c->fn_ptr->fn)
 		return;
+#endif
 
 #if 0
 	if (is_builtin(c))
 		return;
 #endif
 
+#if 1
 	if (c->val_off == g_sys_drop_barrier_s)
 		return;
+#endif
 
 	if (box == CALL)
 		box = q->retry?REDO:CALL;
@@ -187,21 +178,21 @@ static void check_pressure(query *q)
 #endif
 }
 
-bool check_trail(query *q)
+static bool check_trail(query *q)
 {
 	if (q->st.tp > q->hw_trails)
 		q->hw_trails = q->st.tp;
 
-	if (q->st.tp >= q->trails_size) {
-		pl_idx new_trailssize = alloc_grow((void**)&q->trails, sizeof(trail), q->st.tp, q->trails_size*4/3, false);
-		if (!new_trailssize) {
-			q->is_oom = q->error = true;
-			return false;
-		}
+	if (q->st.tp < q->trails_size)
+		return true;
 
-		q->trails_size = new_trailssize;
+	pl_idx new_trailssize = alloc_grow((void**)&q->trails, sizeof(trail), q->st.tp, q->trails_size*4/3, false);
+	if (!new_trailssize) {
+		q->is_oom = q->error = true;
+		return false;
 	}
 
+	q->trails_size = new_trailssize;
 	return true;
 }
 
@@ -210,33 +201,17 @@ static bool check_choice(query *q)
 	if (q->cp > q->hw_choices)
 		q->hw_choices = q->cp;
 
-	if (q->cp >= q->choices_size) {
-		pl_idx new_choicessize = alloc_grow((void**)&q->choices, sizeof(choice), q->cp, q->choices_size*4/3, false);
-		if (!new_choicessize) {
-			q->is_oom = q->error = true;
-			return false;
-		}
+	if (q->cp < q->choices_size)
+		return true;
 
-		q->choices_size = new_choicessize;
+	pl_idx new_choicessize = alloc_grow((void**)&q->choices, sizeof(choice), q->cp, q->choices_size*4/3, false);
+	if (!new_choicessize) {
+		q->is_oom = q->error = true;
+		return false;
 	}
 
+	q->choices_size = new_choicessize;
 	return true;
-}
-
-void add_trail(query *q, pl_idx c_ctx, unsigned c_var_nbr, cell *attrs, pl_idx attrs_ctx)
-{
-	if (q->st.tp >= q->trails_size) {
-		if (!check_trail(q)) {
-			q->error = false;
-			return;
-		}
-	}
-
-	trail *tr = q->trails + q->st.tp++;
-	tr->var_ctx = c_ctx;
-	tr->var_nbr = c_var_nbr;
-	tr->attrs = attrs;
-	tr->attrs_ctx = attrs_ctx;
 }
 
 static bool check_frame(query *q)
@@ -244,17 +219,17 @@ static bool check_frame(query *q)
 	if (q->st.fp > q->hw_frames)
 		q->hw_frames = q->st.fp;
 
-	if (q->st.fp >= q->frames_size) {
-		pl_idx new_framessize = alloc_grow((void**)&q->frames, sizeof(frame), q->st.fp, q->frames_size*4/3, false);
+	if (q->st.fp < q->frames_size)
+		return true;
 
-		if (!new_framessize) {
-			q->is_oom = q->error = true;
-			return false;
-		}
+	pl_idx new_framessize = alloc_grow((void**)&q->frames, sizeof(frame), q->st.fp, q->frames_size*4/3, false);
 
-		q->frames_size = new_framessize;
+	if (!new_framessize) {
+		q->is_oom = q->error = true;
+		return false;
 	}
 
+	q->frames_size = new_framessize;
 	return true;
 }
 
@@ -265,18 +240,32 @@ bool check_slot(query *q, unsigned cnt)
 	if (q->st.sp > q->hw_slots)
 		q->hw_slots = q->st.sp;
 
-	if (nbr >= q->slots_size) {
-		pl_idx new_slotssize = alloc_grow((void**)&q->slots, sizeof(slot), nbr, nbr*4/3, false);
+	if (nbr < q->slots_size)
+		return true;
 
-		if (!new_slotssize) {
-			q->is_oom = q->error = true;
-			return false;
-		}
+	pl_idx new_slotssize = alloc_grow((void**)&q->slots, sizeof(slot), nbr, nbr*4/3, false);
 
-		q->slots_size = new_slotssize;
+	if (!new_slotssize) {
+		q->is_oom = q->error = true;
+		return false;
 	}
 
+	q->slots_size = new_slotssize;
 	return true;
+}
+
+void add_trail(query *q, pl_idx c_ctx, unsigned c_var_nbr, cell *attrs, pl_idx attrs_ctx)
+{
+	if (!check_trail(q)) {
+		q->error = false;
+		return;
+	}
+
+	trail *tr = q->trails + q->st.tp++;
+	tr->var_ctx = c_ctx;
+	tr->var_nbr = c_var_nbr;
+	tr->attrs = attrs;
+	tr->attrs_ctx = attrs_ctx;
 }
 
 static bool can_view(query *q, uint64_t dbgen, const rule *r)
@@ -306,6 +295,12 @@ static void setup_key(query *q)
 
 	if (arg2 && !is_var(arg2))
 		q->st.karg2_is_ground = true;
+
+	if (is_atomic(arg1))
+		q->st.karg1_is_atomic = true;
+
+	if (arg2 && is_atomic(arg2))
+		q->st.karg2_is_atomic = true;
 }
 
 static void next_key(query *q)
@@ -333,6 +328,14 @@ bool has_next_key(query *q)
 
 	if (!q->st.key->arity)
 		return true;
+
+	if (q->st.r->cl.is_unique) {
+		if ((q->st.key->arity == 1) && q->st.karg1_is_atomic)
+			return false;
+
+		if ((q->st.key->arity == 2) && q->st.karg1_is_atomic && q->st.karg2_is_atomic)
+			return false;
+	}
 
 	const cell *qarg1 = NULL, *qarg2 = NULL;
 
@@ -409,8 +412,11 @@ static bool expand_meta_predicate(query *q, predicate *pr)
 static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 {
 	q->st.iter = NULL;
+
 	q->st.karg1_is_ground = false;
 	q->st.karg2_is_ground = false;
+	q->st.karg1_is_atomic = false;
+	q->st.karg2_is_atomic = false;
 	q->st.key = key;
 	q->st.key_ctx = key_ctx;
 
@@ -524,6 +530,7 @@ static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx l_ctx, bool 
 	size_t is_chars_list = 0;
 	cell *save_l = l;
 	pl_idx save_l_ctx = l_ctx;
+	bool any1 = false, any2 = false;
 	LIST_HANDLER(l);
 
 	while (is_list(l) && (q->st.m->flags.double_quote_chars || allow_codes)) {
@@ -532,7 +539,7 @@ static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx l_ctx, bool 
 		slot *e = NULL;
 		uint32_t save_vgen = 0;
 		int both = 0;
-		DEREF_CHECKED(both, save_vgen, e, e->vgen, h, h_ctx, q->vgen);
+		DEREF_CHECKED(any1, both, save_vgen, e, e->vgen, h, h_ctx, q->vgen);
 		q->suspect = h;
 
 		if (is_var(h)) {
@@ -569,6 +576,7 @@ static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx l_ctx, bool 
 
 #if USE_RATIONAL_TREES
 		if (is_var(l)) {
+			any2 = true;
 			frame *f = GET_FRAME(l_ctx);
 			slot *e = GET_SLOT(f, l->var_nbr);
 
@@ -587,20 +595,22 @@ static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx l_ctx, bool 
 	}
 
 #if USE_RATIONAL_TREES
-	cell *l2 = save_l;
-	pl_idx l2_ctx = save_l_ctx;
-	LIST_HANDLER(l2);
+	if (any2) {
+		cell *l2 = save_l;
+		pl_idx l2_ctx = save_l_ctx;
+		LIST_HANDLER(l2);
 
-	while (is_list(l2) && (q->st.m->flags.double_quote_chars || allow_codes)) {
-		cell *h = LIST_HEAD(l2);
-		l2 = LIST_TAIL(l2);
+		while (is_list(l2) && (q->st.m->flags.double_quote_chars || allow_codes)) {
+			cell *h = LIST_HEAD(l2);
+			l2 = LIST_TAIL(l2);
 
-		if (is_var(l2)) {
-			frame *f = GET_FRAME(l2_ctx);
-			slot *e = GET_SLOT(f, l2->var_nbr);
-			e->vgen = e->vgen2;
-			l2 = deref(q, l2, l2_ctx);
-			l2_ctx = q->latest_ctx;
+			if (is_var(l2)) {
+				frame *f = GET_FRAME(l2_ctx);
+				slot *e = GET_SLOT(f, l2->var_nbr);
+				e->vgen = e->vgen2;
+				l2 = deref(q, l2, l2_ctx);
+				l2_ctx = q->latest_ctx;
+			}
 		}
 	}
 #endif
@@ -716,7 +726,6 @@ static void unwind_trail(query *q)
 		cell *c = &e->c;
 		unshare_cell(c);
 		init_cell(c);
-		c->flags = tr->attrs ? FLAG_VAR_ATTR : 0;
 		c->attrs = tr->attrs;
 		c->attrs_ctx = tr->attrs_ctx;
 	}
@@ -794,7 +803,7 @@ int retry_choice(query *q)
 	return 0;
 }
 
-static frame *push_frame(query *q, unsigned nbr_vars)
+static frame *push_frame(query *q, const clause *cl)
 {
 	const frame *curr_f = GET_CURR_FRAME();
 	const cell *next_cell = q->st.curr_cell + q->st.curr_cell->nbr_cells;
@@ -811,11 +820,12 @@ static frame *push_frame(query *q, unsigned nbr_vars)
 		f->curr_cell = q->st.curr_cell;
 	}
 
+	f->initial_slots = f->actual_slots = cl->nbr_vars;
 	f->chgen = ++q->chgen;
 	f->overflow = 0;
 	f->hp = q->st.hp;
 
-	q->st.sp += nbr_vars;
+	q->st.sp = f->base + cl->nbr_vars;
 	q->st.curr_frame = new_frame;
 	return f;
 }
@@ -824,7 +834,7 @@ static void reuse_frame(query *q, const clause *cl)
 {
 	frame *f = GET_CURR_FRAME();
 	const frame *newf = GET_FRAME(q->st.fp);
-	f->initial_slots = f->actual_slots = cl->nbr_vars;
+	f->initial_slots = f->actual_slots = cl->nbr_vars - cl->nbr_temporaries;
 	f->chgen = ++q->chgen;
 	f->overflow = 0;
 
@@ -837,8 +847,9 @@ static void reuse_frame(query *q, const clause *cl)
 		*to++ = *from++;
 	}
 
-	q->st.sp = f->base + f->initial_slots - cl->nbr_temporaries;
+	q->st.sp = f->base + (cl->nbr_vars - cl->nbr_temporaries);
 	q->st.hp = f->hp;
+	q->st.r->tcos++;
 	q->tot_tcos++;
 }
 
@@ -864,10 +875,21 @@ static void trim_trail(query *q)
 	}
 }
 
+inline static bool any_choices(const query *q, const frame *f)
+{
+	// Note: when in commit there is a provisional choicepoint
+	// that we should ignore, hence the '1' ...
+
+	if (q->cp == 1)
+		return false;
+
+	const choice *ch = GET_PREV_CHOICE();
+	return ch->chgen >= f->chgen;
+}
+
 static void commit_frame(query *q, cell *body)
 {
-	q->in_commit = true;
-	clause *cl = &q->st.r->cl;
+	const clause *cl = &q->st.r->cl;
 	frame *f = GET_CURR_FRAME();
 	f->mid = q->st.m->id;
 
@@ -879,22 +901,20 @@ static void commit_frame(query *q, cell *body)
 	bool last_match = is_det || cl->is_first_cut || !next_key;
 	bool tco = false;
 
-	if (q->no_tco || (q->st.fp != q->st.curr_frame + 1))
-		;
-	else if (last_match) {
+	if (!q->no_tco && (q->st.fp == (q->st.curr_frame + 1)) && last_match) {
 		bool choices = any_choices(q, f);
-		bool tail_recursive = is_tail_recursive(q->st.curr_cell) && !choices;
-		bool tail_call = is_tail_call(q->st.curr_cell) && !choices;
+		bool tail_recursive = is_tail_recursive(q->st.curr_cell);
+		bool tail_call = is_tail_call(q->st.curr_cell);
 		bool vars_ok = !f->overflow && (f->initial_slots == cl->nbr_vars);
-		tco = tail_recursive && vars_ok;
+		tco = tail_recursive && vars_ok && !choices;
 
 #if 0
 		fprintf(stderr,
 			"*** tco=%d,q->no_tco=%d,last_match=%d,is_det=%d,"
-			"next_key=%d,tail_call=%d/%d,vars_ok=%d,"
+			"next_key=%d,tail_call=%d/%d,vars_ok=%d,choices=%d,"
 			"cl->nbr_vars=%u,f->initial_slots=%u\n",
 			tco, q->no_tco, last_match, is_det,
-			next_key, tail_call, tail_recursive, vars_ok,
+			next_key, tail_call, tail_recursive, vars_ok, choices,
 			cl->nbr_vars, f->initial_slots);
 #endif
 
@@ -903,11 +923,11 @@ static void commit_frame(query *q, cell *body)
 	if (q->pl->opt && tco)
 		reuse_frame(q, cl);
 	else {
-		f = push_frame(q, cl->nbr_vars);
+		f = push_frame(q, cl);
 
 		// If matching against a fact then drop new frame...
 
-		if (!cl->nbr_vars && !body && last_match) {
+		if (!cl->nbr_vars && !body) {
 			f = GET_FRAME(q->st.curr_frame-f->prev_offset);
 			q->st.fp--;
 		}
@@ -928,7 +948,6 @@ static void commit_frame(query *q, cell *body)
 	}
 
 	q->st.curr_cell = body;
-	q->in_commit = false;
 	q->st.iter = NULL;
 }
 
@@ -1011,13 +1030,31 @@ bool push_catcher(query *q, enum q_retry retry)
 	return true;
 }
 
+// If the call is det then the barrier can be dropped...
+
+bool drop_barrier(query *q, pl_idx cp)
+{
+	if ((q->cp-1) == cp) {
+		drop_choice(q);
+
+		if (q->cp) {
+			const choice *ch = GET_CURR_CHOICE();
+			frame *f = GET_CURR_FRAME();
+			f->chgen = ch->chgen;
+		}
+
+		return true;
+	}
+
+	return false;
+}
+
 void cut(query *q)
 {
 	const frame *f = GET_CURR_FRAME();
+	choice *ch = GET_CURR_CHOICE();
 
 	while (q->cp) {
-		choice *ch = GET_CURR_CHOICE();
-
 		// A normal cut can't break out of a barrier...
 
 		if (ch->barrier) {
@@ -1048,34 +1085,17 @@ void cut(query *q)
 			do_cleanup(q, c, c_ctx);
 			break;
 		}
+
+		ch--;
 	}
 
 	if (!q->cp && !q->undo_hi_tp)
 		q->st.tp = 0;
 }
 
-// If the call is det then the barrier can be dropped...
-
-bool drop_barrier(query *q, pl_idx cp)
-{
-	if ((q->cp-1) == cp) {
-		drop_choice(q);
-
-		if (q->cp) {
-			const choice *ch = GET_CURR_CHOICE();
-			frame *f = GET_CURR_FRAME();
-			f->chgen = ch->chgen;
-		}
-
-		return true;
-	}
-
-	return false;
-}
-
 // Resume next goal in previous clause...
 
-static bool resume_frame(query *q)
+inline static bool resume_frame(query *q)
 {
 	const frame *f = GET_CURR_FRAME();
 
@@ -1091,7 +1111,7 @@ static bool resume_frame(query *q)
 
 // Proceed to next goal in current clause...
 
-static void proceed(query *q)
+inline static void proceed(query *q)
 {
 	q->st.curr_cell += q->st.curr_cell->nbr_cells;
 	frame *f = GET_CURR_FRAME();
@@ -1409,8 +1429,11 @@ static bool match_head(query *q)
 		clause *cl = &q->st.r->cl;
 		cell *head = get_head(cl->cells);
 		try_me(q, cl->nbr_vars);
+		q->st.r->attempted++;
 
 		if (unify(q, q->st.key, q->st.key_ctx, head, q->st.fp)) {
+			q->st.r->matched++;
+
 			if (q->error)
 				break;
 
@@ -1448,7 +1471,7 @@ static bool any_outstanding_choices(query *q)
 static bool consultall(query *q, cell *l, pl_idx l_ctx)
 {
 	if (is_string(l)) {
-		char *s = DUP_STR(q, l);
+		char *s = DUP_STRING(q, l);
 		unload_file(q->p->m, s);
 
 		if (!load_file(q->p->m, s, false)) {
@@ -1474,7 +1497,7 @@ static bool consultall(query *q, cell *l, pl_idx l_ctx)
 			if (consultall(q, h, h_ctx) != true)
 				return false;
 		} else {
-			char *s = DUP_STR(q, h);
+			char *s = DUP_STRING(q, h);
 			unload_file(q->p->m, s);
 
 			if (!load_file(q->p->m, s, false)) {
@@ -1789,15 +1812,15 @@ void query_destroy(query *q)
 {
 	q->done = true;
 
-	for (page *a = q->pages; a;) {
-		cell *c = a->heap;
+	for (page *a = q->heap_pages; a;) {
+		cell *c = a->cells;
 
-		for (pl_idx i = 0; i < a->max_hp_used; i++, c++)
+		for (pl_idx i = 0; i < a->max_idx_used; i++, c++)
 			unshare_cell(c);
 
 		page *save = a;
 		a = a->next;
-		free(save->heap);
+		free(save->cells);
 		free(save);
 	}
 
@@ -1852,7 +1875,7 @@ void query_destroy(query *q)
 					cell *arg2 = arg1 + arg1->nbr_cells;
 					cell *arg3 = arg2 + arg2->nbr_cells;
 
-					if (!CMP_STR_TO_CSTR(m, arg3, "b")) {
+					if (!CMP_STRING_TO_CSTR(m, arg3, "b")) {
 						pr->cnt--;
 						delink(pr, r);
 						rule *save = r;
@@ -1915,7 +1938,7 @@ query *query_create(module *m, bool is_task)
 
 	// Allocate these later as needed...
 
-	q->h_size = is_task ? INITIAL_NBR_HEAP_CELLS/4 : INITIAL_NBR_HEAP_CELLS;
+	q->heap_size = is_task ? INITIAL_NBR_HEAP_CELLS/4 : INITIAL_NBR_HEAP_CELLS;
 	q->tmph_size = INITIAL_NBR_CELLS;
 
 	for (int i = 0; i < MAX_QUEUES; i++)

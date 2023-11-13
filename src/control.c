@@ -26,6 +26,12 @@ bool fn_sys_drop_barrier_1(query *q)
 	GET_FIRST_ARG(p1,integer)
 	q->tot_goals--;
 	drop_barrier(q, get_smalluint(p1));
+
+	if (q->cp) {
+		const choice *ch = GET_CURR_CHOICE();
+		q->st.timer_started = ch->st.timer_started;
+	}
+
 	return true;
 }
 
@@ -76,7 +82,6 @@ bool fn_sys_cleanup_if_det_1(query *q)
 
 bool fn_iso_invoke_2(query *q)
 {
-	q->tot_goals--;
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p2,callable);
 	module *m = find_module(q->pl, C_STR(q, p1));
@@ -101,14 +106,12 @@ bool fn_iso_invoke_2(query *q)
 
 bool fn_call_0(query *q, cell *p1, pl_idx p1_ctx)
 {
-	q->tot_goals--;
-
 	if (!is_callable(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "callable");
 
 	cell *tmp = prepare_call(q, false, p1, p1_ctx, 3);
 	check_heap_error(tmp);
-	pl_idx nbr_cells = NOPREFIX_LEN + tmp->nbr_cells;
+	pl_idx nbr_cells = NOPREFIX_LEN + p1->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, fn_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+nbr_cells++, q->cp);
 	make_call(q, tmp+nbr_cells);
@@ -152,7 +155,6 @@ static bool call_check(query *q, cell *tmp2, bool *status, bool calln)
 
 bool fn_iso_call_n(query *q)
 {
-	q->tot_goals--;
 	GET_FIRST_ARG(p1,callable);
 
 	if ((p1->val_off == g_colon_s) && (p1->arity == 2)) {
@@ -211,7 +213,6 @@ bool fn_iso_call_n(query *q)
 
 bool fn_iso_call_1(query *q)
 {
-	q->tot_goals--;
 	GET_FIRST_ARG(p1,callable);
 	check_heap_error(init_tmp_heap(q));
 	cell *tmp2 = deep_clone_to_tmp(q, p1, p1_ctx);
@@ -238,7 +239,6 @@ bool fn_iso_call_1(query *q)
 
 bool fn_iso_once_1(query *q)
 {
-	q->tot_goals--;
 	GET_FIRST_ARG(p1,callable);
 	check_heap_error(init_tmp_heap(q));
 	cell *tmp2 = deep_clone_to_tmp(q, p1, p1_ctx);
@@ -266,7 +266,6 @@ bool fn_iso_once_1(query *q)
 
 bool fn_ignore_1(query *q)
 {
-	q->tot_goals--;
 	GET_FIRST_ARG(p1,callable);
 	check_heap_error(init_tmp_heap(q));
 	cell *tmp2 = deep_clone_to_tmp(q, p1, p1_ctx);
@@ -294,7 +293,6 @@ bool fn_ignore_1(query *q)
 
 bool fn_iso_if_then_2(query *q)
 {
-	q->tot_goals--;
 	GET_FIRST_ARG(p1,callable);
 	GET_NEXT_ARG(p2,callable);
 	cell *tmp = prepare_call(q, true, p1, p1_ctx, 3+p2->nbr_cells+1);
@@ -303,7 +301,7 @@ bool fn_iso_if_then_2(query *q)
 	make_struct(tmp+nbr_cells++, g_cut_s, fn_iso_cut_0, 0, 0);
 	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, fn_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+nbr_cells++, q->cp);
-	nbr_cells += safe_copy_cells(tmp+nbr_cells, p2, p2->nbr_cells);
+	nbr_cells += safe_copy_cells_by_ref(tmp+nbr_cells, p2, p2_ctx, p2->nbr_cells);
 	make_call(q, tmp+nbr_cells);
 	check_heap_error(push_barrier(q));
 	choice *ch = GET_CURR_CHOICE();
@@ -316,7 +314,6 @@ bool fn_iso_if_then_2(query *q)
 
 bool fn_if_2(query *q)
 {
-	q->tot_goals--;
 	GET_FIRST_ARG(p1,callable);
 	GET_NEXT_ARG(p2,callable);
 	cell *tmp = prepare_call(q, true, p1, p1_ctx, 2+p2->nbr_cells+1);
@@ -324,7 +321,7 @@ bool fn_if_2(query *q)
 	pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, fn_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+nbr_cells++, q->cp);
-	nbr_cells += safe_copy_cells(tmp+nbr_cells, p2, p2->nbr_cells);
+	nbr_cells += safe_copy_cells_by_ref(tmp+nbr_cells, p2, p2_ctx, p2->nbr_cells);
 	make_call(q, tmp+nbr_cells);
 	check_heap_error(push_barrier(q));
 	choice *ch = GET_CURR_CHOICE();
@@ -337,8 +334,6 @@ bool fn_if_2(query *q)
 
 static bool do_if_then_else(query *q, cell *p1, cell *p2, cell *p3)
 {
-	q->tot_goals--;
-
 	if (q->retry) {
 		q->retry = QUERY_SKIP;
 		q->st.curr_cell = p3;
@@ -362,8 +357,6 @@ static bool do_if_then_else(query *q, cell *p1, cell *p2, cell *p3)
 
 static bool soft_do_if_then_else(query *q, cell *p1, cell *p2, cell *p3)
 {
-	q->tot_goals--;
-
 	if (q->retry) {
 		q->retry = QUERY_SKIP;
 		q->st.curr_cell = p3;
@@ -386,9 +379,9 @@ static bool soft_do_if_then_else(query *q, cell *p1, cell *p2, cell *p3)
 
 bool fn_if_3(query *q)
 {
-	GET_FIRST_ARG(p1,callable);
-	GET_NEXT_ARG(p2,callable);
-	GET_NEXT_ARG(p3,callable);
+	cell *p1 = q->st.curr_cell + 1;
+	cell *p2 = p1 + p1->nbr_cells;
+	cell *p3 = p2 + p2->nbr_cells;
 	return soft_do_if_then_else(q, p1, p2, p3);
 }
 
@@ -409,7 +402,7 @@ bool fn_iso_disjunction_2(query *q)
 	cell *c = q->st.curr_cell+1;
 
 	if (is_callable(c)) {
-		if (is_cstring(c) && !CMP_STR_TO_CSTR(q, c, "[]"))
+		if (is_cstring(c) && (c->val_off == g_nil_s))
 			return throw_error(q, c, q->st.curr_frame, "type_error", "callable");
 
 		if (c->fn_ptr && (c->fn_ptr->fn == fn_iso_if_then_2)) {
@@ -427,11 +420,10 @@ bool fn_iso_disjunction_2(query *q)
 		}
 	}
 
-	q->tot_goals--;
 	GET_FIRST_ARG(p1,callable);
-	GET_NEXT_ARG(p2,callable);
 
 	if (q->retry) {
+		GET_NEXT_ARG(p2,callable);
 		q->retry = QUERY_SKIP;
 		q->st.curr_cell = p2;
 		return true;
@@ -450,7 +442,6 @@ bool fn_iso_disjunction_2(query *q)
 
 bool fn_iso_negation_1(query *q)
 {
-	q->tot_goals--;
 	GET_FIRST_ARG(p1,callable);
 	cell *tmp = prepare_call(q, true, p1, p1_ctx, 5);
 	check_heap_error(tmp);
@@ -469,14 +460,12 @@ bool fn_iso_negation_1(query *q)
 
 bool fn_iso_cut_0(query *q)
 {
-	q->tot_goals--;
 	cut(q);
 	return true;
 }
 
 bool fn_sys_block_catcher_1(query *q)
 {
-	q->tot_goals--;
 	GET_FIRST_ARG(p1,integer);
 	pl_idx cp = get_smalluint(p1);
 	choice *ch = GET_CHOICE(cp);
@@ -585,7 +574,6 @@ bool fn_sys_call_cleanup_3(query *q)
 
 bool fn_sys_countall_2(query *q)
 {
-	q->tot_goals--;
 	GET_FIRST_ARG(p1,callable);
 	GET_NEXT_ARG(p2,var);
 
@@ -761,7 +749,7 @@ bool throw_error3(query *q, cell *c, pl_idx c_ctx, const char *err_type, const c
 		expected = "integer";
 
 	if (!is_var(c)) {
-		char *tmpbuf = DUP_STR(q, goal);
+		char *tmpbuf = DUP_STRING(q, goal);
 		snprintf(functor, sizeof(functor), "%s", tmpbuf);
 		functor[sizeof(functor)-1] = '\0';
 		free(tmpbuf);
@@ -828,7 +816,7 @@ bool throw_error3(query *q, cell *c, pl_idx c_ctx, const char *err_type, const c
 		SET_OP(tmp+nbr_cells, OP_YFX); nbr_cells++;
 		make_atom(tmp+nbr_cells++, new_atom(q->pl, functor));
 		make_int(tmp+nbr_cells, !is_string(goal)?goal->arity:0);
-	} else if (!strcmp(err_type, "permission_error") && is_structure(c) && CMP_STR_TO_CSTR(q, c, "/") && is_var(FIRST_ARG(c))) {
+	} else if (!strcmp(err_type, "permission_error") && is_compound(c) && CMP_STRING_TO_CSTR(q, c, "/") && is_var(FIRST_ARG(c))) {
 		//printf("error(%s(%s,(%s)/%u),(%s)/%u).\n", err_type, expected, tmpbuf, c->arity, functor, goal->arity);
 		tmp = alloc_on_heap(q, 9+extra);
 		check_heap_error(tmp);

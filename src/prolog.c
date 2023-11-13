@@ -28,8 +28,8 @@ pl_idx g_dcg_s, g_throw_s, g_sys_block_catcher_s, g_sys_drop_barrier_s;
 pl_idx g_if_then_s, g_soft_cut_s, g_negation_s;
 pl_idx g_error_s, g_slash_s, g_sys_cleanup_if_det_s;
 pl_idx g_goal_expansion_s, g_term_expansion_s, g_tm_s, g_float_s;
-pl_idx g_sys_cut_if_det_s, g_as_s, g_colon_s;
-pl_idx g_caret_s, g_syscall_s, g_sys_counter_s;
+pl_idx g_sys_cut_if_det_s, g_as_s, g_colon_s, g_member_s;
+pl_idx g_caret_s, g_sys_counter_s, g_catch_s, g_memberchk_s;
 
 unsigned g_cpu_count = 4;
 char *g_tpl_lib = NULL;
@@ -74,7 +74,6 @@ static pl_idx add_to_pool(prolog *pl, const char *name)
 	pl->pool_offset += len + 1;
 	const char *key = strdup(name);
 	sl_set(pl->symtab, key, (void*)(size_t)offset);
-	g_interned_cnt++;
 	return (pl_idx)offset;
 }
 
@@ -86,14 +85,6 @@ pl_idx new_atom(prolog *pl, const char *name)
 		return (pl_idx)(size_t)val;
 
 	return add_to_pool(pl, name);
-}
-
-module *find_next_module(prolog *pl, module *m)
-{
-	if (!m)
-		return pl->modules;
-
-	return m->next;
 }
 
 module *find_module(prolog *pl, const char *name)
@@ -467,7 +458,9 @@ static bool g_init(prolog *pl)
 	CHECK_SENTINEL(g_anon_s = new_atom(pl, "_"), ERR_IDX);
 	CHECK_SENTINEL(g_dcg_s = new_atom(pl, "-->"), ERR_IDX);
 	CHECK_SENTINEL(g_call_s = new_atom(pl, "call"), ERR_IDX);
-	CHECK_SENTINEL(g_syscall_s = new_atom(pl, "$call"), ERR_IDX);
+	CHECK_SENTINEL(g_catch_s = new_atom(pl, "catch"), ERR_IDX);
+	CHECK_SENTINEL(g_member_s = new_atom(pl, "member"), ERR_IDX);
+	CHECK_SENTINEL(g_memberchk_s = new_atom(pl, "memberchk"), ERR_IDX);
 	CHECK_SENTINEL(g_sys_counter_s = new_atom(pl, "$counter"), ERR_IDX);
 	CHECK_SENTINEL(g_braces_s = new_atom(pl, "braces"), ERR_IDX);
 	CHECK_SENTINEL(g_unify_s = new_atom(pl, "="), ERR_IDX);

@@ -66,20 +66,20 @@ void do_yield_at(query *q, unsigned int time_in_ms)
 void make_call(query *q, cell *tmp)
 {
 	make_end(tmp);
+	const frame *f = GET_CURR_FRAME();
 	cell *c = q->st.curr_cell;
-	frame *f = GET_CURR_FRAME();
-	tmp->val_ret = c ? c + c->nbr_cells : NULL;	// save next as the return instruction
-	tmp->chgen = f->chgen;						// ... choice-generation
-	tmp->mid = q->st.m->id;						// ... current-module
+	tmp->val_ret = c + c->nbr_cells;	// save next as the return instruction
+	tmp->chgen = f->chgen;				// ... choice-generation
+	tmp->mid = q->st.m->id;				// ... current-module
 }
 
 void make_call_redo(query *q, cell *tmp)
 {
 	make_end(tmp);
-	frame *f = GET_CURR_FRAME();
-	tmp->val_ret = q->st.curr_cell;				// save the return instruction
-	tmp->chgen = f->chgen;						// ... choice-generation
-	tmp->mid = q->st.m->id;						// ... current-module
+	const frame *f = GET_CURR_FRAME();
+	tmp->val_ret = q->st.curr_cell;		// save the return instruction
+	tmp->chgen = f->chgen;				// ... choice-generation
+	tmp->mid = q->st.m->id;				// ... current-module
 }
 
 #if 0
@@ -165,18 +165,8 @@ static bool fn_iso_findall_3(query *q)
 		if (is_iso_list(p3) && !check_list(q, p3, p3_ctx, &is_partial, NULL) && !is_partial)
 			return throw_error(q, p3, p3_ctx, "type_error", "list");
 
-		if (is_structure(p1)
-			&& (!is_iso_list(p1))) {	// Why is this necessary?
-			cell *p0 = deep_copy_to_heap(q, q->st.curr_cell, q->st.curr_frame, false);
-			check_heap_error(p0);
-			unify(q, q->st.curr_cell, q->st.curr_frame, p0, q->st.curr_frame);
-			GET_FIRST_ARG0(xp1,any,p0);
-			GET_NEXT_ARG(xp2,any);
-			p1 = xp1;
-			p2 = xp2;
-			p2_ctx = xp2_ctx;
-		} else if (p1_ctx != q->st.curr_frame) {
-			p1 = deep_clone_to_heap(q, p1, p1_ctx);
+		if (is_compound(p1) && (!is_iso_list(p1))) {	// Why?
+			create_vars(q, 16);
 		}
 
 		grab_queuen(q);
@@ -255,9 +245,9 @@ static bool fn_iso_notunify_2(query *q)
 	pl_idx nbr_cells = PREFIX_LEN;
 	tmp[nbr_cells].nbr_cells += p1->nbr_cells+p2->nbr_cells;
 	nbr_cells++;
-	safe_copy_cells(tmp+nbr_cells, p1, p1->nbr_cells);
+	safe_copy_cells_by_ref(tmp+nbr_cells, p1, p1_ctx, p1->nbr_cells);
 	nbr_cells += p1->nbr_cells;
-	safe_copy_cells(tmp+nbr_cells, p2, p2->nbr_cells);
+	safe_copy_cells_by_ref(tmp+nbr_cells, p2, p2_ctx, p2->nbr_cells);
 	nbr_cells += p2->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_cut_s, fn_iso_cut_0, 0, 0);
 	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, fn_sys_drop_barrier_1, 1, 1);
@@ -317,7 +307,7 @@ static bool fn_iso_atom_1(query *q)
 static bool fn_iso_compound_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
-	return is_compound(p1) ? 1 : 0;
+	return is_structure(p1) ? 1 : 0;
 }
 
 static bool fn_iso_atomic_1(query *q)
@@ -1387,7 +1377,7 @@ static bool fn_iso_sub_string_5(query *q)
 
 			check_heap_error(make_slice(q, &tmp, p1, ipos, jpos - ipos));
 
-			if (is_atom(p5) && !CMP_STR_TO_CSTRN(q, p5, C_STR(q, &tmp), C_STRLEN(q, &tmp))) {
+			if (is_atom(p5) && !CMP_STRING_TO_CSTRN(q, p5, C_STR(q, &tmp), C_STRLEN(q, &tmp))) {
 				unshare_cell(&tmp);
 
 				if (fixed) {
@@ -2050,7 +2040,7 @@ static bool fn_iso_functor_3(query *q)
 		if (is_negative(p3))
 			return throw_error(q, p3, p3_ctx, "domain_error", "not_less_than_zero");
 
-		if (is_gt(p3,MAX_ARITY/2))
+		if (is_gt(p3,MAX_ARITY))
 			return throw_error(q, p3, p3_ctx, "representation_error", "max_arity");
 
 		if (!is_atom(p2) && is_positive(p3))
@@ -2117,9 +2107,9 @@ static bool fn_iso_current_rule_1(query *q)
 	GET_FIRST_ARG(p1,structure);
 	int add_two = 0;
 
-	if (!CMP_STR_TO_CSTR(q, p1, "/"))
+	if (!CMP_STRING_TO_CSTR(q, p1, "/"))
 		;
-	else if (!CMP_STR_TO_CSTR(q, p1, "//"))
+	else if (!CMP_STRING_TO_CSTR(q, p1, "//"))
 		add_two = 2;
 	else
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
@@ -2207,7 +2197,7 @@ static bool fn_iso_current_predicate_1(query *q)
 {
 	GET_FIRST_ARG(p_pi,any);
 
-	if (!CMP_STR_TO_CSTR(q, p_pi, ":"))
+	if (!CMP_STRING_TO_CSTR(q, p_pi, ":"))
 		p_pi++;
 
 	if (is_var(p_pi)) {
@@ -2232,7 +2222,7 @@ static bool fn_iso_current_predicate_1(query *q)
 	if (p_pi->arity != 2)
 		return throw_error(q, p_pi, p_pi_ctx, "type_error", "predicate_indicator");
 
-	if (CMP_STR_TO_CSTR(q, p_pi, "/"))
+	if (CMP_STRING_TO_CSTR(q, p_pi, "/"))
 		return throw_error(q, p_pi, p_pi_ctx, "type_error", "predicate_indicator");
 
 	cell *p1, *p2;
@@ -2288,7 +2278,7 @@ static bool fn_iso_current_prolog_flag_2(query *q)
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p2,any);
 
-	if (!CMP_STR_TO_CSTR(q, p1, "double_quotes")) {
+	if (!CMP_STRING_TO_CSTR(q, p1, "double_quotes")) {
 		cell tmp;
 
 		if (q->st.m->flags.double_quote_atom)
@@ -2299,7 +2289,7 @@ static bool fn_iso_current_prolog_flag_2(query *q)
 			make_atom(&tmp, new_atom(q->pl, "chars"));
 
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	} else if (!CMP_STR_TO_CSTR(q, p1, "answer_write_options")) {
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "answer_write_options")) {
 		cell tmp[2];
 		make_struct(tmp+0, new_atom(q->pl, "max_depth"), NULL, 1, 1);
 		make_uint(tmp+1, q->pl->def_max_depth);
@@ -2311,7 +2301,7 @@ static bool fn_iso_current_prolog_flag_2(query *q)
 		make_atom(tmp+1, q->pl->def_double_quotes?g_true_s:g_false_s);
 		append_list(q, tmp);
 		return unify(q, p2, p2_ctx, end_list(q), q->st.curr_frame);
-	} else if (!CMP_STR_TO_CSTR(q, p1, "char_conversion")) {
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "char_conversion")) {
 		cell tmp;
 
 		if (q->st.m->flags.char_conversion)
@@ -2320,15 +2310,15 @@ static bool fn_iso_current_prolog_flag_2(query *q)
 			make_atom(&tmp, g_off_s);
 
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	} else if (!CMP_STR_TO_CSTR(q, p1, "verbose")) {
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "verbose")) {
 		cell tmp;
 		make_atom(&tmp, q->pl->quiet ? g_false_s : g_true_s);
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	} else if (!CMP_STR_TO_CSTR(q, p1, "unix")) {
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "unix")) {
 		cell tmp;
 		make_atom(&tmp, g_true_s);
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	} else if (!CMP_STR_TO_CSTR(q, p1, "occurs_check")) {
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "occurs_check")) {
 		cell tmp;
 
 		if (q->st.m->flags.occurs_check == OCCURS_CHECK_TRUE)
@@ -2339,11 +2329,11 @@ static bool fn_iso_current_prolog_flag_2(query *q)
 			make_atom(&tmp, new_atom(q->pl, "error"));
 
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	} else if (!CMP_STR_TO_CSTR(q, p1, "encoding")) {
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "encoding")) {
 		cell tmp;
 		make_atom(&tmp, new_atom(q->pl, "UTF-8"));
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	} else if (!CMP_STR_TO_CSTR(q, p1, "strict_iso")) {
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "strict_iso")) {
 		cell tmp;
 
 		if (!q->st.m->flags.not_strict_iso)
@@ -2352,7 +2342,7 @@ static bool fn_iso_current_prolog_flag_2(query *q)
 			make_atom(&tmp, g_off_s);
 
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	} else if (!CMP_STR_TO_CSTR(q, p1, "debug")) {
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "debug")) {
 		cell tmp;
 
 		if (q->st.m->flags.debug)
@@ -2361,7 +2351,7 @@ static bool fn_iso_current_prolog_flag_2(query *q)
 			make_atom(&tmp, g_off_s);
 
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	} else if (!CMP_STR_TO_CSTR(q, p1, "character_escapes")) {
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "character_escapes")) {
 		cell tmp;
 
 		if (q->st.m->flags.character_escapes)
@@ -2370,37 +2360,37 @@ static bool fn_iso_current_prolog_flag_2(query *q)
 			make_atom(&tmp, g_false_s);
 
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	} else if (!CMP_STR_TO_CSTR(q, p1, "dialect")) {
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "dialect")) {
 		cell tmp;
 		make_atom(&tmp, new_atom(q->pl, "trealla"));
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	} else if (!CMP_STR_TO_CSTR(q, p1, "integer_rounding_function")) {
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "integer_rounding_function")) {
 		cell tmp;
 		make_atom(&tmp, new_atom(q->pl, "toward_zero"));
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	} else if (!CMP_STR_TO_CSTR(q, p1, "bounded")) {
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "bounded")) {
 		cell tmp;
 		make_atom(&tmp, g_false_s);
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	} else if (!CMP_STR_TO_CSTR(q, p1, "max_arity")) {
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "max_arity")) {
 		cell tmp;
 		make_int(&tmp, MAX_ARITY);
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	} else if (!CMP_STR_TO_CSTR(q, p1, "max_integer")) {
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "max_integer")) {
 		return false;
-	} else if (!CMP_STR_TO_CSTR(q, p1, "min_integer")) {
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "min_integer")) {
 		return false;
-	} else if (!CMP_STR_TO_CSTR(q, p1, "cpu_count")) {
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "cpu_count")) {
 		cell tmp;
 		make_int(&tmp, g_cpu_count);
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	} else if (!CMP_STR_TO_CSTR(q, p1, "version")) {
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "version")) {
 		unsigned v1 = 0;
 		sscanf(g_version, "v%u", &v1);
 		cell tmp;
 		make_int(&tmp, v1);
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	} else if (!CMP_STR_TO_CSTR(q, p1, "version_data")) {
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "version_data")) {
 		unsigned v1 = 0, v2 = 0, v3 = 0;
 		sscanf(g_version, "v%u.%u.%u", &v1, &v2, &v3);
 		cell *tmp = alloc_on_heap(q, 5);
@@ -2413,11 +2403,11 @@ static bool fn_iso_current_prolog_flag_2(query *q)
 		tmp[0].arity = 4;
 		tmp[0].nbr_cells = 5;
 		return unify(q, p2, p2_ctx, tmp, q->st.curr_frame);
-	} else if (!CMP_STR_TO_CSTR(q, p1, "version_git")) {
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "version_git")) {
 		cell tmp;
 		make_atom(&tmp, new_atom(q->pl, g_version));
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	} else if (!CMP_STR_TO_CSTR(q, p1, "argv")) {
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "argv")) {
 		if (g_avc >= g_ac)
 			return unify(q, p2, p2_ctx, make_nil(), q->st.curr_frame);
 
@@ -2434,7 +2424,7 @@ static bool fn_iso_current_prolog_flag_2(query *q)
 		cell *l = end_list(q);
 		check_heap_error(l);
 		return unify(q, p2, p2_ctx, l, q->st.curr_frame);
-	} else if (!CMP_STR_TO_CSTR(q, p1, "unknown")) {
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "unknown")) {
 		cell tmp;
 		make_atom(&tmp,
 			q->st.m->flags.unknown == UNK_ERROR ? new_atom(q->pl, "error") :
@@ -2442,7 +2432,7 @@ static bool fn_iso_current_prolog_flag_2(query *q)
 			q->st.m->flags.unknown == UNK_CHANGEABLE ? new_atom(q->pl, "changeable") :
 			new_atom(q->pl, "fail"));
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	} else if (!CMP_STR_TO_CSTR(q, p1, "generate_debug_info")) {
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "generate_debug_info")) {
 	}
 
 	return throw_error(q, p1, p1_ctx, "domain_error", "prolog_flag");
@@ -2478,7 +2468,7 @@ static bool fn_iso_set_prolog_flag_2(query *q)
 	if (!is_atom(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "atom");
 
-	if (!CMP_STR_TO_CSTR(q, p1, "cpu_count") && is_integer(p2)) {
+	if (!CMP_STRING_TO_CSTR(q, p1, "cpu_count") && is_integer(p2)) {
 		g_cpu_count = get_smallint(p2);
 		return true;
 	}
@@ -2486,14 +2476,14 @@ static bool fn_iso_set_prolog_flag_2(query *q)
 	if (has_vars(q, p2, p2_ctx))
 		return throw_error(q, p2, p2_ctx, "instantiation_error", "var");
 
-	if (!CMP_STR_TO_CSTR(q, p1, "double_quotes")) {
-		if (!CMP_STR_TO_CSTR(q, p2, "atom")) {
+	if (!CMP_STRING_TO_CSTR(q, p1, "double_quotes")) {
+		if (!CMP_STRING_TO_CSTR(q, p2, "atom")) {
 			q->st.m->flags.double_quote_chars = q->st.m->flags.double_quote_codes = false;
 			q->st.m->flags.double_quote_atom = true;
-		} else if (!CMP_STR_TO_CSTR(q, p2, "codes")) {
+		} else if (!CMP_STRING_TO_CSTR(q, p2, "codes")) {
 			q->st.m->flags.double_quote_chars = q->st.m->flags.double_quote_atom = false;
 			q->st.m->flags.double_quote_codes = true;
-		} else if (!CMP_STR_TO_CSTR(q, p2, "chars")) {
+		} else if (!CMP_STRING_TO_CSTR(q, p2, "chars")) {
 			q->st.m->flags.double_quote_atom = q->st.m->flags.double_quote_codes = false;
 			q->st.m->flags.double_quote_chars = true;
 		} else {
@@ -2501,7 +2491,7 @@ static bool fn_iso_set_prolog_flag_2(query *q)
 		}
 
 		q->st.m->p->flags = q->st.m->flags;
-	} else if (!CMP_STR_TO_CSTR(q, p1, "answer_write_options")) {
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "answer_write_options")) {
 		cell *l = p2;
 		l = deref(q, l, p2_ctx);
 		pl_idx l_ctx = q->latest_ctx;
@@ -2516,13 +2506,13 @@ static bool fn_iso_set_prolog_flag_2(query *q)
 			h = deref(q, h, l_ctx);
 			pl_idx h_ctx = q->latest_ctx;
 
-			if (!is_structure(h))
+			if (!is_compound(h))
 				return answer_write_options_error(q, h);
 
 			cell *h1 = h + 1;
 			h1 = deref(q, h1, h_ctx);
 
-			if (!CMP_STR_TO_CSTR(q, h, "max_depth") && (h->arity == 1)) {
+			if (!CMP_STRING_TO_CSTR(q, h, "max_depth") && (h->arity == 1)) {
 				if (!is_integer(h1))
 					return answer_write_options_error(q, h);
 
@@ -2530,23 +2520,23 @@ static bool fn_iso_set_prolog_flag_2(query *q)
 					return answer_write_options_error(q, h);
 
 				q->pl->def_max_depth = get_smallint(h1);
-			} else if (!CMP_STR_TO_CSTR(q, h, "quoted") && (h->arity == 1)) {
+			} else if (!CMP_STRING_TO_CSTR(q, h, "quoted") && (h->arity == 1)) {
 				if (!is_atom(h1))
 					return answer_write_options_error(q, h);
 
-				if (!CMP_STR_TO_CSTR(q, h1, "true") || !CMP_STR_TO_CSTR(q, h1, "on"))
+				if (!CMP_STRING_TO_CSTR(q, h1, "true") || !CMP_STRING_TO_CSTR(q, h1, "on"))
 					q->pl->def_quoted = true;
-				else if (!CMP_STR_TO_CSTR(q, h1, "false") || !CMP_STR_TO_CSTR(q, h1, "off"))
+				else if (!CMP_STRING_TO_CSTR(q, h1, "false") || !CMP_STRING_TO_CSTR(q, h1, "off"))
 					q->pl->def_quoted = false;
 				else
 					return answer_write_options_error(q, h);
-			} else if (!CMP_STR_TO_CSTR(q, h, "double_quotes") && (h->arity == 1)) {
+			} else if (!CMP_STRING_TO_CSTR(q, h, "double_quotes") && (h->arity == 1)) {
 				if (!is_atom(h1))
 					return answer_write_options_error(q, h);
 
-				if (!CMP_STR_TO_CSTR(q, h1, "true") || !CMP_STR_TO_CSTR(q, h1, "on"))
+				if (!CMP_STRING_TO_CSTR(q, h1, "true") || !CMP_STRING_TO_CSTR(q, h1, "on"))
 					q->pl->def_double_quotes = true;
-				else if (!CMP_STR_TO_CSTR(q, h1, "false") || !CMP_STR_TO_CSTR(q, h1, "off"))
+				else if (!CMP_STRING_TO_CSTR(q, h1, "false") || !CMP_STRING_TO_CSTR(q, h1, "off"))
 					q->pl->def_double_quotes = false;
 				else
 					return answer_write_options_error(q, h);
@@ -2557,75 +2547,75 @@ static bool fn_iso_set_prolog_flag_2(query *q)
 			l = deref(q, l, l_ctx);
 			l_ctx = q->latest_ctx;
 		}
-	} else if (!CMP_STR_TO_CSTR(q, p1, "character_escapes")) {
-		if (!CMP_STR_TO_CSTR(q, p2, "true") || !CMP_STR_TO_CSTR(q, p2, "on"))
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "character_escapes")) {
+		if (!CMP_STRING_TO_CSTR(q, p2, "true") || !CMP_STRING_TO_CSTR(q, p2, "on"))
 			q->st.m->flags.character_escapes = true;
-		else if (!CMP_STR_TO_CSTR(q, p2, "false") || !CMP_STR_TO_CSTR(q, p2, "off"))
+		else if (!CMP_STRING_TO_CSTR(q, p2, "false") || !CMP_STRING_TO_CSTR(q, p2, "off"))
 			q->st.m->flags.character_escapes = false;
 		else {
 			return flag_value_error(q, p1, p2);
 		}
-	} else if (!CMP_STR_TO_CSTR(q, p1, "char_conversion")) {
-		if (!CMP_STR_TO_CSTR(q, p2, "true") || !CMP_STR_TO_CSTR(q, p2, "on"))
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "char_conversion")) {
+		if (!CMP_STRING_TO_CSTR(q, p2, "true") || !CMP_STRING_TO_CSTR(q, p2, "on"))
 			q->st.m->flags.char_conversion = true;
-		else if (!CMP_STR_TO_CSTR(q, p2, "false") || !CMP_STR_TO_CSTR(q, p2, "off"))
+		else if (!CMP_STRING_TO_CSTR(q, p2, "false") || !CMP_STRING_TO_CSTR(q, p2, "off"))
 			q->st.m->flags.char_conversion = false;
 		else {
 			return flag_value_error(q, p1, p2);
 		}
-	} else if (!CMP_STR_TO_CSTR(q, p1, "occurs_check")) {
-		if (!CMP_STR_TO_CSTR(q, p2, "true") || !CMP_STR_TO_CSTR(q, p2, "on"))
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "occurs_check")) {
+		if (!CMP_STRING_TO_CSTR(q, p2, "true") || !CMP_STRING_TO_CSTR(q, p2, "on"))
 			q->st.m->flags.occurs_check = OCCURS_CHECK_TRUE;
-		else if (!CMP_STR_TO_CSTR(q, p2, "false") || !CMP_STR_TO_CSTR(q, p2, "off"))
+		else if (!CMP_STRING_TO_CSTR(q, p2, "false") || !CMP_STRING_TO_CSTR(q, p2, "off"))
 			q->st.m->flags.occurs_check = OCCURS_CHECK_FALSE;
-		else if (!CMP_STR_TO_CSTR(q, p2, "error"))
+		else if (!CMP_STRING_TO_CSTR(q, p2, "error"))
 			q->st.m->flags.occurs_check = OCCURS_CHECK_ERROR;
 		else {
 			return flag_value_error(q, p1, p2);
 		}
-	} else if (!CMP_STR_TO_CSTR(q, p1, "debug")) {
-		if (!CMP_STR_TO_CSTR(q, p2, "true") || !CMP_STR_TO_CSTR(q, p2, "on"))
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "debug")) {
+		if (!CMP_STRING_TO_CSTR(q, p2, "true") || !CMP_STRING_TO_CSTR(q, p2, "on"))
 			q->st.m->flags.debug = true;
-		else if (!CMP_STR_TO_CSTR(q, p2, "false") || !CMP_STR_TO_CSTR(q, p2, "off"))
+		else if (!CMP_STRING_TO_CSTR(q, p2, "false") || !CMP_STRING_TO_CSTR(q, p2, "off"))
 			q->st.m->flags.debug = false;
 		else {
 			return flag_value_error(q, p1, p2);
 		}
-	} else if (!CMP_STR_TO_CSTR(q, p1, "strict_iso")) {
-		if (!CMP_STR_TO_CSTR(q, p2, "true") || !CMP_STR_TO_CSTR(q, p2, "on"))
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "strict_iso")) {
+		if (!CMP_STRING_TO_CSTR(q, p2, "true") || !CMP_STRING_TO_CSTR(q, p2, "on"))
 			q->st.m->flags.not_strict_iso = !true;
-		else if (!CMP_STR_TO_CSTR(q, p2, "false") || !CMP_STR_TO_CSTR(q, p2, "off"))
+		else if (!CMP_STRING_TO_CSTR(q, p2, "false") || !CMP_STRING_TO_CSTR(q, p2, "off"))
 			q->st.m->flags.not_strict_iso = !false;
 		else {
 			return flag_value_error(q, p1, p2);
 		}
-	} else if (!CMP_STR_TO_CSTR(q, p1, "unknown")) {
-		if (!CMP_STR_TO_CSTR(q, p2, "fail")) {
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "unknown")) {
+		if (!CMP_STRING_TO_CSTR(q, p2, "fail")) {
 			q->st.m->flags.unknown = UNK_FAIL;
-		} else if (!CMP_STR_TO_CSTR(q, p2, "error")) {
+		} else if (!CMP_STRING_TO_CSTR(q, p2, "error")) {
 			q->st.m->flags.unknown = UNK_ERROR;
-		} else if (!CMP_STR_TO_CSTR(q, p2, "warning")) {
+		} else if (!CMP_STRING_TO_CSTR(q, p2, "warning")) {
 			q->st.m->flags.unknown = UNK_WARNING;
-		} else if (!CMP_STR_TO_CSTR(q, p2, "changeable")) {
+		} else if (!CMP_STRING_TO_CSTR(q, p2, "changeable")) {
 			q->st.m->flags.unknown = UNK_CHANGEABLE;
 		} else {
 			return flag_value_error(q, p1, p2);
 		}
-	} else if (!CMP_STR_TO_CSTR(q, p1, "bounded")
-		|| !CMP_STR_TO_CSTR(q, p1, "max_arity")
-		|| !CMP_STR_TO_CSTR(q, p1, "max_integer")
-		|| !CMP_STR_TO_CSTR(q, p1, "min_integer")
-		|| !CMP_STR_TO_CSTR(q, p1, "version")
-		|| !CMP_STR_TO_CSTR(q, p1, "version_data")
-		|| !CMP_STR_TO_CSTR(q, p1, "version_git")
-		|| !CMP_STR_TO_CSTR(q, p1, "encoding")
-		|| !CMP_STR_TO_CSTR(q, p1, "unix")
-		|| !CMP_STR_TO_CSTR(q, p1, "verbose")
-		|| !CMP_STR_TO_CSTR(q, p1, "integer_rounding_function")
-		|| !CMP_STR_TO_CSTR(q, p1, "dialect")
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "bounded")
+		|| !CMP_STRING_TO_CSTR(q, p1, "max_arity")
+		|| !CMP_STRING_TO_CSTR(q, p1, "max_integer")
+		|| !CMP_STRING_TO_CSTR(q, p1, "min_integer")
+		|| !CMP_STRING_TO_CSTR(q, p1, "version")
+		|| !CMP_STRING_TO_CSTR(q, p1, "version_data")
+		|| !CMP_STRING_TO_CSTR(q, p1, "version_git")
+		|| !CMP_STRING_TO_CSTR(q, p1, "encoding")
+		|| !CMP_STRING_TO_CSTR(q, p1, "unix")
+		|| !CMP_STRING_TO_CSTR(q, p1, "verbose")
+		|| !CMP_STRING_TO_CSTR(q, p1, "integer_rounding_function")
+		|| !CMP_STRING_TO_CSTR(q, p1, "dialect")
 		) {
 		return throw_error(q, p1, p1_ctx, "permission_error", "modify,flag");
-	} else if (!CMP_STR_TO_CSTR(q, p1, "generate_debug_info")) {
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "generate_debug_info")) {
 	} else {
 		return throw_error(q, p1, p1_ctx, "domain_error", "prolog_flag");
 	}
@@ -2689,7 +2679,7 @@ static cell *nodesort(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool keysor
 		pl_idx h_ctx = q->latest_ctx;
 
 		if (keysort) {
-			if (!is_structure(h) || strcmp(C_STR(q, h), "-")) {
+			if (!is_compound(h) || strcmp(C_STR(q, h), "-")) {
 				*status = throw_error(q, h, h_ctx, "type_error", "pair");
 				free(base);
 				return NULL;
@@ -2729,7 +2719,7 @@ static cell *nodesort(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool keysor
 		pl_idx c_ctx = q->latest_ctx;
 		cell tmp;
 
-		if (is_structure(c) && !is_iso_list(c)) {
+		if (is_compound(c) && !is_iso_list(c)) {
 			make_ref(&tmp, c->val_off, create_vars(q, 1), q->st.curr_frame);
 			unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 			c = &tmp;
@@ -2849,7 +2839,7 @@ static bool fn_iso_keysort_2(query *q)
 		pl_idx tmp_h_ctx = q->latest_ctx;
 		LIST_TAIL(p2);
 
-		if (!is_var(tmp_h) && (!is_structure(tmp_h) || strcmp(C_STR(q, tmp_h), "-")))
+		if (!is_var(tmp_h) && (!is_compound(tmp_h) || strcmp(C_STR(q, tmp_h), "-")))
 			return throw_error(q, tmp_h, tmp_h_ctx, "type_error", "pair");
 	}
 
@@ -2914,7 +2904,7 @@ static cell *nodesort4(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool ascen
 		pl_idx c_ctx = q->latest_ctx;
 		cell tmp;
 
-		if (is_var(c) || is_structure(c)) {
+		if (is_var(c) || is_compound(c)) {
 			make_ref(&tmp, c->val_off, create_vars(q, 1), q->st.curr_frame);
 			unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 			c = &tmp;
@@ -2977,7 +2967,7 @@ static bool fn_sort_4(query *q)
 		pl_idx tmp_h_ctx = q->latest_ctx;
 		LIST_TAIL(p4);
 
-		if (!is_var(tmp_h) && (!is_structure(tmp_h) || strcmp(C_STR(q, tmp_h), "-")))
+		if (!is_var(tmp_h) && (!is_compound(tmp_h) || strcmp(C_STR(q, tmp_h), "-")))
 			return throw_error(q, tmp_h, tmp_h_ctx, "type_error", "pair");
 	}
 
@@ -3046,33 +3036,33 @@ static bool do_op(query *q, cell *p3, pl_idx p3_ctx)
 
 	unsigned specifier, pri = get_smallint(p1);
 
-	if (!CMP_STR_TO_CSTR(q, p2, "fx"))
+	if (!CMP_STRING_TO_CSTR(q, p2, "fx"))
 		specifier = OP_FX;
-	else if (!CMP_STR_TO_CSTR(q, p2, "fy"))
+	else if (!CMP_STRING_TO_CSTR(q, p2, "fy"))
 		specifier = OP_FY;
-	else if (!CMP_STR_TO_CSTR(q, p2, "xf"))
+	else if (!CMP_STRING_TO_CSTR(q, p2, "xf"))
 		specifier = OP_XF;
-	else if (!CMP_STR_TO_CSTR(q, p2, "xfx"))
+	else if (!CMP_STRING_TO_CSTR(q, p2, "xfx"))
 		specifier = OP_XFX;
-	else if (!CMP_STR_TO_CSTR(q, p2, "xfy"))
+	else if (!CMP_STRING_TO_CSTR(q, p2, "xfy"))
 		specifier = OP_XFY;
-	else if (!CMP_STR_TO_CSTR(q, p2, "yf"))
+	else if (!CMP_STRING_TO_CSTR(q, p2, "yf"))
 		specifier = OP_YF;
-	else if (!CMP_STR_TO_CSTR(q, p2, "yfx"))
+	else if (!CMP_STRING_TO_CSTR(q, p2, "yfx"))
 		specifier = OP_YFX;
 	else
 		return throw_error(q, p2, p2_ctx, "domain_error", "operator_specifier");
 
-	if (pri && !CMP_STR_TO_CSTR(q, p3, "|") && (!IS_INFIX(specifier) || (pri < 1001)))
+	if (pri && !CMP_STRING_TO_CSTR(q, p3, "|") && (!IS_INFIX(specifier) || (pri < 1001)))
 		return throw_error(q, p3, p3_ctx, "permission_error", "create,operator");
 
-	if (!CMP_STR_TO_CSTR(q, p3, "[]"))
+	if (!CMP_STRING_TO_CSTR(q, p3, "[]"))
 		return throw_error(q, p3, p3_ctx, "permission_error", "create,operator");
 
-	if (!CMP_STR_TO_CSTR(q, p3, "{}"))
+	if (!CMP_STRING_TO_CSTR(q, p3, "{}"))
 		return throw_error(q, p3, p3_ctx, "permission_error", "create,operator");
 
-	if (!CMP_STR_TO_CSTR(q, p3, ","))
+	if (!CMP_STRING_TO_CSTR(q, p3, ","))
 		return throw_error(q, p3, p3_ctx, "permission_error", "modify,operator");
 
 	unsigned tmp_optype = 0;
@@ -3214,7 +3204,7 @@ static bool fn_listing_1(query *q)
 	}
 
 	if (p1->arity) {
-		if (CMP_STR_TO_CSTR(q, p1, "/") && CMP_STR_TO_CSTR(q, p1, "//"))
+		if (CMP_STRING_TO_CSTR(q, p1, "/") && CMP_STRING_TO_CSTR(q, p1, "//"))
 			return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 
 		cell *p2 = p1 + 1;
@@ -3230,7 +3220,7 @@ static bool fn_listing_1(query *q)
 		name = new_atom(q->pl, C_STR(q, p2));
 		arity = get_smallint(p3);
 
-		if (!CMP_STR_TO_CSTR(q, p1, "//"))
+		if (!CMP_STRING_TO_CSTR(q, p1, "//"))
 			arity += 2;
 	}
 
@@ -3289,7 +3279,7 @@ static bool fn_source_info_2(query *q)
 	GET_FIRST_ARG(p1,any);
 	GET_NEXT_ARG(p2,var);
 
-	if (!is_structure(p1))
+	if (!is_compound(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 
 	if (p1->arity != 2)
@@ -3364,7 +3354,7 @@ static bool fn_help_1(query *q)
 		return true;
 	}
 
-	if (!is_structure(p1))
+	if (!is_compound(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 
 	if (p1->arity != 2)
@@ -3429,7 +3419,7 @@ static bool fn_help_2(query *q)
 		return true;
 	}
 
-	if (!is_structure(p1))
+	if (!is_compound(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 
 	if (p1->arity != 2)
@@ -3523,7 +3513,7 @@ static bool fn_module_help_2(query *q)
 		return true;
 	}
 
-	if (!is_structure(p1))
+	if (!is_compound(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 
 	if (p1->arity != 2)
@@ -3591,7 +3581,7 @@ static bool fn_module_help_3(query *q)
 		return true;
 	}
 
-	if (!is_structure(p1))
+	if (!is_compound(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
 
 	if (p1->arity != 2)
@@ -3660,6 +3650,7 @@ static bool fn_sys_first_non_octet_2(query *q)
 static bool fn_sys_timer_0(query *q)
 {
 	q->st.timer_started = get_time_in_usec();
+	q->tot_goals = 0;
 	return true;
 }
 
@@ -3667,20 +3658,9 @@ static bool fn_sys_elapsed_0(query *q)
 {
 	uint64_t elapsed = get_time_in_usec();
 	elapsed -= q->st.timer_started;
-	if (!q->pl->is_query) {
-		if (!q->is_redo) fprintf(stderr, "   ");
-		if (q->is_redo) fprintf(stderr, " ");
-	}
 	double lips = (1.0 / ((double)elapsed/1000/1000)) * q->tot_goals;
 	fprintf(stderr, "%% Time elapsed %.3fs, %llu Inferences, %.3f MLips\n", (double)elapsed/1000/1000, (unsigned long long)q->tot_goals, lips/1000/1000);
-	if (!q->pl->is_query) {
-		if (q->is_redo) fprintf(stderr, "  ");
-		else if (!q->is_redo) fprintf(stderr, "");
-	}
-	//else if (!q->redo) fprintf(stdout, "");
-	if (!q->cp) return true;
-	choice *ch = GET_CURR_CHOICE();
-	ch->st.timer_started = get_time_in_usec();
+	if (q->is_redo) fprintf(stdout, "  ");
 	return true;
 }
 
@@ -3691,8 +3671,8 @@ static bool fn_time_1(query *q)
 		return false;
 	}
 
-	GET_FIRST_ARG(p1,callable);
 	fn_sys_timer_0(q);
+	GET_FIRST_ARG(p1,callable);
 	cell *tmp = prepare_call(q, true, p1, p1_ctx, 4);
 	pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_sys_elapsed_s, fn_sys_elapsed_0, 0, 0);
@@ -3717,6 +3697,26 @@ static bool fn_notrace_0(query *q)
 }
 
 
+static bool do_profile(query *q)
+{
+	fprintf(stderr, "#functor/arity,match_attempts,matched,tcos\n");
+
+	for (module *m = q->pl->modules; m; m = m->next) {
+		for (predicate *pr = m->head; pr; pr = pr->next) {
+			for (rule *r = pr->head; r; r = r->next) {
+				if (!r->attempted)
+					continue;
+
+				fprintf(stderr, "'%s/%u',%llu,%llu,%llu\n",
+					C_STR(q, &pr->key), pr->key.arity,
+					(unsigned long long)r->attempted, (unsigned long long)r->matched, (unsigned long long)r->tcos);
+			}
+		}
+	}
+
+	return true;
+}
+
 static bool fn_statistics_0(query *q)
 {
 	fprintf(stdout,
@@ -3729,8 +3729,8 @@ static bool fn_statistics_0(query *q)
 		"Active frames %u, "
 		"choices %u, "
 		"trails %u, "
-		"slots %u.\n"
-		"Heap: %u (~%u MB), "
+		"slots %u, "
+		"pages %u.\n"
 		"Backtracks %"PRIu64", "
 		"TCOs:%"PRIu64", "
 		"Recovered frames: %"PRIu64", "
@@ -3738,8 +3738,7 @@ static bool fn_statistics_0(query *q)
 		"Queue: %u\n",
 		q->tot_goals, q->tot_matches,
 		q->hw_frames, q->hw_choices, q->hw_trails, q->hw_slots,
-		q->st.fp, q->cp, q->st.tp, q->st.sp,
-		q->st.hp, (unsigned)(sizeof(slot)*q->st.hp/1024/1024),
+		q->st.fp, q->cp, q->st.tp, q->st.sp, q->st.heap_nbr,
 		q->tot_retries, q->tot_tcos,
 		q->tot_frecovs, q->tot_srecovs, (unsigned)q->qcnt[q->st.qnbr]
 		);
@@ -3751,7 +3750,7 @@ static bool fn_statistics_2(query *q)
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p2,list_or_var);
 
-	if (!CMP_STR_TO_CSTR(q, p1, "cputime") && is_var(p2)) {
+	if (!CMP_STRING_TO_CSTR(q, p1, "cputime") && is_var(p2)) {
 		uint64_t now = cpu_time_in_usec();
 		double elapsed = now - q->time_cpu_started;
 		cell tmp;
@@ -3759,20 +3758,24 @@ static bool fn_statistics_2(query *q)
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 	}
 
-	if (!CMP_STR_TO_CSTR(q, p1, "gctime") && is_var(p2)) {
+	if (!CMP_STRING_TO_CSTR(q, p1, "gctime") && is_var(p2)) {
 		cell tmp;
 		make_float(&tmp, 0);
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 	}
 
-	if (!CMP_STR_TO_CSTR(q, p1, "wall") && is_var(p2)) {
+	if (!CMP_STRING_TO_CSTR(q, p1, "profile") && is_var(p2)) {
+		return do_profile(q);
+	}
+
+	if (!CMP_STRING_TO_CSTR(q, p1, "wall") && is_var(p2)) {
 		uint64_t now = get_time_in_usec();
 		cell tmp;
 		make_int(&tmp, now/1000);
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 	}
 
-	if (!CMP_STR_TO_CSTR(q, p1, "runtime")) {
+	if (!CMP_STRING_TO_CSTR(q, p1, "runtime")) {
 		uint64_t now = cpu_time_in_usec();
 		double elapsed = now - q->time_cpu_started;
 		cell tmp;
@@ -4155,9 +4158,9 @@ static bool fn_must_be_4(query *q)
 	else if (!strcmp(src, "ground")) {
 		if (has_vars(q, p1, p1_ctx))
 			return throw_error2(q, p1, p1_ctx, "type_error", "ground", p3);
-	} else if (!strcmp(src, "compound") && !is_compound(p1))
+	} else if (!strcmp(src, "compound") && !is_structure(p1))
 		return throw_error2(q, p1, p1_ctx, "type_error", "compound", p3);
-	else if (is_structure(p2) && (p2->arity == 1) && !strcmp(src, "list")) {
+	else if (is_compound(p2) && (p2->arity == 1) && !strcmp(src, "list")) {
 		cell *c = p2+1;
 		c = deref(q, c, p2_ctx);
 		pl_idx c_ctx = q->latest_ctx;
@@ -4204,7 +4207,7 @@ static bool fn_must_be_4(query *q)
 				return throw_error(q, h, h_ctx, "type_error", "atomic");
 			else if (!strcmp(src, "ground" ) && has_vars(q, h, h_ctx))
 				return throw_error(q, h, h_ctx, "type_error", "ground");
-			else if (!strcmp(src, "compound" ) && !is_compound(h))
+			else if (!strcmp(src, "compound" ) && !is_structure(h))
 				return throw_error(q, h, h_ctx, "type_error", "compound");
 
 			l = LIST_TAIL(l);
@@ -4290,9 +4293,9 @@ static bool fn_must_be_2(query *q)
 		if (has_vars(q, p1, p1_ctx))
 			return throw_error(q, p1, p1_ctx, "type_error", "ground");
 	} else if (!strcmp(src, "compound")) {
-		if (!is_compound(p1))
+		if (!is_structure(p1))
 			return throw_error(q, p1, p1_ctx, "type_error", "compound");
-	} else if (is_structure(p2) && (p2->arity == 1) && !strcmp(src, "list")) {
+	} else if (is_compound(p2) && (p2->arity == 1) && !strcmp(src, "list")) {
 		cell *c = p2+1;
 		c = deref(q, c, p2_ctx);
 		pl_idx c_ctx = q->latest_ctx;
@@ -4339,7 +4342,7 @@ static bool fn_must_be_2(query *q)
 				return throw_error(q, h, h_ctx, "type_error", "atomic");
 			else if (!strcmp(src, "ground" ) && has_vars(q, h, h_ctx))
 				return throw_error(q, h, h_ctx, "type_error", "ground");
-			else if (!strcmp(src, "compound" ) && !is_compound(h))
+			else if (!strcmp(src, "compound" ) && !is_structure(h))
 				return throw_error(q, h, h_ctx, "type_error", "compound");
 
 			l = LIST_TAIL(l);
@@ -4389,7 +4392,7 @@ static bool fn_can_be_4(query *q)
 		return throw_error2(q, p1, p1_ctx, "type_error", "float", p3);
 	else if (!strcmp(src, "number") && !is_number(p1))
 		return throw_error2(q, p1, p1_ctx, "type_error", "number", p3);
-	else if (!strcmp(src, "compound") && !is_compound(p1))
+	else if (!strcmp(src, "compound") && !is_structure(p1))
 		return throw_error2(q, p1, p1_ctx, "type_error", "compound", p3);
 	else if (!strcmp(src, "term") && is_cyclic_term(q, p1, p1_ctx))
 		return throw_error(q, p1, p1_ctx, "type_error", "term");
@@ -4434,7 +4437,7 @@ static bool fn_can_be_2(query *q)
 		return throw_error(q, p1, p1_ctx, "type_error", "float");
 	else if (!strcmp(src, "number") && !is_number(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "number");
-	else if (!strcmp(src, "compound") && !is_compound(p1))
+	else if (!strcmp(src, "compound") && !is_structure(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "compound");
 	else if (!strcmp(src, "term") && is_cyclic_term(q, p1, p1_ctx))
 		return throw_error(q, p1, p1_ctx, "type_error", "term");
@@ -4931,28 +4934,28 @@ static bool fn_crypto_data_hash_3(query *q)
 		h = deref(q, h, p3_ctx);
 		pl_idx h_ctx = q->latest_ctx;
 
-		if (is_structure(h) && (h->arity == 1)) {
+		if (is_compound(h) && (h->arity == 1)) {
 			cell *arg = h+1;
 			arg = deref(q, arg, h_ctx);
 			pl_idx arg_ctx = q->latest_ctx;
 
-			if (!CMP_STR_TO_CSTR(q, h, "algorithm")) {
+			if (!CMP_STRING_TO_CSTR(q, h, "algorithm")) {
 				if (is_var(arg)) {
 					cell tmp;
 					make_atom(&tmp, new_atom(q->pl, "sha256"));
 					unify(q, arg, arg_ctx, &tmp, q->st.curr_frame);
 					is_sha384 = is_sha512 = is_sha1 = false;
 					is_sha256 = true;
-				} else if (!CMP_STR_TO_CSTR(q, arg, "sha256")) {
-					is_sha384 = is_sha512 = is_sha1 = false;
+				} else if (!CMP_STRING_TO_CSTR(q, arg, "sha256")) {
+					is_sha384 = is_sha512 = false;
 					is_sha256 = true;
-				} else if (!CMP_STR_TO_CSTR(q, arg, "sha384")) {
-					is_sha256 = is_sha512 = is_sha1 = false;
+				} else if (!CMP_STRING_TO_CSTR(q, arg, "sha384")) {
+					is_sha256 = is_sha512 = false;
 					is_sha384 = true;
-				} else if (!CMP_STR_TO_CSTR(q, arg, "sha512")) {
-					is_sha384 = is_sha256 = is_sha1 = false;
+				} else if (!CMP_STRING_TO_CSTR(q, arg, "sha512")) {
+					is_sha384 = is_sha256 = false;
 					is_sha512 = true;
-				} else if (!CMP_STR_TO_CSTR(q, arg, "sha1")) {
+				} else if (!CMP_STRING_TO_CSTR(q, arg, "sha1")) {
 					is_sha384 = is_sha256 = is_sha512 = false;
 					is_sha1 = true;
 				} else
@@ -5339,7 +5342,7 @@ static bool fn_hex_chars_2(query *q)
 		return ok;
 	}
 
-	char *src = DUP_STR(q, p2);
+	char *src = DUP_STRING(q, p2);
 	const char *s = src;
 	mpz_t v2;
 	mp_int_init(&v2);
@@ -5394,7 +5397,7 @@ static bool fn_octal_chars_2(query *q)
 		return ok;
 	}
 
-	char *src = DUP_STR(q, p2);
+	char *src = DUP_STRING(q, p2);
 	const char *s = src;
 	mpz_t v2;
 	mp_int_init(&v2);
@@ -5773,10 +5776,10 @@ static bool fn_sys_legacy_evaluable_property_2(query *q)
 	cell tmp;
 	bool found = false, evaluable = false;
 
-	if (CMP_STR_TO_CSTR(q, p2, "built_in")
-		&& CMP_STR_TO_CSTR(q, p2, "static")
-		&& CMP_STR_TO_CSTR(q, p2, "dynamic")
-		&& CMP_STR_TO_CSTR(q, p2, "foreign")
+	if (CMP_STRING_TO_CSTR(q, p2, "built_in")
+		&& CMP_STRING_TO_CSTR(q, p2, "static")
+		&& CMP_STRING_TO_CSTR(q, p2, "dynamic")
+		&& CMP_STRING_TO_CSTR(q, p2, "foreign")
 		)
 		return throw_error(q, p2, p2_ctx, "domain_error", "evaluable_property");
 
@@ -5813,7 +5816,7 @@ static bool fn_sys_legacy_evaluable_property_2(query *q)
 static bool fn_char_type_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_int);
-	GET_NEXT_ARG(p2,atom_or_structure);
+	GET_NEXT_ARG(p2,atom_or_compound);
 	int ch;
 
 	if (is_bigint(p1))
@@ -5827,32 +5830,33 @@ static bool fn_char_type_2(query *q)
 	} else
 		ch = get_smallint(p1);
 
-	if (!CMP_STR_TO_CSTR(q, p2, "alpha"))
+	if (!CMP_STRING_TO_CSTR(q, p2, "alpha"))
 		return iswalpha(ch);
-	else if (!CMP_STR_TO_CSTR(q, p2, "alphabetic"))
+	else if (!CMP_STRING_TO_CSTR(q, p2, "alphabetic"))
 		return iswalpha(ch);
-	else if (!CMP_STR_TO_CSTR(q, p2, "alphanumeric"))
+	else if (!CMP_STRING_TO_CSTR(q, p2, "alnum"))
 		return iswalpha(ch) || iswdigit(ch);
-	else if (!CMP_STR_TO_CSTR(q, p2, "prolog"))
+	else if (!CMP_STRING_TO_CSTR(q, p2, "alphanumeric"))
+		return iswalpha(ch) || iswdigit(ch);
+	else if (!CMP_STRING_TO_CSTR(q, p2, "prolog"))
 		return iswalpha(ch) || iswdigit(ch) || iswgraph(ch);
-	else if (!CMP_STR_TO_CSTR(q, p2, "hexadecimal_digit")) {
+	else if (!CMP_STRING_TO_CSTR(q, p2, "hexadecimal_digit")) {
 		static const char *s_hex = "0123456789abcdefABCDEF";
 		return strchr(s_hex, ch);
-	} else if (!CMP_STR_TO_CSTR(q, p2, "digit"))
+	} else if (!CMP_STRING_TO_CSTR(q, p2, "octal_digit")) {
+		static const char *s_hex = "01234567";
+		return strchr(s_hex, ch);
+	} else if (!CMP_STRING_TO_CSTR(q, p2, "decimal_digit"))
 		return iswdigit(ch);
-	else if (!CMP_STR_TO_CSTR(q, p2, "xdigit"))
-		return iswxdigit(ch);
-	else if (!CMP_STR_TO_CSTR(q, p2, "whitespace"))
+	else if (!CMP_STRING_TO_CSTR(q, p2, "numeric"))
+		return iswdigit(ch);
+	else if (!CMP_STRING_TO_CSTR(q, p2, "whitespace"))
 		return iswblank(ch) || iswspace(ch);
-	else if (!CMP_STR_TO_CSTR(q, p2, "white") || !CMP_STR_TO_CSTR(q, p2, "blank"))
-		return iswblank(ch);
-	else if (!CMP_STR_TO_CSTR(q, p2, "space"))
-		return iswspace(ch);
-	else if (!CMP_STR_TO_CSTR(q, p2, "lower"))
+	else if (!CMP_STRING_TO_CSTR(q, p2, "lower") && !p2->arity)
 		return iswlower(ch);
-	else if (!CMP_STR_TO_CSTR(q, p2, "upper"))
+	else if (!CMP_STRING_TO_CSTR(q, p2, "upper") && !p2->arity)
 		return iswupper(ch);
-	else if (!CMP_STR_TO_CSTR(q, p2, "to_lower") && p2->arity) {
+	else if (!CMP_STRING_TO_CSTR(q, p2, "lower") && p2->arity) {
 		cell *arg1 = deref(q, p2+1, p2_ctx);
 		pl_idx arg1_ctx = q->latest_ctx;
 		char tmpbuf[20];
@@ -5860,7 +5864,7 @@ static bool fn_char_type_2(query *q)
 		cell tmp;
 		make_string(&tmp, tmpbuf);
 		return unify(q, arg1, arg1_ctx, &tmp, q->st.curr_frame);
-	} else if (!CMP_STR_TO_CSTR(q, p2, "to_upper") && p2->arity) {
+	} else if (!CMP_STRING_TO_CSTR(q, p2, "upper") && p2->arity) {
 		cell *arg1 = deref(q, p2+1, p2_ctx);
 		pl_idx arg1_ctx = q->latest_ctx;
 		char tmpbuf[20];
@@ -5868,38 +5872,31 @@ static bool fn_char_type_2(query *q)
 		cell tmp;
 		make_string(&tmp, tmpbuf);
 		return unify(q, arg1, arg1_ctx, &tmp, q->st.curr_frame);
-	} else if (!CMP_STR_TO_CSTR(q, p2, "punct"))
-		return iswpunct(ch);
-	else if (!CMP_STR_TO_CSTR(q, p2, "cntrl"))
-		return iswcntrl(ch);
-	else if (!CMP_STR_TO_CSTR(q, p2, "control"))		// used by abnf.pl
-		return iswcntrl(ch) && (ch < 128);
-	else if (!CMP_STR_TO_CSTR(q, p2, "graph"))
-		return iswgraph(ch);
-	else if (!CMP_STR_TO_CSTR(q, p2, "ascii_graphic"))	// used by abnf.pl
-		return iswgraph(ch) && (ch < 128);
-	else if (!CMP_STR_TO_CSTR(q, p2, "ascii"))
+	} else if (!CMP_STRING_TO_CSTR(q, p2, "graphic"))
+		return iswgraph(ch) && !iswalnum(ch);
+	else if (!CMP_STRING_TO_CSTR(q, p2, "graphic_token"))	// ???
+		return iswgraph(ch) && !iswalnum(ch);
+	else if (!CMP_STRING_TO_CSTR(q, p2, "ascii_graphic"))	// ???
+		return iswgraph(ch) && !iswalnum(ch) && (ch < 128);
+	else if (!CMP_STRING_TO_CSTR(q, p2, "ascii"))
 		return ch < 128;
-	else if (!CMP_STR_TO_CSTR(q, p2, "octet"))			// used by abnf.pl
+	else if (!CMP_STRING_TO_CSTR(q, p2, "ascii_punctuation"))
+		return iswpunct(ch);
+	else if (!CMP_STRING_TO_CSTR(q, p2, "octet"))
 		return ch < 256;
-	else if (!CMP_STR_TO_CSTR(q, p2, "exponent"))
+	else if (!CMP_STRING_TO_CSTR(q, p2, "layout"))
+		return iswspace(ch) || (ch == '\t') || (ch == '\v') || (ch == '\f') || (ch == '\r') || (ch == '\n');
+	else if (!CMP_STRING_TO_CSTR(q, p2, "exponent"))
 		return (ch == 'e') || (ch == 'E');
-	else if (!CMP_STR_TO_CSTR(q, p2, "sign"))
+	else if (!CMP_STRING_TO_CSTR(q, p2, "sign"))
 		return (ch == '-') || (ch == '+');
-	else if (!CMP_STR_TO_CSTR(q, p2, "newline"))
-		return ch == 10;
-	else if (!CMP_STR_TO_CSTR(q, p2, "meta"))			// ?????????????
-		return ch == -1;
-	else if (!CMP_STR_TO_CSTR(q, p2, "solo"))			// ?????????????
-		return ch == -1;
-	else if (!CMP_STR_TO_CSTR(q, p2, "end_of_line"))
-		return (ch >= 10) && (ch <= 13);
-	else if (!CMP_STR_TO_CSTR(q, p2, "end_of_file"))
-		return ch == -1;
-	else if (!CMP_STR_TO_CSTR(q, p2, "quote"))
-		return (ch == '\'') || (ch == '"') || (ch == '`');
-	else if (!CMP_STR_TO_CSTR(q, p2, "period"))
-		return (ch == '.') || (ch == '!') || (ch == '?');
+	else if (!CMP_STRING_TO_CSTR(q, p2, "meta"))
+		return (ch == '\'') || (ch == '"') || (ch == '`') || (ch == '\\');
+	else if (!CMP_STRING_TO_CSTR(q, p2, "solo"))
+		return (ch == '|') || (ch == '!')
+			|| (ch == '[') || (ch == ']')
+			|| (ch == '{') || (ch == '}')
+			|| (ch == '(') || (ch == ')');
 
 	return false;
 }
@@ -6074,7 +6071,7 @@ static bool fn_string_length_2(query *q)
 	GET_FIRST_ARG(p1,atom_or_list_or_nil);
 	GET_NEXT_ARG(p2,integer_or_var);
 
-	if (is_interned(p1) && !CMP_STR_TO_CSTR(q, p1, "[]")) {
+	if (is_interned(p1) && !CMP_STRING_TO_CSTR(q, p1, "[]")) {
 		cell tmp;
 		make_int(&tmp, 0);
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
@@ -6306,7 +6303,7 @@ static bool fn_current_module_1(query *q)
 static bool fn_use_module_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
-	if (!is_atom(p1) && !is_structure(p1)) return false;
+	if (!is_atom(p1) && !is_compound(p1)) return false;
 	return do_use_module_1(q->st.m, q->st.curr_cell);
 }
 
@@ -6326,7 +6323,7 @@ static bool fn_prolog_load_context_2(query *q)
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p2,atom_or_var);
 
-	if (CMP_STR_TO_CSTR(q, p1, "module"))
+	if (CMP_STRING_TO_CSTR(q, p1, "module"))
 		return false;
 
 	cell tmp;
@@ -6449,6 +6446,46 @@ static bool fn_sys_register_cleanup_1(query *q)
 	return true;
 }
 
+static bool fn_sys_memberchk_3(query *q)
+{
+	q->tot_goals--;
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,list_or_nil_or_var);
+	GET_NEXT_ARG(p3,var);
+	LIST_HANDLER(p2);
+	push_choice(q);
+
+	if (!is_string(p2))
+		try_me(q, MAX_ARITY);
+
+	while (is_list(p2)) {
+		cell *h = LIST_HEAD(p2);
+		h = deref(q, h, p2_ctx);
+		pl_idx h_ctx = q->latest_ctx;
+
+		if (unify(q, p1, p1_ctx, h, h_ctx)) {
+			drop_choice(q);
+			unify(q, p3, p3_ctx, make_nil(), q->st.curr_frame);
+			return true;
+		}
+
+		if (!is_string(p2))
+			undo_me(q);
+
+		p2 = LIST_TAIL(p2);
+		p2 = deref(q, p2, p2_ctx);
+		p2_ctx = q->latest_ctx;
+	}
+
+	drop_choice(q);
+
+	if (is_nil(p2))
+		return false;
+
+	unify(q, p3, p3_ctx, p2, p2_ctx);
+	return true;
+}
+
 static bool fn_sys_get_level_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
@@ -6477,9 +6514,9 @@ static bool fn_iso_compare_3(query *q)
 	GET_NEXT_ARG(p3,any);
 
 	if (is_atom(p1)) {
-		if (CMP_STR_TO_CSTR(q, p1, "<")
-			&& CMP_STR_TO_CSTR(q, p1, ">")
-			&& CMP_STR_TO_CSTR(q, p1, "="))
+		if (CMP_STRING_TO_CSTR(q, p1, "<")
+			&& CMP_STRING_TO_CSTR(q, p1, ">")
+			&& CMP_STRING_TO_CSTR(q, p1, "="))
 			return throw_error(q, p1, p1_ctx, "domain_error", "order");
 	}
 
@@ -6675,7 +6712,6 @@ static void load_properties(module *m)
 	format_property(m, tmpbuf, sizeof(tmpbuf), "->", 2, "choice_construct", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "*->", 2, "choice_construct", false); SB_strcat(pr, tmpbuf);
 
-	format_property(m, tmpbuf, sizeof(tmpbuf), "not", 1, "meta_predicate(not(0))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "\\+", 1, "meta_predicate((\\+0))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "catch", 3, "meta_predicate(catch(0,?,0))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "", 2, "meta_predicate((0,0))", false); SB_strcat(pr, tmpbuf);
@@ -6686,7 +6722,6 @@ static void load_properties(module *m)
 	format_property(m, tmpbuf, sizeof(tmpbuf), "if", 3, "meta_predicate(if(0,0,0))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "once", 1, "meta_predicate(once(0))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "ignore", 1, "meta_predicate(ignore(0))", false); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "$call", 1, "meta_predicate('$call'(0))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "call", 1, "meta_predicate(call(0))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "task", 1, "meta_predicate(task(0))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "findall", 3, "meta_predicate(findall(?,0,-))", false); SB_strcat(pr, tmpbuf);
@@ -6944,7 +6979,6 @@ builtins g_iso_bifs[] =
 	{"=..", 2, fn_iso_univ_2, "+term,?list", true, false, BLAH},
 	{"->", 2, fn_iso_if_then_2, ":callable,:callable", true, false, BLAH},
 	{"\\+", 1, fn_iso_negation_1, ":callable", true, false, BLAH},
-	{"not", 1, fn_iso_negation_1, ":callable", false, false, BLAH},
 	{"=", 2, fn_iso_unify_2, "+term,+term", true, false, BLAH},
 	{"\\=", 2, fn_iso_notunify_2, "+term,+term", true, false, BLAH},
 	{"-->", 2, fn_iso_dcgs_2, "+term,+term", true, false, BLAH},
@@ -6959,7 +6993,6 @@ builtins g_iso_bifs[] =
 	{"$gt", 2, fn_sys_gt_2, NULL, false, false, BLAH},
 	{"$ne", 2, fn_sys_ne_2, NULL, false, false, BLAH},
 
-	{"$call", 1, fn_iso_call_1, ":callable", true, false, BLAH},
 	{"call", 1, fn_iso_call_1, ":callable", true, false, BLAH},
 	{"call", 2, fn_iso_call_n, ":callable,?term", true, false, BLAH},
 	{"call", 3, fn_iso_call_n, ":callable,?term,term", true, false, BLAH},
@@ -7063,7 +7096,7 @@ builtins g_other_bifs[] =
 	{"module_help", 1, fn_module_help_1, "+atom", false, false, BLAH},
 
 	{"parse_csv_line", 2, fn_parse_csv_line_2, "+atom,-list", false, false, BLAH},
-	{"parse_csv_line", 3, fn_parse_csv_line_3, "+atom,-list,+list", false, false, BLAH},
+	{"parse_csv_line", 3, fn_parse_csv_line_3, "+atom,-compound,+list", false, false, BLAH},
 	{"parse_csv_file", 2, fn_parse_csv_file_2, "+atom,+list", false, false, BLAH},
 
 	{"abort", 0, fn_abort_0, NULL, false, false, BLAH},
@@ -7139,6 +7172,7 @@ builtins g_other_bifs[] =
 	{"sre_substp", 4, fn_sre_substp_4, "+string,+string,-string,-string,", false, false, BLAH},
 	{"sre_subst", 4, fn_sre_subst_4, "+string,+string,-string,-string,", false, false, BLAH},
 
+	{"$memberchk", 3, fn_sys_memberchk_3, "?term,?list,-term", false, false, BLAH},
 	{"$countall", 2, fn_sys_countall_2, "@callable,-integer", false, false, BLAH},
 	{"$register_cleanup", 1, fn_sys_register_cleanup_1, NULL, false, false, BLAH},
 	{"$get_level", 1, fn_sys_get_level_1, "?integer", false, false, BLAH},
