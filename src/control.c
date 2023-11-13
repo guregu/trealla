@@ -127,7 +127,7 @@ static bool call_check(query *q, cell *tmp2, bool *status, bool calln)
 	if (!tmp2->match) {
 		bool found = false;
 
-		if ((tmp2->match = search_predicate(q->st.m, tmp2, NULL)) != NULL) {
+		if ((tmp2->match = search_predicate(q->st.m, tmp2, NULL, true)) != NULL) {
 			tmp2->flags &= ~FLAG_BUILTIN;
 		} else if ((tmp2->fn_ptr = get_builtin_term(q->st.m, tmp2, &found, NULL)), found) {
 			tmp2->flags |= FLAG_BUILTIN;

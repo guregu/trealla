@@ -176,6 +176,8 @@ OBJECTS = $(SRCOBJECTS) $(LIBOBJECTS) src/version.o
 library/%.c: library/%.pl
 	xxd -i $^ $@
 
+.PHONY: test
+
 all: tpl
 
 tpl: $(OBJECTS) Makefile README.md LICENSE

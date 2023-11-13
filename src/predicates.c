@@ -1783,7 +1783,7 @@ static bool fn_iso_univ_2(query *q)
 		bool found = false;
 
 		if (is_callable(tmp)) {
-			if ((tmp->match = search_predicate(q->st.m, tmp, NULL)) != NULL) {
+			if ((tmp->match = search_predicate(q->st.m, tmp, NULL, true)) != NULL) {
 				tmp->flags &= ~FLAG_BUILTIN;
 			} else if ((tmp->fn_ptr = get_builtin_term(q->st.m, tmp, &found, NULL)), found) {
 				if (tmp->fn_ptr->evaluable)
@@ -2146,7 +2146,7 @@ static bool fn_iso_current_rule_1(query *q)
 	tmp.val_off = new_atom(q->pl, functor);
 	tmp.arity = arity;
 
-	if (search_predicate(q->st.m, &tmp, NULL))
+	if (search_predicate(q->st.m, &tmp, NULL, true))
 		return true;
 
 	bool found = false;
@@ -2250,7 +2250,7 @@ static bool fn_iso_current_predicate_1(query *q)
 	tmp.val_off = is_interned(p1) ? p1->val_off : new_atom(q->pl, C_STR(q, p1));
 	tmp.arity = get_smallint(p2);
 	bool is_prebuilt = false;
-	predicate *pr = search_predicate(q->st.m, &tmp, &is_prebuilt);
+	predicate *pr = search_predicate(q->st.m, &tmp, &is_prebuilt, q->st.m == q->pl->user_m);
 
 	if (is_prebuilt || !pr)
 		return false;
@@ -4666,7 +4666,7 @@ static bool fn_task_n(query *q)
 	tmp2->arity = arity;
 	bool found = false;
 
-	if ((tmp2->match = search_predicate(q->st.m, tmp2, NULL)) != NULL) {
+	if ((tmp2->match = search_predicate(q->st.m, tmp2, NULL, true)) != NULL) {
 		tmp2->flags &= ~FLAG_BUILTIN;
 	} else if ((tmp2->fn_ptr = get_builtin_term(q->st.m, tmp2, &found, NULL)), found) {
 		tmp2->flags |= FLAG_BUILTIN;

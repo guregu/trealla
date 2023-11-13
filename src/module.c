@@ -988,7 +988,7 @@ predicate *find_functor(module *m, const char *name, unsigned arity)
 	return find_predicate(m, &tmp);
 }
 
-predicate *search_predicate(module *m, cell *c, bool *prebuilt)
+predicate *search_predicate(module *m, cell *c, bool *prebuilt, bool global)
 {
 	if (prebuilt)
 		*prebuilt = false;
@@ -1013,6 +1013,9 @@ predicate *search_predicate(module *m, cell *c, bool *prebuilt)
 			return pr;
 		}
 	}
+
+	if (!global)
+		return NULL;
 
 	for (module *tmp_m = m->pl->modules; tmp_m; tmp_m = tmp_m->next) {
 		if (m == tmp_m)
@@ -1603,7 +1606,7 @@ static void xref_cell(module *m, clause *cl, cell *c, predicate *parent, int las
 	}
 
 	if (last_was_colon < 1)
-		c->match = search_predicate(m, c, NULL);
+		c->match = search_predicate(m, c, NULL, true);
 
 	if ((c+c->nbr_cells) >= (cl->cells + cl->cidx-1)) {
 		if (parent && (parent->key.val_off == c->val_off) && (parent->key.arity == c->arity))

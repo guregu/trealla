@@ -1766,7 +1766,7 @@ static cell *goal_expansion(parser *p, cell *goal)
 	if (get_builtin_term(p->m, goal, NULL, NULL) /*|| is_op(goal)*/)
 		return goal;
 
-	predicate *pr = search_predicate(p->m, goal, NULL);
+	predicate *pr = search_predicate(p->m, goal, NULL, true);
 
 	if (!pr || !pr->is_goal_expansion)
 		return goal;

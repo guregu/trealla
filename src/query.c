@@ -1185,7 +1185,7 @@ bool match_rule(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract)
 			convert_to_literal(q->st.m, c);
 
 		if (!pr || is_evaluable(c) || is_builtin(c)) {
-			pr = search_predicate(q->st.m, c, NULL);
+			pr = search_predicate(q->st.m, c, NULL, true);
 			c->match = pr;
 		}
 
@@ -1293,7 +1293,7 @@ bool match_clause(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract
 			convert_to_literal(q->st.m, c);
 
 		if (!pr || is_evaluable(c) || is_builtin(c)) {
-			pr = search_predicate(q->st.m, c, NULL);
+			pr = search_predicate(q->st.m, c, NULL, q->st.m == q->pl->user_m);
 			c->match = pr;
 		}
 
@@ -1384,7 +1384,7 @@ static bool match_head(query *q)
 		if (!pr || is_evaluable(c) || is_builtin(c)) {
 			//static unsigned s_cnt = 1;
 			//printf("*** %s / %u ... %u\n", C_STR(q, c), c->arity, s_cnt++);
-			pr = search_predicate(q->st.m, c, NULL);
+			pr = search_predicate(q->st.m, c, NULL, true);
 
 			if (!pr || (pr->is_goal_expansion && !pr->head)) {
 				if (!is_end(c) && !(is_interned(c) && !strcmp(C_STR(q, c), "initialization"))) {

@@ -312,7 +312,7 @@ bool fn_iso_retractall_1(query *q)
 	}
 
 	cell *head = deref(q, get_head(p1), p1_ctx);
-	predicate *pr = search_predicate(q->st.m, head, NULL);
+	predicate *pr = search_predicate(q->st.m, head, NULL, true);
 
 	if (!pr) {
 		bool found = false;
@@ -344,7 +344,7 @@ bool fn_iso_retractall_1(query *q)
 
 bool do_abolish(query *q, cell *c_orig, cell *c_pi, bool hard)
 {
-	predicate *pr = search_predicate(q->st.m, c_pi, NULL);
+	predicate *pr = search_predicate(q->st.m, c_pi, NULL, true);
 	if (!pr) return true;
 
 	if (!pr->is_dynamic)
