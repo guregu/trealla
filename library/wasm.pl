@@ -81,7 +81,8 @@ solution_json_(Stream, [V|Vs]) :-
 	sub_json(Stream, [V|Vs], V),
 	solution_json_(Stream, Vs).
 
-sub_json(Stream, Vars, Var=Value0) :-
+sub_json(Stream, Vars, Var0=Value0) :-
+	atom_chars(Var0, Var),
 	write_json_term(Stream, Var),
 	write(Stream, ':'),
 	once(term_json_top(Stream, Vars, Value0)).
@@ -92,10 +93,16 @@ term_json(Stream, _, Value) :-
 
 term_json(Stream, _, Value0) :-
 	atom(Value0),
+	Value0 == '',
+	write(Stream, '{"functor":""}').
+
+term_json(Stream, _, Value0) :-
+	atom(Value0),
+	Value0 \= '',
+	atom_chars(Value0, Value),
 	write(Stream, '{"functor":'),
-	write_json_term(Stream, Value0),
+	write_json_term(Stream, Value),
 	write(Stream, '}').
-	% atom_chars(Value0, Value).
 
 term_json(Stream, _, Value) :-
 	string(Value),
@@ -127,8 +134,11 @@ term_json(Stream, Vars, Value) :-
 term_json(Stream, Vars, Value) :-
 	compound(Value),
 	Value =.. [Functor0|Args0],
-	write(Stream, '{"functor":'),
-	write_json_term(Stream, Functor0),
+	atom_chars(Functor0, Functor),
+	(  Functor0 == ''
+	-> write(Stream, '{"functor":""')
+	;  write(Stream, '{"functor":'), write_json_term(Stream, Functor)
+	),
 	write(Stream, ',"args":'),
 	term_json_list_(Stream, Vars, Args0),
 	write(Stream, '}'),
@@ -165,12 +175,13 @@ term_json_top(Stream, Vars, Value) :-
 term_json_top(Stream, Vars, Value) :-
 	once(term_json(Stream, Vars, Value)).
 
-var_name([K=V|_], Var, K) :-
-	V == Var.
+var_name([K0=V|_], Var, K) :-
+	V == Var,
+	atom_chars(K0, K).
 var_name([_=V|Vs], Var, Name) :-
 	V \== Var,
 	var_name(Vs, Var, Name).
-var_name([], _, '_').
+var_name([], _, "_").
 
 attvar_json(Stream, Vars, Var) :-
 	copy_term(Var, Var, Attr),
@@ -196,7 +207,8 @@ term_json_list_tail_(Stream, Vars, [V|Vs]) :-
 	term_json_list_tail_(Stream, Vars, Vs).
 
 term_json_stream_(Stream, V) :-
-	stream_property(V, alias(Alias)),
+	stream_property(V, alias(Alias0)),
+	atom_chars(Alias0, Alias),
 	write_json_term(Stream, Alias),
 	!.
 term_json_stream_(Stream, V) :-
