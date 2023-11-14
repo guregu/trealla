@@ -4539,7 +4539,6 @@ static query *pop_task(query *q, query *task)
 	return task->next;
 }
 
-#ifndef WASI_TARGET_JS
 static bool bif_end_wait_0(query *q)
 {
 	if (q->parent)
@@ -4694,15 +4693,6 @@ static bool bif_task_n(query *q)
 	push_task(q, task);
 	return true;
 }
-#endif
-
-static bool fn_yield_0(query *q)
-{
-	if (q->retry)
-		return true;
-
-	return do_yield(q, 0);
-}
 
 static bool bif_fork_0(query *q)
 {
@@ -4749,7 +4739,6 @@ static bool bif_recv_1(query *q)
 	return false;
 }
 
-#ifndef WASI_TARGET_JS
 static bool bif_sys_cancel_future_1(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
@@ -4771,7 +4760,6 @@ static bool bif_sys_set_future_1(query *q)
 	q->future = get_smalluint(p1);
 	return true;
 }
-#endif
 
 #ifndef __wasi__
 static bool bif_pid_1(query *q)
@@ -7271,11 +7259,11 @@ builtins g_other_bifs[] =
 	{"task", 6, bif_task_n, ":callable,?term,?term,?term,?term,?term", false, false, BLAH},
 	{"task", 7, bif_task_n, ":callable,?term,?term,?term,?term,?term,?term", false, false, BLAH},
 	{"task", 8, bif_task_n, ":callable,?term,?term,?term,?term,?term,?term,?term", false, false, BLAH},
-#endif
-
 	{"end_wait", 0, bif_end_wait_0, NULL, false, false, BLAH},
 	{"wait", 0, bif_wait_0, NULL, false, false, BLAH},
 	{"await", 0, bif_await_0, NULL, false, false, BLAH},
+#endif
+
 	{"yield", 0, bif_yield_0, NULL, false, false, BLAH},
 	{"fork", 0, bif_fork_0, NULL, false, false, BLAH},
 	{"send", 1, bif_send_1, "+term", false, false, BLAH},
