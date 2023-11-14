@@ -318,6 +318,68 @@ static predicate *find_predicate_(module *m, cell *c, bool abolished)
 	return NULL;
 }
 
+predicate *find_predicate(module *m, cell *c)
+{
+	return find_predicate_(m, c, false);
+}
+
+predicate *search_predicate(module *m, cell *c, bool *prebuilt)
+{
+	if (prebuilt)
+		*prebuilt = false;
+
+	predicate *pr = find_predicate(m, c);
+
+	if (pr) {
+		if (pr->is_prebuilt && prebuilt)
+			*prebuilt = true;
+
+		return pr;
+	}
+
+	if (m->pl->user_m) {
+		pr = find_predicate(m->pl->user_m, c);
+
+		if (pr) {
+			if (pr->is_prebuilt && prebuilt)
+				*prebuilt = true;
+
+			return pr;
+		}
+	}
+
+	for (unsigned i = 0; i < m->idx_used; i++) {
+		module *tmp_m = m->used[i];
+
+		pr = find_predicate(tmp_m, c);
+
+		if (pr) {
+			if (pr->is_prebuilt && prebuilt)
+				*prebuilt = true;
+
+			return pr;
+		}
+	}
+
+
+	for (module *tmp_m = m->pl->modules; tmp_m; tmp_m = tmp_m->next) {
+		if (m == tmp_m)
+			continue;
+
+		pr = find_predicate(tmp_m, c);
+
+		if (pr) {
+			if (pr->is_prebuilt && prebuilt)
+				*prebuilt = true;
+
+			m->used[m->idx_used++] = tmp_m;
+			return pr;
+		}
+	}
+
+	return NULL;
+}
+
 predicate *create_predicate(module *m, cell *c, bool *created)
 {
 	if (created) *created = false;
@@ -974,11 +1036,6 @@ void convert_to_literal(module *m, cell *c)
 	free(src);
 }
 
-predicate *find_predicate(module *m, cell *c)
-{
-	return find_predicate_(m, c, false);
-}
-
 predicate *find_functor(module *m, const char *name, unsigned arity)
 {
 	cell tmp = (cell){0};
@@ -986,53 +1043,6 @@ predicate *find_functor(module *m, const char *name, unsigned arity)
 	tmp.val_off = new_atom(m->pl, name);
 	tmp.arity = arity;
 	return find_predicate(m, &tmp);
-}
-
-predicate *search_predicate(module *m, cell *c, bool *prebuilt, bool global)
-{
-	if (prebuilt)
-		*prebuilt = false;
-
-	predicate *pr = find_predicate(m, c);
-
-	if (pr) {
-		if (pr->is_prebuilt && prebuilt)
-			*prebuilt = true;
-
-		return pr;
-	}
-
-	for (unsigned i = 0; i < m->idx_used; i++) {
-		module *tmp_m = m->used[i];
-		pr = find_predicate(tmp_m, c);
-
-		if (pr) {
-			if (pr->is_prebuilt && prebuilt)
-				*prebuilt = true;
-
-			return pr;
-		}
-	}
-
-	if (!global)
-		return NULL;
-
-	for (module *tmp_m = m->pl->modules; tmp_m; tmp_m = tmp_m->next) {
-		if (m == tmp_m)
-			continue;
-
-		pr = find_predicate(tmp_m, c);
-
-		if (pr) {
-			if (pr->is_prebuilt && prebuilt)
-				*prebuilt = true;
-
-			m->used[m->idx_used++] = tmp_m;
-			return pr;
-		}
-	}
-
-	return NULL;
 }
 
 #define DUMP_KEYS 0
@@ -1594,7 +1604,7 @@ static void xref_cell(module *m, clause *cl, cell *c, predicate *parent, int las
 	}
 
 	bool found = false, evaluable = false;
-	c->fn_ptr = get_builtin_term(m, c, &found, &evaluable);
+	c->bif_ptr = get_builtin_term(m, c, &found, &evaluable);
 
 	if (found) {
 		if (evaluable)
@@ -1606,7 +1616,7 @@ static void xref_cell(module *m, clause *cl, cell *c, predicate *parent, int las
 	}
 
 	if (last_was_colon < 1)
-		c->match = search_predicate(m, c, NULL, true);
+		c->match = search_predicate(m, c, NULL);
 
 	if ((c+c->nbr_cells) >= (cl->cells + cl->cidx-1)) {
 		if (parent && (parent->key.val_off == c->val_off) && (parent->key.arity == c->arity))

@@ -261,7 +261,7 @@ void make_struct(cell *tmp, pl_idx offset, void *fn, unsigned arity, pl_idx extr
 
 	if (fn) {
 		tmp->flags |= FLAG_BUILTIN;
-		tmp->fn_ptr = get_fn_ptr(fn);
+		tmp->bif_ptr = get_fn_ptr(fn);
 	}
 
 	tmp->arity = arity;
@@ -843,6 +843,7 @@ static bool directives(parser *p, cell *d)
 			}
 
 			p->m = tmp_m;
+			p->pl->user_m->used[p->pl->user_m->idx_used++] = tmp_m;
 		}
 
 		if (c->arity == 1)
@@ -1615,41 +1616,8 @@ void reset(parser *p)
 	p->error_desc = NULL;
 }
 
-static bool autoload_dcg_library(parser *p)
-{
-	if (p->m->pl->dcgs || find_module(p->m->pl, "dcgs"))
-		return true;
-
-	for (library *lib = g_libs; lib->name; lib++) {
-		if (strcmp(lib->name, "dcgs"))
-			continue;
-
-		char *src = malloc(*lib->len+1);
-		ensure(src);
-		memcpy(src, lib->start, *lib->len);
-		src[*lib->len] = '\0';
-		SB(s);
-		SB_sprintf(s, "library/%s", lib->name);
-		module *tmp_m = load_text(p->m, src, SB_cstr(s));
-		SB_free(s);
-
-		if (tmp_m) {
-			p->m->used[p->m->idx_used++] = tmp_m;
-			p->m->pl->dcgs = tmp_m;
-		}
-
-		free(src);
-		break;
-	}
-
-	return true;
-}
-
 static bool dcg_expansion(parser *p)
 {
-	if (!autoload_dcg_library(p))
-		return false;
-
 	query *q = query_create(p->m, false);
 	check_error(q);
 
@@ -1766,7 +1734,7 @@ static cell *goal_expansion(parser *p, cell *goal)
 	if (get_builtin_term(p->m, goal, NULL, NULL) /*|| is_op(goal)*/)
 		return goal;
 
-	predicate *pr = search_predicate(p->m, goal, NULL, true);
+	predicate *pr = search_predicate(p->m, goal, NULL);
 
 	if (!pr || !pr->is_goal_expansion)
 		return goal;
@@ -1903,7 +1871,7 @@ static cell *insert_call_here(parser *p, cell *c, cell *p1)
 	p1 = p->cl->cells + p1_idx;
 	p1->tag = TAG_INTERNED;
 	p1->flags = FLAG_BUILTIN;
-	p1->fn_ptr = get_fn_ptr(fn_iso_call_1);
+	p1->bif_ptr = get_fn_ptr(bif_iso_call_1);
 	p1->val_off = g_call_s;
 	p1->nbr_cells = 2;
 	p1->arity = 1;

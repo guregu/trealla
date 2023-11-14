@@ -4,13 +4,14 @@
 #include <string.h>
 #include <time.h>
 
-#include "atts.h"
 #include "heap.h"
 #include "module.h"
 #include "network.h"
 #include "parser.h"
 #include "prolog.h"
 #include "query.h"
+
+#include "bif_atts.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -70,7 +71,7 @@ static void trace_call(query *q, cell *c, pl_idx c_ctx, box_t box)
 		return;
 
 #if 1
-	if (is_builtin(c) && c->fn_ptr && !c->fn_ptr->fn)
+	if (is_builtin(c) && c->bif_ptr && !c->bif_ptr->fn)
 		return;
 #endif
 
@@ -1187,7 +1188,7 @@ bool match_rule(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract)
 			convert_to_literal(q->st.m, c);
 
 		if (!pr || is_evaluable(c) || is_builtin(c)) {
-			pr = search_predicate(q->st.m, c, NULL, true);
+			pr = search_predicate(q->st.m, c, NULL);
 			c->match = pr;
 		}
 
@@ -1262,9 +1263,9 @@ bool match_rule(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract)
 				static builtins *s_fn_ptr = NULL;
 
 				if (!s_fn_ptr)
-					s_fn_ptr = get_fn_ptr(fn_iso_true_0);
+					s_fn_ptr = get_fn_ptr(bif_iso_true_0);
 
-				tmp.fn_ptr = s_fn_ptr;
+				tmp.bif_ptr = s_fn_ptr;
 				ok = unify(q, p1_body, p1_body_ctx, &tmp, q->st.curr_frame);
 			} else
 				ok = true;
@@ -1295,7 +1296,7 @@ bool match_clause(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract
 			convert_to_literal(q->st.m, c);
 
 		if (!pr || is_evaluable(c) || is_builtin(c)) {
-			pr = search_predicate(q->st.m, c, NULL, q->st.m == q->pl->user_m);
+			pr = search_predicate(q->st.m, c, NULL);
 			c->match = pr;
 		}
 
@@ -1386,7 +1387,7 @@ static bool match_head(query *q)
 		if (!pr || is_evaluable(c) || is_builtin(c)) {
 			//static unsigned s_cnt = 1;
 			//printf("*** %s / %u ... %u\n", C_STR(q, c), c->arity, s_cnt++);
-			pr = search_predicate(q->st.m, c, NULL, true);
+			pr = search_predicate(q->st.m, c, NULL);
 
 			if (!pr || (pr->is_goal_expansion && !pr->head)) {
 				if (!is_end(c) && !(is_interned(c) && !strcmp(C_STR(q, c), "initialization"))) {
@@ -1549,7 +1550,7 @@ bool start(query *q)
 			cell *p1 = deref(q, q->st.curr_cell, q->st.curr_frame);
 			pl_idx p1_ctx = q->latest_ctx;
 
-			if (!fn_call_0(q, p1, p1_ctx)) {
+			if (!bif_call_0(q, p1, p1_ctx)) {
 				if (is_var(p1))
 					break;
 
@@ -1569,14 +1570,14 @@ bool start(query *q)
 			bool status;
 
 #if USE_FFI
-			if (q->st.curr_cell->fn_ptr->ffi) {
-				if (q->st.curr_cell->fn_ptr->evaluable)
-					status = wrap_ffi_function(q, q->st.curr_cell->fn_ptr);
+			if (q->st.curr_cell->bif_ptr->ffi) {
+				if (q->st.curr_cell->bif_ptr->evaluable)
+					status = wrap_ffi_function(q, q->st.curr_cell->bif_ptr);
 				else
-					status = wrap_ffi_predicate(q, q->st.curr_cell->fn_ptr);
+					status = wrap_ffi_predicate(q, q->st.curr_cell->bif_ptr);
 			} else
 #endif
-				status = q->st.curr_cell->fn_ptr->fn(q);
+				status = q->st.curr_cell->bif_ptr->fn(q);
 
 			if (q->retry == QUERY_SKIP) {
 				q->retry = QUERY_OK;

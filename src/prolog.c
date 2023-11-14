@@ -693,6 +693,7 @@ prolog *pl_create()
 		if (!strcmp(lib->name, "builtins")			// Always need this
 			|| !strcmp(lib->name, "apply")			// Common
 			|| !strcmp(lib->name, "lists")			// Common
+			|| !strcmp(lib->name, "dcgs")			// Common
 			|| !strcmp(lib->name, "freeze")			// Common
 			|| !strcmp(lib->name, "dif")			// Common?
 			|| !strcmp(lib->name, "when")			// Common?

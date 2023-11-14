@@ -818,7 +818,7 @@ static const char *s_properties =
 	"position,reposition,end_of_stream,eof_action,"				\
 	"input,output,newline,engine,skiplist,mutex";
 
-static bool fn_iso_stream_property_2(query *q)
+static bool bif_iso_stream_property_2(query *q)
 {
 	GET_FIRST_ARG(pstr,any);
 	GET_NEXT_ARG(p1,any);
@@ -902,7 +902,7 @@ bool valid_list(query *q, cell *c, pl_idx c_ctx)
 }
 
 #if !defined(_WIN32) && !defined(__wasi__)
-static bool fn_popen_4(query *q)
+static bool bif_popen_4(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p2,atom);
@@ -1021,7 +1021,7 @@ static bool fn_popen_4(query *q)
 extern char **g_envp;
 
 #if !defined(_WIN32) && !defined(__wasi__) && !defined(__ANDROID__)
-static bool fn_process_create_3(query *q)
+static bool bif_process_create_3(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p2,list_or_nil);
@@ -1263,7 +1263,7 @@ static bool fn_process_create_3(query *q)
 	return true;
 }
 
-static bool fn_process_wait_2(query *q)
+static bool bif_process_wait_2(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
 	GET_NEXT_ARG(p2,list_or_nil);
@@ -1292,7 +1292,7 @@ static bool fn_process_wait_2(query *q)
 	return ok == pid;
 }
 
-static bool fn_process_wait_1(query *q)
+static bool bif_process_wait_1(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
 	int pid = get_smalluint(p1);
@@ -1300,7 +1300,7 @@ static bool fn_process_wait_1(query *q)
 	return true;
 }
 
-static bool fn_process_kill_2(query *q)
+static bool bif_process_kill_2(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
 	GET_NEXT_ARG(p2,integer);
@@ -1309,7 +1309,7 @@ static bool fn_process_kill_2(query *q)
 	return true;
 }
 
-static bool fn_process_kill_1(query *q)
+static bool bif_process_kill_1(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
 	int pid = get_smalluint(p1);
@@ -1371,7 +1371,7 @@ static void *mmap(void *start, size_t length, int prot, int flags, int fd, off_t
 #endif
 
 
-static bool fn_iso_open_4(query *q)
+static bool bif_iso_open_4(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_compound);
 	GET_NEXT_ARG(p2,atom);
@@ -1632,7 +1632,7 @@ static bool fn_iso_open_4(query *q)
 	return unify(q, p3, p3_ctx, &tmp, q->st.curr_frame);
 }
 
-bool fn_iso_close_1(query *q)
+bool bif_iso_close_1(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -1700,7 +1700,7 @@ bool fn_iso_close_1(query *q)
 	return true;
 }
 
-static bool fn_iso_close_2(query *q)
+static bool bif_iso_close_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	GET_NEXT_ARG(p1,list_or_nil);
@@ -1726,10 +1726,10 @@ static bool fn_iso_close_2(query *q)
 	if (!is_nil(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "list");
 
-	return fn_iso_close_1(q);
+	return bif_iso_close_1(q);
 }
 
-static bool fn_iso_at_end_of_stream_0(query *q)
+static bool bif_iso_at_end_of_stream_0(query *q)
 {
 	int n = q->pl->current_input;
 	stream *str = &q->pl->streams[n];
@@ -1758,7 +1758,7 @@ static bool fn_iso_at_end_of_stream_0(query *q)
 	return true;
 }
 
-static bool fn_iso_at_end_of_stream_1(query *q)
+static bool bif_iso_at_end_of_stream_1(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -1791,7 +1791,7 @@ static bool fn_iso_at_end_of_stream_1(query *q)
 	return true;
 }
 
-static bool fn_iso_flush_output_0(query *q)
+static bool bif_iso_flush_output_0(query *q)
 {
 	int n = q->pl->current_output;
 	stream *str = &q->pl->streams[n];
@@ -1807,7 +1807,7 @@ static bool fn_iso_flush_output_0(query *q)
 	return !ferror(str->fp);
 }
 
-static bool fn_iso_flush_output_1(query *q)
+static bool bif_iso_flush_output_1(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -1827,7 +1827,7 @@ static bool fn_iso_flush_output_1(query *q)
 	return !ferror(str->fp);
 }
 
-static bool fn_iso_nl_0(query *q)
+static bool bif_iso_nl_0(query *q)
 {
 	int n = q->pl->current_output;
 	stream *str = &q->pl->streams[n];
@@ -1846,7 +1846,7 @@ static bool fn_iso_nl_0(query *q)
 	return !ferror(str->fp);
 }
 
-static bool fn_iso_nl_1(query *q)
+static bool bif_iso_nl_1(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -1869,7 +1869,7 @@ static bool fn_iso_nl_1(query *q)
 	return !ferror(str->fp);
 }
 
-static bool fn_iso_read_1(query *q)
+static bool bif_iso_read_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 	int n = q->pl->current_input;
@@ -1885,7 +1885,7 @@ static bool fn_iso_read_1(query *q)
 	return do_read_term(q, str, p1, p1_ctx, make_nil(), q->st.curr_frame, NULL);
 }
 
-static bool fn_iso_read_2(query *q)
+static bool bif_iso_read_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -2295,7 +2295,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 				cell v;
 				make_atom(&v, g_unify_s);
 				v.flags |= FLAG_BUILTIN;
-				v.fn_ptr = get_fn_ptr(fn_iso_unify_2);
+				v.bif_ptr = get_fn_ptr(bif_iso_unify_2);
 				v.arity = 2;
 				v.nbr_cells = 3;
 				SET_OP(&v,OP_XFX);
@@ -2357,7 +2357,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 				cell v;
 				make_atom(&v, g_unify_s);
 				v.flags |= FLAG_BUILTIN;
-				v.fn_ptr = get_fn_ptr(fn_iso_unify_2);
+				v.bif_ptr = get_fn_ptr(bif_iso_unify_2);
 				v.arity = 2;
 				v.nbr_cells = 3;
 				SET_OP(&v,OP_XFX);
@@ -2394,7 +2394,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 	return ok;
 }
 
-static bool fn_iso_read_term_2(query *q)
+static bool bif_iso_read_term_2(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 	GET_NEXT_ARG(p2,list_or_nil);
@@ -2411,7 +2411,7 @@ static bool fn_iso_read_term_2(query *q)
 	return do_read_term(q, str, p1, p1_ctx, p2, p2_ctx, NULL);
 }
 
-static bool fn_iso_read_term_3(query *q)
+static bool bif_iso_read_term_3(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -2432,7 +2432,7 @@ static bool fn_iso_read_term_3(query *q)
 	return do_read_term(q, str, p1, p1_ctx, p2, p2_ctx, NULL);
 }
 
-static bool fn_iso_write_1(query *q)
+static bool bif_iso_write_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 	int n = q->pl->current_output;
@@ -2458,7 +2458,7 @@ static bool fn_iso_write_1(query *q)
 	return !ferror(str->fp);
 }
 
-static bool fn_iso_write_2(query *q)
+static bool bif_iso_write_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -2490,7 +2490,7 @@ static bool fn_iso_write_2(query *q)
 	return !ferror(str->fp);
 }
 
-static bool fn_iso_writeq_1(query *q)
+static bool bif_iso_writeq_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 	int n = q->pl->current_output;
@@ -2518,7 +2518,7 @@ static bool fn_iso_writeq_1(query *q)
 	return !ferror(str->fp);
 }
 
-static bool fn_iso_writeq_2(query *q)
+static bool bif_iso_writeq_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -2550,7 +2550,7 @@ static bool fn_iso_writeq_2(query *q)
 	return !ferror(str->fp);
 }
 
-static bool fn_iso_write_canonical_1(query *q)
+static bool bif_iso_write_canonical_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 	int n = q->pl->current_output;
@@ -2574,7 +2574,7 @@ static bool fn_iso_write_canonical_1(query *q)
 	return !ferror(str->fp);
 }
 
-static bool fn_iso_write_canonical_2(query *q)
+static bool bif_iso_write_canonical_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -2806,7 +2806,7 @@ bool parse_write_params(query *q, cell *c, pl_idx c_ctx, cell **vnames, pl_idx *
 	return true;
 }
 
-static bool fn_iso_write_term_2(query *q)
+static bool bif_iso_write_term_2(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 	GET_NEXT_ARG(p2,list_or_nil);
@@ -2875,7 +2875,7 @@ static bool fn_iso_write_term_2(query *q)
 	return !ferror(str->fp);
 }
 
-static bool fn_iso_write_term_3(query *q)
+static bool bif_iso_write_term_3(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -2949,7 +2949,7 @@ static bool fn_iso_write_term_3(query *q)
 	return !ferror(str->fp);
 }
 
-static bool fn_iso_put_char_1(query *q)
+static bool bif_iso_put_char_1(query *q)
 {
 	GET_FIRST_ARG(p1,character);
 	int n = q->pl->current_output;
@@ -2978,7 +2978,7 @@ static bool fn_iso_put_char_1(query *q)
 	return !ferror(str->fp);
 }
 
-static bool fn_iso_put_char_2(query *q)
+static bool bif_iso_put_char_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -3011,7 +3011,7 @@ static bool fn_iso_put_char_2(query *q)
 	return !ferror(str->fp);
 }
 
-static bool fn_iso_put_code_1(query *q)
+static bool bif_iso_put_code_1(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
 	int n = q->pl->current_output;
@@ -3040,7 +3040,7 @@ static bool fn_iso_put_code_1(query *q)
 	return !ferror(str->fp);
 }
 
-static bool fn_iso_put_code_2(query *q)
+static bool bif_iso_put_code_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -3077,7 +3077,7 @@ static bool fn_iso_put_code_2(query *q)
 	return !ferror(str->fp);
 }
 
-static bool fn_iso_put_byte_1(query *q)
+static bool bif_iso_put_byte_1(query *q)
 {
 	GET_FIRST_ARG(p1,byte);
 	int n = q->pl->current_output;
@@ -3110,7 +3110,7 @@ static bool fn_iso_put_byte_1(query *q)
 	return !ferror(str->fp);
 }
 
-static bool fn_iso_put_byte_2(query *q)
+static bool bif_iso_put_byte_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -3143,7 +3143,7 @@ static bool fn_iso_put_byte_2(query *q)
 	return !ferror(str->fp);
 }
 
-static bool fn_iso_get_char_1(query *q)
+static bool bif_iso_get_char_1(query *q)
 {
 	GET_FIRST_ARG(p1,in_character_or_var);
 	int n = q->pl->current_input;
@@ -3212,7 +3212,7 @@ static bool fn_iso_get_char_1(query *q)
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 }
 
-static bool fn_iso_get_char_2(query *q)
+static bool bif_iso_get_char_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -3285,7 +3285,7 @@ static bool fn_iso_get_char_2(query *q)
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 }
 
-static bool fn_iso_get_code_1(query *q)
+static bool bif_iso_get_code_1(query *q)
 {
 	GET_FIRST_ARG(p1,integer_or_var);
 	int n = q->pl->current_input;
@@ -3359,7 +3359,7 @@ static bool fn_iso_get_code_1(query *q)
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 }
 
-static bool fn_iso_get_code_2(query *q)
+static bool bif_iso_get_code_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -3436,7 +3436,7 @@ static bool fn_iso_get_code_2(query *q)
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 }
 
-static bool fn_iso_get_byte_1(query *q)
+static bool bif_iso_get_byte_1(query *q)
 {
 	GET_FIRST_ARG(p1,in_byte_or_var);
 	int n = q->pl->current_input;
@@ -3496,7 +3496,7 @@ static bool fn_iso_get_byte_1(query *q)
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 }
 
-static bool fn_iso_get_byte_2(query *q)
+static bool bif_iso_get_byte_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -3559,7 +3559,7 @@ static bool fn_iso_get_byte_2(query *q)
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 }
 
-static bool fn_unget_char_1(query *q)
+static bool bif_unget_char_1(query *q)
 {
 	GET_FIRST_ARG(p1,in_character);
 	int n = q->pl->current_input;
@@ -3585,7 +3585,7 @@ static bool fn_unget_char_1(query *q)
 	return true;
 }
 
-static bool fn_unget_char_2(query *q)
+static bool bif_unget_char_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -3620,7 +3620,7 @@ static bool fn_unget_char_2(query *q)
 	return true;
 }
 
-static bool fn_unget_code_1(query *q)
+static bool bif_unget_code_1(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
 	int n = q->pl->current_input;
@@ -3645,7 +3645,7 @@ static bool fn_unget_code_1(query *q)
 	return true;
 }
 
-static bool fn_unget_code_2(query *q)
+static bool bif_unget_code_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -3674,7 +3674,7 @@ static bool fn_unget_code_2(query *q)
 	return true;
 }
 
-static bool fn_unget_byte_1(query *q)
+static bool bif_unget_byte_1(query *q)
 {
 	GET_FIRST_ARG(p1,in_byte);
 	int n = q->pl->current_input;
@@ -3693,7 +3693,7 @@ static bool fn_unget_byte_1(query *q)
 	return true;
 }
 
-static bool fn_unget_byte_2(query *q)
+static bool bif_unget_byte_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -3716,7 +3716,7 @@ static bool fn_unget_byte_2(query *q)
 	return true;
 }
 
-static bool fn_iso_peek_char_1(query *q)
+static bool bif_iso_peek_char_1(query *q)
 {
 	GET_FIRST_ARG(p1,in_character_or_var);
 	int n = q->pl->current_input;
@@ -3767,7 +3767,7 @@ static bool fn_iso_peek_char_1(query *q)
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 }
 
-static bool fn_iso_peek_char_2(query *q)
+static bool bif_iso_peek_char_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -3821,7 +3821,7 @@ static bool fn_iso_peek_char_2(query *q)
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 }
 
-static bool fn_iso_peek_code_1(query *q)
+static bool bif_iso_peek_code_1(query *q)
 {
 	GET_FIRST_ARG(p1,integer_or_var);
 	int n = q->pl->current_input;
@@ -3875,7 +3875,7 @@ static bool fn_iso_peek_code_1(query *q)
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 }
 
-static bool fn_iso_peek_code_2(query *q)
+static bool bif_iso_peek_code_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -3933,7 +3933,7 @@ static bool fn_iso_peek_code_2(query *q)
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 }
 
-static bool fn_iso_peek_byte_1(query *q)
+static bool bif_iso_peek_byte_1(query *q)
 {
 	GET_FIRST_ARG(p1,in_byte_or_var);
 	int n = q->pl->current_input;
@@ -3980,7 +3980,7 @@ static bool fn_iso_peek_byte_1(query *q)
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 }
 
-static bool fn_iso_peek_byte_2(query *q)
+static bool bif_iso_peek_byte_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -4031,7 +4031,7 @@ static bool fn_iso_peek_byte_2(query *q)
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 }
 
-static bool fn_iso_current_input_1(query *q)
+static bool bif_iso_current_input_1(query *q)
 {
 	GET_FIRST_ARG(pstr,any);
 
@@ -4049,7 +4049,7 @@ static bool fn_iso_current_input_1(query *q)
 	return n == q->pl->current_input ? true : false;
 }
 
-static bool fn_iso_current_output_1(query *q)
+static bool bif_iso_current_output_1(query *q)
 {
 	GET_FIRST_ARG(pstr,any);
 
@@ -4067,7 +4067,7 @@ static bool fn_iso_current_output_1(query *q)
 	return n == q->pl->current_output ? true : false;
 }
 
-static bool fn_iso_current_error_1(query *q)
+static bool bif_iso_current_error_1(query *q)
 {
 	GET_FIRST_ARG(pstr,any);
 
@@ -4085,7 +4085,7 @@ static bool fn_iso_current_error_1(query *q)
 	return n == q->pl->current_error ? true : false;
 }
 
-static bool fn_iso_set_input_1(query *q)
+static bool bif_iso_set_input_1(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -4098,7 +4098,7 @@ static bool fn_iso_set_input_1(query *q)
 	return true;
 }
 
-static bool fn_iso_set_output_1(query *q)
+static bool bif_iso_set_output_1(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -4111,7 +4111,7 @@ static bool fn_iso_set_output_1(query *q)
 	return true;
 }
 
-static bool fn_iso_set_stream_position_2(query *q)
+static bool bif_iso_set_stream_position_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -4132,7 +4132,7 @@ static bool fn_iso_set_stream_position_2(query *q)
 	return true;
 }
 
-static bool fn_sys_read_term_from_chars_4(query *q)
+static bool bif_sys_read_term_from_chars_4(query *q)
 {
 	GET_FIRST_ARG(p_term,any);
 	GET_NEXT_ARG(p_opts,list_or_nil);
@@ -4225,7 +4225,7 @@ static bool fn_sys_read_term_from_chars_4(query *q)
 	return ok;
 }
 
-static bool fn_read_term_from_chars_3(query *q)
+static bool bif_read_term_from_chars_3(query *q)
 {
 	GET_FIRST_ARG(p_chars,any);
 	GET_NEXT_ARG(p_term,any);
@@ -4297,7 +4297,7 @@ static bool fn_read_term_from_chars_3(query *q)
 	return ok;
 }
 
-static bool fn_read_term_from_atom_3(query *q)
+static bool bif_read_term_from_atom_3(query *q)
 {
 	GET_FIRST_ARG(p_chars,any);
 	GET_NEXT_ARG(p_term,any);
@@ -4336,7 +4336,7 @@ static bool fn_read_term_from_atom_3(query *q)
 	return ok;
 }
 
-static bool fn_write_term_to_atom_3(query *q)
+static bool bif_write_term_to_atom_3(query *q)
 {
 	GET_FIRST_ARG(p_chars,atom_or_var);
 	GET_NEXT_ARG(p_term,any);
@@ -4368,7 +4368,7 @@ static bool fn_write_term_to_atom_3(query *q)
 	return ok;
 }
 
-static bool fn_write_term_to_chars_3(query *q)
+static bool bif_write_term_to_chars_3(query *q)
 {
 	GET_FIRST_ARG(p_term,any);
 	GET_NEXT_ARG(p2,list_or_nil);
@@ -4400,7 +4400,7 @@ static bool fn_write_term_to_chars_3(query *q)
 	return ok;
 }
 
-static bool fn_write_canonical_to_chars_3(query *q)
+static bool bif_write_canonical_to_chars_3(query *q)
 {
 	GET_FIRST_ARG(p_chars,atom_or_var);
 	GET_NEXT_ARG(p_term,any);
@@ -4430,7 +4430,7 @@ static bool fn_write_canonical_to_chars_3(query *q)
 	return ok;
 }
 
-static bool fn_edin_redo_1(query *q)
+static bool bif_edin_redo_1(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
 	int n = q->pl->current_input;
@@ -4462,7 +4462,7 @@ static bool fn_edin_redo_1(query *q)
 	return true;
 }
 
-static bool fn_edin_redo_2(query *q)
+static bool bif_edin_redo_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -4495,7 +4495,7 @@ static bool fn_edin_redo_2(query *q)
 	return true;
 }
 
-static bool fn_edin_tab_1(query *q)
+static bool bif_edin_tab_1(query *q)
 {
 	GET_FIRST_ARG(p1_tmp,any);
 	cell p1 = eval(q, p1_tmp);
@@ -4512,7 +4512,7 @@ static bool fn_edin_tab_1(query *q)
 	return !ferror(str->fp);
 }
 
-static bool fn_edin_tab_2(query *q)
+static bool bif_edin_tab_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	GET_FIRST_ARG(p1_tmp,any);
@@ -4530,7 +4530,7 @@ static bool fn_edin_tab_2(query *q)
 	return !ferror(str->fp);
 }
 
-static bool fn_edin_seen_0(query *q)
+static bool bif_edin_seen_0(query *q)
 {
 	int n = q->pl->current_input;
 	stream *str = &q->pl->streams[n];
@@ -4551,7 +4551,7 @@ static bool fn_edin_seen_0(query *q)
 	return true;
 }
 
-static bool fn_edin_told_0(query *q)
+static bool bif_edin_told_0(query *q)
 {
 	int n = q->pl->current_output;
 	stream *str = &q->pl->streams[n];
@@ -4572,7 +4572,7 @@ static bool fn_edin_told_0(query *q)
 	return true;
 }
 
-static bool fn_edin_seeing_1(query *q)
+static bool bif_edin_seeing_1(query *q)
 {
 	GET_FIRST_ARG(p1,var);
 	sliter *iter = sl_first(q->pl->streams[q->pl->current_input].alias);
@@ -4587,7 +4587,7 @@ static bool fn_edin_seeing_1(query *q)
 	return ok;
 }
 
-static bool fn_edin_telling_1(query *q)
+static bool bif_edin_telling_1(query *q)
 {
 	GET_FIRST_ARG(p1,var);
 	sliter *iter = sl_first(q->pl->streams[q->pl->current_output].alias);
@@ -4602,7 +4602,7 @@ static bool fn_edin_telling_1(query *q)
 	return ok;
 }
 
-static bool fn_read_line_to_string_2(query *q)
+static bool bif_read_line_to_string_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	GET_NEXT_ARG(p1,any);
@@ -4649,7 +4649,7 @@ static bool fn_read_line_to_string_2(query *q)
 	return ok;
 }
 
-static bool fn_read_file_to_string_3(query *q)
+static bool bif_read_file_to_string_3(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_list);
 	GET_NEXT_ARG(p2,var);
@@ -4836,7 +4836,7 @@ static bool do_deconsult(query *q, cell *p1, pl_idx p1_ctx)
 	return true;
 }
 
-static bool fn_load_files_2(query *q)
+static bool bif_load_files_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_list);
 
@@ -4860,7 +4860,7 @@ static bool fn_load_files_2(query *q)
 	return true;
 }
 
-static bool fn_unload_files_1(query *q)
+static bool bif_unload_files_1(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_compound);
 
@@ -4884,7 +4884,7 @@ static bool fn_unload_files_1(query *q)
 	return true;
 }
 
-static bool fn_make_0(query *q)
+static bool bif_make_0(query *q)
 {
 	for (module *m = q->pl->modules; m; m = m->next)
 		make(m);
@@ -4892,7 +4892,7 @@ static bool fn_make_0(query *q)
 	return true;
 }
 
-static bool fn_savefile_2(query *q)
+static bool bif_savefile_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_list);
 	GET_NEXT_ARG(p2,atom);
@@ -4917,7 +4917,7 @@ static bool fn_savefile_2(query *q)
 	return true;
 }
 
-static bool fn_loadfile_2(query *q)
+static bool bif_loadfile_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_list);
 	GET_NEXT_ARG(p2,var);
@@ -4975,7 +4975,7 @@ static bool fn_loadfile_2(query *q)
 	return ok;
 }
 
-static bool fn_getfile_2(query *q)
+static bool bif_getfile_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_list);
 	GET_NEXT_ARG(p2,var);
@@ -5064,7 +5064,7 @@ static bool get_terminator(query *q, cell *l, pl_idx l_ctx)
 	return terminator;
 }
 
-static bool fn_getfile_3(query *q)
+static bool bif_getfile_3(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_list);
 	GET_NEXT_ARG(p2,var);
@@ -5129,7 +5129,7 @@ static bool fn_getfile_3(query *q)
 	return true;
 }
 
-static bool fn_getlines_1(query *q)
+static bool bif_getlines_1(query *q)
 {
 	GET_NEXT_ARG(p1,var);
 	int n = q->pl->current_input;
@@ -5164,7 +5164,7 @@ static bool fn_getlines_1(query *q)
 	return true;
 }
 
-static bool fn_getlines_2(query *q)
+static bool bif_getlines_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	GET_NEXT_ARG(p1,var);
@@ -5200,7 +5200,7 @@ static bool fn_getlines_2(query *q)
 	return true;
 }
 
-static bool fn_getlines_3(query *q)
+static bool bif_getlines_3(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	GET_NEXT_ARG(p1,var);
@@ -5275,14 +5275,14 @@ static char *fixup(const char *srcptr)
 	return tmpbuf;
 }
 
-static bool fn_is_absolute_file_name_1(query *q)
+static bool bif_is_absolute_file_name_1(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
 	const char *filename = C_STR(q, p1);
 	return *filename == '/';
 }
 
-static bool fn_absolute_file_name_3(query *q)
+static bool bif_absolute_file_name_3(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p2,atom_or_var);
@@ -5410,7 +5410,7 @@ static bool fn_absolute_file_name_3(query *q)
 	return ok;
 }
 
-static bool fn_getline_1(query *q)
+static bool bif_getline_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 	int n = q->pl->current_input;
@@ -5448,7 +5448,7 @@ static bool fn_getline_1(query *q)
 	return ok;
 }
 
-static bool fn_getline_2(query *q)
+static bool bif_getline_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	GET_NEXT_ARG(p1,any);
@@ -5489,7 +5489,7 @@ static bool fn_getline_2(query *q)
 	return ok;
 }
 
-static bool fn_getline_3(query *q)
+static bool bif_getline_3(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	GET_NEXT_ARG(p1,any);
@@ -5534,7 +5534,7 @@ static bool fn_getline_3(query *q)
 	return ok;
 }
 
-static bool fn_access_file_2(query *q)
+static bool bif_access_file_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_list);
 	GET_NEXT_ARG(p2,atom);
@@ -5587,7 +5587,7 @@ static bool fn_access_file_2(query *q)
 	return ok;
 }
 
-static bool fn_exists_file_1(query *q)
+static bool bif_exists_file_1(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_list);
 	char *filename;
@@ -5618,7 +5618,7 @@ static bool fn_exists_file_1(query *q)
 	return true;
 }
 
-static bool fn_directory_files_2(query *q)
+static bool bif_directory_files_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_list);
 	GET_NEXT_ARG(p2,var);
@@ -5674,7 +5674,7 @@ static bool fn_directory_files_2(query *q)
 	return ok;
 }
 
-static bool fn_delete_file_1(query *q)
+static bool bif_delete_file_1(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_list);
 	char *filename;
@@ -5702,7 +5702,7 @@ static bool fn_delete_file_1(query *q)
 	return true;
 }
 
-static bool fn_rename_file_2(query *q)
+static bool bif_rename_file_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_list);
 	GET_NEXT_ARG(p2,atom_or_list);
@@ -5746,7 +5746,7 @@ static bool fn_rename_file_2(query *q)
 	return ok ? true : false;
 }
 
-static bool fn_copy_file_2(query *q)
+static bool bif_copy_file_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_list);
 	GET_NEXT_ARG(p2,atom_or_list);
@@ -5816,7 +5816,7 @@ static bool fn_copy_file_2(query *q)
 	return true;
 }
 
-static bool fn_time_file_2(query *q)
+static bool bif_time_file_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_list);
 	GET_NEXT_ARG(p2,var);
@@ -5846,7 +5846,7 @@ static bool fn_time_file_2(query *q)
 	return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 }
 
-static bool fn_size_file_2(query *q)
+static bool bif_size_file_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_list);
 	GET_NEXT_ARG(p2,integer_or_var);
@@ -5876,7 +5876,7 @@ static bool fn_size_file_2(query *q)
 	return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 }
 
-static bool fn_exists_directory_1(query *q)
+static bool bif_exists_directory_1(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_list);
 	char *filename;
@@ -5907,7 +5907,7 @@ static bool fn_exists_directory_1(query *q)
 	return true;
 }
 
-static bool fn_make_directory_1(query *q)
+static bool bif_make_directory_1(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_list);
 	char *filename;
@@ -5939,7 +5939,7 @@ static bool fn_make_directory_1(query *q)
 	return true;
 }
 
-static bool fn_make_directory_path_1(query *q)
+static bool bif_make_directory_path_1(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_list);
 	char *filename;
@@ -5986,7 +5986,7 @@ static bool fn_make_directory_path_1(query *q)
 	return true;
 }
 
-static bool fn_working_directory_2(query *q)
+static bool bif_working_directory_2(query *q)
 {
 	GET_FIRST_ARG(p_old,var);
 	GET_NEXT_ARG(p_new,atom_or_list_or_var);
@@ -6026,7 +6026,7 @@ static bool fn_working_directory_2(query *q)
 	return ok;
 }
 
-static bool fn_chdir_1(query *q)
+static bool bif_chdir_1(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_list);
 	char *filename;
@@ -6067,7 +6067,7 @@ static void parse_host(const char *src, char hostname[1024], char path[4096], un
 	path[4095] = '\0';
 }
 
-static bool fn_server_3(query *q)
+static bool bif_server_3(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p2,var);
@@ -6183,7 +6183,7 @@ static bool fn_server_3(query *q)
 	return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 }
 
-static bool fn_accept_2(query *q)
+static bool bif_accept_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	GET_NEXT_ARG(p1,var);
@@ -6504,7 +6504,7 @@ static bool do_parse_url(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_
 	return unify(q, p2, p2_ctx, end_list(q), q->st.curr_frame);
 }
 
-static bool fn_parse_url_2(query *q)
+static bool bif_parse_url_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_var);
 	GET_NEXT_ARG(p2,iso_list_or_var);
@@ -6518,7 +6518,7 @@ static bool fn_parse_url_2(query *q)
 		return do_parse_parts(q, p1, p1_ctx, p2, p2_ctx, true);
 }
 
-static bool fn_http_location_2(query *q)
+static bool bif_http_location_2(query *q)
 {
 	GET_FIRST_ARG(p1,iso_list_or_var);
 	GET_NEXT_ARG(p2,atom_or_var);
@@ -6532,7 +6532,7 @@ static bool fn_http_location_2(query *q)
 		return do_parse_parts(q, p2, p2_ctx, p1, p1_ctx, false);
 }
 
-static bool fn_client_5(query *q)
+static bool bif_client_5(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p2,var);
@@ -6676,7 +6676,7 @@ static bool fn_client_5(query *q)
 	return unify(q, p4, p4_ctx, &tmp2, q->st.curr_frame);
 }
 
-static bool fn_bread_3(query *q)
+static bool bif_bread_3(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	GET_NEXT_ARG(p1,integer_or_var);
@@ -6783,7 +6783,7 @@ static bool fn_bread_3(query *q)
 	return ok;
 }
 
-static bool fn_bwrite_2(query *q)
+static bool bif_bwrite_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	GET_NEXT_ARG(p1,atom);
@@ -6812,7 +6812,7 @@ static bool fn_bwrite_2(query *q)
 	return true;
 }
 
-static bool fn_sys_put_chars_1(query *q)
+static bool bif_sys_put_chars_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 	int n = q->pl->current_output;
@@ -6841,7 +6841,7 @@ static bool fn_sys_put_chars_1(query *q)
 	return !ferror(str->fp);
 }
 
-static bool fn_sys_put_chars_2(query *q)
+static bool bif_sys_put_chars_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -6893,7 +6893,7 @@ static bool fn_sys_load_chars_1(query *q)
 	return true;
 }
 
-static bool fn_sys_capture_output_0(query *q)
+static bool bif_sys_capture_output_0(query *q)
 {
 	int n = q->pl->current_output;
 	stream *str = &q->pl->streams[n];
@@ -6907,7 +6907,7 @@ static bool fn_sys_capture_output_0(query *q)
 	return true;
 }
 
-static bool fn_sys_capture_output_to_chars_1(query *q)
+static bool bif_sys_capture_output_to_chars_1(query *q)
 {
 	GET_FIRST_ARG(p1,var);
 	int n = q->pl->current_output;
@@ -6923,7 +6923,7 @@ static bool fn_sys_capture_output_to_chars_1(query *q)
 	return ok;
 }
 
-static bool fn_sys_capture_output_to_atom_1(query *q)
+static bool bif_sys_capture_output_to_atom_1(query *q)
 {
 	GET_FIRST_ARG(p1,var);
 	int n = q->pl->current_output;
@@ -6939,7 +6939,7 @@ static bool fn_sys_capture_output_to_atom_1(query *q)
 	return ok;
 }
 
-static bool fn_sys_capture_error_0(query *q)
+static bool bif_sys_capture_error_0(query *q)
 {
 	int n = q->pl->current_error;
 	stream *str = &q->pl->streams[n];
@@ -6953,7 +6953,7 @@ static bool fn_sys_capture_error_0(query *q)
 	return true;
 }
 
-static bool fn_sys_capture_error_to_chars_1(query *q)
+static bool bif_sys_capture_error_to_chars_1(query *q)
 {
 	GET_FIRST_ARG(p1,var);
 	int n = q->pl->current_error;
@@ -6969,7 +6969,7 @@ static bool fn_sys_capture_error_to_chars_1(query *q)
 	return ok;
 }
 
-static bool fn_sys_capture_error_to_atom_1(query *q)
+static bool bif_sys_capture_error_to_atom_1(query *q)
 {
 	GET_FIRST_ARG(p1,var);
 	int n = q->pl->current_error;
@@ -7068,8 +7068,7 @@ static bool fn_sys_memory_stream_to_chars_2(query *q)
 	return ok;
 }
 
-
-static bool fn_set_stream_2(query *q)
+static bool bif_set_stream_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -7111,7 +7110,7 @@ static bool fn_set_stream_2(query *q)
 	return false;
 }
 
-static bool fn_with_mutex_2(query *q)
+static bool bif_with_mutex_2(query *q)
 {
 	GET_FIRST_ARG(pstr,any);
 	GET_NEXT_ARG(p1,callable);
@@ -7131,7 +7130,7 @@ static bool fn_with_mutex_2(query *q)
 	cell *tmp = prepare_call(q, true, tmp2, p1_ctx, 3);
 	check_heap_error(tmp);
 	pl_idx nbr_cells = PREFIX_LEN + tmp2->nbr_cells;
-	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, fn_sys_drop_barrier_1, 1, 1);
+	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+nbr_cells++, q->cp);
 	make_call(q, tmp+nbr_cells);
 	check_heap_error(push_barrier(q));
@@ -7141,7 +7140,7 @@ static bool fn_with_mutex_2(query *q)
 	return true;
 }
 
-static bool fn_engine_create_4(query *q)
+static bool bif_engine_create_4(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 	GET_NEXT_ARG(p2,callable);
@@ -7229,7 +7228,7 @@ static bool fn_engine_create_4(query *q)
 	return true;
 }
 
-static bool fn_engine_next_2(query *q)
+static bool bif_engine_next_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	GET_NEXT_ARG(p1,any);
@@ -7261,7 +7260,7 @@ static bool fn_engine_next_2(query *q)
 	return unify(q, p1, p1_ctx, tmp, q->st.curr_frame);
 }
 
-static bool fn_engine_yield_1(query *q)
+static bool bif_engine_yield_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 
@@ -7279,7 +7278,7 @@ static bool fn_engine_yield_1(query *q)
 	return do_yield(q, 0);
 }
 
-static bool fn_engine_post_2(query *q)
+static bool bif_engine_post_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	GET_NEXT_ARG(p1,any);
@@ -7293,7 +7292,7 @@ static bool fn_engine_post_2(query *q)
 	return true;
 }
 
-static bool fn_engine_fetch_1(query *q)
+static bool bif_engine_fetch_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 
@@ -7310,7 +7309,7 @@ static bool fn_engine_fetch_1(query *q)
 	return unify(q, p1, p1_ctx, tmp, q->st.curr_frame);
 }
 
-static bool fn_engine_self_1(query *q)
+static bool bif_engine_self_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 
@@ -7323,7 +7322,7 @@ static bool fn_engine_self_1(query *q)
 	return unify(q, p1, p1_ctx, &tmp2, q->st.curr_frame);
 }
 
-static bool fn_is_engine_1(query *q)
+static bool bif_is_engine_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 	int n = get_stream(q, p1);
@@ -7335,7 +7334,7 @@ static bool fn_is_engine_1(query *q)
 	return str->is_engine;
 }
 
-static bool fn_engine_destroy_1(query *q)
+static bool bif_engine_destroy_1(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -7344,10 +7343,10 @@ static bool fn_engine_destroy_1(query *q)
 	if (!str->is_engine)
 		return throw_error(q, pstr, pstr_ctx, "existence_error", "not_an_engine");
 
-	return fn_iso_close_1(q);
+	return bif_iso_close_1(q);
 }
 
-static bool fn_portray_clause_1(query *q)
+static bool bif_portray_clause_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 	int n = q->pl->current_output;
@@ -7364,7 +7363,7 @@ static bool fn_portray_clause_1(query *q)
 	return true;
 }
 
-static bool fn_portray_clause_2(query *q)
+static bool bif_portray_clause_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -7385,173 +7384,173 @@ builtins g_files_bifs[] =
 {
 	// ISO...
 
-	{"open", 4, fn_iso_open_4, "+atom,+mode,--stream,+list", true, false, BLAH},
-	{"close", 1, fn_iso_close_1, "+stream", true, false, BLAH},
-	{"close", 2, fn_iso_close_2, "+stream,+opts", true, false, BLAH},
-	{"read_term", 2, fn_iso_read_term_2, "+stream,-term", true, false, BLAH},
-	{"read_term", 3, fn_iso_read_term_3, "+stream,-term,+list", true, false, BLAH},
-	{"read", 1, fn_iso_read_1, "-term", true, false, BLAH},
-	{"read", 2, fn_iso_read_2, "+stream,-term", true, false, BLAH},
-	{"write_canonical", 1, fn_iso_write_canonical_1, "+term", true, false, BLAH},
-	{"write_canonical", 2, fn_iso_write_canonical_2, "+stream,+term", true, false, BLAH},
-	{"write_term", 2, fn_iso_write_term_2, "+stream,+term", true, false, BLAH},
-	{"write_term", 3, fn_iso_write_term_3, "+stream,+term,+list", true, false, BLAH},
-	{"writeq", 1, fn_iso_writeq_1, "+term", true, false, BLAH},
-	{"writeq", 2, fn_iso_writeq_2, "+stream,+term", true, false, BLAH},
-	{"write", 1, fn_iso_write_1, "+term", true, false, BLAH},
-	{"write", 2, fn_iso_write_2, "+stream,+term", true, false, BLAH},
-	{"nl", 0, fn_iso_nl_0, NULL, true, false, BLAH},
-	{"nl", 1, fn_iso_nl_1, "+stream", true, false, BLAH},
-	{"at_end_of_stream", 0, fn_iso_at_end_of_stream_0, NULL, true, false, BLAH},
-	{"at_end_of_stream", 1, fn_iso_at_end_of_stream_1, "+stream", true, false, BLAH},
-	{"set_stream_position", 2, fn_iso_set_stream_position_2, "+stream,+integer", true, false, BLAH},
-	{"flush_output", 0, fn_iso_flush_output_0, NULL, true, false, BLAH},
-	{"flush_output", 1, fn_iso_flush_output_1, "+stream", true, false, BLAH},
-	{"put_char", 1, fn_iso_put_char_1, "+integer", true, false, BLAH},
-	{"put_char", 2, fn_iso_put_char_2, "+stream,+integer", true, false, BLAH},
-	{"put_code", 1, fn_iso_put_code_1, "+integer", true, false, BLAH},
-	{"put_code", 2, fn_iso_put_code_2, "+stream,+integer", true, false, BLAH},
-	{"put_byte", 1, fn_iso_put_byte_1, "+integer", true, false, BLAH},
-	{"put_byte", 2, fn_iso_put_byte_2, "+stream,+integer", true, false, BLAH},
-	{"get_char", 1, fn_iso_get_char_1, "-integer", true, false, BLAH},
-	{"get_char", 2, fn_iso_get_char_2, "+stream,-integer", true, false, BLAH},
-	{"get_code", 1, fn_iso_get_code_1, "-integer", true, false, BLAH},
-	{"get_code", 2, fn_iso_get_code_2, "+stream,-integer", true, false, BLAH},
-	{"get_byte", 1, fn_iso_get_byte_1, "-integer", true, false, BLAH},
-	{"get_byte", 2, fn_iso_get_byte_2, "+stream,-integer", true, false, BLAH},
-	{"peek_char", 1, fn_iso_peek_char_1, "-integer", true, false, BLAH},
-	{"peek_char", 2, fn_iso_peek_char_2, "+stream,-integer", true, false, BLAH},
-	{"peek_code", 1, fn_iso_peek_code_1, "-integer", true, false, BLAH},
-	{"peek_code", 2, fn_iso_peek_code_2, "+stream,-integer", true, false, BLAH},
-	{"peek_byte", 1, fn_iso_peek_byte_1, "-integer", true, false, BLAH},
-	{"peek_byte", 2, fn_iso_peek_byte_2, "+stream,-integer", true, false, BLAH},
-	{"current_input", 1, fn_iso_current_input_1, "--stream", true, false, BLAH},
-	{"current_output", 1, fn_iso_current_output_1, "--stream", true, false, BLAH},
-	{"current_error", 1, fn_iso_current_error_1, "--stream", true, false, BLAH},
-	{"set_input", 1, fn_iso_set_input_1, "+stream", true, false, BLAH},
-	{"set_output", 1, fn_iso_set_output_1, "+stream", true, false, BLAH},
-	{"set_error", 1, fn_iso_set_output_1, "+stream", true, false, BLAH},
-	{"stream_property", 2, fn_iso_stream_property_2, "+stream,+compound", true, false, BLAH},
+	{"open", 4, bif_iso_open_4, "+atom,+mode,--stream,+list", true, false, BLAH},
+	{"close", 1, bif_iso_close_1, "+stream", true, false, BLAH},
+	{"close", 2, bif_iso_close_2, "+stream,+opts", true, false, BLAH},
+	{"read_term", 2, bif_iso_read_term_2, "+stream,-term", true, false, BLAH},
+	{"read_term", 3, bif_iso_read_term_3, "+stream,-term,+list", true, false, BLAH},
+	{"read", 1, bif_iso_read_1, "-term", true, false, BLAH},
+	{"read", 2, bif_iso_read_2, "+stream,-term", true, false, BLAH},
+	{"write_canonical", 1, bif_iso_write_canonical_1, "+term", true, false, BLAH},
+	{"write_canonical", 2, bif_iso_write_canonical_2, "+stream,+term", true, false, BLAH},
+	{"write_term", 2, bif_iso_write_term_2, "+stream,+term", true, false, BLAH},
+	{"write_term", 3, bif_iso_write_term_3, "+stream,+term,+list", true, false, BLAH},
+	{"writeq", 1, bif_iso_writeq_1, "+term", true, false, BLAH},
+	{"writeq", 2, bif_iso_writeq_2, "+stream,+term", true, false, BLAH},
+	{"write", 1, bif_iso_write_1, "+term", true, false, BLAH},
+	{"write", 2, bif_iso_write_2, "+stream,+term", true, false, BLAH},
+	{"nl", 0, bif_iso_nl_0, NULL, true, false, BLAH},
+	{"nl", 1, bif_iso_nl_1, "+stream", true, false, BLAH},
+	{"at_end_of_stream", 0, bif_iso_at_end_of_stream_0, NULL, true, false, BLAH},
+	{"at_end_of_stream", 1, bif_iso_at_end_of_stream_1, "+stream", true, false, BLAH},
+	{"set_stream_position", 2, bif_iso_set_stream_position_2, "+stream,+integer", true, false, BLAH},
+	{"flush_output", 0, bif_iso_flush_output_0, NULL, true, false, BLAH},
+	{"flush_output", 1, bif_iso_flush_output_1, "+stream", true, false, BLAH},
+	{"put_char", 1, bif_iso_put_char_1, "+integer", true, false, BLAH},
+	{"put_char", 2, bif_iso_put_char_2, "+stream,+integer", true, false, BLAH},
+	{"put_code", 1, bif_iso_put_code_1, "+integer", true, false, BLAH},
+	{"put_code", 2, bif_iso_put_code_2, "+stream,+integer", true, false, BLAH},
+	{"put_byte", 1, bif_iso_put_byte_1, "+integer", true, false, BLAH},
+	{"put_byte", 2, bif_iso_put_byte_2, "+stream,+integer", true, false, BLAH},
+	{"get_char", 1, bif_iso_get_char_1, "-integer", true, false, BLAH},
+	{"get_char", 2, bif_iso_get_char_2, "+stream,-integer", true, false, BLAH},
+	{"get_code", 1, bif_iso_get_code_1, "-integer", true, false, BLAH},
+	{"get_code", 2, bif_iso_get_code_2, "+stream,-integer", true, false, BLAH},
+	{"get_byte", 1, bif_iso_get_byte_1, "-integer", true, false, BLAH},
+	{"get_byte", 2, bif_iso_get_byte_2, "+stream,-integer", true, false, BLAH},
+	{"peek_char", 1, bif_iso_peek_char_1, "-integer", true, false, BLAH},
+	{"peek_char", 2, bif_iso_peek_char_2, "+stream,-integer", true, false, BLAH},
+	{"peek_code", 1, bif_iso_peek_code_1, "-integer", true, false, BLAH},
+	{"peek_code", 2, bif_iso_peek_code_2, "+stream,-integer", true, false, BLAH},
+	{"peek_byte", 1, bif_iso_peek_byte_1, "-integer", true, false, BLAH},
+	{"peek_byte", 2, bif_iso_peek_byte_2, "+stream,-integer", true, false, BLAH},
+	{"current_input", 1, bif_iso_current_input_1, "--stream", true, false, BLAH},
+	{"current_output", 1, bif_iso_current_output_1, "--stream", true, false, BLAH},
+	{"current_error", 1, bif_iso_current_error_1, "--stream", true, false, BLAH},
+	{"set_input", 1, bif_iso_set_input_1, "+stream", true, false, BLAH},
+	{"set_output", 1, bif_iso_set_output_1, "+stream", true, false, BLAH},
+	{"set_error", 1, bif_iso_set_output_1, "+stream", true, false, BLAH},
+	{"stream_property", 2, bif_iso_stream_property_2, "+stream,+compound", true, false, BLAH},
 
 
 	// Edinburgh...
 
-	{"seeing", 1, fn_edin_seeing_1, "-atom", false, false, BLAH},
-	{"telling", 1, fn_edin_telling_1, "-atom", false, false, BLAH},
-	{"seen", 0, fn_edin_seen_0, NULL, false, false, BLAH},
-	{"told", 0, fn_edin_told_0, NULL, false, false, BLAH},
-	{"redo", 1, fn_edin_redo_1, "+integer", false, false, BLAH},
-	{"redo", 2, fn_edin_redo_2, "+stream,+integer", false, false, BLAH},
-	{"tab", 1, fn_edin_tab_1, "+integer", false, false, BLAH},
-	{"tab", 2, fn_edin_tab_2, "+stream,+integer", false, false, BLAH},
-	{"portray_clause", 1, fn_portray_clause_1, "+term", false, false, BLAH},
-	{"portray_clause", 2, fn_portray_clause_2, "+stream,+term", false, false, BLAH},
+	{"seeing", 1, bif_edin_seeing_1, "-atom", false, false, BLAH},
+	{"telling", 1, bif_edin_telling_1, "-atom", false, false, BLAH},
+	{"seen", 0, bif_edin_seen_0, NULL, false, false, BLAH},
+	{"told", 0, bif_edin_told_0, NULL, false, false, BLAH},
+	{"redo", 1, bif_edin_redo_1, "+integer", false, false, BLAH},
+	{"redo", 2, bif_edin_redo_2, "+stream,+integer", false, false, BLAH},
+	{"tab", 1, bif_edin_tab_1, "+integer", false, false, BLAH},
+	{"tab", 2, bif_edin_tab_2, "+stream,+integer", false, false, BLAH},
+	{"portray_clause", 1, bif_portray_clause_1, "+term", false, false, BLAH},
+	{"portray_clause", 2, bif_portray_clause_2, "+stream,+term", false, false, BLAH},
 
 	// Other...
 
-	{"unget_char", 1, fn_unget_char_1, "+integer", true, false, BLAH},
-	{"unget_char", 2, fn_unget_char_2, "+stream,+integer", true, false, BLAH},
-	{"unget_code", 1, fn_unget_code_1, "+integer", true, false, BLAH},
-	{"unget_code", 2, fn_unget_code_2, "+stream,+integer", true, false, BLAH},
-	{"unget_byte", 1, fn_unget_byte_1, "+integer", true, false, BLAH},
-	{"unget_byte", 2, fn_unget_byte_2, "+stream,+integer", true, false, BLAH},
-	{"set_stream", 2, fn_set_stream_2, "+stream,+term", true, false, BLAH},
-	{"getline", 1, fn_getline_1, "-atom", false, false, BLAH},
-	{"getline", 2, fn_getline_2, "+stream,-string", false, false, BLAH},
-	{"getline", 3, fn_getline_3, "+stream,-string,+list", false, false, BLAH},
-	{"getlines", 1, fn_getlines_1, "-list", false, false, BLAH},
-	{"getlines", 2, fn_getlines_2, "+stream,-list", false, false, BLAH},
-	{"getlines", 3, fn_getlines_3, "+stream,-list,+list", false, false, BLAH},
-	{"load_files", 2, fn_load_files_2, "+atom,+list", false, false, BLAH},
-	{"unload_files", 1, fn_unload_files_1, "+atom", false, false, BLAH},
-	{"make", 0, fn_make_0, NULL, false, false, BLAH},
-	{"getfile", 2, fn_getfile_2, "+atom,-list", false, false, BLAH},
-	{"getfile", 3, fn_getfile_3, "+atom,-list,+list", false, false, BLAH},
-	{"loadfile", 2, fn_loadfile_2, "+atom,-atom", false, false, BLAH},
-	{"savefile", 2, fn_savefile_2, "+atom,+atom", false, false, BLAH},
-	{"rename_file", 2, fn_rename_file_2, "+atom,+atom", false, false, BLAH},
-	{"copy_file", 2, fn_copy_file_2, "+atom,+atom", false, false, BLAH},
-	{"directory_files", 2, fn_directory_files_2, "+atom,-list", false, false, BLAH},
-	{"delete_file", 1, fn_delete_file_1, "+atom", false, false, BLAH},
-	{"exists_file", 1, fn_exists_file_1, "+atom", false, false, BLAH},
-	{"access_file", 2, fn_access_file_2, "+atom,+atom", false, false, BLAH},
-	{"time_file", 2, fn_time_file_2, "+atom,-float", false, false, BLAH},
-	{"size_file", 2, fn_size_file_2, "+atom,-integer", false, false, BLAH},
-	{"exists_directory", 1, fn_exists_directory_1, "+atom", false, false, BLAH},
-	{"make_directory", 1, fn_make_directory_1, "+atom", false, false, BLAH},
-	{"make_directory_path", 1, fn_make_directory_path_1, "+atom", false, false, BLAH},
-	{"working_directory", 2, fn_working_directory_2, "-atom,+atom", false, false, BLAH},
-	{"absolute_file_name", 3, fn_absolute_file_name_3, "+atom,-atom,+list", false, false, BLAH},
-	{"is_absolute_file_name", 1, fn_is_absolute_file_name_1, "+atom", false, false, BLAH},
-	{"chdir", 1, fn_chdir_1, "+atom", false, false, BLAH},
-	{"$put_chars", 1, fn_sys_put_chars_1, "+chars", false, false, BLAH},
-	{"$put_chars", 2, fn_sys_put_chars_2, "+stream,+chars", false, false, BLAH},
+	{"unget_char", 1, bif_unget_char_1, "+integer", true, false, BLAH},
+	{"unget_char", 2, bif_unget_char_2, "+stream,+integer", true, false, BLAH},
+	{"unget_code", 1, bif_unget_code_1, "+integer", true, false, BLAH},
+	{"unget_code", 2, bif_unget_code_2, "+stream,+integer", true, false, BLAH},
+	{"unget_byte", 1, bif_unget_byte_1, "+integer", true, false, BLAH},
+	{"unget_byte", 2, bif_unget_byte_2, "+stream,+integer", true, false, BLAH},
+	{"set_stream", 2, bif_set_stream_2, "+stream,+term", true, false, BLAH},
+	{"getline", 1, bif_getline_1, "-atom", false, false, BLAH},
+	{"getline", 2, bif_getline_2, "+stream,-string", false, false, BLAH},
+	{"getline", 3, bif_getline_3, "+stream,-string,+list", false, false, BLAH},
+	{"getlines", 1, bif_getlines_1, "-list", false, false, BLAH},
+	{"getlines", 2, bif_getlines_2, "+stream,-list", false, false, BLAH},
+	{"getlines", 3, bif_getlines_3, "+stream,-list,+list", false, false, BLAH},
+	{"load_files", 2, bif_load_files_2, "+atom,+list", false, false, BLAH},
+	{"unload_files", 1, bif_unload_files_1, "+atom", false, false, BLAH},
+	{"make", 0, bif_make_0, NULL, false, false, BLAH},
+	{"getfile", 2, bif_getfile_2, "+atom,-list", false, false, BLAH},
+	{"getfile", 3, bif_getfile_3, "+atom,-list,+list", false, false, BLAH},
+	{"loadfile", 2, bif_loadfile_2, "+atom,-atom", false, false, BLAH},
+	{"savefile", 2, bif_savefile_2, "+atom,+atom", false, false, BLAH},
+	{"rename_file", 2, bif_rename_file_2, "+atom,+atom", false, false, BLAH},
+	{"copy_file", 2, bif_copy_file_2, "+atom,+atom", false, false, BLAH},
+	{"directory_files", 2, bif_directory_files_2, "+atom,-list", false, false, BLAH},
+	{"delete_file", 1, bif_delete_file_1, "+atom", false, false, BLAH},
+	{"exists_file", 1, bif_exists_file_1, "+atom", false, false, BLAH},
+	{"access_file", 2, bif_access_file_2, "+atom,+atom", false, false, BLAH},
+	{"time_file", 2, bif_time_file_2, "+atom,-float", false, false, BLAH},
+	{"size_file", 2, bif_size_file_2, "+atom,-integer", false, false, BLAH},
+	{"exists_directory", 1, bif_exists_directory_1, "+atom", false, false, BLAH},
+	{"make_directory", 1, bif_make_directory_1, "+atom", false, false, BLAH},
+	{"make_directory_path", 1, bif_make_directory_path_1, "+atom", false, false, BLAH},
+	{"working_directory", 2, bif_working_directory_2, "-atom,+atom", false, false, BLAH},
+	{"absolute_file_name", 3, bif_absolute_file_name_3, "+atom,-atom,+list", false, false, BLAH},
+	{"is_absolute_file_name", 1, bif_is_absolute_file_name_1, "+atom", false, false, BLAH},
+	{"chdir", 1, bif_chdir_1, "+atom", false, false, BLAH},
+	{"$put_chars", 1, bif_sys_put_chars_1, "+string", false, false, BLAH},
+	{"$put_chars", 2, bif_sys_put_chars_2, "+stream,+string", false, false, BLAH},
 	{"$load_chars", 1, fn_sys_load_chars_1, "+chars", false, false, BLAH},
-	{"read_term_from_atom", 3, fn_read_term_from_atom_3, "+atom,?term,+list", false, false, BLAH},
-	{"read_term_from_chars", 3, fn_read_term_from_chars_3, "+string,?term,+list", false, false, BLAH},
-	{"$read_term_from_chars", 4, fn_sys_read_term_from_chars_4, "?term,+list,+string,-string", false, false, BLAH},
-	{"write_term_to_atom", 3, fn_write_term_to_atom_3, "?atom,?term,+list", false, false, BLAH},
-	{"write_canonical_to_atom", 3, fn_write_canonical_to_chars_3, "?atom,?term,+list", false, false, BLAH},
-	{"write_term_to_chars", 3, fn_write_term_to_chars_3, "?term,+list,?string", false, false, BLAH},
-	{"write_canonical_to_chars", 3, fn_write_canonical_to_chars_3, "?string,?term,+list", false, false, BLAH},
-	{"read_line_to_string", 2, fn_read_line_to_string_2, "+stream,-string", false, false, BLAH},
-	{"read_file_to_string", 3, fn_read_file_to_string_3, "+atom,-string,+options", false, false, BLAH},
+	{"read_term_from_atom", 3, bif_read_term_from_atom_3, "+atom,?term,+list", false, false, BLAH},
+	{"read_term_from_chars", 3, bif_read_term_from_chars_3, "+string,?term,+list", false, false, BLAH},
+	{"$read_term_from_chars", 4, bif_sys_read_term_from_chars_4, "?term,+list,+string,-string", false, false, BLAH},
+	{"write_term_to_atom", 3, bif_write_term_to_atom_3, "?atom,?term,+list", false, false, BLAH},
+	{"write_canonical_to_atom", 3, bif_write_canonical_to_chars_3, "?atom,?term,+list", false, false, BLAH},
+	{"write_term_to_chars", 3, bif_write_term_to_chars_3, "?term,+list,?string", false, false, BLAH},
+	{"write_canonical_to_chars", 3, bif_write_canonical_to_chars_3, "?string,?term,+list", false, false, BLAH},
+	{"read_line_to_string", 2, bif_read_line_to_string_2, "+stream,-string", false, false, BLAH},
+	{"read_file_to_string", 3, bif_read_file_to_string_3, "+atom,-string,+options", false, false, BLAH},
 
-	{"http_location", 2, fn_http_location_2, "?list,?atom", false, false, BLAH},
-	{"parse_url", 2, fn_parse_url_2, "?atom,?list", false, false, BLAH},
-	{"client", 5, fn_client_5, "+atom,-atom,-atom,-atom,+list", false, false, BLAH},
-	{"server", 3, fn_server_3, "+atom,--stream,+list", false, false, BLAH},
-	{"accept", 2, fn_accept_2, "+stream,--stream", false, false, BLAH},
-	{"bread", 3, fn_bread_3, "+stream,+integer,-string", false, false, BLAH},
-	{"bwrite", 2, fn_bwrite_2, "+stream,-string", false, false, BLAH},
+	{"http_location", 2, bif_http_location_2, "?list,?atom", false, false, BLAH},
+	{"parse_url", 2, bif_parse_url_2, "?atom,?list", false, false, BLAH},
+	{"client", 5, bif_client_5, "+atom,-atom,-atom,-atom,+list", false, false, BLAH},
+	{"server", 3, bif_server_3, "+atom,--stream,+list", false, false, BLAH},
+	{"accept", 2, bif_accept_2, "+stream,--stream", false, false, BLAH},
+	{"bread", 3, bif_bread_3, "+stream,+integer,-string", false, false, BLAH},
+	{"bwrite", 2, bif_bwrite_2, "+stream,-string", false, false, BLAH},
 
-	{"map_create", 2, fn_map_create_2, "--stream,+list", false, false, BLAH},
-	{"map_set", 3, fn_map_set_3, "+stream,+atomic,+atomic", false, false, BLAH},
-	{"map_get", 3, fn_map_get_3, "+stream,+atomic,-atomic", false, false, BLAH},
-	{"map_del", 2, fn_map_del_2, "+stream,+atomic", false, false, BLAH},
-	{"map_list", 2, fn_map_list_2, "+stream,-list", false, false, BLAH},
-	{"map_count", 2, fn_map_count_2, "+stream,-integer", false, false, BLAH},
-	{"map_close", 1, fn_map_close_1, "+stream", false, false, BLAH},
+	{"map_create", 2, bif_map_create_2, "--stream,+list", false, false, BLAH},
+	{"map_set", 3, bif_map_set_3, "+stream,+atomic,+atomic", false, false, BLAH},
+	{"map_get", 3, bif_map_get_3, "+stream,+atomic,-atomic", false, false, BLAH},
+	{"map_del", 2, bif_map_del_2, "+stream,+atomic", false, false, BLAH},
+	{"map_list", 2, bif_map_list_2, "+stream,-list", false, false, BLAH},
+	{"map_count", 2, bif_map_count_2, "+stream,-integer", false, false, BLAH},
+	{"map_close", 1, bif_map_close_1, "+stream", false, false, BLAH},
 
-	{"engine_create", 4, fn_engine_create_4, "+term,:callable,?stream,+list", false, false, BLAH},
-	{"engine_next", 2, fn_engine_next_2, "+stream,-term", false, false, BLAH},
-	{"is_engine", 1, fn_is_engine_1, "+term", false, false, BLAH},
-	{"engine_self", 1, fn_engine_self_1, "--stream", false, false, BLAH},
-	{"engine_yield", 1, fn_engine_yield_1, "+term", false, false, BLAH},
-	{"engine_post", 2, fn_engine_post_2, "+stream,+term", false, false, BLAH},
-	{"engine_fetch", 1, fn_engine_fetch_1, "-term", false, false, BLAH},
-	{"engine_destroy", 1, fn_engine_destroy_1, "+stream", false, false, BLAH},
+	{"engine_create", 4, bif_engine_create_4, "+term,:callable,?stream,+list", false, false, BLAH},
+	{"engine_next", 2, bif_engine_next_2, "+stream,-term", false, false, BLAH},
+	{"is_engine", 1, bif_is_engine_1, "+term", false, false, BLAH},
+	{"engine_self", 1, bif_engine_self_1, "--stream", false, false, BLAH},
+	{"engine_yield", 1, bif_engine_yield_1, "+term", false, false, BLAH},
+	{"engine_post", 2, bif_engine_post_2, "+stream,+term", false, false, BLAH},
+	{"engine_fetch", 1, bif_engine_fetch_1, "-term", false, false, BLAH},
+	{"engine_destroy", 1, bif_engine_destroy_1, "+stream", false, false, BLAH},
 
-	{"mutex_create", 1, fn_iso_true_0, "+stream", false, false, BLAH},
-	{"mutex_create", 2, fn_iso_true_0, "+stream,+list", false, false, BLAH},
-	{"with_mutex", 2, fn_with_mutex_2, "+stream,+callable", false, false, BLAH},
-	{"mutex_lock", 1, fn_iso_true_0, "+stream", false, false, BLAH},
-	{"mutex_trylock", 1, fn_iso_true_0, "+stream", false, false, BLAH},
-	{"mutex_unlock", 1, fn_iso_true_0, "+stream", false, false, BLAH},
-	{"mutex_unlockall", 0, fn_iso_true_0, "+stream", false, false, BLAH},
-	{"mutex_destroy", 1, fn_iso_true_0, "+stream", false, false, BLAH},
+	{"mutex_create", 1, bif_iso_true_0, "+stream", false, false, BLAH},
+	{"mutex_create", 2, bif_iso_true_0, "+stream,+list", false, false, BLAH},
+	{"with_mutex", 2, bif_with_mutex_2, "+stream,+callable", false, false, BLAH},
+	{"mutex_lock", 1, bif_iso_true_0, "+stream", false, false, BLAH},
+	{"mutex_trylock", 1, bif_iso_true_0, "+stream", false, false, BLAH},
+	{"mutex_unlock", 1, bif_iso_true_0, "+stream", false, false, BLAH},
+	{"mutex_unlockall", 0, bif_iso_true_0, "+stream", false, false, BLAH},
+	{"mutex_destroy", 1, bif_iso_true_0, "+stream", false, false, BLAH},
 
-	{"$capture_output", 0, fn_sys_capture_output_0, NULL, false, false, BLAH},
-	{"$capture_output_to_chars", 1, fn_sys_capture_output_to_chars_1, "-string", false, false, BLAH},
-	{"$capture_output_to_atom", 1, fn_sys_capture_output_to_atom_1, "-atom", false, false, BLAH},
+	{"$capture_output", 0, bif_sys_capture_output_0, NULL, false, false, BLAH},
+	{"$capture_output_to_chars", 1, bif_sys_capture_output_to_chars_1, "-string", false, false, BLAH},
+	{"$capture_output_to_atom", 1, bif_sys_capture_output_to_atom_1, "-atom", false, false, BLAH},
 
-	{"$capture_error", 0, fn_sys_capture_error_0, NULL, false, false, BLAH},
-	{"$capture_error_to_chars", 1, fn_sys_capture_error_to_chars_1, "-string", false, false, BLAH},
-	{"$capture_error_to_atom", 1, fn_sys_capture_error_to_atom_1, "-atom", false, false, BLAH},
+	{"$capture_error", 0, bif_sys_capture_error_0, NULL, false, false, BLAH},
+	{"$capture_error_to_chars", 1, bif_sys_capture_error_to_chars_1, "-string", false, false, BLAH},
+	{"$capture_error_to_atom", 1, bif_sys_capture_error_to_atom_1, "-atom", false, false, BLAH},
 
 	{"$memory_stream_create", 2, fn_sys_memory_stream_create_2, "-stream,+options", false, false, BLAH},
 	{"$memory_stream_to_chars", 2, fn_sys_memory_stream_to_chars_2, "+stream,-string", false, false, BLAH},
 
 #if !defined(_WIN32) && !defined(__wasi__) && !defined(__ANDROID__)
-	{"process_create", 3, fn_process_create_3, "+atom,+list,+list", false, false, BLAH},
-	{"process_wait", 2, fn_process_wait_2, "+integer,-integer", false, false, BLAH},
-	{"process_wait", 1, fn_process_wait_1, "+integer", false, false, BLAH},
-	{"process_kill", 2, fn_process_kill_2, "+integer,+integer", false, false, BLAH},
-	{"process_kill", 1, fn_process_kill_1, "+integer", false, false, BLAH},
+	{"process_create", 3, bif_process_create_3, "+atom,+list,+list", false, false, BLAH},
+	{"process_wait", 2, bif_process_wait_2, "+integer,-integer", false, false, BLAH},
+	{"process_wait", 1, bif_process_wait_1, "+integer", false, false, BLAH},
+	{"process_kill", 2, bif_process_kill_2, "+integer,+integer", false, false, BLAH},
+	{"process_kill", 1, bif_process_kill_1, "+integer", false, false, BLAH},
 #endif
 
 #if !defined(_WIN32) && !defined(__wasi__)
-	{"popen", 4, fn_popen_4, "+atom,+atom,--stream,+list", false, false, BLAH},
+	{"popen", 4, bif_popen_4, "+atom,+atom,--stream,+list", false, false, BLAH},
 #endif
 
 	{0}
