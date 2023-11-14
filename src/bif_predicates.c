@@ -5442,11 +5442,16 @@ static bool bif_atom_1(query *q)
 	return is_string(p1);
 }
 
-static bool fn_string_1(query *q)
+static bool bif_string_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
-	return is_cstring(p1) || is_nil(p1) ||
+
+	bool save_flag = q->st.m->flags.double_quote_chars;
+	q->st.m->flags.double_quote_chars = true;
+	bool ok = is_string(p1) || is_nil(p1) ||
 		(scan_is_chars_list(q, p1, p1_ctx, false) > 0);
+	q->st.m->flags.double_quote_chars = save_flag;
+	return ok;
 }
 
 static bool bif_getenv_2(query *q)
@@ -7151,7 +7156,7 @@ builtins g_other_bifs[] =
 	{"abolish", 2, bif_abolish_2, "+term,+list", false, false, BLAH},
 	{"assert", 1, bif_iso_assertz_1, "+term", false, false, BLAH},
 	{"copy_term_nat", 2, bif_copy_term_nat_2, "+term,-term", false, false, BLAH},
-	{"string", 1, bif_atom_1, "+term,+term", false, false, BLAH},
+	{"string", 1, bif_string_1, "+term", false, false, BLAH},
 	{"atomic_concat", 3, bif_atomic_concat_3, "+atomic,+atomic,?atomic", false, false, BLAH},
 	{"atomic_list_concat", 3, bif_atomic_list_concat_3, "+list,+list,-atomic", false, false, BLAH},
 	{"replace", 4, bif_replace_4, "+string,+integer,+integer,-string", false, false, BLAH},
