@@ -965,9 +965,9 @@ static bool directives(parser *p, cell *d)
 				p->m->flags.occurs_check = false;
 		} else if (!strcmp(C_STR(p, p1), "strict_iso")) {
 			if (!strcmp(C_STR(p, p2), "true") || !strcmp(C_STR(p, p2), "on"))
-				p->m->flags.not_strict_iso = false;
+				p->m->flags.strict_iso = true;
 			else if (!strcmp(C_STR(p, p2), "false") || !strcmp(C_STR(p, p2), "off"))
-				p->m->flags.not_strict_iso = true;
+				p->m->flags.strict_iso = false;
 		} else {
 			//fprintf_to_stream(p->pl, WARN_FP, "Warning: unknown flag: %s\n", C_STR(p, p1));
 		}
@@ -2089,7 +2089,7 @@ static int get_escape(parser *p, const char **_src, bool *error, bool number)
 	if (ptr)
 		ch = g_escapes[ptr-g_anti_escapes];
 	else if ((isdigit(ch) || (ch == 'x')
-		|| (ch == 'u') || (ch == 'U')
+		|| (((ch == 'u') || (ch == 'U')) && (p->flags.json || !p->flags.strict_iso))
 		)
 		&& !number) {
 		bool unicode = false;
@@ -2102,6 +2102,12 @@ static int get_escape(parser *p, const char **_src, bool *error, bool number)
 		} else if (ch == 'u') {
 			ch = get_hex(&src, 4, error);
 			unicode = true;
+
+			if (((unsigned)ch > 0xd800) && (src[0] == '\\') && (src[1] == 'u')) {
+				src += 2;
+				int ch2 = get_hex(&src, 4, error);
+				ch = (((unsigned)ch - 0xd800) * 0x400) + ((unsigned)ch2 - 0xdc00) + 0x10000;
+			}
 		} else {
 			src--;
 			ch = get_octal(&src);
@@ -2253,7 +2259,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 			s++;
 			v = *s++;
 #if 1
-		} else if ((*s == '\'') && !p->flags.not_strict_iso && search_op(p->m, "", NULL, false)) {
+		} else if ((*s == '\'') && p->flags.strict_iso && search_op(p->m, "", NULL, false)) {
 			if (DUMP_ERRS || !p->do_read_term)
 				fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, parsing number4, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
 
@@ -3176,7 +3182,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 					LIST_HANDLER(p1);
 					bool tail = false;
 
-					while (is_list(p1) && !g_tpl_interrupt) {
+					while (is_iso_list(p1) && !g_tpl_interrupt) {
 						cell *h = LIST_HEAD(p1);
 
 						if (!process_term(p, h))

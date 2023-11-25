@@ -662,6 +662,7 @@ prolog *pl_create()
 		return pl;
 	}
 
+	pl->user_m->flags.strict_iso = false;
 	pl->curr_m = pl->user_m;
 
 	pl->current_input = 0;		// STDIN
@@ -695,8 +696,6 @@ prolog *pl_create()
 			|| !strcmp(lib->name, "lists")			// Common
 			|| !strcmp(lib->name, "dcgs")			// Common
 			|| !strcmp(lib->name, "freeze")			// Common
-			|| !strcmp(lib->name, "dif")			// Common?
-			|| !strcmp(lib->name, "when")			// Common?
 #ifdef __wasi__
 			|| !strcmp(lib->name, "wasm")			// Needed for WASM toplevel
 			|| !strcmp(lib->name, "pseudojson")		// Likewise
@@ -710,6 +709,7 @@ prolog *pl_create()
 #ifdef WASI_TARGET_SPIN
 			|| !strcmp(lib->name, "spin")
 #endif
+			|| !strcmp(lib->name, "dif")			// Common
 			) {
 			size_t len = *lib->len;
 			char *src = malloc(len+1);

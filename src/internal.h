@@ -8,7 +8,6 @@
 #include <stdio.h>
 #include <inttypes.h>
 #include <unistd.h>
-#include "utf8.h"
 
 #ifndef USE_OPENSSL
 #define USE_OPENSSL 0
@@ -45,13 +44,14 @@ typedef uint32_t pl_idx;
 #define NEWLINE_MODE "posix"
 #endif
 
-#include "skiplist.h"
 #include "trealla.h"
 #include "cdebug.h"
 #include "stringbuf.h"
 #include "imath/imath.h"
 #include "imath/imrat.h"
 #include "sre/re.h"
+#include "skiplist/skiplist.h"
+#include "utf8/utf8.h"
 
 #if defined(_WIN32) || defined(__wasi__)
 char *realpath(const char *path, char resolved_path[PATH_MAX]);
@@ -103,7 +103,7 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define is_integer(c) (((c)->tag == TAG_INTEGER) && !((c)->flags & FLAG_INT_STREAM))
 #define is_float(c) ((c)->tag == TAG_DOUBLE)
 #define is_rational(c) ((c)->tag == TAG_RATIONAL)
-#define is_indirect(c) ((c)->tag == TAG_PTR)
+#define is_indirect(c) ((c)->tag == TAG_INDIRECT)
 #define is_blob(c) ((c)->tag == TAG_BLOB)
 #define is_end(c) ((c)->tag == TAG_END)
 
@@ -254,7 +254,7 @@ enum {
 	TAG_INTEGER=4,
 	TAG_DOUBLE=5,
 	TAG_RATIONAL=6,
-	TAG_PTR=7,
+	TAG_INDIRECT=7,
 	TAG_BLOB=8,
 	TAG_END=9
 };
@@ -275,6 +275,7 @@ enum {
 	FLAG_VAR_FRESH=1<<1,				// used with TAG_VAR
 	FLAG_VAR_REF=1<<2,					// used with TAG_VAR
 	FLAG_VAR_TEMPORARY=1<<3,			// used with TAG_VAR
+	FLAG_VAR_CYCLIC=1<<4,				// used with TAG_VAR
 
 	FLAG_HANDLE_DLL=1<<0,				// used with FLAG_INT_HANDLE
 	FLAG_HANDLE_FUNC=1<<1,				// used with FLAG_INT_HANDLE
@@ -508,7 +509,7 @@ struct trail_ {
 
 struct slot_ {
 	cell c;
-	uint32_t vgen, vgen2, save_vgen, save_vgen2;
+	uint32_t vgen, save_vgen;
 };
 
 // Where 'prev_offset' is the number of frames back
@@ -611,7 +612,7 @@ struct page_ {
 	unsigned nbr;
 };
 
-enum q_retry { QUERY_OK=0, QUERY_SKIP=1, QUERY_RETRY=2, QUERY_EXCEPTION=3 };
+enum q_retry { QUERY_OK=0, QUERY_NOSKIPARG=1, QUERY_RETRY=2, QUERY_EXCEPTION=3 };
 enum unknowns { UNK_FAIL=0, UNK_ERROR=1, UNK_WARNING=2, UNK_CHANGEABLE=3 };
 enum occurs { OCCURS_CHECK_FALSE=0, OCCURS_CHECK_TRUE=1, OCCURS_CHECK_ERROR = 2 };
 
@@ -623,7 +624,7 @@ struct prolog_flags_ {
 	bool double_quote_atom:1;
 	bool character_escapes:1;
 	bool char_conversion:1;
-	bool not_strict_iso:1;
+	bool strict_iso:1;
 	bool debug:1;
 	bool json:1;
 	bool var_prefix:1;
@@ -651,7 +652,7 @@ struct query_ {
 	prolog_state st;
 	stringbuf sb_buf;
 	bool ignores[MAX_IGNORES];
-	uint64_t tot_goals, tot_backtracks, tot_retries, tot_matches;
+	uint64_t tot_goals, tot_backtracks, tot_retries, tot_matches, tot_inferences;
 	uint64_t tot_tcos, tot_frecovs, tot_srecovs;
 	uint64_t step, qid, tmo_msecs, chgen, cycle_error;
 	uint64_t get_started, autofail_n, yield_at;
@@ -669,6 +670,8 @@ struct query_ {
 	int8_t halt_code;
 	int8_t quoted;
 	enum { WAS_OTHER, WAS_SPACE, WAS_COMMA, WAS_SYMBOL } last_thing;
+	bool is_cyclic1:1;
+	bool is_cyclic2:1;
 	bool done:1;
 	bool parens:1;
 	bool in_attvar_print:1;
@@ -880,15 +883,29 @@ inline static void unshare_cell_(cell *c)
 	}
 }
 
+inline static pl_idx move_cells(cell *dst, const cell *src, pl_idx nbr_cells)
+{
+	memmove(dst, src, sizeof(cell)*(nbr_cells));
+	return nbr_cells;
+}
+
 inline static pl_idx copy_cells(cell *dst, const cell *src, pl_idx nbr_cells)
 {
 	memcpy(dst, src, sizeof(cell)*(nbr_cells));
 	return nbr_cells;
 }
 
-inline static pl_idx move_cells(cell *dst, const cell *src, pl_idx nbr_cells)
+inline static pl_idx copy_cells_by_ref(cell *dst, const cell *src, pl_idx src_ctx, pl_idx nbr_cells)
 {
-	memmove(dst, src, sizeof(cell)*(nbr_cells));
+	memcpy(dst, src, sizeof(cell)*nbr_cells);
+
+	for (pl_idx i = 0; i < nbr_cells; i++, src++) {
+		if (is_var(dst) && !is_ref(dst)) {
+			dst->flags |= FLAG_VAR_REF;
+			dst->var_ctx = src_ctx;
+		}
+	}
+
 	return nbr_cells;
 }
 

@@ -80,7 +80,7 @@ static void trace_call(query *q, cell *c, pl_idx c_ctx, box_t box)
 		return;
 #endif
 
-#if 1
+#if 0
 	if (c->val_off == g_sys_drop_barrier_s)
 		return;
 #endif
@@ -149,6 +149,12 @@ static void trace_call(query *q, cell *c, pl_idx c_ctx, box_t box)
 static void check_pressure(query *q)
 {
 #if REDUCE_PRESSURE
+	if (q->tmp_heap && (q->tmph_size > 4000)) {
+		free(q->tmp_heap);
+		q->tmp_heap = NULL;
+		q->tmph_size = 1000;
+	}
+
 	if (q->trails_size > (INITIAL_NBR_TRAILS*PRESSURE_FACTOR)) {
 #if TRACE_MEM
 		printf("*** q->st.tp=%u, q->trails_size=%u\n", (unsigned)q->st.tp, (unsigned)q->trails_size);
@@ -584,7 +590,7 @@ static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx l_ctx, bool 
 			if (e->vgen == q->vgen)
 				return 0;
 
-			e->vgen2 = e->vgen;
+			e->save_vgen = e->vgen;
 			e->vgen = q->vgen;
 			l = deref(q, l, l_ctx);
 			l_ctx = q->latest_ctx;
@@ -608,7 +614,7 @@ static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx l_ctx, bool 
 			if (is_var(l2)) {
 				frame *f = GET_FRAME(l2_ctx);
 				slot *e = GET_SLOT(f, l2->var_nbr);
-				e->vgen = e->vgen2;
+				e->vgen = e->save_vgen;
 				l2 = deref(q, l2, l2_ctx);
 				l2_ctx = q->latest_ctx;
 			}
@@ -715,18 +721,20 @@ static void leave_predicate(query *q, predicate *pr)
 
 static void unwind_trail(query *q)
 {
-	if (!q->cp)
-		return;
+	pl_idx tp = 0;
 
-	const choice *ch = GET_CURR_CHOICE();
+	if (q->cp) {
+		const choice *ch = GET_CURR_CHOICE();
+		tp = ch->st.tp;
+	}
 
-	while (q->st.tp > ch->st.tp) {
+	while (q->st.tp > tp) {
 		const trail *tr = q->trails + --q->st.tp;
 		const frame *f = GET_FRAME(tr->var_ctx);
 		slot *e = GET_SLOT(f, tr->var_nbr);
 		cell *c = &e->c;
 		unshare_cell(c);
-		init_cell(c);
+		c->tag = TAG_EMPTY;;
 		c->attrs = tr->attrs;
 		c->attrs_ctx = tr->attrs_ctx;
 	}
@@ -839,7 +847,7 @@ static frame *push_frame(query *q, const clause *cl)
 static void reuse_frame(query *q, const clause *cl)
 {
 	frame *f = GET_CURR_FRAME();
-	f->initial_slots = f->actual_slots = cl->nbr_vars - cl->nbr_temporaries;
+	f->initial_slots = f->actual_slots = cl->nbr_vars;
 	f->chgen = ++q->chgen;
 	f->overflow = 0;
 
@@ -891,7 +899,7 @@ inline static bool any_choices(const query *q, const frame *f)
 		return false;
 
 	const choice *ch = GET_PREV_CHOICE();
-	return ch->chgen >= f->chgen;
+	return ch->chgen > f->chgen;
 }
 
 static void commit_frame(query *q, cell *body)
@@ -934,14 +942,14 @@ static void commit_frame(query *q, cell *body)
 
 		// If matching against a fact then drop new frame...
 
-		if (!cl->nbr_vars && !body)
+		if (q->pl->opt && !cl->nbr_vars && !body)
 			q->st.fp--;
 	}
 
 	if (last_match) {
 		leave_predicate(q, q->st.pr);
 		drop_choice(q);
-		trim_trail(q);
+		//trim_trail(q);	// Dodgey?
 	} else {
 		choice *ch = GET_CURR_CHOICE();
 		ch->st.r = q->st.r;
@@ -1122,7 +1130,7 @@ inline static void proceed(query *q)
 	while (is_end(q->st.curr_cell)) {
 		if (q->st.curr_cell->val_ret) {
 			f->chgen = q->st.curr_cell->chgen;
-			q->st.m = q->pl->modmap[q->st.curr_cell->mid];
+			//q->st.m = q->pl->modmap[q->st.curr_cell->mid];
 		}
 
 		if (!(q->st.curr_cell = q->st.curr_cell->val_ret))
@@ -1562,11 +1570,11 @@ bool start(query *q)
 		cell *save_cell = q->st.curr_cell;
 		pl_idx save_ctx = q->st.curr_frame;
 		q->did_throw = false;
-		q->before_hook_tp = q->st.tp;
 		q->max_eval_depth = 0;
 		q->tot_goals++;
 
 		if (is_builtin(q->st.curr_cell)) {
+			q->tot_inferences++;
 			bool status;
 
 #if USE_FFI
@@ -1579,7 +1587,7 @@ bool start(query *q)
 #endif
 				status = q->st.curr_cell->bif_ptr->fn(q);
 
-			if (q->retry == QUERY_SKIP) {
+			if (q->retry == QUERY_NOSKIPARG) {
 				q->retry = QUERY_OK;
 				continue;
 			}
@@ -1627,6 +1635,8 @@ bool start(query *q)
 			Trace(q, save_cell, save_ctx, EXIT);
 			proceed(q);
 		} else {
+			q->tot_inferences++;
+
 			if (!match_head(q) && !q->is_oom) {
 				Trace(q, q->st.curr_cell, q->st.curr_frame, FAIL);
 				q->retry = QUERY_RETRY;

@@ -179,7 +179,7 @@ static bool bif_iso_findall_3(query *q)
 		check_heap_error(tmp, drop_queuen(q));
 		pl_idx nbr_cells = PREFIX_LEN + p2->nbr_cells;
 		make_struct(tmp+nbr_cells++, g_sys_queue_s, bif_sys_queue_1, 1, p1->nbr_cells);
-		nbr_cells += copy_cells(tmp+nbr_cells, p1, p1->nbr_cells);
+		nbr_cells += copy_cells_by_ref(tmp+nbr_cells, p1, p1_ctx, p1->nbr_cells);
 		make_struct(tmp+nbr_cells++, g_fail_s, bif_iso_fail_0, 0, 0);
 		make_call(q, tmp+nbr_cells);
 		check_heap_error(push_barrier(q), drop_queuen(q));
@@ -229,6 +229,49 @@ static bool bif_iso_unify_with_occurs_check_2(query *q)
 	return ok;
 }
 
+static bool bif_sys_unifiable_3(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,any);
+	GET_NEXT_ARG(p3,list_or_nil_or_var);
+	check_heap_error(push_choice(q));
+	pl_idx save_tp = q->st.tp;
+
+	if (!unify(q, p1, p1_ctx, p2, p2_ctx) && !q->cycle_error) {
+		undo_me(q);
+		drop_choice(q);
+		return false;
+	}
+
+	check_heap_error(init_tmp_heap(q));
+
+	// Go thru trail, getting the bindings...
+
+	while (save_tp < q->st.tp) {
+		const trail *tr = q->trails + save_tp;
+		const frame *f = GET_FRAME(tr->var_ctx);
+		slot *e = GET_SLOT(f, tr->var_nbr);
+		cell *c = deref(q, &e->c, e->c.var_ctx);
+		cell *tmp = malloc(sizeof(cell)*(2+c->nbr_cells));
+		check_heap_error(tmp);
+		make_struct(tmp, g_unify_s, bif_iso_unify_2, 2, 1+c->nbr_cells);
+		SET_OP(tmp, OP_XFX);
+		cell v;
+		make_ref(&v, g_anon_s, tr->var_nbr, q->st.curr_frame);
+		tmp[1] = v;
+		safe_copy_cells(tmp+2, c, c->nbr_cells);
+		append_list(q, tmp);
+		free(tmp);
+		save_tp++;
+	}
+
+	undo_me(q);
+	drop_choice(q);
+
+	cell *l = end_list(q);
+	return unify(q, p3, p3_ctx, l, q->st.curr_frame);
+}
+
 bool bif_iso_unify_2(query *q)
 {
 	GET_FIRST_ARG(p1,any);
@@ -238,11 +281,12 @@ bool bif_iso_unify_2(query *q)
 
 static bool bif_iso_notunify_2(query *q)
 {
-	GET_FIRST_RAW_ARG(p1,any);
-	GET_NEXT_RAW_ARG(p2,any);
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,any);
 	cell tmp2;
 	make_struct(&tmp2, g_unify_s, bif_iso_unify_2, 2, 0);
-	cell *tmp = prepare_call(q, true, &tmp2, q->st.curr_frame, p1->nbr_cells+p2->nbr_cells+5);
+	SET_OP(&tmp2, OP_XFX);
+	cell *tmp = prepare_call(q, true, &tmp2, q->st.curr_frame, p1->nbr_cells+p2->nbr_cells+4);
 	pl_idx nbr_cells = PREFIX_LEN;
 	tmp[nbr_cells].nbr_cells += p1->nbr_cells+p2->nbr_cells;
 	nbr_cells++;
@@ -250,7 +294,6 @@ static bool bif_iso_notunify_2(query *q)
 	nbr_cells += p1->nbr_cells;
 	safe_copy_cells_by_ref(tmp+nbr_cells, p2, p2_ctx, p2->nbr_cells);
 	nbr_cells += p2->nbr_cells;
-	make_struct(tmp+nbr_cells++, g_cut_s, bif_iso_cut_0, 0, 0);
 	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+nbr_cells++, q->cp);
 	make_struct(tmp+nbr_cells++, g_fail_s, bif_iso_fail_0, 0, 0);
@@ -261,7 +304,6 @@ static bool bif_iso_notunify_2(query *q)
 	q->st.curr_cell = tmp;
 	return true;
 }
-
 
 static bool bif_iso_dcgs_2(query *q)
 {
@@ -2343,7 +2385,7 @@ static bool bif_iso_current_prolog_flag_2(query *q)
 	} else if (!CMP_STRING_TO_CSTR(q, p1, "strict_iso")) {
 		cell tmp;
 
-		if (!q->st.m->flags.not_strict_iso)
+		if (!q->st.m->flags.strict_iso)
 			make_atom(&tmp, g_on_s);
 		else
 			make_atom(&tmp, g_off_s);
@@ -2590,9 +2632,9 @@ static bool bif_iso_set_prolog_flag_2(query *q)
 		}
 	} else if (!CMP_STRING_TO_CSTR(q, p1, "strict_iso")) {
 		if (!CMP_STRING_TO_CSTR(q, p2, "true") || !CMP_STRING_TO_CSTR(q, p2, "on"))
-			q->st.m->flags.not_strict_iso = !true;
+			q->st.m->flags.strict_iso = true;
 		else if (!CMP_STRING_TO_CSTR(q, p2, "false") || !CMP_STRING_TO_CSTR(q, p2, "off"))
-			q->st.m->flags.not_strict_iso = !false;
+			q->st.m->flags.strict_iso = false;
 		else {
 			return flag_value_error(q, p1, p2);
 		}
@@ -3657,16 +3699,17 @@ static bool bif_sys_first_non_octet_2(query *q)
 static bool bif_sys_timer_0(query *q)
 {
 	q->st.timer_started = get_time_in_usec();
-	q->tot_goals = 0;
+	q->tot_inferences = 0;
 	return true;
 }
 
 static bool bif_sys_elapsed_0(query *q)
 {
+	q->tot_inferences--;
 	uint64_t elapsed = get_time_in_usec();
 	elapsed -= q->st.timer_started;
-	double lips = (1.0 / ((double)elapsed/1000/1000)) * q->tot_goals;
-	fprintf(stderr, "%% Time elapsed %.3fs, %llu Inferences, %.3f MLips\n", (double)elapsed/1000/1000, (unsigned long long)q->tot_goals, lips/1000/1000);
+	double lips = (1.0 / ((double)elapsed/1000/1000)) * q->tot_inferences;
+	fprintf(stderr, "%% Time elapsed %.3fs, %llu Inferences, %.3f MLips\n", (double)elapsed/1000/1000, (unsigned long long)q->tot_inferences, lips/1000/1000);
 	if (q->is_redo) fprintf(stdout, "  ");
 	return true;
 }
@@ -3743,7 +3786,7 @@ static bool bif_statistics_0(query *q)
 		"Recovered frames: %"PRIu64", "
 		"slots: %"PRIu64", "
 		"Queue: %u\n",
-		q->tot_goals, q->tot_matches,
+		q->tot_inferences, q->tot_matches,
 		q->hw_frames, q->hw_choices, q->hw_trails, q->hw_slots,
 		q->st.fp, q->cp, q->st.tp, q->st.sp, q->st.heap_nbr,
 		q->tot_retries, q->tot_tcos,
@@ -6114,51 +6157,6 @@ static bool bif_string_length_2(query *q)
 	return throw_error(q, p1, p1_ctx, "type_error", "chars");
 }
 
-static bool bif_sys_unifiable_3(query *q)
-{
-	GET_FIRST_ARG(p1,any);
-	GET_NEXT_ARG(p2,any);
-	GET_NEXT_ARG(p3,list_or_nil_or_var);
-	check_heap_error(push_choice(q));
-	const frame *f = GET_CURR_FRAME();
-	try_me(q, f->actual_slots);
-	pl_idx before_hook_tp = q->st.tp;
-
-	if (!unify(q, p1, p1_ctx, p2, p2_ctx) && !q->cycle_error) {
-		undo_me(q);
-		drop_choice(q);
-		return false;
-	}
-
-	check_heap_error(init_tmp_heap(q));
-
-	// Go thru trail, getting the bindings...
-
-	while (before_hook_tp < q->st.tp) {
-		const trail *tr = q->trails + before_hook_tp;
-		const frame *f = GET_FRAME(tr->var_ctx);
-		slot *e = GET_SLOT(f, tr->var_nbr);
-		cell *c = deref(q, &e->c, e->c.var_ctx);
-		cell *tmp = malloc(sizeof(cell)*(2+c->nbr_cells));
-		check_heap_error(tmp);
-		make_struct(tmp, g_unify_s, bif_iso_unify_2, 2, 1+c->nbr_cells);
-		SET_OP(tmp, OP_XFX);
-		cell v;
-		make_ref(&v, g_anon_s, tr->var_nbr, q->st.curr_frame);
-		tmp[1] = v;
-		safe_copy_cells(tmp+2, c, c->nbr_cells);
-		append_list(q, tmp);
-		free(tmp);
-		before_hook_tp++;
-	}
-
-	undo_me(q);
-	drop_choice(q);
-
-	cell *l = end_list(q);
-	return unify(q, p3, p3_ctx, l, q->st.curr_frame);
-}
-
 static bool bif_get_unbuffered_code_1(query *q)
 {
 	GET_FIRST_ARG(p1,integer_or_var);
@@ -6493,15 +6491,11 @@ static bool bif_sys_register_cleanup_1(query *q)
 
 static bool bif_sys_memberchk_3(query *q)
 {
-	q->tot_goals--;
 	GET_FIRST_ARG(p1,any);
 	GET_NEXT_ARG(p2,list_or_nil_or_var);
 	GET_NEXT_ARG(p3,var);
 	LIST_HANDLER(p2);
 	push_choice(q);
-
-	if (!is_string(p2))
-		try_me(q, MAX_ARITY);
 
 	while (is_list(p2)) {
 		cell *h = LIST_HEAD(p2);
@@ -6660,7 +6654,6 @@ static bool fn_sys_host_resume_1(query *q) {
 
 bool bif_sys_counter_1(query *q)
 {
-	q->tot_goals--;
 	GET_FIRST_ARG(p1,integer_or_var);
 	pl_uint n = 0;
 
@@ -6908,7 +6901,7 @@ static void load_flags(query *q)
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "char_conversion", m->flags.char_conversion?"on":"off");
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "occurs_check", m->flags.occurs_check==OCCURS_CHECK_TRUE?"true":m->flags.occurs_check==OCCURS_CHECK_FALSE?"false":"error");
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "character_escapes", m->flags.character_escapes?"true":"false");
-	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "strict_iso", !m->flags.not_strict_iso?"on":"off");
+	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "strict_iso", m->flags.strict_iso?"on":"off");
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "debug", m->flags.debug?"on":"off");
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "unknown", m->flags.unknown == UNK_ERROR?"error":m->flags.unknown == UNK_WARNING?"warning":m->flags.unknown == UNK_CHANGEABLE?"changeable":"fail");
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "encoding", "'UTF-8'");

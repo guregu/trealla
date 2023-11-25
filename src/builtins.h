@@ -76,7 +76,7 @@ bool bif_iso_integer_1(query *q);
 
 inline static void make_indirect(cell *tmp, cell *v, pl_idx v_ctx)
 {
-	tmp->tag = TAG_PTR;
+	tmp->tag = TAG_INDIRECT;
 	tmp->nbr_cells = 1;
 	tmp->arity = 0;
 	tmp->flags = 0;
@@ -151,8 +151,8 @@ inline static cell *get_var(query *q, cell *c, pl_idx c_ctx)
 }
 
 #define deref(q,c,c_ctx) \
-	is_indirect(c) ? q->latest_ctx = (c)->var_ctx, (c)->val_ptr : \
-	!is_var(c) ? q->latest_ctx = (c_ctx), (c) : \
+	is_indirect(c) ? (q->latest_ctx = (c)->var_ctx, (c)->val_ptr) : \
+	!is_var(c) ? (q->latest_ctx = (c_ctx), (c)) : \
 	get_var(q, c, c_ctx)
 
 #define GET_RAW_ARG(n,p) \
@@ -252,12 +252,13 @@ inline static cell *get_raw_arg(const query *q, int n)
 
 #define DEREF_CHECKED(any, both, svg, ee, evgen, cc, cc_ctx, qvgen)	\
 	if (is_var(cc)) {												\
+		pl_idx tmp_cc_ctx = cc_ctx;									\
 		any = true;													\
 																	\
 		if (is_ref(cc))												\
-			cc_ctx = cc->var_ctx;									\
+			tmp_cc_ctx = cc->var_ctx;								\
 																	\
-		const frame *f = GET_FRAME(cc_ctx);							\
+		const frame *f = GET_FRAME(tmp_cc_ctx);						\
 		ee = GET_SLOT(f, cc->var_nbr);								\
 		svg = evgen;												\
 																	\
@@ -266,9 +267,30 @@ inline static cell *get_raw_arg(const query *q, int n)
 		} else {													\
 			cc = deref(q, cc, cc_ctx);								\
 			cc_ctx = q->latest_ctx;									\
-			if (!is_var(cc))										\
-				evgen = qvgen;										\
+			evgen = qvgen;											\
 		}															\
+	}
+
+#define DEREF_CHECKED2(any, both, svg, ee, evgen, cc, cc_ctx, qvgen)	\
+	if (is_var(cc)) {												\
+		pl_idx tmp_cc_ctx = cc_ctx;									\
+		any = true;													\
+																	\
+		if (is_ref(cc))												\
+			tmp_cc_ctx = cc->var_ctx;								\
+																	\
+		const frame *f = GET_FRAME(tmp_cc_ctx);						\
+		ee = GET_SLOT(f, cc->var_nbr);								\
+		svg = evgen;												\
+																	\
+		if (evgen == qvgen) {										\
+			both++;													\
+		} else {													\
+			evgen = qvgen;											\
+		}															\
+																	\
+		cc = deref(q, cc, cc_ctx);									\
+		cc_ctx = q->latest_ctx;										\
 	}
 
 inline static bool START_FUNCTION(query *q)

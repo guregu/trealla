@@ -32,7 +32,7 @@ js_ask(Stream, Input) :-
 		read_term_from_chars(Input, Query, [variable_names(Vars)]),
 		Error,
 		(
-			write(Stream, '\u0002\u0003'),
+			write(Stream, '\x2\\x3\'),
 			result_json(error, Stream, Vars, Error)
 		)
 	),
@@ -42,11 +42,11 @@ js_ask(Stream, Input) :-
 		Error,
 		Status = error
 	),
-	write(Stream, '\u0003'),
+	write(Stream, '\x3\'),
 	result_json(Status, Stream, Vars, Error).
 
 query(Stream, Query, Status) :-
-	write(Stream, '\u0002'),  % START OF TEXT
+	write(Stream, '\x2\'),  % START OF TEXT
 	(   call(Query)
 	*-> Status = success
 	;   Status = failure
