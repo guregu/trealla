@@ -66,6 +66,20 @@ bool bif_put_atts_2(query *q)
 	const char *m_name = do_attribute(q, attr, a_arity);
 	init_tmp_heap(q);
 
+	if (!is_minus) {
+		cell *tmp = alloc_on_tmp(q, 1+1);
+		check_heap_error(tmp);
+		make_atom(tmp, g_dot_s);
+		tmp->arity = 2;
+		tmp->nbr_cells += 1+attr->nbr_cells;
+		make_atom(tmp+1, new_atom(q->pl, m_name));
+		tmp[1].arity = 1;
+		cell *tmp2 = deep_clone_to_tmp(q, attr, p2_ctx);
+		check_heap_error(tmp2);
+		cell *tmp3 = get_tmp_heap(q, 1);
+		tmp3->nbr_cells += tmp2->nbr_cells;
+	}
+
 	if (e->c.attrs) {
 		cell *l = e->c.attrs;
 		pl_idx l_ctx = e->c.attrs_ctx;
@@ -82,19 +96,6 @@ bool bif_put_atts_2(query *q)
 
 			l = LIST_TAIL(l);
 		}
-	}
-
-	if (!is_minus) {
-		cell *tmp = alloc_on_tmp(q, 1+1);
-		check_heap_error(tmp);
-		make_atom(tmp, g_dot_s);
-		tmp->arity = 2;
-		tmp->nbr_cells += 1+attr->nbr_cells;
-		make_atom(tmp+1, new_atom(q->pl, m_name));
-		tmp[1].arity = 1;
-		cell *tmp2 = deep_clone_to_tmp(q, attr, p2_ctx);
-		check_heap_error(tmp2);
-		tmp[1].nbr_cells += tmp2->nbr_cells;
 	}
 
 	cell *l = end_list(q);
@@ -132,12 +133,19 @@ bool bif_get_atts_2(query *q)
 		while (is_iso_list(l)) {
 			cell *h = LIST_HEAD(l);
 			//DUMP_TERM("$att", h, l_ctx, 1);
-			append_list(q, h+1);
+
+			if (!is_nil(h+1))
+				append_list(q, h+1);
+
 			l = LIST_TAIL(l);
 		}
 
 		l = end_list(q);
 		check_heap_error(l);
+
+		if (is_nil(l))
+			return false;
+
 		return unify(q, p2, p2_ctx, l, q->st.curr_frame);
 	}
 
@@ -159,6 +167,9 @@ bool bif_get_atts_2(query *q)
 			&& !CMP_STRING_TO_STRING(q, h+1, attr)
 			&& ((h+1)->arity == a_arity)) {
 			if (is_minus)
+				return false;
+
+			if (is_nil(h+1))
 				return false;
 
 			return unify(q, attr, p2_ctx, h+1, l_ctx);
@@ -186,6 +197,7 @@ bool bif_sys_list_attributed_1(query *q)
 		cell *v = deref(q, c, q->st.curr_frame);
 		pl_idx v_ctx = q->latest_ctx;
 
+#if 0
 		if (is_interned(v)) {
 			collect_vars(q, v, v_ctx);
 
@@ -202,6 +214,7 @@ bool bif_sys_list_attributed_1(query *q)
 				append_list(q, &tmp);
 			}
 		}
+#endif
 
 		if (!is_empty(c) || !c->attrs)
 			continue;
@@ -216,20 +229,42 @@ bool bif_sys_list_attributed_1(query *q)
 	return unify(q, p1, p1_ctx, l, 0);
 }
 
-bool bif_sys_unattributed_var_1(query *q)
-{
-	GET_FIRST_ARG(p1,var);
-	const frame *f = GET_FRAME(p1_ctx);
-	const slot *e = GET_SLOT(f, p1->var_nbr);
-	return e->c.attrs ? false : true;
-}
-
 bool bif_sys_attributed_var_1(query *q)
 {
 	GET_FIRST_ARG(p1,var);
 	const frame *f = GET_FRAME(p1_ctx);
-	const slot *e = GET_SLOT(f, p1->var_nbr);
-	return e->c.attrs ? true : false;
+	slot *e = GET_SLOT(f, p1->var_nbr);
+
+	if (!e->c.attrs)
+		return false;
+
+	cell *l = e->c.attrs;
+	pl_idx l_ctx = e->c.attrs_ctx;
+	init_tmp_heap(q);
+	LIST_HANDLER(l);
+
+	while (is_iso_list(l)) {
+		cell *h = LIST_HEAD(l);
+		//DUMP_TERM("$att", h, l_ctx, 1);
+
+		if (!is_nil(h+1))
+			append_list(q, h+1);
+
+		l = LIST_TAIL(l);
+	}
+
+	l = end_list(q);
+	check_heap_error(l);
+
+	if (is_nil(l))
+		return false;
+
+	return true;
+}
+
+bool bif_sys_unattributed_var_1(query *q)
+{
+	return !bif_sys_attributed_var_1(q);
 }
 
 typedef struct {
