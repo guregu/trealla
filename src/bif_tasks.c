@@ -6,35 +6,14 @@
 #include <sys/time.h>
 #include <sys/stat.h>
 
-#include "base64.h"
 #include "heap.h"
-#include "history.h"
-#include "library.h"
 #include "module.h"
 #include "parser.h"
 #include "prolog.h"
 #include "query.h"
 
-#include "bif_atts.h"
-
-#if USE_OPENSSL
-#include "openssl/sha.h"
-#endif
-
-#if USE_THREADS
-#ifdef _WIN32
-#include <process.h>
-#include <windows.h>
-#else
-#include <pthread.h>
-#include <unistd.h>
-#endif
-#endif
-
 #ifdef _WIN32
 #include <windows.h>
-#define unsetenv(p1)
-#define setenv(p1,p2,p3) _putenv_s(p1,p2)
 #define msleep Sleep
 #define localtime_r(p1,p2) localtime(p1)
 #else
@@ -234,13 +213,13 @@ static bool bif_task_n(query *q)
 	cell *p0 = deep_clone_to_heap(q, q->st.curr_cell, q->st.curr_frame);
 	GET_FIRST_RAW_ARG0(p1,callable,p0);
 	check_heap_error(init_tmp_heap(q));
-	check_heap_error(clone_to_tmp(q, p1));
+	check_heap_error(clone_to_tmp(q, p1, p1_ctx));
 	unsigned arity = p1->arity;
 	unsigned args = 1;
 
 	while (args++ < q->st.curr_cell->arity) {
 		GET_NEXT_RAW_ARG(p2,any);
-		check_heap_error(append_to_tmp(q, p2));
+		check_heap_error(append_to_tmp(q, p2, p2_ctx));
 		arity++;
 	}
 

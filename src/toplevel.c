@@ -309,6 +309,17 @@ static int varunformat(const char *s)
 	return (int)j;
 }
 
+bool query_redo(query *q)
+{
+	if (!q->cp)
+		return false;
+
+	q->is_redo = true;
+	q->retry = QUERY_RETRY;
+	q->pl->did_dump_vars = false;
+	return start(q);
+}
+
 static bool any_attributed(query *q)
 {
 	const parser *p = q->p;
@@ -320,7 +331,6 @@ static bool any_attributed(query *q)
 		cell *v = deref(q, c, 0);
 		pl_idx v_ctx = q->latest_ctx;
 
-#if 0
 		if (is_interned(v)) {
 			collect_vars(q, v, v_ctx);
 
@@ -329,46 +339,20 @@ static bool any_attributed(query *q)
 				slot *ve = GET_SLOT(vf, q->pl->tabs[i].var_nbr);
 				cell *v = &ve->c;
 
-				if (!is_empty(v) || !v->attrs)
+				if (!is_empty(v) || !v->attrs || is_nil(v->attrs))
 					continue;
 
 				return true;
 			}
 		}
-#endif
 
-		if (!is_empty(c) || !c->attrs)
+		if (!is_empty(c) || !c->attrs || is_nil(c->attrs))
 			continue;
 
-		cell *a = deref(q, c->attrs, c->attrs_ctx);
-
-		if (is_empty(a) || is_nil(a))
-			continue;
-
-		for (unsigned i = 0; i < a->nbr_cells; i++) {
-			if (is_var(&a[i])) {
-				cell *a2 = deref(q, &a[i], c->attrs_ctx);
-
-				if (is_var(a2))
-					return true;
-			}
-		}
-
-		return false;
+		return true;
 	}
 
 	return false;
-}
-
-bool query_redo(query *q)
-{
-	if (!q->cp)
-		return false;
-
-	q->is_redo = true;
-	q->retry = QUERY_RETRY;
-	q->pl->did_dump_vars = false;
-	return start(q);
 }
 
 void dump_vars(query *q, bool partial)

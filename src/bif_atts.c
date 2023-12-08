@@ -52,10 +52,10 @@ bool bif_put_atts_2(query *q)
 	if ((p2->val_off == g_minus_s) || (p2->val_off == g_plus_s))
 		attr++;
 
-	if (e->c.attrs || !is_nil(p2))
+	//if (e->c.attrs || !is_nil(attr))
 		add_trail(q, p1_ctx, p1->var_nbr, e->c.attrs, e->c.attrs_ctx);
 
-	if (is_nil(p2)) {
+	if (is_nil(attr)) {
 		e->c.flags = 0;
 		e->c.attrs = NULL;
 		e->c.attrs_ctx = 0;
@@ -74,7 +74,7 @@ bool bif_put_atts_2(query *q)
 		tmp->nbr_cells += 1+attr->nbr_cells;
 		make_atom(tmp+1, new_atom(q->pl, m_name));
 		tmp[1].arity = 1;
-		cell *tmp2 = deep_clone_to_tmp(q, attr, p2_ctx);
+		cell *tmp2 = clone_to_tmp(q, attr, p2_ctx);
 		check_heap_error(tmp2);
 		cell *tmp3 = get_tmp_heap(q, 1);
 		tmp3->nbr_cells += tmp2->nbr_cells;
@@ -121,7 +121,7 @@ bool bif_get_atts_2(query *q)
 	bool is_minus = !is_var(p2) && p2->val_off == g_minus_s;
 	slot *e = GET_SLOT(f, p1->var_nbr);
 
-	if (!e->c.attrs)
+	if (!e->c.attrs || is_nil(e->c.attrs))
 		return is_minus ? true : false;
 
 	if (is_var(p2)) {
@@ -169,9 +169,6 @@ bool bif_get_atts_2(query *q)
 			if (is_minus)
 				return false;
 
-			if (is_nil(h+1))
-				return false;
-
 			return unify(q, attr, p2_ctx, h+1, l_ctx);
 		}
 
@@ -197,7 +194,6 @@ bool bif_sys_list_attributed_1(query *q)
 		cell *v = deref(q, c, q->st.curr_frame);
 		pl_idx v_ctx = q->latest_ctx;
 
-#if 0
 		if (is_interned(v)) {
 			collect_vars(q, v, v_ctx);
 
@@ -206,7 +202,7 @@ bool bif_sys_list_attributed_1(query *q)
 				slot *ve = GET_SLOT(vf, q->pl->tabs[i].var_nbr);
 				cell *v = &ve->c;
 
-				if (!is_empty(v) || !v->attrs)
+				if (!is_empty(v) || !v->attrs || is_nil(v->attrs))
 					continue;
 
 				cell tmp;
@@ -214,9 +210,8 @@ bool bif_sys_list_attributed_1(query *q)
 				append_list(q, &tmp);
 			}
 		}
-#endif
 
-		if (!is_empty(c) || !c->attrs)
+		if (!is_empty(c) || !c->attrs || is_nil(c->attrs))
 			continue;
 
 		cell tmp;
@@ -235,7 +230,7 @@ bool bif_sys_attributed_var_1(query *q)
 	const frame *f = GET_FRAME(p1_ctx);
 	slot *e = GET_SLOT(f, p1->var_nbr);
 
-	if (!e->c.attrs)
+	if (!e->c.attrs || is_nil(e->c.attrs))
 		return false;
 
 	cell *l = e->c.attrs;
@@ -341,12 +336,8 @@ bool bif_sys_undo_trail_2(query *q)
 	if (!unify(q, p1, p1_ctx, tmp, q->st.curr_frame))
 		return false;
 
-	cell tmp2 = {0};
-	tmp2.tag = TAG_BLOB;
-	tmp2.flags = FLAG_MANAGED;
-	tmp2.nbr_cells = 1;
-	tmp2.val_blob = &save->b;
-	tmp2.val_blob->refcnt = 0;
+	cell tmp2;
+	make_blob(&tmp2, &save->b);
 	return unify(q, p2, p2_ctx, &tmp2, q->st.curr_frame);
 }
 
@@ -360,9 +351,8 @@ bool bif_sys_redo_trail_1(query * q)
 	const bind_state *save = (bind_state*)p1->val_blob;
 
 	for (pl_idx i = save->lo_tp, j = 0; i < save->hi_tp; i++, j++) {
-		if (is_empty(&save->e[j].c))
-			continue;
-
+		//if (is_empty(&save->e[j].c))
+		//	continue;
 		const trail *tr = q->trails + i;
 		const frame *f = GET_FRAME(tr->var_ctx);
 		slot *e = GET_SLOT(f, tr->var_nbr);

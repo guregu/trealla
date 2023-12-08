@@ -252,8 +252,7 @@ static bool bif_iso_notunify_2(query *q)
 	SET_OP(&tmp2, OP_XFX);
 	cell *tmp = prepare_call(q, true, &tmp2, q->st.curr_frame, p1->nbr_cells+p2->nbr_cells+4);
 	pl_idx nbr_cells = PREFIX_LEN;
-	tmp[nbr_cells].nbr_cells += p1->nbr_cells+p2->nbr_cells;
-	nbr_cells++;
+	tmp[nbr_cells++].nbr_cells += p1->nbr_cells+p2->nbr_cells;
 	safe_copy_cells_by_ref(tmp+nbr_cells, p1, p1_ctx, p1->nbr_cells);
 	nbr_cells += p1->nbr_cells;
 	safe_copy_cells_by_ref(tmp+nbr_cells, p2, p2_ctx, p2->nbr_cells);
@@ -4129,7 +4128,7 @@ static bool bif_is_list_or_partial_list_1(query *q)
 static bool bif_must_be_4(query *q)
 {
 	GET_FIRST_ARG(p1,any);
-	GET_NEXT_ARG(p2,callable);
+	GET_NEXT_ARG(p2,atom);
 	GET_NEXT_ARG(p3,callable);
 	GET_NEXT_ARG(p4,any);
 
@@ -4240,8 +4239,12 @@ static bool bif_must_be_4(query *q)
 	} else if (!strcmp(src, "list")) {
 		bool is_partial;
 
-		if (!check_list(q, p1, p1_ctx, &is_partial, NULL))
-			return throw_error2(q, p1, p1_ctx, "type_error", "list", p3);
+		if (!check_list(q, p1, p1_ctx, &is_partial, NULL)) {
+			if (is_partial)
+				return throw_error(q, p1, p1_ctx, "instantiation_error", "list");
+			else
+				return throw_error(q, p1, p1_ctx, "type_error", "list");
+		}
 	} else if (!strcmp(src, "list_or_partial_list")) {
 		bool is_partial;
 
@@ -4254,8 +4257,8 @@ static bool bif_must_be_4(query *q)
 
 static bool bif_must_be_2(query *q)
 {
-	GET_FIRST_ARG(p1,callable);
-	GET_NEXT_ARG(p2,any);
+	GET_FIRST_ARG(p2,atom);
+	GET_NEXT_ARG(p1,any);
 
 	const char *src = C_STR(q, p2);
 
@@ -4375,8 +4378,12 @@ static bool bif_must_be_2(query *q)
 	} else if (!strcmp(src, "list")) {
 		bool is_partial;
 
-		if (!check_list(q, p1, p1_ctx, &is_partial, NULL))
-			return throw_error(q, p1, p1_ctx, "type_error", "list");
+		if (!check_list(q, p1, p1_ctx, &is_partial, NULL)) {
+			if (is_partial)
+				return throw_error(q, p1, p1_ctx, "instantiation_error", "list");
+			else
+				return throw_error(q, p1, p1_ctx, "type_error", "list");
+		}
 	} else if (!strcmp(src, "list_or_partial_list")) {
 		bool is_partial;
 
@@ -4390,7 +4397,7 @@ static bool bif_must_be_2(query *q)
 static bool bif_can_be_4(query *q)
 {
 	GET_FIRST_ARG(p1,any);
-	GET_NEXT_ARG(p2,callable);
+	GET_NEXT_ARG(p2,atom);
 	GET_NEXT_ARG(p3,callable);
 	GET_NEXT_ARG(p4,any);
 
@@ -4436,8 +4443,8 @@ static bool bif_can_be_4(query *q)
 
 static bool bif_can_be_2(query *q)
 {
-	GET_FIRST_ARG(p1,callable);
-	GET_NEXT_ARG(p2,any);
+	GET_FIRST_ARG(p2,atom);
+	GET_NEXT_ARG(p1,any);
 
 	if (is_var(p1))
 		return true;
@@ -5655,7 +5662,7 @@ static bool bif_char_type_2(query *q)
 	else if (!CMP_STRING_TO_CSTR(q, p2, "graphic_token"))	// ???
 		return iswgraph(ch) && !iswalnum(ch);
 	else if (!CMP_STRING_TO_CSTR(q, p2, "ascii_graphic"))	// ???
-		return iswgraph(ch) && !iswalnum(ch) && (ch < 128);
+		return iswgraph(ch) && iswalnum(ch) && (ch < 128);
 	else if (!CMP_STRING_TO_CSTR(q, p2, "ascii"))
 		return ch < 128;
 	else if (!CMP_STRING_TO_CSTR(q, p2, "ascii_punctuation"))
@@ -5671,10 +5678,11 @@ static bool bif_char_type_2(query *q)
 	else if (!CMP_STRING_TO_CSTR(q, p2, "meta"))
 		return (ch == '\'') || (ch == '"') || (ch == '`') || (ch == '\\');
 	else if (!CMP_STRING_TO_CSTR(q, p2, "solo"))
-		return (ch == '|') || (ch == '!')
+		return (ch == '|') || (ch == '!') || (ch == '%')
 			|| (ch == '[') || (ch == ']')
 			|| (ch == '{') || (ch == '}')
-			|| (ch == '(') || (ch == ')');
+			|| (ch == '(') || (ch == ')')
+			;
 
 	return false;
 }

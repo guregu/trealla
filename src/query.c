@@ -80,7 +80,7 @@ static void trace_call(query *q, cell *c, pl_idx c_ctx, box_t box)
 		return;
 #endif
 
-#if 0
+#if 1
 	if (c->val_off == g_sys_drop_barrier_s)
 		return;
 #endif
@@ -1906,7 +1906,7 @@ void query_destroy(query *q)
 
 query *query_create(module *m, bool is_task)
 {
-	static atomic_t uint64_t g_query_id = 0;
+	static pl_atomic uint64_t g_query_id = 0;
 
 	query *q = calloc(1, sizeof(query));
 	ensure(q);

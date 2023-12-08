@@ -84,6 +84,7 @@ cell *init_tmp_heap(query *q)
 	}
 
 	q->tmphp = 0;
+	q->cycle_error = false;
 	return q->tmp_heap;
 }
 
@@ -216,6 +217,7 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx p1_ctx, unsigned dept
 			uint32_t save_vgen = 0;
 			int both = 0;
 			if (deep_copy(h)) DEREF_CHECKED(any1, both, save_vgen, e, e->vgen, h, h_ctx, q->vgen);
+			if (both) q->cycle_error = true;
 			cell *rec = deep_clone2_to_tmp(q, h, h_ctx, depth+1);
 			if (!rec) return NULL;
 			if (e) e->vgen = save_vgen;
@@ -268,6 +270,7 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx p1_ctx, unsigned dept
 		uint32_t save_vgen = 0;
 		int both = 0;
 		if (deep_copy(c)) DEREF_CHECKED(any, both, save_vgen, e, e->vgen, c, c_ctx, q->vgen);
+		if (both) q->cycle_error = true;
 		cell *rec = deep_clone2_to_tmp(q, c, c_ctx, depth+1);
 		if (!rec) return NULL;
 		if (e) e->vgen = save_vgen;
@@ -300,7 +303,7 @@ cell *deep_clone_to_heap(query *q, cell *p1, pl_idx p1_ctx)
 	return tmp;
 }
 
-cell *append_to_tmp(query *q, cell *p1)
+cell *append_to_tmp(query *q, cell *p1, pl_idx p1_ctx)
 {
 	cell *tmp = alloc_on_tmp(q, p1->nbr_cells);
 	if (!tmp) return NULL;
@@ -313,15 +316,15 @@ cell *append_to_tmp(query *q, cell *p1)
 			continue;
 
 		dst->flags |= FLAG_VAR_REF;
-		dst->var_ctx = q->st.curr_frame;
+		dst->var_ctx = p1_ctx;
 	}
 
 	return tmp;
 }
 
-cell *clone_to_tmp(query *q, cell *p1)
+cell *clone_to_tmp(query *q, cell *p1, pl_idx p1_ctx)
 {
-	return append_to_tmp(q, p1);
+	return append_to_tmp(q, p1, p1_ctx);
 }
 
 cell *prepare_call(query *q, bool prefix, cell *p1, pl_idx p1_ctx, unsigned extras)

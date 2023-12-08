@@ -31,9 +31,9 @@ typedef uint32_t pl_idx;
 
 #if (__STDC_VERSION__ >= 201112L) && USE_THREADS
 #include <stdatomic.h>
-#define atomic_t _Atomic
+#define pl_atomic _Atomic
 #else
-#define atomic_t volatile
+#define pl_atomic volatile
 #endif
 
 #ifdef _WIN32
@@ -177,19 +177,21 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define is_iso_atomic(c) (is_iso_atom(c) || is_number(c))
 #define is_nonvar(c) !is_var(c)
 
+extern char *g_pool;
+
 typedef struct {
-	atomic_t int64_t refcnt;
+	pl_atomic int64_t refcnt;
 	size_t len;
 	char cstr[];
 } strbuf;
 
 typedef struct {
-	atomic_t int64_t refcnt;
+	pl_atomic int64_t refcnt;
 	union { mpz_t ival; mpq_t irat; };
 } bigint;
 
 typedef struct {
-	atomic_t int64_t refcnt;
+	pl_atomic int64_t refcnt;
 	char *ptr, *ptr2;
 } blob;
 
@@ -219,12 +221,12 @@ typedef struct {
 	)
 
 #define _C_STR(pl,c) 											\
-	( !is_cstring(c) ? ((pl)->pool + (c)->val_off)				\
+	( !is_cstring(c) ? (g_pool + (c)->val_off)					\
 	: _CSTRING_STR(c) 											\
 	)
 
 #define _C_STRLEN(pl,c) 										\
-	( !is_cstring(c) ? strlen((pl)->pool + (c)->val_off)		\
+	( !is_cstring(c) ? strlen(g_pool + (c)->val_off)			\
 	: _CSTRING_LEN(c)											\
 	)
 
@@ -232,7 +234,7 @@ typedef struct {
 #define C_STRLEN(x,c) _C_STRLEN((x)->pl, c)
 #define C_STRLEN_UTF8(c) substrlen_utf8(C_STR(q, c), C_STRLEN(q, c))
 
-#define GET_POOL(x,off) ((x)->pl->pool + (off))
+#define GET_POOL(x,off) (g_pool + (off))
 
 #define _CMP_SLICE(pl,c,str,len) slicecmp(_C_STR(pl, c), _C_STRLEN(pl, c), str, len)
 #define _CMP_SLICE2(pl,c,str) slicecmp2(_C_STR(pl, c), _C_STRLEN(pl, c), str)
@@ -657,7 +659,7 @@ struct query_ {
 	uint64_t step, qid, tmo_msecs, chgen, cycle_error;
 	uint64_t get_started, autofail_n, yield_at;
 	uint64_t time_cpu_started, time_cpu_last_started, future;
-	unsigned max_depth, max_eval_depth, print_idx, tab_idx, varno, tab0_varno, curr_engine;
+	unsigned max_depth, max_eval_depth, print_idx, tab_idx, varno, tab0_varno, curr_engine, curr_chan;
 	pl_idx tmphp, latest_ctx, popp, variable_names_ctx;
 	pl_idx frames_size, slots_size, trails_size, choices_size;
 	pl_idx hw_choices, hw_frames, hw_slots, hw_trails;
@@ -809,10 +811,9 @@ struct prolog_ {
 	var_item *tabs;
 	parser *p;
 	query *curr_query;
-	skiplist *symtab, *biftab, *keyval, *help, *fortab;
+	skiplist *biftab, *keyval, *help, *fortab;
 	FILE *logfp;
-	char *pool;
-	size_t pool_offset, pool_size, tabs_size;
+	size_t tabs_size;
 	uint64_t s_last, s_cnt, seed, dbgen;
 	unsigned next_mod_id, def_max_depth, chan;
 	uint8_t current_input, current_output, current_error;
