@@ -585,6 +585,14 @@ static bool is_cyclic_term_lists(query *q, cell *p1, pl_idx p1_ctx, unsigned dep
 
 static bool is_cyclic_term_internal(query *q, cell *p1, pl_idx p1_ctx, unsigned depth)
 {
+#if 1
+	if ((depth > g_max_depth) || (depth > 6000)) {
+		//printf("*** OOPS %s %d\n", __FILE__, __LINE__);
+		q->cycle_error++;
+		return true;
+	}
+#endif
+
 	if (!is_compound(p1))
 		return false;
 

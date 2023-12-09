@@ -194,7 +194,7 @@ bool bif_sys_list_attributed_1(query *q)
 		cell *v = deref(q, c, q->st.curr_frame);
 		pl_idx v_ctx = q->latest_ctx;
 
-		if (is_interned(v)) {
+		if (is_compound(v)) {
 			collect_vars(q, v, v_ctx);
 
 			for (unsigned i = 0, done = 0; i < q->tab_idx; i++) {
@@ -206,7 +206,7 @@ bool bif_sys_list_attributed_1(query *q)
 					continue;
 
 				cell tmp;
-				make_var(&tmp, new_atom(q->pl, p->vartab.var_name[i]), i);
+				make_ref(&tmp, q->pl->tabs[i].val_off, q->pl->tabs[i].var_nbr, q->pl->tabs[i].ctx);
 				append_list(q, &tmp);
 			}
 		}

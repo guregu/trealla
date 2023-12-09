@@ -413,7 +413,7 @@ void print_variable(query *q, const cell *c, pl_idx c_ctx, bool running)
 		(GET_SLOT(f, c->var_nbr)-q->slots)
 		: (unsigned)c->var_nbr;
 
-	if ((q->varnames || q->cycle_error) && !is_anon(c) && running && (!q->cycle_error)) {
+	if (q->varnames && !is_anon(c) && running && !q->cycle_error && (c_ctx == 0)) {
 		if (q->varnames && q->p->vartab.var_name[c->var_nbr]) {
 			SB_sprintf(q->sb, "%s", q->p->vartab.var_name[c->var_nbr]);
 		} else {
@@ -422,7 +422,11 @@ void print_variable(query *q, const cell *c, pl_idx c_ctx, bool running)
 	} else if (q->portray_vars) {
 		SB_sprintf(q->sb, "%s", get_slot_name(q, slot_nbr));
 	} else if (q->is_dump_vars) {
-		SB_sprintf(q->sb, "_%s", get_slot_name(q, slot_nbr));
+		if (c_ctx == 0) {
+			SB_sprintf(q->sb, "%s", q->p->vartab.var_name[c->var_nbr]);
+		} else {
+			SB_sprintf(q->sb, "_%s", get_slot_name(q, slot_nbr));
+		}
 	} else if (q->listing) {
 		SB_sprintf(q->sb, "%s", get_slot_name(q, slot_nbr));
 	} else if (!running && !is_ref(c)) {
@@ -605,7 +609,15 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 		if (running) DEREF_CHECKED(any2, both, save_vgen, e, e->vgen, tail, tail_ctx, q->print_vgen);
 
 		if (both || q->cycle_error || (q->max_depth && (print_depth >= q->max_depth))) {
-			SB_sprintf(q->sb, "%s", "|...]");
+			SB_sprintf(q->sb, "%s", "|");
+
+			if (both && (tail_ctx == q->st.curr_frame) && (q->portray_vars || q->do_dump_vars)) {
+				print_variable(q, tail, tail_ctx, running);
+			} else {
+				SB_sprintf(q->sb, "%s", "...");
+			}
+
+			SB_sprintf(q->sb, "%s", "]");
 			q->last_thing = WAS_OTHER;
 			q->cycle_error = true;
 			break;
