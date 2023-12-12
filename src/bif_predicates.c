@@ -221,7 +221,7 @@ static bool bif_sys_unifiable_3(query *q)
 		make_struct(tmp, g_unify_s, bif_iso_unify_2, 2, 1+c->nbr_cells);
 		SET_OP(tmp, OP_XFX);
 		cell v;
-		make_ref(&v, g_anon_s, tr->var_nbr, q->st.curr_frame);
+		make_ref(&v, tr->var_nbr, q->st.curr_frame);
 		tmp[1] = v;
 		safe_copy_cells(tmp+2, c, c->nbr_cells);
 		append_list(q, tmp);
@@ -1736,7 +1736,7 @@ static bool bif_iso_univ_2(query *q)
 		check_heap_error(tmp);
 		p2 = tmp;
 		p2_ctx = q->st.curr_frame;
-		unsigned arity = 0;
+		unsigned arity = 0, save_hp = q->st.hp;
 		check_heap_error(init_tmp_heap(q));
 		cell *save_p2 = p2;
 		LIST_HANDLER(p2);
@@ -1782,6 +1782,7 @@ static bool bif_iso_univ_2(query *q)
 		if (arity > MAX_ARITY)
 			return throw_error(q, tmp2, q->st.curr_frame, "representation_error", "max_arity");
 
+		q->st.hp = save_hp;
 		check_heap_error(tmp = alloc_on_heap(q, nbr_cells));
 		safe_copy_cells(tmp, tmp2, nbr_cells);
 		tmp->nbr_cells = nbr_cells;
@@ -1855,7 +1856,7 @@ cell *do_term_variables(query *q, cell *p1, pl_idx p1_ctx)
 			tmp[idx].arity = 2;
 			tmp[idx].nbr_cells = ((cnt-done)*2)+1;
 			idx++;
-			make_ref(tmp+idx, q->pl->tabs[i].val_off, q->pl->tabs[i].var_nbr, q->pl->tabs[i].ctx);
+			make_ref(tmp+idx, q->pl->tabs[i].var_nbr, q->pl->tabs[i].ctx);
 
 			if (q->pl->tabs[i].is_anon)
 				tmp[idx].flags |= FLAG_VAR_ANON;
@@ -1928,7 +1929,7 @@ static cell *do_term_singletons(query *q, cell *p1, pl_idx p1_ctx)
 			tmp[idx].arity = 2;
 			tmp[idx].nbr_cells = ((cnt2-done)*2)+1;
 			idx++;
-			make_ref(tmp+idx, q->pl->tabs[i].val_off, q->pl->tabs[i].var_nbr, q->pl->tabs[i].ctx);
+			make_ref(tmp+idx, q->pl->tabs[i].var_nbr, q->pl->tabs[i].ctx);
 
 			if (q->pl->tabs[i].is_anon)
 				tmp[idx].flags |= FLAG_VAR_ANON;
@@ -2215,8 +2216,8 @@ static bool bif_iso_current_predicate_1(query *q)
 		pl_idx p2_ctx = q->st.curr_frame;
 		frame *f = GET_CURR_FRAME();
 		unsigned var_nbr = f->actual_slots;
-		make_ref(&tmp1, 0, var_nbr++, q->st.curr_frame);
-		make_ref(&tmp2, 0, var_nbr++, q->st.curr_frame);
+		make_ref(&tmp1, var_nbr++, q->st.curr_frame);
+		make_ref(&tmp2, var_nbr++, q->st.curr_frame);
 		create_vars(q, 2);
 		bool ok = search_functor(q, p1, p1_ctx, p2, p2_ctx) ? true : false;
 		cell *tmp = alloc_on_heap(q, 3);
@@ -2692,7 +2693,7 @@ static cell *nodesort(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool keysor
 	basepair *base = malloc(sizeof(basepair)*cnt);
 	check_error(base);
 	LIST_HANDLER(p1);
-		size_t idx = 0;
+	size_t idx = 0;
 
 	while (is_list(p1)) {
 		cell *h = LIST_HEAD(p1);
@@ -2741,7 +2742,7 @@ static cell *nodesort(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool keysor
 		cell tmp;
 
 		if (is_compound(c) && !is_iso_list(c)) {
-			make_ref(&tmp, c->val_off, create_vars(q, 1), q->st.curr_frame);
+			make_ref(&tmp, create_vars(q, 1), q->st.curr_frame);
 			unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 			c = &tmp;
 		}
@@ -2791,6 +2792,10 @@ static bool bif_iso_sort_2(query *q)
 	if (is_string(p2))
 		p2 = string_to_chars_list(q, p2, p2_ctx);
 
+	p1 = deep_clone_to_heap(q, p1, p1_ctx);
+	check_heap_error(p1);
+	p1_ctx = q->st.curr_frame;
+
 	bool status = false;
 	cell *l = nodesort(q, p1, p1_ctx, true, false, &status);
 	if (!l) return status;
@@ -2831,6 +2836,10 @@ static bool bif_iso_msort_2(query *q)
 	if (is_string(p2))
 		p2 = string_to_chars_list(q, p2, p2_ctx);
 
+	p1 = deep_clone_to_heap(q, p1, p1_ctx);
+	check_heap_error(p1);
+	p1_ctx = q->st.curr_frame;
+
 	bool status = false;
 	cell *l = nodesort(q, p1, p1_ctx, false, false, &status);
 	if (!l) return status;
@@ -2869,6 +2878,10 @@ static bool bif_iso_keysort_2(query *q)
 
 	if (skip1 && skip2 && (skip2 > skip1))
 		return false;
+
+	p1 = deep_clone_to_heap(q, p1, p1_ctx);
+	check_heap_error(p1);
+	p1_ctx = q->st.curr_frame;
 
 	bool status = false;
 	cell *l = nodesort(q, p1, p1_ctx, false, true, &status);
@@ -2926,7 +2939,7 @@ static cell *nodesort4(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool ascen
 		cell tmp;
 
 		if (is_var(c) || is_compound(c)) {
-			make_ref(&tmp, c->val_off, create_vars(q, 1), q->st.curr_frame);
+			make_ref(&tmp, create_vars(q, 1), q->st.curr_frame);
 			unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 			c = &tmp;
 		}
@@ -3747,21 +3760,22 @@ static bool bif_statistics_0(query *q)
 		"Max frames %u, "
 		"choices %u, "
 		"trails %u, "
-		"slots %u.\n"
+		"slots %u, "
+		"heap pages %u.\n"
 		"Active frames %u, "
 		"choices %u, "
 		"trails %u, "
 		"slots %u, "
-		"pages %u.\n"
+		"heap pages %u.\n"
 		"Backtracks %"PRIu64", "
 		"TCOs:%"PRIu64", "
 		"Recovered frames: %"PRIu64", "
 		"slots: %"PRIu64", "
 		"Queue: %u\n",
 		q->tot_inferences, q->tot_matches,
-		q->hw_frames, q->hw_choices, q->hw_trails, q->hw_slots,
-		q->st.fp, q->cp, q->st.tp, q->st.sp, q->st.heap_nbr,
-		q->tot_retries, q->tot_tcos,
+		q->hw_frames, q->hw_choices, q->hw_trails, q->hw_slots, q->hw_heap_nbr,
+		q->st.fp, q->cp, q->st.tp, q->st.sp,
+		q->st.heap_nbr, q->tot_retries, q->tot_tcos,
 		q->tot_frecovs, q->tot_srecovs, (unsigned)q->qcnt[q->st.qnbr]
 		);
 	return true;

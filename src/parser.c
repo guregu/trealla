@@ -208,7 +208,7 @@ void make_var(cell *tmp, pl_idx off, unsigned var_nbr)
 		tmp->flags |= FLAG_VAR_ANON;
 }
 
-void make_ref(cell *tmp, pl_idx off, unsigned var_nbr, pl_idx ctx)
+void make_ref(cell *tmp, unsigned var_nbr, pl_idx ctx)
 {
 	*tmp = (cell){0};
 	tmp->tag = TAG_VAR;
@@ -216,9 +216,6 @@ void make_ref(cell *tmp, pl_idx off, unsigned var_nbr, pl_idx ctx)
 	tmp->flags = FLAG_VAR_REF;
 	tmp->var_nbr = var_nbr;
 	tmp->var_ctx = ctx;
-
-	if (off == g_anon_s)
-		tmp->flags |= FLAG_VAR_ANON;
 }
 
 void make_float(cell *tmp, pl_flt v)
@@ -1636,7 +1633,7 @@ static bool dcg_expansion(parser *p)
 	cell *tmp = alloc_on_heap(q, 1+c->nbr_cells+1+1);
 	make_struct(tmp, new_atom(p->pl, "dcg_translate"), NULL, 2, c->nbr_cells+1);
 	safe_copy_cells(tmp+1, p->cl->cells, c->nbr_cells);
-	make_ref(tmp+1+c->nbr_cells, g_anon_s, p->cl->nbr_vars, 0);
+	make_ref(tmp+1+c->nbr_cells, p->cl->nbr_vars, 0);
 	make_end(tmp+1+c->nbr_cells+1);
 	execute(q, tmp, p->cl->nbr_vars+1);
 
@@ -1658,7 +1655,7 @@ static bool dcg_expansion(parser *p)
 	check_error(p2);
 	p2->srcptr = src;
 	tokenize(p2, false, false);
-	//xref_clause(p2->m, p2->cl, NULL);
+	xref_clause(p2->m, p2->cl);
 	free(src);
 
 	clear_clause(p->cl);
@@ -1705,7 +1702,7 @@ static bool term_expansion(parser *p)
 	make_struct(tmp+nbr_cells++, new_atom(p->pl, "term_expansion"), NULL, 2, c->nbr_cells+1);
 	safe_copy_cells(tmp+nbr_cells, p->cl->cells, c->nbr_cells);
 	nbr_cells += c->nbr_cells;
-	make_ref(tmp+nbr_cells++, g_anon_s, p->cl->nbr_vars, 0);
+	make_ref(tmp+nbr_cells++, p->cl->nbr_vars, 0);
 	make_end(tmp+nbr_cells);
 	execute(q, tmp, p->cl->nbr_vars+1);
 
@@ -1730,7 +1727,7 @@ static bool term_expansion(parser *p)
 	check_error(p2);
 	p2->srcptr = src;
 	tokenize(p2, false, false);
-	xref_clause(p2->m, p2->cl, NULL);
+	xref_clause(p2->m, p2->cl);
 	free(src);
 
 	clear_clause(p->cl);
@@ -1790,7 +1787,7 @@ static cell *goal_expansion(parser *p, cell *goal)
 	p2->skip = true;
 	p2->srcptr = SB_cstr(s);
 	tokenize(p2, false, false);
-	xref_clause(p2->m, p2->cl, NULL);
+	xref_clause(p2->m, p2->cl);
 	execute(q, p2->cl->cells, p2->cl->nbr_vars);
 	SB_free(s);
 
@@ -1837,7 +1834,7 @@ static cell *goal_expansion(parser *p, cell *goal)
 	p2->reuse = true;
 	p2->srcptr = src;
 	tokenize(p2, false, false);
-	xref_clause(p2->m, p2->cl, NULL);
+	xref_clause(p2->m, p2->cl);
 	free(src);
 
 	// Push the updated vatab back...
@@ -3149,7 +3146,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 					return 0;
 				}
 
-				xref_clause(p->m, p->cl, NULL);
+				xref_clause(p->m, p->cl);
 				term_to_body(p);
 
 				if (p->consulting && !p->skip) {

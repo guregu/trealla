@@ -68,6 +68,9 @@ static int compare_lists(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_
 		p2_ctx = orig_p2_ctx;
 
 		while (is_iso_list(p1) && is_iso_list(p2)) {
+			if (g_tpl_interrupt)
+				return -1;
+
 			p1 = p1 + 1; p1 += p1->nbr_cells;
 			p2 = p2 + 1; p2 += p2->nbr_cells;
 			cell *c1 = p1, *c2 = p2;
@@ -330,9 +333,12 @@ static void collect_var_lists(query *q, cell *p1, pl_idx p1_ctx, unsigned depth)
 {
 	cell *l = p1;
 	pl_idx l_ctx = p1_ctx;
-	bool any = false;
+	bool any = false, any2 = false;
 
 	while (is_iso_list(l)) {
+		if (g_tpl_interrupt)
+			return;
+
 		cell *h = l + 1;
 		pl_idx h_ctx = l_ctx;
 		slot *e = NULL;
@@ -340,7 +346,7 @@ static void collect_var_lists(query *q, cell *p1, pl_idx p1_ctx, unsigned depth)
 		int both = 0;
 		DEREF_VAR(any, both, save_vgen, e, e->vgen, h, h_ctx, q->vgen);
 
-		if (!both && is_var(h))
+		if (!both && is_var(h) && !(h->flags & FLAG_VAR_CYCLIC))
 			accum_var(q, h, h_ctx);
 		else if (!both)
 			collect_vars_internal(q, h, h_ctx, depth+1);
@@ -350,20 +356,25 @@ static void collect_var_lists(query *q, cell *p1, pl_idx p1_ctx, unsigned depth)
 		l = l + 1; l += l->nbr_cells;
 		e = NULL;
 		both = 0;
-		DEREF_VAR(any, both, save_vgen, e, e->vgen, l, l_ctx, q->vgen);
+		DEREF_VAR(any2, both, save_vgen, e, e->vgen, l, l_ctx, q->vgen);
 
 		if (both)
 			return;
 	}
 
-	l = p1;
-	l_ctx = p1_ctx;
+	if (any2) {
+		l = p1;
+		l_ctx = p1_ctx;
 
-	while (is_iso_list(l)) {
-		l = l + 1; l += l->nbr_cells;
-		cell *c = l;
-		pl_idx c_ctx = l_ctx;
-		RESTORE_VAR(c, c_ctx, l, l_ctx, q->vgen);
+		while (is_iso_list(l)) {
+			if (g_tpl_interrupt)
+				return;
+
+			l = l + 1; l += l->nbr_cells;
+			cell *c = l;
+			pl_idx c_ctx = l_ctx;
+			RESTORE_VAR(c, c_ctx, l, l_ctx, q->vgen);
+		}
 	}
 
 	collect_vars_internal(q, l, l_ctx, depth+1);
@@ -389,6 +400,9 @@ static void collect_vars_internal(query *q, cell *p1, pl_idx p1_ctx, unsigned de
 	p1++;
 
 	while (arity--) {
+		if (g_tpl_interrupt)
+			return;
+
 		cell *c = p1;
 		pl_idx c_ctx = p1_ctx;
 		slot *e = NULL;
@@ -425,6 +439,9 @@ static bool has_vars_lists(query *q, cell *p1, pl_idx p1_ctx, unsigned depth)
 	pl_idx l_ctx = p1_ctx;
 
 	while (is_iso_list(l)) {
+		if (g_tpl_interrupt)
+			return false;
+
 		cell *c = l + 1;
 		pl_idx c_ctx = l_ctx;
 
@@ -476,6 +493,9 @@ static bool has_vars_lists(query *q, cell *p1, pl_idx p1_ctx, unsigned depth)
 	l_ctx = p1_ctx;
 
 	while (is_iso_list(l)) {
+		if (g_tpl_interrupt)
+			return false;
+
 		l = l + 1; l += l->nbr_cells;
 		cell *c = l;
 		pl_idx c_ctx = l_ctx;
@@ -500,6 +520,9 @@ static bool has_vars_internal(query *q, cell *p1, pl_idx p1_ctx, unsigned depth)
 	p1++;
 
 	while (arity--) {
+		if (g_tpl_interrupt)
+			return false;
+
 		cell *c = p1;
 		pl_idx c_ctx = p1_ctx;
 
@@ -545,6 +568,9 @@ static bool is_cyclic_term_lists(query *q, cell *p1, pl_idx p1_ctx, unsigned dep
 	bool any1 = false, any2 = false;
 
 	while (is_iso_list(p1)) {
+		if (g_tpl_interrupt)
+			return true;
+
 		cell *h = p1 + 1;
 		pl_idx h_ctx = p1_ctx;
 		slot *e = NULL;
@@ -573,6 +599,9 @@ static bool is_cyclic_term_lists(query *q, cell *p1, pl_idx p1_ctx, unsigned dep
 		p1_ctx = save_p1_ctx;
 
 		while (is_iso_list(p1)) {
+			if (g_tpl_interrupt)
+				return true;
+
 			p1 = p1 + 1; p1 += p1->nbr_cells;
 			cell *c = p1;
 			pl_idx c_ctx = p1_ctx;
@@ -604,6 +633,9 @@ static bool is_cyclic_term_internal(query *q, cell *p1, pl_idx p1_ctx, unsigned 
 	p1++;
 
 	while (arity--) {
+		if (g_tpl_interrupt)
+			return true;
+
 		cell *c = p1;
 		pl_idx c_ctx = p1_ctx;
 		slot *e = NULL;
@@ -803,7 +835,7 @@ inline static void set_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_id
 	cell *c_attrs = is_empty(&e->c) ? e->c.attrs : NULL;
 	pl_idx c_attrs_ctx = c_attrs ? e->c.attrs_ctx : 0;
 
-	if ((c_ctx < q->st.fp) || is_managed(v))
+	if ((q->cp && (c_ctx < q->st.fp)) || is_managed(v))
 		add_trail(q, c_ctx, c->var_nbr, c_attrs, c_attrs_ctx);
 
 	if (c_attrs)
@@ -817,7 +849,7 @@ inline static void set_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_id
 		else if (v_ctx == q->st.fp)
 			q->no_tco = true;
 	} else if (is_var(v)) {
-		make_ref(&e->c, v->val_off, v->var_nbr, v_ctx);
+		make_ref(&e->c, v->var_nbr, v_ctx);
 
 		if ((c_ctx != q->st.curr_frame) && (v_ctx == q->st.curr_frame))
 			q->no_tco = true;
@@ -1051,6 +1083,9 @@ static bool unify_lists(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_c
 		unsigned cnt = 0;
 
 		while (is_iso_list(p1) && is_iso_list(p2)) {
+			if (g_tpl_interrupt)
+				return true;
+
 			p1 = p1 + 1; p1 += p1->nbr_cells;
 			p2 = p2 + 1; p2 += p2->nbr_cells;
 			RESTORE_VAR(p1, p1_ctx, p1, p1_ctx, q->vgen);

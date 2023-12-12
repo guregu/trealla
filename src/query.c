@@ -275,260 +275,12 @@ void add_trail(query *q, pl_idx c_ctx, unsigned c_var_nbr, cell *attrs, pl_idx a
 	tr->attrs_ctx = attrs_ctx;
 }
 
-static bool can_view(query *q, uint64_t dbgen, const rule *r)
-{
-	if (r->cl.is_deleted)
-		return false;
-
-	if (r->cl.dbgen_created > dbgen)
-		return false;
-
-	if (r->cl.dbgen_erased && (r->cl.dbgen_erased <= dbgen))
-		return false;
-
-	return true;
-}
-
-static void setup_key(query *q)
-{
-	cell *arg1 = deref(q, FIRST_ARG(q->st.key), q->st.key_ctx);
-	cell *arg2 = NULL;
-
-	if (q->st.key->arity > 1)
-		arg2 = deref(q, NEXT_ARG(FIRST_ARG(q->st.key)), q->st.key_ctx);
-
-	if (!is_var(arg1))
-		q->st.karg1_is_ground = true;
-
-	if (arg2 && !is_var(arg2))
-		q->st.karg2_is_ground = true;
-
-	if (is_atomic(arg1))
-		q->st.karg1_is_atomic = true;
-
-	if (arg2 && is_atomic(arg2))
-		q->st.karg2_is_atomic = true;
-}
-
-static void next_key(query *q)
-{
-	if (q->st.iter) {
-		if (!sl_next(q->st.iter, (void*)&q->st.r)) {
-			q->st.r = NULL;
-			sl_done(q->st.iter);
-			q->st.iter = NULL;
-		}
-
-		return;
-	}
-
-	q->st.r = q->st.r->next;
-}
-
-bool has_next_key(query *q)
-{
-	if (q->st.iter)
-		return sl_is_next(q->st.iter, NULL);
-
-	if (!q->st.r->next)
-		return false;
-
-	if (!q->st.key->arity)
-		return true;
-
-	if (q->st.r->cl.is_unique) {
-		if ((q->st.key->arity == 1) && q->st.karg1_is_atomic)
-			return false;
-
-		if ((q->st.key->arity == 2) && q->st.karg1_is_atomic && q->st.karg2_is_atomic)
-			return false;
-	}
-
-	const cell *qarg1 = NULL, *qarg2 = NULL;
-
-	if (q->st.karg1_is_ground)
-		qarg1 = deref(q, FIRST_ARG(q->st.key), q->st.key_ctx);
-
-	if (q->st.karg2_is_ground)
-		qarg2 = deref(q, NEXT_ARG(FIRST_ARG(q->st.key)), q->st.key_ctx);
-
-	//DUMP_TERM("key ", q->st.key, q->st.key_ctx, 1);
-
-	for (const rule *next = q->st.r->next; next; next = next->next) {
-		const cell *dkey = next->cl.cells;
-
-		if ((dkey->val_off == g_neck_s) && (dkey->arity == 2))
-			dkey++;
-
-		//DUMP_TERM("next", dkey, q->st.curr_frame, 0);
-
-		if (qarg1) {
-			if (index_cmpkey(qarg1, FIRST_ARG(dkey), q->st.m, NULL) != 0)
-				continue;
-		}
-
-		if (qarg2) {
-			if (index_cmpkey(qarg2, NEXT_ARG(FIRST_ARG(dkey)), q->st.m, NULL) != 0)
-				continue;
-		}
-
-		if (index_cmpkey(q->st.key, dkey, q->st.m, NULL) == 0)
-			return true;
-	}
-
-	return false;
-}
-
 const char *dump_id(const void *k, const void *v, const void *p)
 {
 	uint64_t id = (uint64_t)(size_t)k;
 	static char tmpbuf[1024];
 	sprintf(tmpbuf, "%"PRIu64"", id);
 	return tmpbuf;
-}
-
-static bool expand_meta_predicate(query *q, predicate *pr)
-{
-	unsigned arity = q->st.key->arity;
-	cell *tmp = alloc_on_heap(q, q->st.key->nbr_cells*3);	// alloc max possible
-	check_heap_error(tmp);
-	cell *save_tmp = tmp;
-	tmp += copy_cells(tmp, q->st.key, 1);
-
-	// Expand module-sensitive args...
-
-	for (cell *k = q->st.key+1, *m = pr->meta_args+1; arity--; k += k->nbr_cells, m += m->nbr_cells) {
-		if ((k->arity == 2) && (k->val_off == g_colon_s) && is_atom(FIRST_ARG(k)))
-			;
-		else if (!is_interned(k))
-			;
-		else if (m->val_off == g_colon_s) {
-			make_struct(tmp, g_colon_s, bif_iso_invoke_2, 2, 1+k->nbr_cells);
-			SET_OP(tmp, OP_XFY); tmp++;
-			make_atom(tmp++, new_atom(q->pl, pr->m->name));
-		}
-
-		tmp += safe_copy_cells(tmp, k, k->nbr_cells);
-	}
-
-	save_tmp->nbr_cells = tmp - save_tmp;
-	q->st.key = save_tmp;
-	return true;
-}
-
-static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
-{
-	q->st.iter = NULL;
-
-	q->st.karg1_is_ground = false;
-	q->st.karg2_is_ground = false;
-	q->st.karg1_is_atomic = false;
-	q->st.karg2_is_atomic = false;
-	q->st.key = key;
-	q->st.key_ctx = key_ctx;
-
-	if (!pr->idx) {
-		q->st.r = pr->head;
-
-		if (key->arity) {
-			if (pr->is_multifile || pr->is_meta_predicate) {
-				q->st.key = deep_clone_to_heap(q, key, key_ctx);
-				check_heap_error(q->st.key);
-				q->st.key_ctx = q->st.curr_frame;
-
-				if (pr->is_meta_predicate) {
-					if (!expand_meta_predicate(q, pr))
-						return false;
-				}
-			}
-
-			setup_key(q);
-		}
-
-		return true;
-	}
-
-	// Because the key is only used once, here,
-	// we only need a temporary clone...
-
-	check_heap_error(init_tmp_heap(q));
-	key = deep_clone_to_tmp(q, key, key_ctx);
-	key_ctx = q->st.curr_frame;
-
-	if (pr->is_meta_predicate) {
-		if (!expand_meta_predicate(q, pr))
-			return false;
-	}
-
-	cell *arg1 = key->arity ? FIRST_ARG(key) : NULL;
-	skiplist *idx = pr->idx;
-
-	if (arg1 && (is_var(arg1) || pr->is_var_in_first_arg)) {
-		if (!pr->idx2) {
-			q->st.r = pr->head;
-			return true;
-		}
-
-		cell *arg2 = NEXT_ARG(arg1);
-
-		if (is_var(arg2)) {
-			q->st.r = pr->head;
-			return true;
-		}
-
-		key = arg2;
-		idx = pr->idx2;
-	}
-
-#define DEBUGIDX 0
-
-#if DEBUGIDX
-	DUMP_TERM("search, term = ", key, key_ctx);
-#endif
-
-	q->st.r = NULL;
-	sliter *iter;
-
-	if (!(iter = sl_find_key(idx, key)))
-		return false;
-
-	// If the index search has found just one (definite) solution
-	// then we can use it with no problems. If more than one then
-	// results must be returned in database order, so prefetch all
-	// the results and return them sorted as an iterator...
-
-	skiplist *tmp_idx = NULL;
-	const rule *r;
-
-	while (sl_next_key(iter, (void*)&r)) {
-#if DEBUGIDX
-		DUMP_TERM("   got, key = ", r->cl.cells, q->st.curr_frame);
-#endif
-
-		if (!tmp_idx) {
-			tmp_idx = sl_create(NULL, NULL, NULL);
-			sl_set_tmp(tmp_idx);
-		}
-
-		sl_app(tmp_idx, (void*)(size_t)r->db_id, (void*)r);
-	}
-
-	sl_done(iter);
-
-	if (!tmp_idx)
-		return false;
-
-	//sl_dump(tmp_idx, dump_id, q);
-
-	iter = sl_first(tmp_idx);
-
-	if (!sl_next(iter, (void*)&q->st.r)) {
-		sl_done(iter);
-		return false;
-	}
-
-	q->st.iter = iter;
-	return true;
 }
 
 static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx l_ctx, bool allow_codes, bool *has_var, bool *is_partial)
@@ -541,6 +293,9 @@ static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx l_ctx, bool 
 	LIST_HANDLER(l);
 
 	while (is_list(l) && (q->st.m->flags.double_quote_chars || allow_codes)) {
+		if (g_tpl_interrupt)
+			return 0;
+
 		cell *h = LIST_HEAD(l);
 		pl_idx h_ctx = l_ctx;
 		slot *e = NULL;
@@ -604,6 +359,9 @@ static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx l_ctx, bool 
 		LIST_HANDLER(l2);
 
 		while (is_list(l2) && (q->st.m->flags.double_quote_chars || allow_codes)) {
+			if (g_tpl_interrupt)
+				return 0;
+
 			cell *h = LIST_HEAD(l2);
 			l2 = LIST_TAIL(l2);
 			RESTORE_VAR(l2, l2_ctx, l2, l2_ctx, q->vgen);
@@ -636,15 +394,17 @@ size_t scan_is_chars_list(query *q, cell *l, pl_idx l_ctx, bool allow_codes)
 
 static void enter_predicate(query *q, predicate *pr)
 {
-	if (!pr->is_dynamic)
-		return;
-
+	q->st.recursive = q->st.pr && (q->st.pr == pr);
 	q->st.pr = pr;
-	pr->refcnt++;
+
+	if (pr->is_dynamic)
+		pr->refcnt++;
 }
 
 static void leave_predicate(query *q, predicate *pr)
 {
+	q->st.recursive = false;
+
 	if (!pr || !pr->is_dynamic || !pr->refcnt)
 		return;
 
@@ -759,7 +519,7 @@ void drop_choice(query *q)
 		ch->st.iter = NULL;
 	}
 
-	q->st.pr = NULL;
+	//q->st.pr = NULL;
 	--q->cp;
 }
 
@@ -780,19 +540,25 @@ int retry_choice(query *q)
 		f->overflow = ch->overflow;
 		f->base = ch->base;
 
-		if (ch->catchme_exception || ch->fail_on_retry)
+		if (ch->catchme_exception || ch->fail_on_retry) {
+			leave_predicate(q, ch->st.pr);
 			continue;
+		}
 
-		if (!ch->register_cleanup && q->noretry)
+		if (!ch->register_cleanup && q->noretry) {
+			leave_predicate(q, ch->st.pr);
 			continue;
+		}
 
 		if (ch->register_cleanup && q->noretry)
 			q->noretry = false;
 
 		trim_heap(q);
 
-		if (ch->succeed_on_retry)
+		if (ch->succeed_on_retry) {
+			leave_predicate(q, ch->st.pr);
 			return -1;
+		}
 
 		return 1;
 	}
@@ -844,13 +610,13 @@ static void reuse_frame(query *q, const clause *cl)
 	const slot *from = GET_SLOT(newf, 0);
 	slot *to = GET_SLOT(f, 0);
 
-	for (pl_idx i = 0; i < f->initial_slots - cl->nbr_temporaries; i++) {
+	for (pl_idx i = 0; i < cl->nbr_vars - cl->nbr_temporaries; i++) {
 		cell *c = &to->c;
 		unshare_cell(c);
 		*to++ = *from++;
 	}
 
-	q->st.sp = f->base + (cl->nbr_vars - cl->nbr_temporaries);
+	q->st.sp = f->base + cl->nbr_vars - cl->nbr_temporaries;
 	q->st.hp = f->hp;
 	q->st.r->tcos++;
 	q->tot_tcos++;
@@ -906,20 +672,22 @@ static void commit_frame(query *q, cell *body)
 	bool tco = false;
 
 	if (!q->no_tco && (q->st.fp == (q->st.curr_frame + 1)) && last_match) {
+		const cell *head = get_head((cell*)cl->cells);
 		bool choices = any_choices(q, f);
-		bool tail_recursive = is_tail_recursive(q->st.curr_cell);
 		bool tail_call = is_tail_call(q->st.curr_cell);
-		bool vars_ok = !f->overflow && (f->initial_slots == cl->nbr_vars);
+		bool tail_recursive = tail_call && q->st.recursive;
+		bool vars_ok = /*!f->overflow &&*/ (f->initial_slots == cl->nbr_vars);
 		tco = tail_recursive && vars_ok && !choices;
 
 #if 0
 		fprintf(stderr,
-			"*** tco=%d,q->no_tco=%d,last_match=%d,is_det=%d,"
+			"*** %s/%u tco=%d,q->no_tco=%d,last_match=%d,is_det=%d,"
 			"next_key=%d,tail_call=%d/%d,vars_ok=%d,choices=%d,"
-			"cl->nbr_vars=%u,f->initial_slots=%u\n",
+			"cl->nbr_vars=%u/%u,f->initial_slots=%u/%u\n",
+			C_STR(q, head), head->arity,
 			tco, q->no_tco, last_match, is_det,
 			next_key, tail_call, tail_recursive, vars_ok, choices,
-			cl->nbr_vars, f->initial_slots);
+			cl->nbr_vars, cl->nbr_temporaries, f->initial_slots, f->actual_slots);
 #endif
 
 	}
@@ -1168,6 +936,251 @@ unsigned create_vars(query *q, unsigned cnt)
 	memset(e, 0, sizeof(slot)*cnt);
 	f->actual_slots += cnt;
 	return var_nbr;
+}
+
+static bool can_view(query *q, uint64_t dbgen, const rule *r)
+{
+	if (r->cl.is_deleted)
+		return false;
+
+	if (r->cl.dbgen_created > dbgen)
+		return false;
+
+	if (r->cl.dbgen_erased && (r->cl.dbgen_erased <= dbgen))
+		return false;
+
+	return true;
+}
+
+static void setup_key(query *q)
+{
+	cell *arg1 = deref(q, FIRST_ARG(q->st.key), q->st.key_ctx);
+	cell *arg2 = NULL;
+
+	if (q->st.key->arity > 1)
+		arg2 = deref(q, NEXT_ARG(FIRST_ARG(q->st.key)), q->st.key_ctx);
+
+	if (!is_var(arg1))
+		q->st.karg1_is_ground = true;
+
+	if (arg2 && !is_var(arg2))
+		q->st.karg2_is_ground = true;
+
+	if (is_atomic(arg1))
+		q->st.karg1_is_atomic = true;
+
+	if (arg2 && is_atomic(arg2))
+		q->st.karg2_is_atomic = true;
+}
+
+static void next_key(query *q)
+{
+	if (q->st.iter) {
+		if (!sl_next(q->st.iter, (void*)&q->st.r)) {
+			q->st.r = NULL;
+			sl_done(q->st.iter);
+			q->st.iter = NULL;
+		}
+
+		return;
+	}
+
+	q->st.r = q->st.r->next;
+}
+
+bool has_next_key(query *q)
+{
+	if (q->st.iter)
+		return sl_is_next(q->st.iter, NULL);
+
+	if (!q->st.r->next)
+		return false;
+
+	if (!q->st.key->arity)
+		return true;
+
+	if (q->st.r->cl.is_unique) {
+		if ((q->st.key->arity == 1) && q->st.karg1_is_atomic)
+			return false;
+
+		if ((q->st.key->arity == 2) && q->st.karg1_is_atomic && q->st.karg2_is_atomic)
+			return false;
+	}
+
+	const cell *qarg1 = NULL, *qarg2 = NULL;
+
+	if (q->st.karg1_is_ground)
+		qarg1 = deref(q, FIRST_ARG(q->st.key), q->st.key_ctx);
+
+	if (q->st.karg2_is_ground)
+		qarg2 = deref(q, NEXT_ARG(FIRST_ARG(q->st.key)), q->st.key_ctx);
+
+	//DUMP_TERM("key ", q->st.key, q->st.key_ctx, 1);
+
+	for (const rule *next = q->st.r->next; next; next = next->next) {
+		const cell *dkey = next->cl.cells;
+
+		if ((dkey->val_off == g_neck_s) && (dkey->arity == 2))
+			dkey++;
+
+		//DUMP_TERM("next", dkey, q->st.curr_frame, 0);
+
+		if (qarg1) {
+			if (index_cmpkey(qarg1, FIRST_ARG(dkey), q->st.m, NULL) != 0)
+				continue;
+		}
+
+		if (qarg2) {
+			if (index_cmpkey(qarg2, NEXT_ARG(FIRST_ARG(dkey)), q->st.m, NULL) != 0)
+				continue;
+		}
+
+		//if (index_cmpkey(q->st.key, dkey, q->st.m, NULL) == 0)
+			return true;
+	}
+
+	return false;
+}
+
+static bool expand_meta_predicate(query *q, predicate *pr)
+{
+	unsigned arity = q->st.key->arity;
+	cell *tmp = alloc_on_heap(q, q->st.key->nbr_cells*3);	// alloc max possible
+	check_heap_error(tmp);
+	cell *save_tmp = tmp;
+	tmp += copy_cells(tmp, q->st.key, 1);
+
+	// Expand module-sensitive args...
+
+	for (cell *k = q->st.key+1, *m = pr->meta_args+1; arity--; k += k->nbr_cells, m += m->nbr_cells) {
+		if ((k->arity == 2) && (k->val_off == g_colon_s) && is_atom(FIRST_ARG(k)))
+			;
+		else if (!is_interned(k))
+			;
+		else if (m->val_off == g_colon_s) {
+			make_struct(tmp, g_colon_s, bif_iso_invoke_2, 2, 1+k->nbr_cells);
+			SET_OP(tmp, OP_XFY); tmp++;
+			make_atom(tmp++, new_atom(q->pl, pr->m->name));
+		}
+
+		tmp += safe_copy_cells(tmp, k, k->nbr_cells);
+	}
+
+	save_tmp->nbr_cells = tmp - save_tmp;
+	q->st.key = save_tmp;
+	return true;
+}
+
+static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
+{
+	q->st.iter = NULL;
+
+	q->st.karg1_is_ground = false;
+	q->st.karg2_is_ground = false;
+	q->st.karg1_is_atomic = false;
+	q->st.karg2_is_atomic = false;
+	q->st.key = key;
+	q->st.key_ctx = key_ctx;
+
+	if (!pr->idx) {
+		q->st.r = pr->head;
+
+		if (key->arity) {
+			if (pr->is_multifile || pr->is_meta_predicate) {
+				q->st.key = deep_clone_to_heap(q, key, key_ctx);
+				check_heap_error(q->st.key);
+				q->st.key_ctx = q->st.curr_frame;
+
+				if (pr->is_meta_predicate) {
+					if (!expand_meta_predicate(q, pr))
+						return false;
+				}
+			}
+
+			setup_key(q);
+		}
+
+		return true;
+	}
+
+	check_heap_error(init_tmp_heap(q));
+	key = deep_clone_to_tmp(q, key, key_ctx);
+	key_ctx = q->st.curr_frame;
+
+	if (pr->is_meta_predicate) {
+		if (!expand_meta_predicate(q, pr))
+			return false;
+	}
+
+	cell *arg1 = key->arity ? FIRST_ARG(key) : NULL;
+	skiplist *idx = pr->idx;
+
+	if (arg1 && (is_var(arg1) || pr->is_var_in_first_arg)) {
+		if (!pr->idx2) {
+			q->st.r = pr->head;
+			return true;
+		}
+
+		cell *arg2 = NEXT_ARG(arg1);
+
+		if (is_var(arg2)) {
+			q->st.r = pr->head;
+			return true;
+		}
+
+		key = arg2;
+		idx = pr->idx2;
+	}
+
+#define DEBUGIDX 0
+
+#if DEBUGIDX
+	DUMP_TERM("search, term = ", key, key_ctx);
+#endif
+
+	q->st.r = NULL;
+	sliter *iter;
+
+	if (!(iter = sl_find_key(idx, key)))
+		return false;
+
+	// If the index search has found just one (definite) solution
+	// then we can use it with no problems. If more than one then
+	// results must be returned in database order, so prefetch all
+	// the results and return them sorted as an iterator...
+
+	skiplist *tmp_idx = NULL;
+	const rule *r;
+
+	while (sl_next_key(iter, (void*)&r)) {
+#if DEBUGIDX
+		DUMP_TERM("   got, key = ", r->cl.cells, q->st.curr_frame);
+#endif
+
+		if (!tmp_idx) {
+			tmp_idx = sl_create(NULL, NULL, NULL);
+			sl_set_tmp(tmp_idx);
+		}
+
+		sl_app(tmp_idx, (void*)(size_t)r->db_id, (void*)r);
+	}
+
+	sl_done(iter);
+
+	if (!tmp_idx)
+		return false;
+
+	//sl_dump(tmp_idx, dump_id, q);
+
+	iter = sl_first(tmp_idx);
+
+	if (!sl_next(iter, (void*)&q->st.r)) {
+		sl_done(iter);
+		return false;
+	}
+
+	q->st.iter = iter;
+	return true;
 }
 
 // Match HEAD :- BODY.

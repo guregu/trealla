@@ -920,7 +920,7 @@ bool do_use_module_2(module *curr_m, cell *p)
 				p2->skip = true;
 				p2->srcptr = SB_cstr(s);
 				tokenize(p2, false, false);
-				xref_clause(p2->m, p2->cl, NULL);
+				xref_clause(p2->m, p2->cl);
 				execute(q, p2->cl->cells, p2->cl->nbr_vars);
 				SB_free(s);
 			}
@@ -972,7 +972,7 @@ bool do_use_module_2(module *curr_m, cell *p)
 				p2->skip = true;
 				p2->srcptr = SB_cstr(s);
 				tokenize(p2, false, false);
-				xref_clause(p2->m, p2->cl, NULL);
+				xref_clause(p2->m, p2->cl);
 				execute(q, p2->cl->cells, p2->cl->nbr_vars);
 				SB_free(s);
 			}
@@ -1591,7 +1591,7 @@ rule *assertz_to_db(module *m, unsigned nbr_vars, unsigned nbr_temporaries, cell
 	return r;
 }
 
-static void xref_cell(module *m, clause *cl, cell *c, predicate *parent, int last_was_colon)
+static void xref_cell(module *m, clause *cl, cell *c, int last_was_colon)
 {
 	unsigned specifier;
 
@@ -1618,15 +1618,11 @@ static void xref_cell(module *m, clause *cl, cell *c, predicate *parent, int las
 	if (last_was_colon < 1)
 		c->match = search_predicate(m, c, NULL);
 
-	if ((c+c->nbr_cells) >= (cl->cells + cl->cidx-1)) {
-		if (parent && (parent->key.val_off == c->val_off) && (parent->key.arity == c->arity))
-			c->flags |= FLAG_TAIL_RECURSIVE;
-
+	if ((c+c->nbr_cells) >= (cl->cells + cl->cidx-1))
 		c->flags |= FLAG_TAIL_CALL;
-	}
 }
 
-void xref_clause(module *m, clause *cl, predicate *parent)
+void xref_clause(module *m, clause *cl)
 {
 	cl->is_unique = false;
 	cell *c = cl->cells;
@@ -1646,11 +1642,11 @@ void xref_clause(module *m, clause *cl, predicate *parent)
 		// Don't want to match on module qualified predicates
 
 		if (c->val_off == g_colon_s) {
-			xref_cell(m, cl, c, parent, 0);
+			xref_cell(m, cl, c, 0);
 			last_was_colon = 3;
 		} else {
 			last_was_colon--;
-			xref_cell(m, cl, c, parent, last_was_colon);
+			xref_cell(m, cl, c, last_was_colon);
 		}
 	}
 }
@@ -1664,7 +1660,7 @@ void xref_db(module *m)
 		pr->is_processed = true;
 
 		for (rule *r = pr->head; r; r = r->next)
-			xref_clause(m, &r->cl, pr);
+			xref_clause(m, &r->cl);
 
 		if (pr->is_dynamic || pr->idx)
 			continue;

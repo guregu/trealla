@@ -206,7 +206,7 @@ bool bif_sys_list_attributed_1(query *q)
 					continue;
 
 				cell tmp;
-				make_ref(&tmp, q->pl->tabs[i].val_off, q->pl->tabs[i].var_nbr, q->pl->tabs[i].ctx);
+				make_ref(&tmp, q->pl->tabs[i].var_nbr, q->pl->tabs[i].ctx);
 				append_list(q, &tmp);
 			}
 		}
@@ -268,19 +268,24 @@ typedef struct {
 	slot e[];
 } bind_state;
 
-static void check_occurs(unsigned var_nbr, pl_idx var_ctx, cell *c)
+static void check_occurs(unsigned var_nbr, pl_idx var_ctx, cell *c, pl_idx c_ctx)
 {
 	if (is_indirect(c))
 		c = c->val_ptr;
 
 	for (unsigned nbr_cells = c->nbr_cells; nbr_cells--; c++) {
-		if (!is_ref(c))
+		if (!is_var(c))
 			continue;
+
+		pl_idx ctx = c_ctx;
+
+		if (is_ref(c))
+			ctx = c->var_ctx;
 
 		if (var_nbr != c->var_nbr)
 			continue;
 
-		if (var_ctx != c->var_ctx)
+		if (var_ctx != ctx)
 			continue;
 
 		c->flags |= FLAG_VAR_CYCLIC;
@@ -311,10 +316,10 @@ bool bif_sys_undo_trail_2(query *q)
 		const frame *f = GET_FRAME(tr->var_ctx);
 		slot *e = GET_SLOT(f, tr->var_nbr);
 		save->e[j] = *e;
-		check_occurs(tr->var_nbr, tr->var_ctx, &e->c);
+		check_occurs(tr->var_nbr, tr->var_ctx, &e->c, e->c.var_ctx);
 		//printf("*** unbind [%u:%u] hi_tp=%u, tag=%u, tr->var_ctx=%u, tr->var_nbr=%u\n", j, i, q->undo_hi_tp, e->c.tag, tr->var_ctx, tr->var_nbr);
 		cell lhs, rhs;
-		make_ref(&lhs, g_anon_s, tr->var_nbr, tr->var_ctx);
+		make_ref(&lhs, tr->var_nbr, tr->var_ctx);
 		rhs = e->c;
 		//DUMP_TERM("$undo1 rhs", &e->c, e->c.var_ctx, 0);
 		cell tmp[3];

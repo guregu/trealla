@@ -35,12 +35,9 @@ bool bif_sys_drop_barrier_1(query *q)
 
 void do_cleanup(query *q, cell *c, pl_idx c_ctx)
 {
-	ensure(init_tmp_heap(q));
-	cell *tmp2 = deep_clone_to_tmp(q, c, c_ctx);
-	ensure(tmp2);
-	cell *tmp = prepare_call(q, true, tmp2, q->st.curr_frame, 4);
+	cell *tmp = prepare_call(q, true, c, c_ctx, 4);
 	ensure(tmp);
-	pl_idx nbr_cells = PREFIX_LEN + tmp2->nbr_cells;
+	pl_idx nbr_cells = PREFIX_LEN + c->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_cut_s, bif_iso_cut_0, 0, 0);
 	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+nbr_cells++, q->cp);
@@ -184,17 +181,21 @@ bool bif_iso_call_n(query *q)
 bool bif_iso_call_1(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
-	check_heap_error(init_tmp_heap(q));
-	cell *tmp2 = deep_clone_to_tmp(q, p1, p1_ctx);
-	check_heap_error(tmp2);
-	bool status;
 
-	if (!call_check(q, tmp2, &status, false))
-		return status;
+	if (is_builtin(p1) || !p1->arity) {
+		check_heap_error(init_tmp_heap(q));
+		p1 = deep_clone_to_tmp(q, p1, p1_ctx);
+		check_heap_error(p1);
+		p1_ctx = q->st.curr_frame;
+		bool status;
 
-	cell *tmp = prepare_call(q, true, tmp2, q->st.curr_frame, 3);
+		if (!call_check(q, p1, &status, false))
+			return status;
+	}
+
+	cell *tmp = prepare_call(q, true, p1, p1_ctx, 3);
 	check_heap_error(tmp);
-	pl_idx nbr_cells = PREFIX_LEN + tmp2->nbr_cells;
+	pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+nbr_cells++, q->cp);
 	make_call(q, tmp+nbr_cells);
@@ -210,17 +211,21 @@ bool bif_iso_call_1(query *q)
 bool bif_iso_once_1(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
-	check_heap_error(init_tmp_heap(q));
-	cell *tmp2 = deep_clone_to_tmp(q, p1, p1_ctx);
-	check_heap_error(tmp2);
-	bool status;
 
-	if (!call_check(q, tmp2, &status, false))
-		return status;
+	if (is_builtin(p1) || !p1->arity) {
+		check_heap_error(init_tmp_heap(q));
+		p1 = deep_clone_to_tmp(q, p1, p1_ctx);
+		check_heap_error(p1);
+		p1_ctx = q->st.curr_frame;
+		bool status;
 
-	cell *tmp = prepare_call(q, true, tmp2, q->st.curr_frame, 4);
+		if (!call_check(q, p1, &status, false))
+			return status;
+	}
+
+	cell *tmp = prepare_call(q, true, p1, p1_ctx, 4);
 	check_heap_error(tmp);
-	pl_idx nbr_cells = PREFIX_LEN + tmp2->nbr_cells;
+	pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_cut_s, bif_iso_cut_0, 0, 0);
 	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+nbr_cells++, q->cp);
@@ -564,7 +569,7 @@ bool bif_sys_countall_2(query *q)
 	check_heap_error(tmp);
 	pl_idx nbr_cells = PREFIX_LEN + tmp2->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_sys_counter_s, bif_sys_counter_1, 1, 1);
-	make_ref(tmp+nbr_cells++, g_anon_s, p2->var_nbr, p2_ctx);
+	make_ref(tmp+nbr_cells++, p2->var_nbr, p2_ctx);
 	make_struct(tmp+nbr_cells++, g_fail_s, bif_iso_fail_0, 0, 0);
 	make_call(q, tmp+nbr_cells);
 	check_heap_error(push_barrier(q));
@@ -585,7 +590,7 @@ static cell *parse_to_heap(query *q, const char *src)
 	p2->skip = true;
 	p2->srcptr = SB_cstr(s);
 	tokenize(p2, false, false);
-	xref_clause(p2->m, p2->cl, NULL);
+	xref_clause(p2->m, p2->cl);
 	p2->read_term_slots = 0;
 	SB_free(s);
 
