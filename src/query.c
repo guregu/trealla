@@ -1007,13 +1007,13 @@ bool has_next_key(query *q)
 			return false;
 	}
 
-	const cell *qarg1 = NULL, *qarg2 = NULL;
+	const cell *karg1 = NULL, *karg2 = NULL;
 
 	if (q->st.karg1_is_ground)
-		qarg1 = deref(q, FIRST_ARG(q->st.key), q->st.key_ctx);
+		karg1 = deref(q, FIRST_ARG(q->st.key), q->st.key_ctx);
 
 	if (q->st.karg2_is_ground)
-		qarg2 = deref(q, NEXT_ARG(FIRST_ARG(q->st.key)), q->st.key_ctx);
+		karg2 = deref(q, NEXT_ARG(FIRST_ARG(q->st.key)), q->st.key_ctx);
 
 	//DUMP_TERM("key ", q->st.key, q->st.key_ctx, 1);
 
@@ -1025,13 +1025,13 @@ bool has_next_key(query *q)
 
 		//DUMP_TERM("next", dkey, q->st.curr_frame, 0);
 
-		if (qarg1) {
-			if (index_cmpkey(qarg1, FIRST_ARG(dkey), q->st.m, NULL) != 0)
+		if (karg1) {
+			if (index_cmpkey(karg1, FIRST_ARG(dkey), q->st.m, NULL) != 0)
 				continue;
 		}
 
-		if (qarg2) {
-			if (index_cmpkey(qarg2, NEXT_ARG(FIRST_ARG(dkey)), q->st.m, NULL) != 0)
+		if (karg2) {
+			if (index_cmpkey(karg2, NEXT_ARG(FIRST_ARG(dkey)), q->st.m, NULL) != 0)
 				continue;
 		}
 
@@ -1087,7 +1087,7 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 
 		if (key->arity) {
 			if (pr->is_multifile || pr->is_meta_predicate) {
-				q->st.key = deep_clone_to_heap(q, key, key_ctx);
+				q->st.key = clone_to_heap(q, key, key_ctx);
 				check_heap_error(q->st.key);
 				q->st.key_ctx = q->st.curr_frame;
 

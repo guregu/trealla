@@ -144,13 +144,13 @@ bool bif_iso_call_n(query *q)
 	}
 
 	check_heap_error(init_tmp_heap(q));
-	check_heap_error(deep_clone_to_tmp(q, p1, p1_ctx));
+	check_heap_error(clone_to_tmp(q, p1, p1_ctx));
 	unsigned arity = p1->arity;
 	unsigned args = 1;
 
 	while (args < q->st.curr_cell->arity) {
 		GET_NEXT_ARG(p2,any);
-		check_heap_error(deep_clone_to_tmp(q, p2, p2_ctx));
+		check_heap_error(clone_to_tmp(q, p2, p2_ctx));
 		arity++;
 		args++;
 	}
@@ -182,7 +182,7 @@ bool bif_iso_call_1(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 
-	if (is_builtin(p1) || !p1->arity) {
+	if ((is_builtin(p1) && !is_evaluable(p1)) || !p1->arity) {
 		check_heap_error(init_tmp_heap(q));
 		p1 = deep_clone_to_tmp(q, p1, p1_ctx);
 		check_heap_error(p1);
@@ -212,7 +212,7 @@ bool bif_iso_once_1(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 
-	if (is_builtin(p1) || !p1->arity) {
+	if ((is_builtin(p1) && !is_evaluable(p1)) || !p1->arity) {
 		check_heap_error(init_tmp_heap(q));
 		p1 = deep_clone_to_tmp(q, p1, p1_ctx);
 		check_heap_error(p1);
@@ -555,7 +555,7 @@ bool bif_sys_countall_2(query *q)
 	GET_NEXT_ARG(p2,var);
 
 	check_heap_error(init_tmp_heap(q));
-	cell *tmp2 = deep_clone_to_tmp(q, p1, p1_ctx);
+	cell *tmp2 = clone_to_tmp(q, p1, p1_ctx);
 	check_heap_error(tmp2);
 	bool status;
 
