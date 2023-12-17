@@ -140,13 +140,14 @@ static void trace_call(query *q, cell *c, pl_idx c_ctx, box_t box)
 	net_write(src, srclen, str);
 	SB_free(pr);
 	q->max_depth = save_depth;
+	if (++q->print_vgen == 0) q->print_vgen = 1;
 
 	if (q->creep) {
 		msleep(250);
 	}
 }
 
-static void check_pressure(query *q)
+void check_pressure(query *q)
 {
 #if REDUCE_PRESSURE
 	if (q->tmp_heap && (q->tmph_size > 4000)) {
@@ -159,28 +160,28 @@ static void check_pressure(query *q)
 #if TRACE_MEM
 		printf("*** q->st.tp=%u, q->trails_size=%u\n", (unsigned)q->st.tp, (unsigned)q->trails_size);
 #endif
-		q->trails_size = alloc_grow((void**)&q->trails, sizeof(trail), q->st.tp, q->st.tp*3/2, false);
+		q->trails_size = alloc_grow(q, (void**)&q->trails, sizeof(trail), q->st.tp, q->st.tp*3/2, false);
 	}
 
 	if (q->choices_size > (INITIAL_NBR_CHOICES*PRESSURE_FACTOR)) {
 #if TRACE_MEM
 		printf("*** q->st.cp=%u, q->choices_size=%u\n", (unsigned)q->cp, (unsigned)q->choices_size);
 #endif
-		q->choices_size = alloc_grow((void**)&q->choices, sizeof(choice), q->cp, q->cp*3/2, false);
+		q->choices_size = alloc_grow(q, (void**)&q->choices, sizeof(choice), q->cp, q->cp*3/2, false);
 	}
 
 	if (q->frames_size > (INITIAL_NBR_FRAMES*PRESSURE_FACTOR)) {
 #if TRACE_MEM
 		printf("*** q->st.fp=%u, q->frames_size=%u\n", (unsigned)q->st.fp, (unsigned)q->frames_size);
 #endif
-		q->frames_size = alloc_grow((void**)&q->frames, sizeof(frame), q->st.fp, q->st.fp*3/2, false);
+		q->frames_size = alloc_grow(q, (void**)&q->frames, sizeof(frame), q->st.fp, q->st.fp*3/2, false);
 	}
 
 	if (q->slots_size > (INITIAL_NBR_SLOTS*PRESSURE_FACTOR)) {
 #if TRACE_MEM
 		printf("*** q->st.sp=%u, q->slots_size=%u\n", (unsigned)q->st.sp, (unsigned)q->slots_size);
 #endif
-		q->slots_size = alloc_grow((void**)&q->slots, sizeof(slot), q->st.sp, q->st.sp*3/2, false);
+		q->slots_size = alloc_grow(q, (void**)&q->slots, sizeof(slot), q->st.sp, q->st.sp*3/2, false);
 	}
 #endif
 }
@@ -193,9 +194,9 @@ static bool check_trail(query *q)
 	if (q->st.tp < q->trails_size)
 		return true;
 
-	pl_idx new_trailssize = alloc_grow((void**)&q->trails, sizeof(trail), q->st.tp, q->trails_size*4/3, false);
+	pl_idx new_trailssize = alloc_grow(q, (void**)&q->trails, sizeof(trail), q->st.tp, q->trails_size*4/3, false);
 	if (!new_trailssize) {
-		q->is_oom = q->error = true;
+		q->error = true;
 		return false;
 	}
 
@@ -211,9 +212,9 @@ static bool check_choice(query *q)
 	if (q->cp < q->choices_size)
 		return true;
 
-	pl_idx new_choicessize = alloc_grow((void**)&q->choices, sizeof(choice), q->cp, q->choices_size*4/3, false);
+	pl_idx new_choicessize = alloc_grow(q, (void**)&q->choices, sizeof(choice), q->cp, q->choices_size*4/3, false);
 	if (!new_choicessize) {
-		q->is_oom = q->error = true;
+		q->error = true;
 		return false;
 	}
 
@@ -229,10 +230,10 @@ static bool check_frame(query *q)
 	if (q->st.fp < q->frames_size)
 		return true;
 
-	pl_idx new_framessize = alloc_grow((void**)&q->frames, sizeof(frame), q->st.fp, q->frames_size*4/3, false);
+	pl_idx new_framessize = alloc_grow(q, (void**)&q->frames, sizeof(frame), q->st.fp, q->frames_size*4/3, false);
 
 	if (!new_framessize) {
-		q->is_oom = q->error = true;
+		q->error = true;
 		return false;
 	}
 
@@ -250,10 +251,10 @@ bool check_slot(query *q, unsigned cnt)
 	if (nbr < q->slots_size)
 		return true;
 
-	pl_idx new_slotssize = alloc_grow((void**)&q->slots, sizeof(slot), nbr, nbr*4/3, false);
+	pl_idx new_slotssize = alloc_grow(q, (void**)&q->slots, sizeof(slot), nbr, nbr*4/3, false);
 
 	if (!new_slotssize) {
-		q->is_oom = q->error = true;
+		q->error = true;
 		return false;
 	}
 
@@ -1613,7 +1614,7 @@ bool start(query *q)
 				}
 			}
 
-			if ((!status && !q->is_oom) || q->abort) {
+			if (!status || q->abort) {
 				Trace(q, q->st.curr_cell, q->st.curr_frame, FAIL);
 				q->retry = QUERY_RETRY;
 
@@ -1642,7 +1643,7 @@ bool start(query *q)
 		} else {
 			q->tot_inferences++;
 
-			if (!match_head(q) && !q->is_oom) {
+			if (!match_head(q)) {
 				Trace(q, q->st.curr_cell, q->st.curr_frame, FAIL);
 				q->retry = QUERY_RETRY;
 				q->tot_backtracks++;
@@ -1651,18 +1652,6 @@ bool start(query *q)
 
 			if (q->run_hook)
 				do_post_unification_hook(q, false);
-		}
-
-		if (q->is_oom) {
-			check_pressure(q);
-			q->is_oom = q->error = false;
-
-			if (!q->did_throw)
-				throw_error(q, q->st.curr_cell, q->st.curr_frame, "resource_error", "memory");
-
-			q->retry = QUERY_RETRY;
-			q->tot_backtracks++;
-			continue;
 		}
 
 		MORE:
@@ -1693,6 +1682,14 @@ bool start(query *q)
 
 			done = q->status = true;
 			break;
+		}
+
+		if (q->oom) {
+			if (q->oom++ == 99) {
+				q->error = true;
+				printf("\n%%terminated\n");
+				break;
+			}
 		}
 	}
 

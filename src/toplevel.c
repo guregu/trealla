@@ -275,6 +275,8 @@ static void add_result(int nbr, cell *c, pl_idx c_ctx)
 
 static int check_duplicate_result(query *q, int nbr, cell *c, pl_idx c_ctx)
 {
+	return -1;
+
 	if (is_cyclic_term(q, c, c_ctx))
 		return -1;
 
@@ -323,21 +325,20 @@ bool query_redo(query *q)
 static bool any_attributed(query *q)
 {
 	const parser *p = q->p;
-	frame *f = GET_FIRST_FRAME();
+	const frame *f = GET_FIRST_FRAME();
 
 	for (unsigned i = 0; i < p->nbr_vars; i++) {
 		slot *e = GET_SLOT(f, i);
-		cell *c = &e->c;
-		cell *v = deref(q, c, 0);
+		cell *v = deref(q, &e->c, e->c.var_ctx);
 		pl_idx v_ctx = q->latest_ctx;
 
 		if (is_compound(v)) {
 			collect_vars(q, v, v_ctx);
 
 			for (unsigned i = 0, done = 0; i < q->tab_idx; i++) {
-				frame *vf = GET_FRAME(q->pl->tabs[i].ctx);
-				slot *ve = GET_SLOT(vf, q->pl->tabs[i].var_nbr);
-				cell *v = &ve->c;
+				const frame *f = GET_FRAME(q->pl->tabs[i].ctx);
+				slot *e = GET_SLOT(f, q->pl->tabs[i].var_nbr);
+				cell *v = deref(q, &e->c, e->c.var_ctx);
 
 				if (!is_empty(v) || !v->attrs || is_nil(v->attrs))
 					continue;
@@ -346,7 +347,7 @@ static bool any_attributed(query *q)
 			}
 		}
 
-		if (!is_empty(c) || !c->attrs || is_nil(c->attrs))
+		if (!is_empty(v) || !v->attrs || is_nil(v->attrs))
 			continue;
 
 		return true;
@@ -515,8 +516,11 @@ void dump_vars(query *q, bool partial)
 		make_end(tmp+nbr_cells);
 		q->st.curr_cell = tmp;
 		q->in_attvar_print = true;
+		bool save_trace = q->trace;
+		q->trace = false;
 		start(q);
 		q->in_attvar_print = false;
+		q->trace = save_trace;
 		any = true;
 	}
 

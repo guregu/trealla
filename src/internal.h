@@ -658,7 +658,7 @@ struct query_ {
 	uint64_t get_started, autofail_n, yield_at;
 	uint64_t time_cpu_started, time_cpu_last_started, future;
 	unsigned max_depth, max_eval_depth, print_idx, tab_idx;
-	unsigned varno, tab0_varno, curr_engine, curr_chan;
+	unsigned varno, tab0_varno, curr_engine, curr_chan, oom;
 	pl_idx tmphp, latest_ctx, popp, variable_names_ctx;
 	pl_idx frames_size, slots_size, trails_size, choices_size;
 	pl_idx hw_choices, hw_frames, hw_slots, hw_trails, hw_heap_nbr;
@@ -680,7 +680,6 @@ struct query_ {
 	bool lists_ok:1;
 	bool fail_on_retry:1;
 	bool noretry:1;
-	bool is_oom:1;
 	bool is_redo:1;
 	bool run_hook:1;
 	bool in_hook:1;
@@ -793,6 +792,7 @@ struct module_ {
 	bool loading:1;
 	bool error:1;
 	bool ignore_vars:1;
+	bool wild_goal_expansion:1;
 	bool make:1;
 };
 
@@ -830,6 +830,7 @@ struct prolog_ {
 	bool noindex:1;
 	bool iso_only:1;
 	bool trace:1;
+	bool in_goal_expansion:1;
 };
 
 extern pl_idx g_empty_s, g_pair_s, g_dot_s, g_cut_s, g_nil_s, g_true_s, g_fail_s;

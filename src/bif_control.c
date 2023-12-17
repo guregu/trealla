@@ -93,6 +93,11 @@ bool bif_call_0(query *q, cell *p1, pl_idx p1_ctx)
 
 static bool call_check(query *q, cell *tmp2, bool *status, bool calln)
 {
+	if (tmp2->val_off == g_colon_s) {
+		tmp2 = tmp2 + 1;
+		tmp2 += tmp2->nbr_cells;
+	}
+
 	if (!tmp2->match) {
 		bool found = false;
 
@@ -113,7 +118,7 @@ static bool call_check(query *q, cell *tmp2, bool *status, bool calln)
 			SET_OP(tmp2, specifier);
 	}
 
-	if (check_body_callable(tmp2) != NULL) {
+	if ((tmp2 = check_body_callable(tmp2)) != NULL) {
 		*status = throw_error(q, tmp2, q->st.curr_frame, "type_error", "callable");
 		return false;
 	}
@@ -475,6 +480,8 @@ bool bif_iso_catch_3(query *q)
 	// Second time through? Try the recover goal...
 
 	if (q->retry == QUERY_EXCEPTION) {
+		check_pressure(q);
+		q->error = false;
 		GET_NEXT_ARG(p2,any);
 		GET_NEXT_ARG(p3,callable);
 		q->retry = QUERY_OK;
@@ -607,7 +614,7 @@ static cell *parse_to_heap(query *q, const char *src)
 	return tmp;
 }
 
-bool find_exception_handler(query *q, char *ball)
+static bool find_exception_handler(query *q, char *ball)
 {
 	while (retry_choice(q)) {
 		const choice *ch = GET_CHOICE(q->cp);

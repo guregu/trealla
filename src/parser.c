@@ -1629,6 +1629,7 @@ static bool dcg_expansion(parser *p)
 	query *q = query_create(p->m, false);
 	check_error(q);
 
+	q->trace = false;
 	cell *c = p->cl->cells;
 	cell *tmp = alloc_on_heap(q, 1+c->nbr_cells+1+1);
 	make_struct(tmp, new_atom(p->pl, "dcg_translate"), NULL, 2, c->nbr_cells+1);
@@ -1696,6 +1697,7 @@ static bool term_expansion(parser *p)
 
 	query *q = query_create(m, true);
 	check_error(q);
+	q->trace = false;
 	cell *c = p->cl->cells;
 	cell *tmp = alloc_on_heap(q, 1+c->nbr_cells+2);
 	unsigned nbr_cells = 0;
@@ -1755,14 +1757,20 @@ static cell *goal_expansion(parser *p, cell *goal)
 
 	predicate *pr = search_predicate(p->m, goal, NULL);
 
-	if (!pr || !pr->is_goal_expansion)
+	if ((!pr || !pr->is_goal_expansion) && !p->m->wild_goal_expansion)
 		return goal;
+
+	//printf("*** here %s/%u\n", C_STR(p, goal), goal->arity);
 
 	//if (search_predicate(p->m, goal))
 	//	return goal;
 
+	if (p->pl->in_goal_expansion)
+		return goal;
+
 	query *q = query_create(p->m, true);
 	check_error(q);
+	q->trace = false;
 	q->varnames = true;
 	char *dst = print_canonical_to_strbuf(q, goal, 0, 0);
 	q->varnames = false;
@@ -1775,8 +1783,9 @@ static cell *goal_expansion(parser *p, cell *goal)
 	// Note: since only parsing goals we need to preserve
 	// the varnames so they get reused. Only genuinely new
 	// variables should create anew. Hence we pull the
-	// vartab from the main parser...
+	// vartab from the main parser... IS THIS TRUE?
 
+	p->pl->in_goal_expansion = true;
 	parser *p2 = parser_create(p->m);
 	check_error(p2, query_destroy(q));
 	q->p = p2;
@@ -1790,6 +1799,7 @@ static cell *goal_expansion(parser *p, cell *goal)
 	xref_clause(p2->m, p2->cl);
 	execute(q, p2->cl->cells, p2->cl->nbr_vars);
 	SB_free(s);
+	p->pl->in_goal_expansion = false;
 
 	if (q->retry != QUERY_OK) {
 		parser_destroy(p2);
@@ -1946,10 +1956,17 @@ static cell *term_to_body_conversion(parser *p, cell *c)
 			}
 
 			c->nbr_cells = 1 + rhs->nbr_cells;
+		} else if (c->val_off == g_negation_s) {
+			cell *rhs = c + 1;
+
+			if (!is_var(rhs)) {
+				rhs = goal_expansion(p, rhs);
+				c->nbr_cells = 1 + rhs->nbr_cells;
+			}
 		}
 	} else if (c->arity) {
 		predicate *pr = find_predicate(p->m, c);
-		bool meta = !pr || (pr && pr->is_meta_predicate);
+		bool meta = !pr || pr->is_meta_predicate || pr->is_goal_expansion || p->m->wild_goal_expansion;
 		bool control = false;
 
 		if ((c->val_off == g_throw_s) && (c->arity == 1))
@@ -1957,18 +1974,22 @@ static cell *term_to_body_conversion(parser *p, cell *c)
 		else if ((c->val_off == g_catch_s) && (c->arity == 3))
 			control = true;
 
+		//printf("*** %s/%u, meta=%d\n", C_STR(p, c), c->arity, meta);
+
+		if (meta)
+			c = goal_expansion(p, c);
+
 		cell *arg = c + 1;
 		unsigned arity = c->arity;
 
 		while (arity--) {
 			c->nbr_cells -= arg->nbr_cells;
 
-			if (meta) {
+			if (meta)
 				arg = goal_expansion(p, arg);
 
 			if (control)
 				arg = term_to_body_conversion(p, arg);
-			}
 
 			c->nbr_cells += arg->nbr_cells;
 			arg += arg->nbr_cells;
@@ -3740,7 +3761,7 @@ bool run(parser *p, const char *pSrc, bool dump, query **subq, unsigned int yiel
 	}
 
 	SB(src);
-	SB_sprintf(src, "%s", pSrc);
+	SB_sprintf(src, "true,%s", pSrc);
 	SB_trim_ws(src);
 	SB_trim(src, '.');
 	SB_strcat(src, ".");
