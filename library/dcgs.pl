@@ -22,13 +22,6 @@ to learn more about them.
 :- use_module(library(lists), [append/3, member/2]).
 :- use_module(library(loader), [strip_module/3]).
 
-expand_term((H --> B), Out) :-
-	dcg_translate((H --> B), Out), !.
-
-dcg_translate(TermIn, Term) :-
-	nonvar(TermIn),
-	dcg_rule(TermIn, Term).
-
 :- meta_predicate phrase(2, ?).
 
 :- meta_predicate phrase(2, ?, ?).
@@ -210,7 +203,6 @@ seqq([Es|Ess]) --> seq(Es), seqq(Ess).
    Cs0 = Cs.
 ... --> [] | [_], ... .
 
-/*
 error_goal(error(E, must_be/2), error(E, must_be/2)).
 error_goal(error(E, (=..)/2), error(E, (=..)/2)).
 error_goal(E, _) :- throw(E).
@@ -228,4 +220,3 @@ user:goal_expansion(phrase(GRBody, S, S0), GRBody2) :-
     ).
 
 user:goal_expansion(phrase(GRBody, S), phrase(GRBody, S, [])).
-*/

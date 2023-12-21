@@ -531,7 +531,6 @@ int retry_choice(query *q)
 		pl_idx curr_choice = --q->cp;
 		const choice *ch = GET_CHOICE(curr_choice);
 		q->st = ch->st;
-		q->save_m = NULL;
 
 		frame *f = GET_CURR_FRAME();
 		f->dbgen = ch->dbgen;
@@ -1393,14 +1392,12 @@ static bool match_head(query *q)
 		else if (is_cstring(c))
 			convert_to_literal(q->st.m, c);
 
-		q->save_m = q->st.m;
-
 		if (!pr || is_evaluable(c) || is_builtin(c)) {
 			//static unsigned s_cnt = 1;
 			//printf("*** %s / %u ... %u\n", C_STR(q, c), c->arity, s_cnt++);
 			pr = search_predicate(q->st.m, c, NULL);
 
-			if (!pr || (pr->is_goal_expansion && !pr->head)) {
+			if (!pr) {
 				if (!is_end(c) && !(is_interned(c) && !strcmp(C_STR(q, c), "initialization"))) {
 					if (q->st.m->flags.unknown == UNK_ERROR)
 						return throw_error(q, c, q->st.curr_frame, "existence_error", "procedure");

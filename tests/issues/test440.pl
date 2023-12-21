@@ -1,5 +1,6 @@
 :- initialization(main).
 
 main :-
-	call(user:((fail,1),_	=[])).
+	Y =.. [x,[_|Y]],
+	write(Y), nl.
 

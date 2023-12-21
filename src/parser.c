@@ -492,7 +492,10 @@ static bool goal_run(parser *p, cell *goal)
 	if (p->error || p->internal || !is_interned(goal))
 		return false;
 
-	if ((goal->val_off == g_goal_expansion_s) || (goal->val_off == g_cut_s))
+	if ((goal->val_off == g_goal_expansion_s) && (goal->arity == 2))
+		return false;
+
+	if (goal->val_off == g_cut_s)
 		return false;
 
 	query *q = query_create(p->m, false);
@@ -827,6 +830,9 @@ static bool directives(parser *p, cell *d)
 			return true;
 		} else
 			name = C_STR(p, p1);
+
+		if (!strcmp(name, "clpz"))
+			p->pl->opt = false;
 
 		if (!p->m->make) {
 			module *tmp_m;
@@ -1746,27 +1752,35 @@ static bool term_expansion(parser *p)
 
 static cell *goal_expansion(parser *p, cell *goal)
 {
-	if (p->error || p->internal || !is_interned(goal))
+	if (p->error || p->internal || !is_interned(goal) || !is_callable(goal))
 		return goal;
 
-	if ((goal->val_off == g_goal_expansion_s) || (goal->val_off == g_cut_s))
+	if ((goal->val_off == g_goal_expansion_s) && (goal->arity == 2))
+		return goal;
+
+	if (goal->val_off == g_cut_s)
 		return goal;
 
 	if (get_builtin_term(p->m, goal, NULL, NULL) /*|| is_op(goal)*/)
 		return goal;
 
-	predicate *pr = search_predicate(p->m, goal, NULL);
-
-	if ((!pr || !pr->is_goal_expansion) && !p->m->wild_goal_expansion)
+	if (!search_goal_expansion(p->m, goal))
 		return goal;
 
-	//printf("*** here %s/%u\n", C_STR(p, goal), goal->arity);
+	if (!CMP_STRING_TO_CSTR(p, goal, "phrase") && !p->consulting) {
+		return goal;
+	}
 
-	//if (search_predicate(p->m, goal))
+	//printf("*** here %s/%u\n", C_STR(p, goal), (goal)->arity);
+	//printf("*** ***  %s/%u\n", C_STR(p, goal+1), (goal+1)->arity);
+
+	//if (search_predicate(p->m, goal, NULL))
 	//	return goal;
 
-	if (p->pl->in_goal_expansion)
+	if (p->pl->in_goal_expansion) {
+		//printf("??? goal_expansion %s/%u\n", C_STR(p, goal), goal->arity);
 		return goal;
+	}
 
 	query *q = query_create(p->m, true);
 	check_error(q);
@@ -1785,6 +1799,7 @@ static cell *goal_expansion(parser *p, cell *goal)
 	// variables should create anew. Hence we pull the
 	// vartab from the main parser... IS THIS TRUE?
 
+	//printf("+++ goal_expansion %s/%u\n", C_STR(p, goal), goal->arity);
 	p->pl->in_goal_expansion = true;
 	parser *p2 = parser_create(p->m);
 	check_error(p2, query_destroy(q));
@@ -1800,6 +1815,7 @@ static cell *goal_expansion(parser *p, cell *goal)
 	execute(q, p2->cl->cells, p2->cl->nbr_vars);
 	SB_free(s);
 	p->pl->in_goal_expansion = false;
+	//printf("-- goal_expansion %s/%u\n", C_STR(p, goal), goal->arity);
 
 	if (q->retry != QUERY_OK) {
 		parser_destroy(p2);
@@ -1815,6 +1831,9 @@ static cell *goal_expansion(parser *p, cell *goal)
 	char *src = NULL;
 
 	for (unsigned i = 0; i < p2->cl->nbr_vars; i++) {
+		if (!p2->vartab.var_name[i])
+			continue;
+
 		if (strcmp(p2->vartab.var_name[i], "_TermOut"))
 			continue;
 
@@ -1885,6 +1904,24 @@ static cell *goal_expansion(parser *p, cell *goal)
 	return goal;
 }
 
+static bool is_meta_arg(predicate *pr, cell *c, unsigned arg)
+{
+	if (!pr->meta_args)
+		return false;
+
+	unsigned i = 0;
+
+	for (cell *m = pr->meta_args+1; m && (i < c->arity); m += m->nbr_cells, i++) {
+		if (!is_integer(m) || (i != arg))
+			continue;
+
+		if (get_smalluint(m) == 0)
+			return true;
+	}
+
+	return false;
+}
+
 static cell *insert_call_here(parser *p, cell *c, cell *p1)
 {
 	pl_idx c_idx = c - p->cl->cells, p1_idx = p1 - p->cl->cells;
@@ -1912,6 +1949,7 @@ static cell *insert_call_here(parser *p, cell *c, cell *p1)
 static cell *term_to_body_conversion(parser *p, cell *c)
 {
 	pl_idx c_idx = c - p->cl->cells;
+	bool is_head = c_idx == 0;
 
 	if (is_xfx(c) || is_xfy(c)) {
 		if ((c->val_off == g_conjunction_s)
@@ -1964,9 +2002,10 @@ static cell *term_to_body_conversion(parser *p, cell *c)
 				c->nbr_cells = 1 + rhs->nbr_cells;
 			}
 		}
-	} else if (c->arity) {
+	} else if (!is_head && c->arity) {
 		predicate *pr = find_predicate(p->m, c);
-		bool meta = !pr || pr->is_meta_predicate || pr->is_goal_expansion || p->m->wild_goal_expansion;
+		bool is_goal_expansion = find_goal_expansion(p->m, c);
+		bool meta = !pr || pr->is_meta_predicate || is_goal_expansion || p->m->wild_goal_expansion;
 		bool control = false;
 
 		if ((c->val_off == g_throw_s) && (c->arity == 1))
@@ -1980,9 +2019,10 @@ static cell *term_to_body_conversion(parser *p, cell *c)
 			c = goal_expansion(p, c);
 
 		cell *arg = c + 1;
-		unsigned arity = c->arity;
+		unsigned arity = c->arity, i = 0;
 
 		while (arity--) {
+			bool meta = pr ? is_meta_arg(pr, c, i) : false;
 			c->nbr_cells -= arg->nbr_cells;
 
 			if (meta)
@@ -1993,9 +2033,11 @@ static cell *term_to_body_conversion(parser *p, cell *c)
 
 			c->nbr_cells += arg->nbr_cells;
 			arg += arg->nbr_cells;
+			i++;
 		}
 	}
 
+	c_idx = c - p->cl->cells;
 	return p->cl->cells + c_idx;
 }
 

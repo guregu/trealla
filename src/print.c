@@ -604,9 +604,10 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 		cell *tail = c + 1; tail += tail->nbr_cells;
 		pl_idx tail_ctx = c_ctx;
 		cell *save_tail = tail;
+		e = NULL;
 		both = 0;
 
-		if (running) DEREF_CHECKED(any2, both, save_vgen, e, e->vgen, tail, tail_ctx, q->print_vgen);
+		if (running) DEREF_CHECKED(any2, both, e->vgen2, e, e->vgen, tail, tail_ctx, q->print_vgen);
 
 		if (both || q->cycle_error || (q->max_depth && (print_depth >= q->max_depth))) {
 			SB_sprintf(q->sb, "%s", "|");
@@ -655,7 +656,7 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 			print_string_list(q, tail, tail_ctx, running, 1, depth+1);
 			SB_sprintf(q->sb, "%s", "]");
 			q->last_thing = WAS_OTHER;
-			q->cycle_error = true;
+			//q->cycle_error = true;
 			break;
 		} else if (is_iso_list(tail)) {
 			if ((tail == save_c) && (tail_ctx == save_c_ctx) && running) {
@@ -703,6 +704,23 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 		}
 
 		break;
+	}
+
+	if (any2 && !q->cycle_error) {
+		cell *p1 = orig_c;
+		pl_idx p1_ctx = orig_c_ctx;
+
+		while (is_iso_list(p1)) {
+			if (g_tpl_interrupt)
+				break;
+
+			p1 = p1 + 1; p1 += p1->nbr_cells;
+			cell *c = p1;
+			pl_idx c_ctx = p1_ctx;
+			bool both = false;
+			RESTORE_VAR_CHECKED(both,c, c_ctx, p1, p1_ctx, q->print_vgen);
+			if (both) break;
+		}
 	}
 }
 
@@ -878,7 +896,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 	}
 
 	if (is_string(c) && !q->double_quotes) {
-		print_string_list(q, c, c_ctx, running, cons > 0, depth+1);
+			print_string_list(q, c, c_ctx, running, cons > 0, depth+1);
 		q->last_thing = WAS_OTHER;
 		return true;
 	}
@@ -1219,22 +1237,16 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 	cell *rhs = lhs + lhs->nbr_cells;
 	cell *save_rhs = rhs;
 	pl_idx rhs_ctx = c_ctx;
-	slot *e = NULL;
-	uint32_t save_vgen = 0;
+	slot *e1 = NULL, *e2 = NULL;
+	uint32_t save_vgen1 = 0, save_vgen2 = 0;
 	bool any = false;
 	int both = 0;
-	if (running) DEREF_CHECKED(any, both, save_vgen, e, e->vgen, lhs, lhs_ctx, q->print_vgen);
-	if (e) e->vgen = save_vgen;
-	e = NULL;
-	if (running) DEREF_CHECKED(any, both, save_vgen, e, e->vgen, rhs, rhs_ctx, q->print_vgen);
-	if (e) e->vgen = save_vgen;
-
-	unsigned lhs_pri_1 = is_interned(lhs) ? search_op(q->st.m, C_STR(q, lhs), NULL, is_prefix(rhs)) : 0;
-	unsigned lhs_pri_2 = is_interned(lhs) && !lhs->arity ? search_op(q->st.m, C_STR(q, lhs), NULL, false) : 0;
-	unsigned rhs_pri_1 = is_interned(rhs) ? search_op(q->st.m, C_STR(q, rhs), NULL, is_prefix(rhs)) : 0;
-	unsigned rhs_pri_2 = is_interned(rhs) && !rhs->arity ? search_op(q->st.m, C_STR(q, rhs), NULL, false) : 0;
 
 	// Print LHS..
+
+	if (running) DEREF_CHECKED(any, both, save_vgen1, e1, e1->vgen, lhs, lhs_ctx, q->print_vgen);
+	unsigned lhs_pri_1 = is_interned(lhs) ? search_op(q->st.m, C_STR(q, lhs), NULL, is_prefix(rhs)) : 0;
+	unsigned lhs_pri_2 = is_interned(lhs) && !lhs->arity ? search_op(q->st.m, C_STR(q, lhs), NULL, false) : 0;
 
 	bool lhs_parens = lhs_pri_1 >= my_priority;
 	if ((lhs_pri_1 == my_priority) && is_yfx(c)) lhs_parens = false;
@@ -1297,6 +1309,8 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		q->last_thing = WAS_SPACE;
 	}
 
+	if (e1) e1->vgen = save_vgen1;
+
 	// Print OP..
 
 	//q->last_thing_was_symbol += is_symbol;
@@ -1328,6 +1342,9 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 
 	// Print RHS..
 
+	if (running) DEREF_CHECKED(any, both, save_vgen2, e2, e2->vgen, rhs, rhs_ctx, q->print_vgen);
+	unsigned rhs_pri_1 = is_interned(rhs) ? search_op(q->st.m, C_STR(q, rhs), NULL, is_prefix(rhs)) : 0;
+	unsigned rhs_pri_2 = is_interned(rhs) && !rhs->arity ? search_op(q->st.m, C_STR(q, rhs), NULL, false) : 0;
 	bool rhs_parens = rhs_pri_1 >= my_priority;
 	space = is_number(rhs) && is_negative(rhs);
 
@@ -1373,6 +1390,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		else if (rhs_is_symbol) { q->last_thing = WAS_SYMBOL; }
 	}
 
+	if (e2) e2->vgen = save_vgen2;
 	return true;
 }
 
@@ -1388,6 +1406,7 @@ char *print_canonical_to_strbuf(query *q, cell *c, pl_idx c_ctx, int running)
 	q->quoted = 1;
 	q->last_thing = WAS_OTHER;
 	q->did_quote = false;
+	q->cycle_error = false;
 	SB_init(q->sb);
 	print_term_to_buf(q, c, c_ctx, running, false);
 	q->ignore_ops = false;
@@ -1405,6 +1424,7 @@ bool print_canonical_to_stream(query *q, stream *str, cell *c, pl_idx c_ctx, int
 	q->quoted = 1;
 	q->last_thing = WAS_OTHER;
 	q->did_quote = false;
+	q->cycle_error = false;
 	SB_init(q->sb);
 	print_term_to_buf(q, c, c_ctx, running, false);
 	q->ignore_ops = false;
@@ -1436,6 +1456,7 @@ bool print_canonical(query *q, FILE *fp, cell *c, pl_idx c_ctx, int running)
 	q->quoted = 1;
 	q->last_thing = WAS_OTHER;
 	q->did_quote = false;
+	q->cycle_error = false;
 	SB_init(q->sb);
 	print_term_to_buf(q, c, c_ctx, running, false);
 	q->ignore_ops = false;
@@ -1465,6 +1486,7 @@ char *print_term_to_strbuf(query *q, cell *c, pl_idx c_ctx, int running)
 	if (++q->print_vgen == 0) q->print_vgen = 1;
 	q->last_thing = WAS_OTHER;
 	q->did_quote = false;
+	q->cycle_error = false;
 	//q->last_thing_was_space = true;
 	SB_init(q->sb);
 	print_term_to_buf(q, c, c_ctx, running, false);
@@ -1479,6 +1501,7 @@ bool print_term_to_stream(query *q, stream *str, cell *c, pl_idx c_ctx, int runn
 	if (++q->print_vgen == 0) q->print_vgen = 1;
 	q->did_quote = false;
 	q->last_thing = WAS_SPACE;
+	q->cycle_error = false;
 	SB_init(q->sb);
 	print_term_to_buf(q, c, c_ctx, running, false);
 	const char *src = SB_cstr(q->sb);
@@ -1506,6 +1529,7 @@ bool print_term(query *q, FILE *fp, cell *c, pl_idx c_ctx, int running)
 	if (++q->print_vgen == 0) q->print_vgen = 1;
 	q->did_quote = false;
 	q->last_thing = WAS_SPACE;
+	q->cycle_error = false;
 	SB_init(q->sb);
 	print_term_to_buf(q, c, c_ctx, running, false);
 	const char *src = SB_cstr(q->sb);
@@ -1536,5 +1560,6 @@ void clear_write_options(query *q)
 	q->parens = q->numbervars = q->json = q->double_quotes = false;
 	q->last_thing = WAS_OTHER;
 	q->variable_names = NULL;
+	q->cycle_error = false;
 	memset(q->ignores, 0, sizeof(q->ignores));
 }

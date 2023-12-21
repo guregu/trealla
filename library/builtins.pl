@@ -2,6 +2,13 @@
 
 :- use_module(library(lists)).
 
+expand_term((H --> B), Out) :-
+	dcg_translate((H --> B), Out), !.
+
+dcg_translate(TermIn, Term) :-
+	nonvar(TermIn),
+	dcg_rule(TermIn, Term).
+
 predicate_property(P, A) :-
 	nonvar(P), atom(A), !,
 	must_be(P, callable, predicate_property/2, _),
@@ -517,13 +524,6 @@ reconsult(Files) :- load_files(Files,[]).
 deconsult(Files) :- unload_files(Files).
 
 :- help(deconsult(+list), [iso(false)]).
-
-strip_module(T, M, P) :-
-	(	T = M:P -> true
-	;	( P=T, prolog_load_context(module, M))
-	).
-
-:- help(strip_module(+term,-atom,-term), [iso(false)]).
 
 ?=(X, Y) :- \+ unifiable(X, Y, [_|_]).
 

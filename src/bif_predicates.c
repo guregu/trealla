@@ -2268,9 +2268,6 @@ static bool bif_iso_current_predicate_1(query *q)
 	if (!pr)
 		return false;
 
-	if (pr->is_goal_expansion && !pr->head)
-		return false;
-
 	return true;
 }
 
@@ -5657,26 +5654,29 @@ static bool bif_get_unbuffered_char_1(query *q)
 
 bool bif_iso_invoke_2(query *q)
 {
-	GET_FIRST_ARG(p1,atom);
+	GET_FIRST_ARG(p1,atom_or_var);
 	GET_NEXT_ARG(p2,callable);
-	module *m = find_module(q->pl, C_STR(q, p1));
 
-	if (!m)
-		m = module_create(q->pl, C_STR(q, p1));
+	if (is_atom(p1)) {
+		module *m = find_module(q->pl, C_STR(q, p1));
+
+		if (!m)
+			m = module_create(q->pl, C_STR(q, p1));
+
+		q->st.m = m;
+	}
 
 	cell *tmp = prepare_call(q, true, p2, p2_ctx, 1);
 	check_heap_error(tmp);
 	pl_idx nbr_cells = PREFIX_LEN;
 
 	if (!is_builtin(p2) /*&& !tmp[nbr_cells].match*/)
-		tmp[nbr_cells].match = find_predicate(m, p2);
+		tmp[nbr_cells].match = find_predicate(q->st.m, p2);
 
 	nbr_cells += p2->nbr_cells;
 	make_call(q, tmp+nbr_cells);
-	q->save_m = q->st.m;
 	q->st.curr_cell = tmp;
 	q->st.curr_frame = p2_ctx;
-	q->st.m = m;
 	return true;
 }
 
@@ -5740,6 +5740,35 @@ static bool bif_prolog_load_context_2(query *q)
 	cell tmp;
 	make_atom(&tmp, new_atom(q->pl, q->st.m->name));
 	return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
+}
+
+static bool bif_strip_module_3(query *q)
+{
+	GET_FIRST_ARG(p1,callable);
+	GET_NEXT_ARG(p2,atom_or_var);
+	GET_NEXT_ARG(p3,any);
+
+	if (p1->val_off == g_colon_s) {
+		cell *cm = deref(q, p1+1, p1_ctx);
+		pl_idx cm_ctx = q->latest_ctx;
+
+		if (!unify(q, p2, p2_ctx, cm, cm_ctx))
+			return false;
+
+		cell *ct = deref(q, p1+2, p1_ctx);
+		pl_idx ct_ctx = q->latest_ctx;
+		return unify(q, p3, p3_ctx, ct, ct_ctx);
+	}
+
+#if 0
+	cell tmp;
+	make_atom(&tmp, new_atom(q->pl, q->st.m->name));
+
+	if (!unify(q, p2, p2_ctx, &tmp, q->st.curr_frame))
+		return false;
+#endif
+
+	return unify(q, p3, p3_ctx, p1, p1_ctx);
 }
 
 static bool bif_module_1(query *q)
@@ -6495,6 +6524,7 @@ builtins g_other_bifs[] =
 
 	{"current_module", 1, bif_current_module_1, "-atom", false, false, BLAH},
 	{"prolog_load_context", 2, bif_prolog_load_context_2, "+atom,?term", false, false, BLAH},
+	{"strip_module", 3, bif_strip_module_3, "+callable,?atom,?callable", false, false, BLAH},
 	{"module", 1, bif_module_1, "?atom", false, false, BLAH},
 	{"modules", 1, bif_modules_1, "-list", false, false, BLAH},
 	{"using", 0, bif_using_0, NULL, false, false, BLAH},
