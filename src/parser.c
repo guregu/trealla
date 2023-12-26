@@ -3147,6 +3147,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 	bool last_op = true, is_func = false, last_num = false;
 	bool last_bar = false, last_quoted = false;
 	bool last_prefix = false, last_postfix = false;
+	int entered = p->entered;
 	unsigned arity = 1;
 	p->depth++;
 
@@ -3323,6 +3324,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 			p->nesting_brackets++;
 			bool was_consing = p->was_consing;
 			p->was_consing = false;
+			p->entered = '[';
 			tokenize(p, true, true);
 
 			if (!p->was_consing)
@@ -3349,6 +3351,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 			c->arity = 1;
 			p->start_term = true;
 			p->nesting_braces++;
+			p->entered = '{';
 			tokenize(p, false, false);
 			last_bar = false;
 
@@ -3366,6 +3369,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 		if (!p->quote_char && !SB_strcmp(p->token, "(")) {
 			p->start_term = true;
 			p->nesting_parens++;
+			p->entered = '(';
 			unsigned tmp_arity = tokenize(p, is_func, false);
 			last_bar = false;
 
@@ -3553,6 +3557,15 @@ unsigned tokenize(parser *p, bool args, bool consing)
 				break;
 			}
 
+			if (entered != '(') {
+				if (DUMP_ERRS || !p->do_read_term)
+					printf("Error: syntax error, mismatched parens/brackets/braces, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
+
+				p->error_desc = "mismatched_parens_or_brackets_or_braces";
+				p->error = true;
+				p->nesting_parens = p->nesting_brackets = p->nesting_braces = 0;
+			}
+
 			p->last_close = true;
 			p->nesting_parens--;
 			analyze(p, arg_idx, last_op=false);
@@ -3569,6 +3582,15 @@ unsigned tokenize(parser *p, bool args, bool consing)
 				break;
 			}
 
+			if (entered != '[') {
+				if (DUMP_ERRS || !p->do_read_term)
+					printf("Error: syntax error, mismatched parens/brackets/braces, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
+
+				p->error_desc = "mismatched_parens_or_brackets_or_braces";
+				p->error = true;
+				p->nesting_parens = p->nesting_brackets = p->nesting_braces = 0;
+			}
+
 			p->last_close = true;
 			p->nesting_brackets--;
 			analyze(p, arg_idx, last_op=false);
@@ -3583,6 +3605,15 @@ unsigned tokenize(parser *p, bool args, bool consing)
 				p->error_desc = "args";
 				p->error = true;
 				break;
+			}
+
+			if (entered != '{') {
+				if (DUMP_ERRS || !p->do_read_term)
+					printf("Error: syntax error, mismatched parens/brackets/braces, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
+
+				p->error_desc = "mismatched_parens_or_brackets_or_braces";
+				p->error = true;
+				p->nesting_parens = p->nesting_brackets = p->nesting_braces = 0;
 			}
 
 			p->last_close = true;
