@@ -294,9 +294,6 @@ static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx l_ctx, bool 
 	LIST_HANDLER(l);
 
 	while (is_list(l) && (q->st.m->flags.double_quote_chars || allow_codes)) {
-		if (g_tpl_interrupt)
-			return 0;
-
 		cell *h = LIST_HEAD(l);
 		pl_idx h_ctx = l_ctx;
 		slot *e = NULL;
@@ -360,9 +357,6 @@ static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx l_ctx, bool 
 		LIST_HANDLER(l2);
 
 		while (is_list(l2) && (q->st.m->flags.double_quote_chars || allow_codes)) {
-			if (g_tpl_interrupt)
-				return 0;
-
 			cell *h = LIST_HEAD(l2);
 			l2 = LIST_TAIL(l2);
 			RESTORE_VAR(l2, l2_ctx, l2, l2_ctx, q->vgen);
@@ -395,7 +389,7 @@ size_t scan_is_chars_list(query *q, cell *l, pl_idx l_ctx, bool allow_codes)
 
 static void enter_predicate(query *q, predicate *pr)
 {
-	q->st.recursive = q->st.pr && (q->st.pr == pr);
+	q->st.recursive = q->st.pr == pr;
 	q->st.pr = pr;
 
 	if (pr->is_dynamic)
@@ -570,18 +564,18 @@ int retry_choice(query *q)
 static frame *push_frame(query *q, const clause *cl)
 {
 	const frame *curr_f = GET_CURR_FRAME();
-	const cell *next_cell = q->st.curr_cell + q->st.curr_cell->nbr_cells;
+	const cell *next_cell = q->st.next_instr + q->st.next_instr->nbr_cells;
 	pl_idx new_frame = q->st.fp++;
 	frame *f = GET_FRAME(new_frame);
 
 	// Avoid long chains of useless returns...
 
-	if (is_end(next_cell) && !next_cell->val_ret && curr_f->curr_cell) {
+	if (is_end(next_cell) && !next_cell->val_ret && curr_f->next_instr) {
 		f->prev_offset = (new_frame - q->st.curr_frame) + curr_f->prev_offset;
-		f->curr_cell = curr_f->curr_cell;
+		f->next_instr = curr_f->next_instr;
 	} else {
 		f->prev_offset = new_frame - q->st.curr_frame;
-		f->curr_cell = q->st.curr_cell;
+		f->next_instr = q->st.next_instr;
 	}
 
 	f->initial_slots = f->actual_slots = cl->nbr_vars;
@@ -601,6 +595,11 @@ static frame *push_frame(query *q, const clause *cl)
 
 static void reuse_frame(query *q, const clause *cl)
 {
+	cell *c_next = q->st.next_instr + q->st.next_instr->nbr_cells;
+
+	if (c_next->val_off == g_sys_drop_barrier_s)
+		drop_choice(q);
+
 	frame *f = GET_CURR_FRAME();
 	f->initial_slots = f->actual_slots = cl->nbr_vars;
 	f->chgen = ++q->chgen;
@@ -622,15 +621,25 @@ static void reuse_frame(query *q, const clause *cl)
 	q->tot_tcos++;
 }
 
+static void prune_trail(query *q)
+{
+	while (q->st.tp) {
+		const trail *tr = q->trails + q->st.tp - 1;
+
+		if (tr->var_ctx < q->st.curr_frame)
+			break;
+
+		q->st.tp--;
+	}
+}
+
 static void trim_trail(query *q)
 {
 	if (q->undo_hi_tp)
 		return;
 
-	if (!q->cp) {
-		q->st.tp = 0;
+	if (!q->cp)
 		return;
-	}
 
 	const choice *ch = GET_CURR_CHOICE();
 	pl_idx tp = ch->st.tp;
@@ -638,7 +647,7 @@ static void trim_trail(query *q)
 	while (q->st.tp > tp) {
 		const trail *tr = q->trails + q->st.tp - 1;
 
-		if (tr->var_ctx < q->st.curr_frame)
+		if (tr->var_ctx != q->st.curr_frame)
 			break;
 
 		q->st.tp--;
@@ -671,15 +680,22 @@ static void commit_frame(query *q, cell *body)
 	bool last_match = is_det || cl->is_first_cut || !next_key;
 	bool tco = false;
 
-	if (!q->no_tco && (q->st.fp == (q->st.curr_frame + 1)) && last_match) {
-		const cell *head = get_head((cell*)cl->cells);
-		bool choices = any_choices(q, f);
-		bool tail_call = is_tail_call(q->st.curr_cell);
+	if (q->st.r->owner->is_tco)
+		q->no_tco = false;
+
+
+	if (!q->no_tco && last_match && (q->st.fp == (q->st.curr_frame + 1))) {
+		bool tail_call = is_tail_call(q->st.next_instr);
 		bool tail_recursive = tail_call && q->st.recursive;
-		bool vars_ok = /*!f->overflow &&*/ (f->initial_slots == cl->nbr_vars);
-		tco = tail_recursive && vars_ok && !choices;
+		bool vars_ok =
+			tail_recursive ? f->initial_slots == cl->nbr_vars :
+			tail_call ? f->initial_slots == (cl->nbr_vars - cl->nbr_temporaries) :
+			false;
+		bool choices = any_choices(q, f);
+		tco = vars_ok && !choices;
 
 #if 0
+		const cell *head = get_head((cell*)cl->cells);
 		fprintf(stderr,
 			"*** %s/%u tco=%d,q->no_tco=%d,last_match=%d,is_det=%d,"
 			"next_key=%d,tail_call=%d/%d,vars_ok=%d,choices=%d,"
@@ -689,12 +705,12 @@ static void commit_frame(query *q, cell *body)
 			next_key, tail_call, tail_recursive, vars_ok, choices,
 			cl->nbr_vars, cl->nbr_temporaries, f->initial_slots, f->actual_slots);
 #endif
-
 	}
 
-	if (q->pl->opt && tco)
+	if (q->pl->opt && tco) {
 		reuse_frame(q, cl);
-	else {
+		prune_trail(q);
+	} else {
 		f = push_frame(q, cl);
 
 		// If matching against a fact then drop new frame...
@@ -706,7 +722,8 @@ static void commit_frame(query *q, cell *body)
 	if (last_match) {
 		leave_predicate(q, q->st.pr);
 		drop_choice(q);
-		//trim_trail(q);	// Dodgey?
+		cut(q); // ???
+		trim_trail(q);
 	} else {
 		choice *ch = GET_CURR_CHOICE();
 		ch->st.r = q->st.r;
@@ -715,7 +732,7 @@ static void commit_frame(query *q, cell *body)
 
 	Trace(q, get_head(q->st.r->cl.cells), q->st.curr_frame, EXIT);
 
-	q->st.curr_cell = body;
+	q->st.next_instr = body;
 	q->st.iter = NULL;
 }
 
@@ -739,7 +756,7 @@ void stash_frame(query *q, const clause *cl, bool last_match)
 		pl_idx new_frame = q->st.fp++;
 		frame *f = GET_FRAME(new_frame);
 		f->prev_offset = new_frame - q->st.curr_frame;
-		f->curr_cell = NULL;
+		f->next_instr = NULL;
 		f->chgen = chgen;
 		f->overflow = 0;
 		q->st.sp += nbr_vars;
@@ -846,7 +863,7 @@ void cut(query *q)
 
 		if (ch->register_cleanup && !ch->fail_on_retry) {
 			ch->fail_on_retry = true;
-			cell *c = ch->st.curr_cell;
+			cell *c = ch->st.next_instr;
 			pl_idx c_ctx = ch->st.curr_frame;
 			c = deref(q, FIRST_ARG(c), c_ctx);
 			c_ctx = q->latest_ctx;
@@ -870,7 +887,7 @@ inline static bool resume_frame(query *q)
 	if (!f->prev_offset)
 		return false;
 
-	q->st.curr_cell = f->curr_cell;
+	q->st.next_instr = f->next_instr;
 	q->st.curr_frame = q->st.curr_frame - f->prev_offset;
 	f = GET_CURR_FRAME();
 	q->st.m = q->pl->modmap[f->mid];
@@ -881,16 +898,16 @@ inline static bool resume_frame(query *q)
 
 inline static void proceed(query *q)
 {
-	q->st.curr_cell += q->st.curr_cell->nbr_cells;
+	q->st.next_instr += q->st.next_instr->nbr_cells;
 	frame *f = GET_CURR_FRAME();
 
-	while (is_end(q->st.curr_cell)) {
-		if (q->st.curr_cell->val_ret) {
-			f->chgen = q->st.curr_cell->chgen;
-			//q->st.m = q->pl->modmap[q->st.curr_cell->mid];
+	while (is_end(q->st.next_instr)) {
+		if (q->st.next_instr->val_ret) {
+			f->chgen = q->st.next_instr->chgen;
+			//q->st.m = q->pl->modmap[q->st.next_instr->mid];
 		}
 
-		if (!(q->st.curr_cell = q->st.curr_cell->val_ret))
+		if (!(q->st.next_instr = q->st.next_instr->val_ret))
 			break;
 	}
 }
@@ -921,15 +938,19 @@ unsigned create_vars(query *q, unsigned cnt)
 		f->overflow = q->st.sp;
 		pl_idx cnt2 = f->actual_slots - f->initial_slots;
 
-		if (!check_slot(q, cnt2))
+		if (!check_slot(q, cnt2)) {
+			printf("*** Ooops %s %d\n", __FILE__, __LINE__);
 			return 0;
+		}
 
 		memmove(q->slots+f->overflow, q->slots+save_overflow, sizeof(slot)*cnt2);
 		q->st.sp += cnt2;
 	}
 
-	if (!check_slot(q, cnt))
+	if (!check_slot(q, cnt)) {
+		printf("*** Ooops %s %d\n", __FILE__, __LINE__);
 		return 0;
+	}
 
 	q->st.sp += cnt;
 	slot *e = GET_SLOT(f, f->actual_slots);
@@ -1057,13 +1078,17 @@ static bool expand_meta_predicate(query *q, predicate *pr)
 			;
 		else if (!is_interned(k))
 			;
-		else if (m->val_off == g_colon_s) {
+		else if (is_interned(m) && (m->val_off == g_colon_s)) {
 			make_struct(tmp, g_colon_s, bif_iso_invoke_2, 2, 1+k->nbr_cells);
 			SET_OP(tmp, OP_XFY); tmp++;
-			make_atom(tmp++, new_atom(q->pl, pr->m->name));
+			make_atom(tmp++, new_atom(q->pl, q->st.m->name));
+		} else if (is_positive(m) && (get_smallint(m) <= 9)) {
+			make_struct(tmp, g_colon_s, bif_iso_invoke_2, 2, 1+k->nbr_cells);
+			SET_OP(tmp, OP_XFY); tmp++;
+			make_atom(tmp++, new_atom(q->pl, q->st.m->name));
 		}
 
-		tmp += safe_copy_cells(tmp, k, k->nbr_cells);
+		tmp += dup_cells(tmp, k, k->nbr_cells);
 	}
 
 	save_tmp->nbr_cells = tmp - save_tmp;
@@ -1188,8 +1213,8 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 bool match_rule(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract)
 {
 	if (!q->retry) {
-		cell *head = deref(q, get_head(p1), p1_ctx);
-		cell *c = head;
+		cell *c = deref(q, get_head(p1), p1_ctx);
+		pl_idx c_ctx = q->latest_ctx;
 		predicate *pr = NULL;
 
 		if (is_interned(c))
@@ -1205,8 +1230,8 @@ bool match_rule(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract)
 		if (!pr) {
 			bool found = false;
 
-			if (get_builtin_term(q->st.m, head, &found, NULL), found)
-				return throw_error(q, head, q->latest_ctx, "permission_error", "modify,static_procedure");
+			if (get_builtin_term(q->st.m, c, &found, NULL), found)
+				return throw_error(q, c, c_ctx, "permission_error", "modify,static_procedure");
 
 			q->st.r = NULL;
 			return false;
@@ -1218,9 +1243,9 @@ bool match_rule(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract)
 		}
 
 		if (!pr->is_dynamic)
-			return throw_error(q, head, q->latest_ctx, "permission_error", "modify,static_procedure");
+			return throw_error(q, c, c_ctx, "permission_error", "modify,static_procedure");
 
-		find_key(q, pr, c, p1_ctx);
+		find_key(q, pr, c, c_ctx);
 		enter_predicate(q, pr);
 		frame *f = GET_FRAME(q->st.curr_frame);
 		f->dbgen = q->pl->dbgen;
@@ -1298,6 +1323,7 @@ bool match_clause(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract
 {
 	if (!q->retry) {
 		cell *c = p1;
+		pl_idx c_ctx = p1_ctx;
 		predicate *pr = NULL;
 
 		if (is_interned(c))
@@ -1337,7 +1363,7 @@ bool match_clause(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract
 				return throw_error(q, p1, p1_ctx, "permission_error", "modify,static_procedure");
 		}
 
-		find_key(q, pr, c, p1_ctx);
+		find_key(q, pr, c, c_ctx);
 		enter_predicate(q, pr);
 		frame *f = GET_FRAME(q->st.curr_frame);
 		f->dbgen = q->pl->dbgen;
@@ -1384,7 +1410,8 @@ bool match_clause(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract
 static bool match_head(query *q)
 {
 	if (!q->retry) {
-		cell *c = q->st.curr_cell;
+		cell *c = q->st.next_instr;
+		pl_idx c_ctx = q->st.curr_frame;
 		predicate *pr = NULL;
 
 		if (is_interned(c))
@@ -1393,14 +1420,12 @@ static bool match_head(query *q)
 			convert_to_literal(q->st.m, c);
 
 		if (!pr || is_evaluable(c) || is_builtin(c)) {
-			//static unsigned s_cnt = 1;
-			//printf("*** %s / %u ... %u\n", C_STR(q, c), c->arity, s_cnt++);
 			pr = search_predicate(q->st.m, c, NULL);
 
 			if (!pr) {
 				if (!is_end(c) && !(is_interned(c) && !strcmp(C_STR(q, c), "initialization"))) {
 					if (q->st.m->flags.unknown == UNK_ERROR)
-						return throw_error(q, c, q->st.curr_frame, "existence_error", "procedure");
+						return throw_error(q, c, c_ctx, "existence_error", "procedure");
 					return false;
 				} else
 					q->error = true;
@@ -1416,7 +1441,7 @@ static bool match_head(query *q)
 			c->match = pr;
 		}
 
-		find_key(q, pr, q->st.curr_cell, q->st.curr_frame);
+		find_key(q, pr, c, c_ctx);
 		enter_predicate(q, pr);
 		frame *f = GET_FRAME(q->st.curr_frame);
 		f->dbgen = q->pl->dbgen;
@@ -1554,9 +1579,9 @@ bool start(query *q)
 			}
 		}
 
-		if (!is_callable(q->st.curr_cell)) {
-			if (is_var(q->st.curr_cell)) {
-				cell *p1 = deref(q, q->st.curr_cell, q->st.curr_frame);
+		if (!is_callable(q->st.next_instr)) {
+			if (is_var(q->st.next_instr)) {
+				cell *p1 = deref(q, q->st.next_instr, q->st.curr_frame);
 				pl_idx p1_ctx = q->latest_ctx;
 
 				if (!bif_call_0(q, p1, p1_ctx)) {
@@ -1566,29 +1591,30 @@ bool start(query *q)
 					continue;
 				}
 			} else
-				return throw_error(q, q->st.curr_cell, q->st.curr_frame, "type_error", "callable");
+				return throw_error(q, q->st.next_instr, q->st.curr_frame, "type_error", "callable");
 		}
 
-		Trace(q, q->st.curr_cell, q->st.curr_frame, CALL);
-		cell *save_cell = q->st.curr_cell;
+		Trace(q, q->st.next_instr, q->st.curr_frame, CALL);
+		cell *save_cell = q->st.next_instr;
 		pl_idx save_ctx = q->st.curr_frame;
+		q->cycle_error = false;
 		q->did_throw = false;
 		q->max_eval_depth = 0;
 		q->tot_goals++;
 
-		if (is_builtin(q->st.curr_cell)) {
+		if (is_builtin(q->st.next_instr)) {
 			q->tot_inferences++;
 			bool status;
 
 #if USE_FFI
-			if (q->st.curr_cell->bif_ptr->ffi) {
-				if (q->st.curr_cell->bif_ptr->evaluable)
-					status = wrap_ffi_function(q, q->st.curr_cell->bif_ptr);
+			if (q->st.next_instr->bif_ptr->ffi) {
+				if (q->st.next_instr->bif_ptr->evaluable)
+					status = wrap_ffi_function(q, q->st.next_instr->bif_ptr);
 				else
-					status = wrap_ffi_predicate(q, q->st.curr_cell->bif_ptr);
+					status = wrap_ffi_predicate(q, q->st.next_instr->bif_ptr);
 			} else
 #endif
-				status = q->st.curr_cell->bif_ptr->fn(q);
+				status = q->st.next_instr->bif_ptr->fn(q);
 
 			if (q->retry == QUERY_NOSKIPARG) {
 				q->retry = QUERY_OK;
@@ -1612,7 +1638,7 @@ bool start(query *q)
 			}
 
 			if (!status || q->abort) {
-				Trace(q, q->st.curr_cell, q->st.curr_frame, FAIL);
+				Trace(q, q->st.next_instr, q->st.curr_frame, FAIL);
 				q->retry = QUERY_RETRY;
 
 				if (q->yielded)
@@ -1627,9 +1653,9 @@ bool start(query *q)
 
 			Trace(q, save_cell, save_ctx, EXIT);
 			proceed(q);
-		} else if (is_iso_list(q->st.curr_cell)) {
-			if (!consultall(q, q->st.curr_cell, q->st.curr_frame)) {
-				Trace(q, q->st.curr_cell, q->st.curr_frame, FAIL);
+		} else if (is_iso_list(q->st.next_instr)) {
+			if (!consultall(q, q->st.next_instr, q->st.curr_frame)) {
+				Trace(q, q->st.next_instr, q->st.curr_frame, FAIL);
 				q->retry = QUERY_RETRY;
 				q->tot_backtracks++;
 				continue;
@@ -1641,7 +1667,7 @@ bool start(query *q)
 			q->tot_inferences++;
 
 			if (!match_head(q)) {
-				Trace(q, q->st.curr_cell, q->st.curr_frame, FAIL);
+				Trace(q, q->st.next_instr, q->st.curr_frame, FAIL);
 				q->retry = QUERY_RETRY;
 				q->tot_backtracks++;
 				continue;
@@ -1655,7 +1681,7 @@ bool start(query *q)
 
 		q->retry = QUERY_OK;
 
-		while (!q->st.curr_cell || is_end(q->st.curr_cell)) {
+		while (!q->st.next_instr || is_end(q->st.next_instr)) {
 			if (resume_frame(q)) {
 				proceed(q);
 				continue;
@@ -1782,10 +1808,9 @@ uint64_t get_time_in_usec(void)
 bool execute(query *q, cell *cells, unsigned nbr_vars)
 {
 	q->pl->did_dump_vars = false;
-	q->st.curr_cell = cells;
+	q->st.next_instr = cells;
 	q->st.sp = nbr_vars;
 	q->abort = false;
-	q->cycle_error = false;
 	q->is_redo = false;
 
 	// There is an initial frame (fp=0), so this
@@ -1959,7 +1984,7 @@ query *query_create(module *m, bool is_task)
 	return q;
 }
 
-query *query_create_task(query *q, cell *curr_cell)
+query *query_create_task(query *q, cell *next_instr)
 {
 	query *task = query_create(q->st.m, true);
 	if (!task) return NULL;
@@ -1968,10 +1993,10 @@ query *query_create_task(query *q, cell *curr_cell)
 	task->st.fp = 1;
 	task->p = q->p;
 
-	cell *tmp = prepare_call(task, false, curr_cell, q->st.curr_frame, 1);
+	cell *tmp = prepare_call(task, false, next_instr, q->st.curr_frame, 1);
 	pl_idx nbr_cells = tmp->nbr_cells;
 	make_end(tmp+nbr_cells);
-	task->st.curr_cell = tmp;
+	task->st.next_instr = tmp;
 
 	frame *fsrc = GET_FRAME(q->st.curr_frame);
 	frame *fdst = task->frames;

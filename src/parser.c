@@ -353,7 +353,7 @@ static void consultall(parser *p, cell *l)
 {
 	LIST_HANDLER(l);
 
-	while (is_list(l) && !g_tpl_interrupt) {
+	while (is_list(l)) {
 		cell *h = LIST_HEAD(l);
 
 		if (is_iso_list(h))
@@ -432,7 +432,7 @@ static void do_op(parser *p, cell *c, bool make_public)
 	free(spec);
 	LIST_HANDLER(p3);
 
-	while (is_list(p3) && !g_tpl_interrupt) {
+	while (is_list(p3)) {
 		cell *h = LIST_HEAD(p3);
 
 		if (is_atom(h)) {
@@ -627,6 +627,25 @@ static bool directives(parser *p, cell *d)
 			if (is_compound(h) && is_atom(h+1) && !strcmp(C_STR(p, h), "iso")) {
 				cell *arg = h + 1;
 				iso = !strcmp(C_STR(p, arg), "true");
+
+				if (iso) {
+					predicate *pr = find_predicate(p->m, p1);
+
+					if (pr)
+						pr->is_iso = true;
+				}
+			}
+
+			if (is_compound(h) && is_atom(h+1) && !strcmp(C_STR(p, h), "tco")) {
+				cell *arg = h + 1;
+				bool tco = !strcmp(C_STR(p, arg), "true");
+
+				if (tco) {
+					predicate *pr = find_predicate(p->m, p1);
+
+					if (pr)
+						pr->is_tco = true;
+				}
 			}
 
 			if (is_compound(h) && is_atom(h+1) && !strcmp(C_STR(p, h), "desc")) {
@@ -770,7 +789,7 @@ static bool directives(parser *p, cell *d)
 
 		LIST_HANDLER(p2);
 
-		while (is_iso_list(p2) && !g_tpl_interrupt) {
+		while (is_iso_list(p2)) {
 			LIST_HEAD(p2);
 			p2 = LIST_TAIL(p2);
 		}
@@ -866,7 +885,7 @@ static bool directives(parser *p, cell *d)
 		cell *p2 = c + 2;
 		LIST_HANDLER(p2);
 
-		while (is_iso_list(p2) && !g_tpl_interrupt) {
+		while (is_iso_list(p2)) {
 			cell *head = LIST_HEAD(p2);
 
 			if (is_compound(head)) {
@@ -997,7 +1016,7 @@ static bool directives(parser *p, cell *d)
 
 	LIST_HANDLER(p1);
 
-	while (is_list(p1) && !g_tpl_interrupt) {
+	while (is_list(p1)) {
 		cell *h = LIST_HEAD(p1);
 
 		if (is_interned(h) && (!strcmp(C_STR(p, h), "/") || !strcmp(C_STR(p, h), "//")) && (h->arity == 2)) {
@@ -1086,7 +1105,7 @@ static bool directives(parser *p, cell *d)
 		return true;
 	}
 
-	while (is_interned(p1) && !g_tpl_interrupt) {
+	while (is_interned(p1)) {
 		module *m = p->m;
 		cell *c_id = p1;
 
@@ -1639,10 +1658,16 @@ static bool dcg_expansion(parser *p)
 	cell *c = p->cl->cells;
 	cell *tmp = alloc_on_heap(q, 1+c->nbr_cells+1+1);
 	make_struct(tmp, new_atom(p->pl, "dcg_translate"), NULL, 2, c->nbr_cells+1);
-	safe_copy_cells(tmp+1, p->cl->cells, c->nbr_cells);
+	dup_cells(tmp+1, p->cl->cells, c->nbr_cells);
 	make_ref(tmp+1+c->nbr_cells, p->cl->nbr_vars, 0);
 	make_end(tmp+1+c->nbr_cells+1);
-	execute(q, tmp, p->cl->nbr_vars+1);
+	bool ok = execute(q, tmp, p->cl->nbr_vars+1);
+
+	if (!ok || q->abort) {
+		query_destroy(q);
+		p->error = true;
+		return false;
+	}
 
 	cell *arg1 = tmp + 1;
 	cell *arg2 = arg1 + arg1->nbr_cells;
@@ -1661,7 +1686,13 @@ static bool dcg_expansion(parser *p)
 	parser *p2 = parser_create(p->m);
 	check_error(p2);
 	p2->srcptr = src;
-	tokenize(p2, false, false);
+
+	if (!tokenize(p2, false, false)) {
+		parser_destroy(p2);
+		p->error = true;
+		return false;
+	}
+
 	xref_clause(p2->m, p2->cl);
 	free(src);
 
@@ -1708,7 +1739,7 @@ static bool term_expansion(parser *p)
 	cell *tmp = alloc_on_heap(q, 1+c->nbr_cells+2);
 	unsigned nbr_cells = 0;
 	make_struct(tmp+nbr_cells++, new_atom(p->pl, "term_expansion"), NULL, 2, c->nbr_cells+1);
-	safe_copy_cells(tmp+nbr_cells, p->cl->cells, c->nbr_cells);
+	dup_cells(tmp+nbr_cells, p->cl->cells, c->nbr_cells);
 	nbr_cells += c->nbr_cells;
 	make_ref(tmp+nbr_cells++, p->cl->nbr_vars, 0);
 	make_end(tmp+nbr_cells);
@@ -3254,7 +3285,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 					LIST_HANDLER(p1);
 					bool tail = false;
 
-					while (is_iso_list(p1) && !g_tpl_interrupt) {
+					while (is_iso_list(p1)) {
 						cell *h = LIST_HEAD(p1);
 
 						if (!process_term(p, h))
@@ -3842,7 +3873,7 @@ bool run(parser *p, const char *pSrc, bool dump, query **subq, unsigned int yiel
 	p->srcptr = SB_cstr(src);
 	bool ok;
 
-	while (p->srcptr && *p->srcptr && !g_tpl_interrupt) {
+	while (p->srcptr && *p->srcptr) {
 		reset(p);
 		p->line_nbr_start = 0;
 		p->line_nbr = 1;

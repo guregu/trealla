@@ -11,7 +11,7 @@
 static void show_goals(query *q, int nbr)
 {
 	frame *f = GET_CURR_FRAME();
-	cell *c = q->st.curr_cell;
+	cell *c = q->st.next_instr;
 	pl_idx c_ctx = q->st.curr_frame;
 
 	while (c && nbr--) {
@@ -27,7 +27,7 @@ static void show_goals(query *q, int nbr)
 		if (!f->prev_offset)
 			break;
 
-		c = f->curr_cell;
+		c = f->next_instr;
 		c_ctx = q->st.curr_frame - f->prev_offset;
 		f = GET_FRAME(c_ctx);
 	}
@@ -40,7 +40,7 @@ int check_interrupt(query *q)
 		signal(SIGINT, &sigfn);
 		g_tpl_interrupt = 0;
 
-		if (!throw_error(q, q->st.curr_cell, q->st.curr_frame, "time_limit_exceeded", "timed_out"))
+		if (!throw_error(q, q->st.next_instr, q->st.curr_frame, "time_limit_exceeded", "timed_out"))
 			q->retry = true;
 
 		return 0;
@@ -479,11 +479,6 @@ void dump_vars(query *q, bool partial)
 		q->parens = parens;
 		e->vgen = ++q->vgen;
 
-		//if (!init_tmp_heap(q))
-		//	return;
-
-		//cell *tmp = deep_clone_to_tmp(q, c, c_ctx);
-		//ensure(tmp)
 		print_term(q, stdout, c, c_ctx, 1);
 
 		if (parens) fputc(')', stdout);
@@ -506,6 +501,7 @@ void dump_vars(query *q, bool partial)
 	// Print residual goals of attributed variables...
 
 	if (any_atts) {
+		clear_write_options(q);
 		q->variable_names = vlist;
 		q->variable_names_ctx = 0;
 		q->tab_idx = 0;
@@ -514,7 +510,7 @@ void dump_vars(query *q, bool partial)
 		cell *tmp = prepare_call(q, false, &p1, q->st.curr_frame, 1);
 		pl_idx nbr_cells = NOPREFIX_LEN + p1.nbr_cells;
 		make_end(tmp+nbr_cells);
-		q->st.curr_cell = tmp;
+		q->st.next_instr = tmp;
 		q->in_attvar_print = true;
 		bool save_trace = q->trace;
 		q->trace = false;

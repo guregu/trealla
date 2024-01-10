@@ -464,6 +464,8 @@ struct predicate_ {
 	bool is_check_directive:1;
 	bool is_processed:1;
 	bool is_var_in_first_arg:1;
+	bool is_iso:1;
+	bool is_tco:1;
 };
 
 #define BLAH1 false, false, {0}, {0}, 0, NULL, NULL, NULL, NULL, NULL
@@ -518,7 +520,7 @@ struct slot_ {
 // Where *overflow* is where new slots are allocated (actual_slots > initial_slots)
 
 struct frame_ {
-	cell *curr_cell;
+	cell *next_instr;
 	uint64_t dbgen, chgen;
 	pl_idx prev_offset, hp;
 	pl_idx base, overflow, initial_slots, actual_slots;
@@ -526,7 +528,7 @@ struct frame_ {
 };
 
 struct prolog_state_ {
-	cell *curr_cell;
+	cell *next_instr;
 	predicate *pr;
 	rule *r;
 	sliter *iter, *f_iter;
@@ -916,7 +918,7 @@ inline static pl_idx copy_cells_by_ref(cell *dst, const cell *src, pl_idx src_ct
 	return nbr_cells;
 }
 
-inline static pl_idx safe_copy_cells(cell *dst, const cell *src, pl_idx nbr_cells)
+inline static pl_idx dup_cells(cell *dst, const cell *src, pl_idx nbr_cells)
 {
 	memcpy(dst, src, sizeof(cell)*nbr_cells);
 
@@ -926,7 +928,7 @@ inline static pl_idx safe_copy_cells(cell *dst, const cell *src, pl_idx nbr_cell
 	return nbr_cells;
 }
 
-inline static pl_idx safe_copy_cells_by_ref(cell *dst, const cell *src, pl_idx src_ctx, pl_idx nbr_cells)
+inline static pl_idx dup_cells_by_ref(cell *dst, const cell *src, pl_idx src_ctx, pl_idx nbr_cells)
 {
 	memcpy(dst, src, sizeof(cell)*nbr_cells);
 
@@ -942,7 +944,7 @@ inline static pl_idx safe_copy_cells_by_ref(cell *dst, const cell *src, pl_idx s
 	return nbr_cells;
 }
 
-inline static void chk_cells(cell *src, pl_idx nbr_cells)
+inline static void unshare_cells(cell *src, pl_idx nbr_cells)
 {
 	for (pl_idx i = 0; i < nbr_cells; i++, src++)
 		unshare_cell(src);

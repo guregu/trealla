@@ -46,7 +46,7 @@ void make_call(query *q, cell *tmp)
 {
 	make_end(tmp);
 	const frame *f = GET_CURR_FRAME();
-	cell *c = q->st.curr_cell;
+	cell *c = q->st.next_instr;
 	tmp->val_ret = c + c->nbr_cells;	// save next as the return instruction
 	tmp->chgen = f->chgen;				// ... choice-generation
 	tmp->mid = q->st.m->id;				// ... current-module
@@ -56,7 +56,7 @@ void make_call_redo(query *q, cell *tmp)
 {
 	make_end(tmp);
 	const frame *f = GET_CURR_FRAME();
-	tmp->val_ret = q->st.curr_cell;		// save the return instruction
+	tmp->val_ret = q->st.next_instr;		// save the return instruction
 	tmp->chgen = f->chgen;				// ... choice-generation
 	tmp->mid = q->st.m->id;				// ... current-module
 }
@@ -147,7 +147,7 @@ static bool bif_iso_findall_3(query *q)
 		make_struct(tmp+nbr_cells++, g_fail_s, bif_iso_fail_0, 0, 0);
 		make_call(q, tmp+nbr_cells);
 		check_heap_error(push_barrier(q), drop_queuen(q));
-		q->st.curr_cell = tmp;
+		q->st.next_instr = tmp;
 		return true;
 	}
 
@@ -223,7 +223,7 @@ static bool bif_sys_unifiable_3(query *q)
 		cell v;
 		make_ref(&v, tr->var_nbr, q->st.curr_frame);
 		tmp[1] = v;
-		safe_copy_cells(tmp+2, c, c->nbr_cells);
+		dup_cells(tmp+2, c, c->nbr_cells);
 		append_list(q, tmp);
 		free(tmp);
 		save_tp++;
@@ -253,9 +253,9 @@ static bool bif_iso_notunify_2(query *q)
 	cell *tmp = prepare_call(q, true, &tmp2, q->st.curr_frame, p1->nbr_cells+p2->nbr_cells+4);
 	pl_idx nbr_cells = PREFIX_LEN;
 	tmp[nbr_cells++].nbr_cells += p1->nbr_cells+p2->nbr_cells;
-	safe_copy_cells_by_ref(tmp+nbr_cells, p1, p1_ctx, p1->nbr_cells);
+	dup_cells_by_ref(tmp+nbr_cells, p1, p1_ctx, p1->nbr_cells);
 	nbr_cells += p1->nbr_cells;
-	safe_copy_cells_by_ref(tmp+nbr_cells, p2, p2_ctx, p2->nbr_cells);
+	dup_cells_by_ref(tmp+nbr_cells, p2, p2_ctx, p2->nbr_cells);
 	nbr_cells += p2->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+nbr_cells++, q->cp);
@@ -264,13 +264,8 @@ static bool bif_iso_notunify_2(query *q)
 	check_heap_error(push_barrier(q));
 	choice *ch = GET_CURR_CHOICE();
 	ch->succeed_on_retry = true;
-	q->st.curr_cell = tmp;
+	q->st.next_instr = tmp;
 	return true;
-}
-
-static bool bif_iso_dcgs_2(query *q)
-{
-	return throw_error(q, q->st.curr_cell, q->st.curr_frame, "existence_error", "procedure");
 }
 
 static bool bif_iso_repeat_0(query *q)
@@ -1784,7 +1779,7 @@ static bool bif_iso_univ_2(query *q)
 
 		q->st.hp = save_hp;
 		check_heap_error(tmp = alloc_on_heap(q, nbr_cells));
-		safe_copy_cells(tmp, tmp2, nbr_cells);
+		dup_cells(tmp, tmp2, nbr_cells);
 		tmp->nbr_cells = nbr_cells;
 		tmp->arity = arity;
 		bool found = false;
@@ -1893,7 +1888,7 @@ static bool bif_iso_term_variables_2(query *q)
 	check_heap_error(tmp);
 	cell *tmp2 = alloc_on_heap(q, tmp->nbr_cells);
 	check_heap_error(tmp2);
-	safe_copy_cells(tmp2, tmp, tmp->nbr_cells);
+	dup_cells(tmp2, tmp, tmp->nbr_cells);
 	return unify(q, p2, p2_ctx, tmp2, q->st.curr_frame);
 }
 
@@ -1966,7 +1961,7 @@ static bool bif_term_singletons_2(query *q)
 	check_heap_error(tmp);
 	cell *tmp2 = alloc_on_heap(q, tmp->nbr_cells);
 	check_heap_error(tmp2);
-	safe_copy_cells(tmp2, tmp, tmp->nbr_cells);
+	dup_cells(tmp2, tmp, tmp->nbr_cells);
 	return unify(q, p2, p2_ctx, tmp2, q->st.curr_frame);
 }
 
@@ -2283,6 +2278,27 @@ static bool bif_iso_acyclic_term_1(query *q)
 	return is_acyclic_term(q, p1, p1_ctx) ? true : false;
 }
 
+static bool bif_call_residue_vars_2(query *q)
+{
+	GET_FIRST_ARG(p1,callable);
+	GET_NEXT_ARG(p2,var);
+	cell *tmp = prepare_call(q, true, p1, p1_ctx, 6);
+	check_heap_error(tmp);
+	tmp[1].flags &= ~FLAG_TAIL_CALL;
+	pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
+	make_struct(tmp+nbr_cells++, new_atom(q->pl, "term_attributed_variables"), NULL, 2, 2);
+	make_indirect(tmp+nbr_cells++, p1, p1_ctx);
+	make_ref(tmp+nbr_cells++, p2->var_nbr, p2_ctx);
+	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
+	make_uint(tmp+nbr_cells++, q->cp);
+	make_call(q, tmp+nbr_cells);
+	check_heap_error(push_barrier(q));
+	choice *ch = GET_CURR_CHOICE();
+	ch->fail_on_retry = true;
+	q->st.next_instr = tmp;
+	return true;
+}
+
 static bool bif_iso_current_prolog_flag_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
@@ -2462,7 +2478,7 @@ static bool answer_write_options_error(query *q, cell *c)
 	check_heap_error(tmp);
 	make_struct(tmp, g_plus_s, bif_iso_add_2, 2, 1+c->nbr_cells);
 	make_atom(tmp+1, new_atom(q->pl, "answer_write_options"));
-	safe_copy_cells(tmp+2, c, c->nbr_cells);
+	dup_cells(tmp+2, c, c->nbr_cells);
 	SET_OP(tmp, OP_YFX);
 	return throw_error(q, tmp, q->st.curr_frame, "domain_error", "flag_value");
 }
@@ -2473,7 +2489,7 @@ static bool flag_value_error(query *q, cell *p1, cell *p2)
 	check_heap_error(tmp);
 	make_struct(tmp, g_plus_s, bif_iso_add_2, 2, 1+p2->nbr_cells);
 	make_atom(tmp+1, p1->val_off);
-	safe_copy_cells(tmp+2, p2, p2->nbr_cells);
+	dup_cells(tmp+2, p2, p2->nbr_cells);
 	SET_OP(tmp, OP_YFX);
 	return throw_error(q, tmp, q->st.curr_frame, "domain_error", "flag_value");
 }
@@ -3341,7 +3357,7 @@ static bool bif_time_1(query *q)
 	make_uint(tmp+nbr_cells++, q->cp);
 	make_call(q, tmp+nbr_cells);
 	check_heap_error(push_barrier(q));
-	q->st.curr_cell = tmp;
+	q->st.next_instr = tmp;
 	return true;
 }
 
@@ -3819,7 +3835,7 @@ static bool bif_must_be_4(query *q)
 		return throw_error2(q, p1, p1_ctx, "type_error", "number", p3);
 	else if (!strcmp(src, "ground")) {
 		if (has_vars(q, p1, p1_ctx))
-			return throw_error2(q, p1, p1_ctx, "type_error", "ground", p3);
+			return throw_error2(q, p1, p1_ctx, "instantiation_error", "ground", p3);
 	} else if (!strcmp(src, "compound") && !is_structure(p1))
 		return throw_error2(q, p1, p1_ctx, "type_error", "compound", p3);
 	else if (is_compound(p2) && (p2->arity == 1) && !strcmp(src, "list")) {
@@ -3868,7 +3884,7 @@ static bool bif_must_be_4(query *q)
 			else if (!strcmp(src, "atomic" ) && !is_atomic(h))
 				return throw_error(q, h, h_ctx, "type_error", "atomic");
 			else if (!strcmp(src, "ground" ) && has_vars(q, h, h_ctx))
-				return throw_error(q, h, h_ctx, "type_error", "ground");
+				return throw_error(q, h, h_ctx, "instantiation_error", "ground");
 			else if (!strcmp(src, "compound" ) && !is_structure(h))
 				return throw_error(q, h, h_ctx, "type_error", "compound");
 
@@ -3895,11 +3911,8 @@ static bool bif_must_be_4(query *q)
 	return true;
 }
 
-static bool bif_must_be_2(query *q)
+static bool do_must_be_2(query *q, cell *p2, pl_idx p2_ctx, cell *p1, pl_idx p1_ctx)
 {
-	GET_FIRST_ARG(p2,atom);
-	GET_NEXT_ARG(p1,any);
-
 	const char *src = C_STR(q, p2);
 
 	if (!strcmp(src, "var") && !is_var(p1))
@@ -3957,7 +3970,7 @@ static bool bif_must_be_2(query *q)
 			return throw_error(q, p1, p1_ctx, "domain_error", "not_less_than_zero");
 	} else if (!strcmp(src, "ground")) {
 		if (has_vars(q, p1, p1_ctx))
-			return throw_error(q, p1, p1_ctx, "type_error", "ground");
+			return throw_error(q, p1, p1_ctx, "instantiation_error", "ground");
 	} else if (!strcmp(src, "compound")) {
 		if (!is_structure(p1))
 			return throw_error(q, p1, p1_ctx, "type_error", "compound");
@@ -3965,10 +3978,6 @@ static bool bif_must_be_2(query *q)
 		cell *c = p2+1;
 		c = deref(q, c, p2_ctx);
 		pl_idx c_ctx = q->latest_ctx;
-
-		if (!is_atom(c))
-			return throw_error(q, c, c_ctx, "type_error", "atom");
-
 		bool is_partial;
 
 		if (!check_list(q, p1, p1_ctx, &is_partial, NULL))
@@ -3982,34 +3991,9 @@ static bool bif_must_be_2(query *q)
 			cell *h = LIST_HEAD(l);
 			h = deref(q, h, l_ctx);
 			pl_idx h_ctx = q->latest_ctx;
-			src = C_STR(q, c);
 
-			if (!strcmp(src, "var" ) && !is_var(h))
-				return throw_error(q, h, h_ctx, "type_error", "var");
-			else if (!strcmp(src, "nonvar" ) && is_var(h))
-				return throw_error(q, h, h_ctx, "type_error", "nonvar");
-			else if (!strcmp(src, "character" ) && !is_character(h))
-				return throw_error(q, h, h_ctx, "type_error", "character");
-			else if (!strcmp(src, "boolean" ) && !is_boolean(h))
-				return throw_error(q, h, h_ctx, "type_error", "boolean");
-			else if (!strcmp(src, "integer" ) && !is_integer(h))
-				return throw_error(q, h, h_ctx, "type_error", "integer");
-			else if (!strcmp(src, "float" ) && !is_float(h))
-				return throw_error(q, h, h_ctx, "type_error", "float");
-			else if (!strcmp(src, "number" ) && !is_number(h))
-				return throw_error(q, h, h_ctx, "type_error", "number");
-			else if (!strcmp(src, "not_less_than_zero" ) && !is_number(h))
-				return throw_error(q, h, h_ctx, "type_error", "number");
-			else if (!strcmp(src, "not_less_than_zero" ) && is_negative(h))
-				return throw_error(q, h, h_ctx, "domain_error", "not_less_than_zero");
-			else if (!strcmp(src, "atom" ) && !is_atom(h))
-				return throw_error(q, h, h_ctx, "type_error", "atom");
-			else if (!strcmp(src, "atomic" ) && !is_atomic(h))
-				return throw_error(q, h, h_ctx, "type_error", "atomic");
-			else if (!strcmp(src, "ground" ) && has_vars(q, h, h_ctx))
-				return throw_error(q, h, h_ctx, "type_error", "ground");
-			else if (!strcmp(src, "compound" ) && !is_structure(h))
-				return throw_error(q, h, h_ctx, "type_error", "compound");
+			if (!do_must_be_2(q, c, c_ctx, h, h_ctx))
+				return false;
 
 			l = LIST_TAIL(l);
 			l = deref(q, l, l_ctx);
@@ -4032,6 +4016,13 @@ static bool bif_must_be_2(query *q)
 	}
 
 	return true;
+}
+
+static bool bif_must_be_2(query *q)
+{
+	GET_FIRST_ARG(p2,callable);
+	GET_NEXT_ARG(p1,any);
+	return do_must_be_2(q, p2, p2_ctx, p1, p1_ctx);
 }
 
 static bool bif_can_be_4(query *q)
@@ -5363,7 +5354,7 @@ static bool bif_limit_2(query *q)
 	make_int(tmp+nbr_cells++, 1);
 	make_int(tmp+nbr_cells++, get_smallint(p1));
 	make_call(q, tmp+nbr_cells);
-	q->st.curr_cell = tmp;
+	q->st.next_instr = tmp;
 	return true;
 }
 
@@ -5402,7 +5393,7 @@ static bool bif_offset_2(query *q)
 	make_int(tmp+nbr_cells++, 1);
 	make_int(tmp+nbr_cells++, get_smallint(p1));
 	make_call(q, tmp+nbr_cells);
-	q->st.curr_cell = tmp;
+	q->st.next_instr = tmp;
 	return true;
 }
 
@@ -5472,7 +5463,7 @@ static bool bif_call_nth_2(query *q)
 		check_heap_error(push_barrier(q));
 		choice *ch = GET_CURR_CHOICE();
 		ch->fail_on_retry = true;
-		q->st.curr_cell = tmp;
+		q->st.next_instr = tmp;
 		return true;
 	}
 
@@ -5488,7 +5479,7 @@ static bool bif_call_nth_2(query *q)
 	check_heap_error(push_barrier(q));
 	choice *ch = GET_CURR_CHOICE();
 	ch->fail_on_retry = true;
-	q->st.curr_cell = tmp;
+	q->st.next_instr = tmp;
 	return true;
 }
 
@@ -5675,7 +5666,7 @@ bool bif_iso_invoke_2(query *q)
 
 	nbr_cells += p2->nbr_cells;
 	make_call(q, tmp+nbr_cells);
-	q->st.curr_cell = tmp;
+	q->st.next_instr = tmp;
 	q->st.curr_frame = p2_ctx;
 	return true;
 }
@@ -5715,7 +5706,7 @@ static bool bif_use_module_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 	if (!is_atom(p1) && !is_compound(p1)) return false;
-	return do_use_module_1(q->st.m, q->st.curr_cell);
+	return do_use_module_1(q->st.m, q->st.next_instr);
 }
 
 static bool bif_use_module_2(query *q)
@@ -5723,10 +5714,10 @@ static bool bif_use_module_2(query *q)
 	GET_FIRST_ARG(p1,any);
 	GET_NEXT_ARG(p2,list_or_nil);
 
-	if (!do_use_module_1(q->st.m, q->st.curr_cell))
+	if (!do_use_module_1(q->st.m, q->st.next_instr))
 		return false;
 
-	return do_use_module_2(q->st.m, q->st.curr_cell);
+	return do_use_module_2(q->st.m, q->st.next_instr);
 }
 
 static bool bif_prolog_load_context_2(query *q)
@@ -5876,7 +5867,7 @@ static bool bif_sys_register_cleanup_1(query *q)
 		make_uint(tmp+nbr_cells++, q->cp);
 		make_struct(tmp+nbr_cells++, g_fail_s, bif_iso_fail_0, 0, 0);
 		make_call(q, tmp+nbr_cells);
-		q->st.curr_cell = tmp;
+		q->st.next_instr = tmp;
 		return true;
 	}
 
@@ -5884,6 +5875,36 @@ static bool bif_sys_register_cleanup_1(query *q)
 	choice *ch = GET_CURR_CHOICE();
 	ch->register_cleanup = true;
 	return true;
+}
+
+static bool bif_sys_det_length_rundown_2(query *q)
+{
+	GET_FIRST_ARG(p1,list_or_var);
+	GET_NEXT_ARG(p2,integer);
+	unsigned var_nbr, n = get_smalluint(p2);
+
+	if (!(var_nbr = create_vars(q, n)))
+		return throw_error(q, p2, p2_ctx, "resource_error", "stack");
+
+	cell *l;
+	check_heap_error(l = alloc_on_heap(q, n*2+1));
+	cell *save_l = l;
+
+	while (n) {
+		l->tag = TAG_INTERNED;
+		l->val_off = g_dot_s;
+		l->nbr_cells = n*2+1;
+		l->arity = 2;
+		l++;
+		make_ref(l, var_nbr++, q->st.curr_frame);
+		l->flags = FLAG_VAR_ANON;
+		l++;
+		n--;
+	}
+
+	make_atom(l, g_nil_s);
+	GET_FIRST_ARG(xp1,list_or_var);
+	return unify(q, xp1, xp1_ctx, save_l, q->st.curr_frame);
 }
 
 static bool bif_sys_memberchk_3(query *q)
@@ -5932,7 +5953,7 @@ static bool bif_sys_get_level_1(query *q)
 
 static bool bif_abort_0(query *q)
 {
-	return throw_error(q, q->st.curr_cell, q->st.curr_frame, "$aborted", "abort_error");
+	return throw_error(q, q->st.next_instr, q->st.curr_frame, "$aborted", "abort_error");
 }
 
 static bool bif_sys_choice_0(query *q)
@@ -6176,6 +6197,7 @@ static void load_properties(module *m)
 	format_property(m, tmpbuf, sizeof(tmpbuf), "abolish", 1, "meta_predicate(abolish(:))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "clause", 2, "meta_predicate(clause(:,?))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "clause", 3, "meta_predicate(clause(:,?,?))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "call_residue_vars", 2, "meta_predicate(call_residue_vars(0,?))", false); SB_strcat(pr, tmpbuf);
 
 	for (int i = 2; i <= 7; i++) {
 		char metabuf[1024];
@@ -6430,7 +6452,6 @@ builtins g_iso_bifs[] =
 	{"\\+", 1, bif_iso_negation_1, ":callable", true, false, BLAH},
 	{"=", 2, bif_iso_unify_2, "+term,+term", true, false, BLAH},
 	{"\\=", 2, bif_iso_notunify_2, "+term,+term", true, false, BLAH},
-	{"-->", 2, bif_iso_dcgs_2, "+term,+term", true, false, BLAH},
 
 	{"$call_cleanup", 3, bif_sys_call_cleanup_3, NULL, false, false, BLAH},
 	{"$block_catcher", 1, bif_sys_block_catcher_1, NULL, false, false, BLAH},
@@ -6605,11 +6626,12 @@ builtins g_other_bifs[] =
 	{"string_length", 2, bif_string_length_2, "+string,?integer", false, false, BLAH},
 	{"crypto_n_random_bytes", 2, bif_crypto_n_random_bytes_2, "+integer,-codes", false, false, BLAH},
 	{"cyclic_term", 1, bif_cyclic_term_1, "+term", false, false, BLAH},
+	{"call_residue_vars", 2, bif_call_residue_vars_2, ":callable,-list", false, false, BLAH},
 
-	{"must_be", 4, bif_must_be_4, "+term,+atom,+term,?any", false, false, BLAH},
-	{"can_be", 4, bif_can_be_4, "+term,+atom,+term,?any", false, false, BLAH},
-	{"must_be", 2, bif_must_be_2, "+atom,+term", false, false, BLAH},
-	{"can_be", 2, bif_can_be_2, "+atom,+term,", false, false, BLAH},
+	{"$must_be", 4, bif_must_be_4, "+term,+atom,+term,?any", false, false, BLAH},
+	{"$can_be", 4, bif_can_be_4, "+term,+atom,+term,?any", false, false, BLAH},
+	{"$must_be", 2, bif_must_be_2, "+atom,+term", false, false, BLAH},
+	{"$can_be", 2, bif_can_be_2, "+atom,+term,", false, false, BLAH},
 
 	{"sre_compile", 2, bif_sre_compile_2, "+string,-string,", false, false, BLAH},
 	{"sre_matchp", 4, bif_sre_matchp_4, "+string,+string,-string,-string,", false, false, BLAH},
@@ -6617,6 +6639,7 @@ builtins g_other_bifs[] =
 	{"sre_substp", 4, bif_sre_substp_4, "+string,+string,-string,-string,", false, false, BLAH},
 	{"sre_subst", 4, bif_sre_subst_4, "+string,+string,-string,-string,", false, false, BLAH},
 
+	{"$det_length_rundown", 2, bif_sys_det_length_rundown_2, "?list,+integer", false, false, BLAH},
 	{"$memberchk", 3, bif_sys_memberchk_3, "?term,?list,-term", false, false, BLAH},
 	{"$countall", 2, bif_sys_countall_2, "@callable,-integer", false, false, BLAH},
 	{"$register_cleanup", 1, bif_sys_register_cleanup_1, NULL, false, false, BLAH},

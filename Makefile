@@ -135,6 +135,7 @@ LIBOBJECTS +=  \
 	library/freeze.o \
 	library/gensym.o \
 	library/http.o \
+	library/iso_ext.o \
 	library/json.o \
 	library/lambda.o \
 	library/linda.o \

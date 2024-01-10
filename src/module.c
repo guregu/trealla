@@ -801,14 +801,14 @@ void set_meta_predicate_in_db(module *m, cell *c)
 		push_property(m, name, arity, tmpbuf);
 		pr->is_meta_predicate = true;
 		pr->meta_args = malloc(sizeof(cell)*c->nbr_cells);
-		safe_copy_cells(pr->meta_args, c, c->nbr_cells);
+		dup_cells(pr->meta_args, c, c->nbr_cells);
 	} else
 		m->error = true;
 }
 
 static bool is_check_directive(const cell *c)
 {
-	if (is_compound(c) && (c->val_off == g_neck_s) && (c->arity == 1))
+	if ((c->val_off == g_neck_s) && (c->arity == 1))
 		return true;
 
 	return false;
@@ -833,16 +833,15 @@ bool do_use_module_1(module *curr_m, cell *p)
 			return true;
 		}
 
-		// These are some modules that don't exist in Trealla,
-		// but the predicates probably pop up somewhere else...
+		// These are some modules that don't exist in Trealla
+		// but the predicates probably pop up somewhere else.
+		// They are implemented as builtins.
 
 		if (!strcmp(name, "between")
 		    || !strcmp(name, "samsort")
 		    || !strcmp(name, "terms")
 		    || !strcmp(name, "types")
-			|| !strcmp(name, "iso_ext")
 			|| !strcmp(name, "loader")
-			|| !strcmp(name, "error")
 			|| !strcmp(name, "crypto")
 		    || !strcmp(name, "files")
 		    || !strcmp(name, "time")
@@ -1655,7 +1654,7 @@ rule *assertz_to_db(module *m, unsigned nbr_vars, unsigned nbr_temporaries, cell
 	return r;
 }
 
-static void xref_cell(module *m, clause *cl, cell *c, int last_was_colon)
+static void xref_cell(module *m, clause *cl, cell *c, int last_was_colon, bool is_directive)
 {
 	unsigned specifier;
 
@@ -1676,14 +1675,17 @@ static void xref_cell(module *m, clause *cl, cell *c, int last_was_colon)
 		else
 			c->flags |= FLAG_BUILTIN;
 
-		return;
+		if (c->val_off != g_call_s)
+			return;
+	} else {
+		if (last_was_colon < 1)
+			c->match = search_predicate(m, c, NULL);
 	}
 
-	if (last_was_colon < 1)
-		c->match = search_predicate(m, c, NULL);
-
-	if ((c+c->nbr_cells) >= (cl->cells + cl->cidx-1))
-		c->flags |= FLAG_TAIL_CALL;
+	if (!is_directive) {
+		if ((c+c->nbr_cells) >= (cl->cells + cl->cidx-1))
+			c->flags |= FLAG_TAIL_CALL;
+	}
 }
 
 void xref_clause(module *m, clause *cl)
@@ -1694,6 +1696,7 @@ void xref_clause(module *m, clause *cl)
 	if (c->val_off == g_sys_record_key_s)
 		return;
 
+	bool is_directive = is_check_directive(c);
 	int last_was_colon = 0;
 
 	for (pl_idx i = 0; i < cl->cidx; i++) {
@@ -1706,18 +1709,18 @@ void xref_clause(module *m, clause *cl)
 		// Don't want to match on module qualified predicates
 
 		if (c->val_off == g_colon_s) {
-			xref_cell(m, cl, c, 0);
+			xref_cell(m, cl, c, 0, is_directive);
 			last_was_colon = 3;
 		} else {
 			last_was_colon--;
-			xref_cell(m, cl, c, last_was_colon);
+			xref_cell(m, cl, c, last_was_colon, is_directive);
 		}
 	}
 }
 
 void xref_db(module *m)
 {
-	for (predicate *pr = m->head; pr && !g_tpl_interrupt; pr = pr->next) {
+	for (predicate *pr = m->head; pr; pr = pr->next) {
 		if (pr->is_processed)
 			continue;
 

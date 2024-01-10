@@ -90,6 +90,24 @@ cell *init_tmp_heap(query *q)
 	return q->tmp_heap;
 }
 
+cell *preinit_tmp_heap(query *q, pl_idx n)
+{
+	if (q->tmp_heap && (q->tmph_size < n)) {
+		free(q->tmp_heap);
+		q->tmp_heap = NULL;
+		q->tmph_size = n;
+	}
+
+	if (!q->tmp_heap) {
+		q->tmp_heap = malloc(n * sizeof(cell));
+		if (!q->tmp_heap) return NULL;
+	}
+
+	q->tmphp = 0;
+	q->cycle_error = false;
+	return q->tmp_heap;
+}
+
 cell *alloc_on_tmp(query *q, unsigned nbr_cells)
 {
 	if (((uint64_t)q->tmphp + nbr_cells) > UINT32_MAX)
@@ -294,9 +312,6 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx p1_ctx, unsigned dept
 		bool any1 = false, any2 = false;
 
 		while (is_iso_list(p1)) {
-			if (g_tpl_interrupt)
-				return NULL;
-
 			slot *e = NULL;
 			cell *h = p1 + 1;
 			pl_idx h_ctx = p1_ctx;
@@ -333,9 +348,6 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx p1_ctx, unsigned dept
 			p1_ctx = save_p1_ctx;
 
 			while (is_iso_list(p1) && !q->cycle_error) {
-				if (g_tpl_interrupt)
-					return NULL;
-
 				p1 = p1 + 1; p1 += p1->nbr_cells;
 				cell *c = p1;
 				pl_idx c_ctx = p1_ctx;
@@ -353,9 +365,6 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx p1_ctx, unsigned dept
 	p1++;
 
 	while (arity--) {
-			if (g_tpl_interrupt)
-				return NULL;
-
 		slot *e = NULL;
 		cell *c = p1;
 		pl_idx c_ctx = p1_ctx;
@@ -391,7 +400,7 @@ cell *clone_to_heap(query *q, cell *p1, pl_idx p1_ctx)
 	if (!p1) return p1;
 	cell *tmp = alloc_on_heap(q, p1->nbr_cells);
 	if (!tmp) return NULL;
-	safe_copy_cells(tmp, p1, p1->nbr_cells);
+	dup_cells(tmp, p1, p1->nbr_cells);
 	return tmp;
 }
 
@@ -404,7 +413,7 @@ cell *deep_clone_to_heap(query *q, cell *p1, pl_idx p1_ctx)
 	if (!p1) return p1;
 	cell *tmp = alloc_on_heap(q, p1->nbr_cells);
 	if (!tmp) return NULL;
-	safe_copy_cells(tmp, p1, p1->nbr_cells);
+	dup_cells(tmp, p1, p1->nbr_cells);
 	return tmp;
 }
 
@@ -454,7 +463,7 @@ cell *prepare_call(query *q, bool prefix, cell *p1, pl_idx p1_ctx, unsigned extr
 	}
 
 	cell *dst = tmp + (prefix ? PREFIX_LEN : NOPREFIX_LEN);
-	safe_copy_cells_by_ref(dst, p1, p1_ctx, p1->nbr_cells);
+	dup_cells_by_ref(dst, p1, p1_ctx, p1->nbr_cells);
 	return tmp;
 }
 
@@ -584,7 +593,7 @@ cell *deep_copy_to_heap(query *q, cell *p1, pl_idx p1_ctx, bool copy_attrs)
 	if (!tmp) return tmp;
 	cell *tmp2 = alloc_on_heap(q, tmp->nbr_cells);
 	if (!tmp2) return NULL;
-	safe_copy_cells(tmp2, tmp, tmp->nbr_cells);
+	dup_cells(tmp2, tmp, tmp->nbr_cells);
 	return tmp2;
 }
 
@@ -597,7 +606,7 @@ cell *deep_copy_to_heap_with_replacement(query *q, cell *p1, pl_idx p1_ctx, bool
 	if (!tmp) return tmp;
 	cell *tmp2 = alloc_on_heap(q, tmp->nbr_cells);
 	if (!tmp2) return NULL;
-	safe_copy_cells(tmp2, tmp, tmp->nbr_cells);
+	dup_cells(tmp2, tmp, tmp->nbr_cells);
 	return tmp2;
 }
 
@@ -617,7 +626,7 @@ cell *alloc_on_queuen(query *q, unsigned qnbr, const cell *c)
 	}
 
 	cell *dst = q->queue[qnbr] + q->qp[qnbr];
-	q->qp[qnbr] += safe_copy_cells(dst, c, c->nbr_cells);
+	q->qp[qnbr] += dup_cells(dst, c, c->nbr_cells);
 	q->qcnt[qnbr]++;
 	return dst;
 }
@@ -676,7 +685,7 @@ cell *end_list(query *q)
 
 	tmp = alloc_on_heap(q, nbr_cells);
 	if (!tmp) return NULL;
-	safe_copy_cells(tmp, get_tmp_heap(q, 0), nbr_cells);
+	dup_cells(tmp, get_tmp_heap(q, 0), nbr_cells);
 	tmp->nbr_cells = nbr_cells;
 	fix_list(tmp);
 	init_tmp_heap(q);
@@ -734,7 +743,7 @@ cell *end_structure(query *q)
 	pl_idx nbr_cells = tmp_heap_used(q);
 	cell *tmp = alloc_on_heap(q, nbr_cells);
 	if (!tmp) return NULL;
-	safe_copy_cells(tmp, get_tmp_heap(q, 0), nbr_cells);
+	dup_cells(tmp, get_tmp_heap(q, 0), nbr_cells);
 	tmp->nbr_cells = nbr_cells;
 
 	if (q->tmp_heap && (q->tmph_size > 1000)) {
