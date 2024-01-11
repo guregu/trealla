@@ -570,7 +570,7 @@ static frame *push_frame(query *q, const clause *cl)
 
 	// Avoid long chains of useless returns...
 
-	if (is_end(next_cell) && !next_cell->val_ret && curr_f->next_instr) {
+	if (is_end(next_cell) && !next_cell->save_ret && curr_f->next_instr) {
 		f->prev_offset = (new_frame - q->st.curr_frame) + curr_f->prev_offset;
 		f->next_instr = curr_f->next_instr;
 	} else {
@@ -682,7 +682,6 @@ static void commit_frame(query *q, cell *body)
 
 	if (q->st.r->owner->is_tco)
 		q->no_tco = false;
-
 
 	if (!q->no_tco && last_match && (q->st.fp == (q->st.curr_frame + 1))) {
 		bool tail_call = is_tail_call(q->st.next_instr);
@@ -874,8 +873,8 @@ void cut(query *q)
 		ch--;
 	}
 
-	if (!q->cp && !q->undo_hi_tp)
-		q->st.tp = 0;
+	//if (!q->cp && !q->undo_hi_tp)
+	//	q->st.tp = 0;
 }
 
 // Resume next goal in previous clause...
@@ -902,12 +901,12 @@ inline static void proceed(query *q)
 	frame *f = GET_CURR_FRAME();
 
 	while (is_end(q->st.next_instr)) {
-		if (q->st.next_instr->val_ret) {
+		if (q->st.next_instr->save_ret) {
 			f->chgen = q->st.next_instr->chgen;
 			//q->st.m = q->pl->modmap[q->st.next_instr->mid];
 		}
 
-		if (!(q->st.next_instr = q->st.next_instr->val_ret))
+		if (!(q->st.next_instr = q->st.next_instr->save_ret))
 			break;
 	}
 }

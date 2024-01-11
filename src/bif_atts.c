@@ -59,7 +59,6 @@ bool bif_put_atts_2(query *q)
 	if (is_nil(attr)) {
 		e->c.flags = 0;
 		e->c.attrs = NULL;
-		e->c.attrs_ctx = 0;
 		return true;
 	}
 
@@ -113,7 +112,6 @@ bool bif_put_atts_2(query *q)
 	if (is_nil(l)) {
 		e->c.flags = 0;
 		e->c.attrs = NULL;
-		e->c.attrs_ctx = 0;
 		return true;
 	}
 
@@ -206,27 +204,10 @@ bool bif_sys_list_attributed_1(query *q)
 		const trail *tr = q->trails + i;
 		const frame *f = GET_FRAME(tr->var_ctx);
 		slot *e = GET_SLOT(f, tr->var_nbr);
-		cell *v = deref(q, &e->c, e->c.var_ctx);
-		pl_idx v_ctx = q->latest_ctx;
+		cell *c = &e->c;
+		pl_idx c_ctx = e->c.var_ctx;
 
-		if (is_compound(v)) {
-			collect_vars(q, v, v_ctx);
-
-			for (unsigned i = 0, done = 0; i < q->tab_idx; i++) {
-				const frame *f = GET_FRAME(q->pl->tabs[i].ctx);
-				slot *e = GET_SLOT(f, q->pl->tabs[i].var_nbr);
-				cell *v = deref(q, &e->c, e->c.var_ctx);
-
-				if (!is_empty(v) || !v->attrs || is_nil(v->attrs))
-					continue;
-
-				cell tmp;
-				make_ref(&tmp, q->pl->tabs[i].var_nbr, q->pl->tabs[i].ctx);
-				append_list(q, &tmp);
-			}
-		}
-
-		if (!is_empty(v) || !v->attrs || is_nil(v->attrs))
+		if (!is_empty(c) || !c->attrs || is_nil(c->attrs) /*|| is_cyclic_term(q, c->attrs, c->attrs_ctx)*/)
 			continue;
 
 		cell tmp;
@@ -332,8 +313,8 @@ bool bif_sys_undo_trail_2(query *q)
 		const frame *f = GET_FRAME(tr->var_ctx);
 		slot *e = GET_SLOT(f, tr->var_nbr);
 		save->e[j] = *e;
-		cell *c = deref(q, &e->c, e->c.var_ctx);
-		pl_idx c_ctx = q->latest_ctx;
+		cell *c = &e->c;
+		pl_idx c_ctx = e->c.var_ctx;
 		check_occurs(tr->var_nbr, tr->var_ctx, c, c_ctx);
 		//printf("*** unbind [%u:%u] hi_tp=%u, tag=%u, tr->var_ctx=%u, tr->var_nbr=%u\n", j, i, q->undo_hi_tp, e->c.tag, tr->var_ctx, tr->var_nbr);
 		cell lhs, rhs;
@@ -345,6 +326,7 @@ bool bif_sys_undo_trail_2(query *q)
 			rhs = *c;
 
 		//DUMP_TERM("$undo1 rhs", &e->c, e->c.var_ctx, 0);
+
 		cell tmp[3];
 		make_struct(tmp, g_minus_s, NULL, 2, 2);
 		SET_OP(&tmp[0], OP_YFX);
