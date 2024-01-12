@@ -3182,7 +3182,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 	unsigned arity = 1;
 	p->depth++;
 
-	while (get_token(p, last_op, last_postfix)) {
+	while (get_token(p, last_op, last_postfix) && !g_tpl_interrupt) {
 		if (p->error && !p->do_read_term)
 			break;
 
@@ -3274,6 +3274,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 
 					if (!p1->arity && !strcmp(C_STR(p, p1), "end_of_file")) {
 						p->end_of_term = true;
+						p->end_of_file = true;
 						return 0;
 					}
 				}

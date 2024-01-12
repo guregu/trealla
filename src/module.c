@@ -1983,8 +1983,13 @@ module *load_file(module *m, const char *filename, bool including)
 				p->consulting = true;
 				p->m = m;
 
-				if (!tokenize(p, false, false))
-					break;
+				if (!tokenize(p, false, false)) {
+					if (p->end_of_file) {
+						m->pl->p->srcptr = p->srcptr;
+						parser_destroy(p);
+						return m;
+					}
+				}
 
 				m->pl->p->srcptr = p->srcptr;
 				parser_destroy(p);
