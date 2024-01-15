@@ -669,7 +669,7 @@ struct query_ {
 	pl_idx q_size[MAX_QUEUES], tmpq_size[MAX_QUEUES], qp[MAX_QUEUES];
 	prolog_flags flags;
 	enum q_retry retry;
-	uint32_t vgen, print_vgen;
+	uint32_t vgen;
 	int8_t halt_code;
 	int8_t quoted;
 	enum { WAS_OTHER, WAS_SPACE, WAS_COMMA, WAS_SYMBOL } last_thing;
@@ -823,7 +823,7 @@ struct prolog_ {
 	FILE *logfp;
 	size_t tabs_size;
 	uint64_t s_last, s_cnt, seed, dbgen;
-	unsigned next_mod_id, def_max_depth, chan;
+	unsigned next_mod_id, def_max_depth, my_chan;
 	uint8_t current_input, current_output, current_error;
 	int8_t halt_code, opt;
 	bool def_quoted:1;

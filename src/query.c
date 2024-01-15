@@ -140,7 +140,7 @@ static void trace_call(query *q, cell *c, pl_idx c_ctx, box_t box)
 	net_write(src, srclen, str);
 	SB_free(pr);
 	q->max_depth = save_depth;
-	if (++q->print_vgen == 0) q->print_vgen = 1;
+	if (++q->vgen == 0) q->vgen = 1;
 
 	if (q->creep) {
 		msleep(250);
@@ -1980,6 +1980,7 @@ query *query_create(module *m, bool is_task)
 	for (int i = 0; i < MAX_QUEUES; i++)
 		q->q_size[i] = is_task ? INITIAL_NBR_QUEUE_CELLS/4 : INITIAL_NBR_QUEUE_CELLS;
 
+	clear_write_options(q);
 	return q;
 }
 

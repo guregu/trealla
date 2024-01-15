@@ -74,8 +74,9 @@ void release_lock(lock *l)
 typedef struct {
 	const char *filename;
 	cell *queue;
-	pl_idx queue_size;
-	unsigned queue_chan, chan;
+	pl_atomic pl_idx queue_size;
+	unsigned from_chan, chan;
+	bool active;
 	lock guard;
 #ifdef _WIN32
     HANDLE id;
@@ -88,15 +89,18 @@ typedef struct {
 
 #define MAX_PL_THREADS 64
 static pl_thread g_pl_threads[MAX_PL_THREADS] = {0};
-static unsigned g_pl_cnt = 1;	// 0 is the first instance
+static unsigned g_pl_cnt = 1;	// 0 is the primaryinstance
 
-static void suspend_thread(pl_thread *t)
+static void suspend_thread(pl_thread *t, int ms)
 {
 #ifdef _WIN32
 	SuspendThread(t->id);
 #else
+	struct timespec ts;
+	clock_gettime(CLOCK_REALTIME, &ts);
+	ts.tv_nsec += 1000 * 1000 * ms;
 	pthread_mutex_lock(&t->mutex);
-	pthread_cond_wait(&t->cond, &t->mutex);
+	pthread_cond_timedwait(&t->cond, &t->mutex, &ts);
 	pthread_mutex_unlock(&t->mutex);
 #endif
 }
@@ -119,14 +123,12 @@ static cell *queue_to_chan(unsigned chan, const cell *c)
 	pl_thread *t = &g_pl_threads[chan];
 	acquire_lock(&t->guard);
 
-	if (!t->queue) {
-		t->queue = malloc(sizeof(cell)*c->nbr_cells);
-		if (!t->queue) return NULL;
-	}
-
 	if (t->queue_size < c->nbr_cells) {
 		t->queue = realloc(t->queue, sizeof(cell)*c->nbr_cells);
-		if (!t->queue) return NULL;
+		if (!t->queue) {
+			release_lock(&t->guard);
+			return NULL;
+		}
 	}
 
 	//printf("*** send to chan=%u, nbr_cells=%u\n", chan, c->nbr_cells);
@@ -138,22 +140,43 @@ static cell *queue_to_chan(unsigned chan, const cell *c)
 
 static bool do_pl_send(query *q, unsigned chan, cell *p1, pl_idx p1_ctx)
 {
+	if (chan >= g_pl_cnt)
+		return throw_error(q, p1, p1_ctx, "domain_error", "no_such_thread");
+
+	pl_thread *t = &g_pl_threads[chan];
+
+	if (!t->active)
+		return throw_error(q, p1, p1_ctx, "domain_error", "no_such_thread");
+
 	check_heap_error(init_tmp_heap(q));
 	cell *c = deep_clone_to_tmp(q, p1, p1_ctx);
 	check_heap_error(c);
 	check_heap_error(queue_to_chan(chan, c));
-	pl_thread *t = &g_pl_threads[chan];
-	t->queue_chan = q->pl->chan;
+	t->from_chan = q->pl->my_chan;
     resume_thread(t);
 	return true;
 }
 
-static bool do_pl_recv(query *q, cell *p1, pl_idx p1_ctx)
+static bool bif_pl_send_2(query *q)
 {
-	pl_thread *t = &g_pl_threads[q->pl->chan];
+	GET_FIRST_ARG(p1,integer);
+	GET_NEXT_ARG(p2,any);
 
-	while (!t->queue_size)
-		suspend_thread(t);
+	if (is_negative(p1))
+		return throw_error(q, p1, p1_ctx, "domain_error", "not_less_than_zero");
+
+	return do_pl_send(q, get_smalluint(p1), p2, p2_ctx);
+}
+
+static bool do_pl_recv(query *q, unsigned from_chan, cell *p1, pl_idx p1_ctx)
+{
+	pl_thread *t = &g_pl_threads[q->pl->my_chan];
+	uint64_t cnt = 0;
+
+	while (!t->queue_size) {
+		suspend_thread(t, cnt < 1000 ? 0 : cnt < 10000 ? 1 : cnt < 100000 ? 10 : 100);
+		cnt++;
+	}
 
 	//printf("*** recv msg nbr_cells=%u\n", t->queue->nbr_cells);
 
@@ -170,25 +193,30 @@ static bool do_pl_recv(query *q, cell *p1, pl_idx p1_ctx)
 	check_heap_error(tmp);
 	unshare_cells(c, c->nbr_cells);
 	t->queue_size = 0;
-	q->curr_chan = t->queue_chan;
+	q->curr_chan = t->from_chan;
 	release_lock(&t->guard);
 	return unify(q, p1, p1_ctx, tmp, q->st.curr_frame);
-}
-
-static bool bif_pl_send_2(query *q)
-{
-	GET_FIRST_ARG(p1,integer);
-	GET_NEXT_ARG(p2,any);
-	return do_pl_send(q, get_smalluint(p1), p2, p2_ctx);
 }
 
 static bool bif_pl_recv_2(query *q)
 {
 	GET_FIRST_ARG(p1,integer_or_var);
 	GET_NEXT_ARG(p2,any);
-	pl_thread *t = &g_pl_threads[q->pl->chan];
+	unsigned from_chan = 0;
 
-	if (!do_pl_recv(q, p2, p2_ctx))
+	if (is_integer(p1)) {
+		if (is_negative(p1))
+			return throw_error(q, p1, p1_ctx, "domain_error", "not_less_than_zero");
+
+		from_chan = get_smalluint(p1);
+
+		if (from_chan >= g_pl_cnt)
+			return throw_error(q, p1, p1_ctx, "domain_error", "no_such_thread");
+	}
+
+	pl_thread *t = &g_pl_threads[q->pl->my_chan];
+
+	if (!do_pl_recv(q, from_chan, p2, p2_ctx))
 		return false;
 
 	cell tmp;
@@ -201,13 +229,23 @@ static void *start_routine(pl_thread *t)
 	prolog *pl = pl_create();
 	ensure(pl);
 	init_lock(&t->guard);
-	pl->chan = t->chan;
+	pl->my_chan = t->chan;
 	pl_consult(pl, t->filename);
+	t->active = false;
     return 0;
 }
 
 static bool bif_pl_thread_2(query *q)
 {
+	static bool s_first = true;
+
+	if (s_first) {
+		s_first = false;
+		pl_thread *t = &g_pl_threads[0];
+		init_lock(&t->guard);
+		t->active = true;
+	}
+
 	GET_FIRST_ARG(p1,var);
 	GET_NEXT_ARG(p2,atom);
 	char *filename = DUP_STRING(q, p2);
@@ -222,6 +260,13 @@ static bool bif_pl_thread_2(query *q)
 
 	unsigned chan = g_pl_cnt++;
 	pl_thread *t = &g_pl_threads[chan];
+
+	while (t->active) {
+		chan = g_pl_cnt++ % MAX_PL_THREADS;
+		t = &g_pl_threads[chan];
+	}
+
+	t->active = true;
 	t->filename = filename;
 	t->chan = chan;
 
@@ -243,14 +288,51 @@ static bool bif_pl_thread_2(query *q)
 	make_uint(&tmp, chan);
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 }
+
+static bool bif_pl_thread_pin_cpu_2(query *q)
+{
+	GET_FIRST_ARG(p1,integer);
+	GET_NEXT_ARG(p2,integer);
+
+	if (is_negative(p1))
+		return throw_error(q, p1, p1_ctx, "domain_error", "not_less_than_zero");
+
+	if (is_negative(p2))
+		return throw_error(q, p2, p2_ctx, "domain_error", "not_less_than_zero");
+
+	unsigned chan = get_smalluint(p1);
+	pl_thread *t = &g_pl_threads[chan];
+	// Do something here
+	return true;
+}
+
+static bool bif_pl_thread_set_priority_2(query *q)
+{
+	GET_FIRST_ARG(p1,integer);
+	GET_NEXT_ARG(p2,integer);
+
+	if (is_negative(p1))
+		return throw_error(q, p1, p1_ctx, "domain_error", "not_less_than_zero");
+
+	if (is_negative(p2))
+		return throw_error(q, p2, p2_ctx, "domain_error", "not_less_than_zero");
+
+	unsigned chan = get_smalluint(p1);
+	int pri = get_smallint(p2);
+	pl_thread *t = &g_pl_threads[chan];
+	// Do something here
+	return true;
+}
 #endif
 
 builtins g_threads_bifs[] =
 {
 #if USE_THREADS
-	{"pl_thread", 2, bif_pl_thread_2, "+integer,+atom", false, false, BLAH},
-	{"pl_send", 2, bif_pl_send_2, "+integer,+term", false, false, BLAH},
-	{"pl_recv", 2, bif_pl_recv_2, "-integer,?term", false, false, BLAH},
+	{"$pl_thread", 2, bif_pl_thread_2, "-integer,+atom", false, false, BLAH},
+	{"$pl_thread_pin_cpu", 2, bif_pl_thread_pin_cpu_2, "+integer,+integer", false, false, BLAH},
+	{"$pl_thread_set_priority", 2, bif_pl_thread_set_priority_2, "+integer,+integer", false, false, BLAH},
+	{"$pl_send", 2, bif_pl_send_2, "+integer,+term", false, false, BLAH},
+	{"$pl_recv", 2, bif_pl_recv_2, "-integer,?term", false, false, BLAH},
 #endif
 
 	{0}
