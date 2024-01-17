@@ -71,11 +71,16 @@ void release_lock(lock *l)
 #endif
 }
 
+typedef struct msg_ {
+	struct msg_ *prev, *next;
+	unsigned from_chan;
+	cell c[];
+} msg;
+
 typedef struct {
 	const char *filename;
-	cell *queue;
-	pl_atomic pl_idx queue_size;
-	unsigned from_chan, chan;
+	msg *head, *tail;
+	unsigned chan;
 	bool active;
 	lock guard;
 #ifdef _WIN32
@@ -118,24 +123,29 @@ static void resume_thread(pl_thread *t)
 
 // NOTE: current implementation allows for queueing 1 item at a time.
 
-static cell *queue_to_chan(unsigned chan, const cell *c)
+static cell *queue_to_chan(unsigned chan, const cell *c, unsigned from_chan)
 {
+	//printf("*** send to chan=%u, nbr_cells=%u\n", chan, c->nbr_cells);
 	pl_thread *t = &g_pl_threads[chan];
+	msg *m = calloc(1, sizeof(msg) + (sizeof(cell)*c->nbr_cells));
+
+	if (!m)
+		return NULL;
+
+	m->from_chan = from_chan;
+	dup_cells(m->c, c, c->nbr_cells);
 	acquire_lock(&t->guard);
 
-	if (t->queue_size < c->nbr_cells) {
-		t->queue = realloc(t->queue, sizeof(cell)*c->nbr_cells);
-		if (!t->queue) {
-			release_lock(&t->guard);
-			return NULL;
-		}
+	if (!t->head) {
+		t->head = t->tail = m;
+	} else {
+		m->prev = t->tail;
+		t->tail->next = m;
+		t->tail = m;
 	}
 
-	//printf("*** send to chan=%u, nbr_cells=%u\n", chan, c->nbr_cells);
-
-	dup_cells(t->queue, c, c->nbr_cells);
-	t->queue_size = c->nbr_cells;
-	return t->queue;
+	release_lock(&t->guard);
+	return m->c;
 }
 
 static bool do_pl_send(query *q, unsigned chan, cell *p1, pl_idx p1_ctx)
@@ -149,10 +159,9 @@ static bool do_pl_send(query *q, unsigned chan, cell *p1, pl_idx p1_ctx)
 		return throw_error(q, p1, p1_ctx, "domain_error", "no_such_thread");
 
 	check_heap_error(init_tmp_heap(q));
-	cell *c = deep_clone_to_tmp(q, p1, p1_ctx);
+	const cell *c = deep_clone_to_tmp(q, p1, p1_ctx);
 	check_heap_error(c);
-	check_heap_error(queue_to_chan(chan, c));
-	t->from_chan = q->pl->my_chan;
+	check_heap_error(queue_to_chan(chan, c, q->pl->my_chan));
     resume_thread(t);
 	return true;
 }
@@ -173,14 +182,26 @@ static bool do_pl_recv(query *q, unsigned from_chan, cell *p1, pl_idx p1_ctx)
 	pl_thread *t = &g_pl_threads[q->pl->my_chan];
 	uint64_t cnt = 0;
 
-	while (!t->queue_size) {
+	while (!t->head) {
 		suspend_thread(t, cnt < 1000 ? 0 : cnt < 10000 ? 1 : cnt < 100000 ? 10 : 100);
 		cnt++;
 	}
 
-	//printf("*** recv msg nbr_cells=%u\n", t->queue->nbr_cells);
+	//printf("*** recv msg nbr_cells=%u\n", t->head->nbr_cells);
 
-	cell *c = t->queue;
+	acquire_lock(&t->guard);
+	msg *m = t->head;
+
+	if (m->next)
+		m->next->prev = NULL;
+
+	if (t->head == t->tail)
+		t->tail = NULL;
+
+	t->head = m->next;
+	release_lock(&t->guard);
+
+	cell *c = m->c;
 	try_me(q, MAX_ARITY);
 
 	for (unsigned i = 0; i < c->nbr_cells; i++) {
@@ -190,11 +211,10 @@ static bool do_pl_recv(query *q, unsigned from_chan, cell *p1, pl_idx p1_ctx)
 	}
 
 	cell *tmp = deep_copy_to_heap(q, c, q->st.fp, false);
-	check_heap_error(tmp);
+	check_heap_error(tmp, release_lock(&t->guard));
 	unshare_cells(c, c->nbr_cells);
-	t->queue_size = 0;
-	q->curr_chan = t->from_chan;
-	release_lock(&t->guard);
+	q->curr_chan = m->from_chan;
+	free(m);
 	return unify(q, p1, p1_ctx, tmp, q->st.curr_frame);
 }
 

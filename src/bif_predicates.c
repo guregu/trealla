@@ -764,16 +764,21 @@ static bool bif_iso_atom_codes_2(query *q)
 		return ok;
 	}
 
-	const char *tmpbuf = C_STR(q, p1);
+	const char *src = C_STR(q, p1);
 	size_t len = C_STRLEN(q, p1);
-	const char *src = tmpbuf;
 	cell tmp;
 	len -= len_char_utf8(src);
 	make_int(&tmp, get_char_utf8(&src));
 	allocate_list(q, &tmp);
 
 	while (len) {
-		len -= len_char_utf8(src);
+		CHECK_INTERRUPT();
+		int char_len = len_char_utf8(src);
+
+		if (char_len > 6)
+			return throw_error(q, p1, p1_ctx, "representation_error", "character_code");
+
+		len -= char_len;
 		make_int(&tmp, get_char_utf8(&src));
 		append_list(q, &tmp);
 	}
@@ -2281,7 +2286,15 @@ static bool bif_iso_acyclic_term_1(query *q)
 static bool bif_call_residue_vars_2(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
-	GET_NEXT_ARG(p2,nil_or_var);
+	GET_NEXT_ARG(p2,list_or_nil_or_var);
+
+	bool is_partial = false;
+
+	// This checks for a valid list (it allows for partial but acyclic lists)...
+
+	if (is_iso_list(p2) && !check_list(q, p2, p2_ctx, &is_partial, NULL))
+		return throw_error(q, p2, p2_ctx, "type_error", "list");
+
 	cell *tmp = prepare_call(q, true, p1, p1_ctx, 6);
 	check_heap_error(tmp);
 	tmp[1].flags &= ~FLAG_TAIL_CALL;
@@ -2292,7 +2305,7 @@ static bool bif_call_residue_vars_2(query *q)
 	if (is_var(p2))
 		make_ref(tmp+nbr_cells++, p2->var_nbr, p2_ctx);
 	else
-		tmp[nbr_cells++] = *p2;
+		make_indirect(tmp+nbr_cells++, p2, p2_ctx);
 
 	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+nbr_cells++, q->cp);

@@ -111,6 +111,10 @@ bool needs_quoting(module *m, const char *src, int srclen)
 			alphas++;
 		else if ((ch < 256) && iswgraph(ch) && (ch != '%'))
 			graphs++;
+		else if (iswgraph(ch) && (ch != '%')
+			//&& (cnt == 1)	// Hack
+			)
+			graphs++;
 	}
 
 	if (cnt == alphas)
@@ -959,7 +963,8 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		CLR_OP(c);
 
 	if (q->ignore_ops || !IS_OP(c) || !c->arity) {
-		int quote = ((running <= 0) || q->quoted) && !is_var(c) && needs_quoting(q->st.m, src, src_len);
+		bool is_needs_quoting = needs_quoting(q->st.m, src, src_len);
+		int quote = ((running <= 0) || q->quoted) && !is_var(c) && is_needs_quoting;
 		int dq = 0, braces = 0;
 		if (is_string(c) && q->double_quotes) dq = quote = 1;
 		if (q->quoted < 0) quote = 0;
@@ -1349,9 +1354,15 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		space = true;
 
 	bool rhs_is_symbol = is_interned(rhs) && !rhs->arity
-		&& !iswalpha(*C_STR(q, rhs)) && !needs_quoting(q->st.m, C_STR(q, rhs), C_STRLEN(q, rhs))
+		&& !iswalpha(*C_STR(q, rhs))
+		&& !needs_quoting(q->st.m, C_STR(q, rhs), C_STRLEN(q, rhs))
 		&& strcmp(C_STR(q, rhs), "[]") && strcmp(C_STR(q, rhs), "{}")
 		&& !rhs_parens;
+
+	if (is_atom(rhs) && (peek_char_utf8(C_STR(q, rhs)) > 255)
+		&& !needs_quoting(q->st.m, C_STR(q, rhs), C_STRLEN(q, rhs))
+		)
+		space = true;
 
 	if (rhs_is_symbol && strcmp(C_STR(q, rhs), "[]") && strcmp(C_STR(q, rhs), "{}") && strcmp(C_STR(q, rhs), "!"))
 		space = true;
