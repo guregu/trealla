@@ -42,10 +42,10 @@ bool bif_put_atts_2(query *q)
 	GET_NEXT_ARG(p2,callable);
 	const frame *f = GET_FRAME(p1_ctx);
 	slot *e = GET_SLOT(f, p1->var_nbr);
-	cell *v = deref(q, &e->c, e->c.var_ctx);
+	cell *c = deref(q, &e->c, e->c.var_ctx);
 	bool is_minus = p2->val_off == g_minus_s;
 
-	if (!v->attrs && is_minus)
+	if (!c->attrs && is_minus)
 		return true;
 
 	cell *attr = p2;
@@ -54,7 +54,7 @@ bool bif_put_atts_2(query *q)
 		attr++;
 
 	//if (e->c.attrs || !is_nil(attr))
-		add_trail(q, p1_ctx, p1->var_nbr, v->attrs, v->attrs_ctx);
+		add_trail(q, p1_ctx, p1->var_nbr, c->attrs, c->attrs_ctx);
 
 	if (is_nil(attr)) {
 		e->c.flags = 0;
@@ -80,9 +80,9 @@ bool bif_put_atts_2(query *q)
 		tmp3->nbr_cells += tmp2->nbr_cells;
 	}
 
-	if (v->attrs) {
-		cell *l = v->attrs;
-		pl_idx l_ctx = v->attrs_ctx;
+	if (c->attrs) {
+		cell *l = c->attrs;
+		pl_idx l_ctx = c->attrs_ctx;
 		LIST_HANDLER(l);
 
 		while (is_iso_list(l)) {
@@ -127,14 +127,14 @@ bool bif_get_atts_2(query *q)
 	const frame *f = GET_FRAME(p1_ctx);
 	bool is_minus = !is_var(p2) && p2->val_off == g_minus_s;
 	slot *e = GET_SLOT(f, p1->var_nbr);
-	cell *v = deref(q, &e->c, e->c.var_ctx);
+	cell *c = deref(q, &e->c, e->c.var_ctx);
 
-	if (!v->attrs || is_nil(v->attrs))
+	if (!c->attrs || is_nil(c->attrs))
 		return is_minus ? true : false;
 
 	if (is_var(p2)) {
-		cell *l = v->attrs;
-		pl_idx l_ctx = v->attrs_ctx;
+		cell *l = c->attrs;
+		pl_idx l_ctx = c->attrs_ctx;
 		init_tmp_heap(q);
 		LIST_HANDLER(l);
 
@@ -221,14 +221,31 @@ static bool check_occurs(unsigned var_nbr, pl_idx var_ctx, cell *c, pl_idx c_ctx
 
 bool any_attributed(query *q)
 {
-	for (unsigned i = 0; i < q->st.tp; i++) {
-		const trail *tr = q->trails + i;
-		const frame *f = GET_FRAME(tr->var_ctx);
-		slot *e = GET_SLOT(f, tr->var_nbr);
-		cell *v = deref(q, &e->c, e->c.var_ctx);
-		pl_idx v_ctx = q->latest_ctx;
+	const frame *f = GET_FRAME(0);
 
-		if (!is_empty(v) || !v->attrs || is_nil(v->attrs))
+	for (unsigned i = 0; i < f->initial_slots; i++) {
+		slot *e = GET_SLOT(f, i);
+		cell *c = deref(q, &e->c, e->c.var_ctx);
+		pl_idx c_ctx = q->latest_ctx;
+
+		if (!is_empty(c) || !c->attrs || is_nil(c->attrs))
+			continue;
+
+		c = c->attrs;
+		bool any = false;
+
+		while (is_iso_list(c)) {
+			cell *h = c + 1;
+
+			//  Ignore \== created by dif/2
+
+			if (!is_op(h))
+				any = true;
+
+			c = c + 1; c += c->nbr_cells;
+		}
+
+		if (!any)
 			continue;
 
 		return true;
@@ -241,11 +258,10 @@ bool bif_sys_list_attributed_1(query *q)
 {
 	GET_FIRST_ARG(p1,var);
 	check_heap_error(init_tmp_heap(q));
+	const frame *f = GET_FRAME(0);
 
-	for (unsigned i = 0; i < q->st.tp; i++) {
-		const trail *tr = q->trails + i;
-		const frame *f = GET_FRAME(tr->var_ctx);
-		slot *e = GET_SLOT(f, tr->var_nbr);
+	for (unsigned i = 0; i < f->initial_slots; i++) {
+		slot *e = GET_SLOT(f, i);
 		cell *c = deref(q, &e->c, e->c.var_ctx);
 		pl_idx c_ctx = q->latest_ctx;
 
@@ -253,7 +269,7 @@ bool bif_sys_list_attributed_1(query *q)
 			continue;
 
 		cell tmp;
-		make_ref(&tmp, tr->var_nbr, tr->var_ctx);
+		make_ref(&tmp, i, 0);
 		append_list(q, &tmp);
 	}
 
@@ -267,12 +283,12 @@ bool bif_sys_attributed_var_1(query *q)
 	GET_FIRST_ARG(p1,var);
 	const frame *f = GET_FRAME(p1_ctx);
 	slot *e = GET_SLOT(f, p1->var_nbr);
-	cell *v = deref(q, &e->c, e->c.var_ctx);
+	cell *c = deref(q, &e->c, e->c.var_ctx);
 
-	if (!v->attrs || is_nil(v->attrs))
+	if (!c->attrs || is_nil(c->attrs))
 		return false;
 
-	cell *l = v->attrs;
+	cell *l = c->attrs;
 	pl_idx l_ctx = e->c.attrs_ctx;
 	init_tmp_heap(q);
 	LIST_HANDLER(l);

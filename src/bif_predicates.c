@@ -2820,16 +2820,6 @@ static bool bif_iso_op_3(query *q)
 	return true;
 }
 
-static bool bif_erase_1(query *q)
-{
-	GET_FIRST_ARG(p1,atom);
-	uuid u;
-	uuid_from_buf(C_STR(q, p1), &u);
-	rule *r = erase_from_db(q->st.m, &u);
-	check_heap_error(r);
-	return true;
-}
-
 static bool bif_instance_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
@@ -5753,7 +5743,7 @@ static bool bif_prolog_load_context_2(query *q)
 
 static bool bif_strip_module_3(query *q)
 {
-	GET_FIRST_ARG(p1,callable);
+	GET_FIRST_ARG(p1,any);
 	GET_NEXT_ARG(p2,atom_or_var);
 	GET_NEXT_ARG(p3,any);
 
@@ -6103,6 +6093,24 @@ bool bif_sys_counter_1(query *q)
 	return true;
 }
 
+bool bif_sys_retract_on_backtrack_1(query *q)
+{
+	GET_FIRST_ARG(p1,atom);
+	unsigned var_nbr;
+
+	if (!(var_nbr = create_vars(q, 1)))
+		return false;
+
+	blob *b = calloc(1, sizeof(blob));
+	b->ptr = (void*)q->st.m;
+	b->ptr2 = (void*)strdup(C_STR(q, p1));
+
+	cell c, v;
+	make_ref(&c, var_nbr, q->st.curr_frame);
+	make_dbref(&v, b);
+	return unify(q, &c, q->st.curr_frame, &v, q->st.curr_frame);
+}
+
 void format_property(module *m, char *tmpbuf, size_t buflen, const char *name, unsigned arity, const char *type, bool function)
 {
 	tmpbuf[0] = '\0';
@@ -6254,6 +6262,16 @@ static void load_properties(module *m)
  	}
 
 	for (const builtins *ptr = g_files_bifs; ptr->name; ptr++) {
+		sl_app(m->pl->biftab, ptr->name, ptr);
+		if (ptr->name[0] == '$') continue;
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
+ 	}
+
+	for (const builtins *ptr = g_maps_bifs; ptr->name; ptr++) {
 		sl_app(m->pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
 		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
@@ -6690,6 +6708,8 @@ builtins g_other_bifs[] =
 	{"$host_call", 2, fn_sys_host_call_2, "+string,-string", false, false, BLAH},
 	{"$host_resume", 1, fn_sys_host_resume_1, "-string", false, false, BLAH},
 #endif
+	{"$retract_on_backtrack", 1, bif_sys_retract_on_backtrack_1, "+string", false, false, BLAH},
+
 #if USE_OPENSSL
 	{"crypto_data_hash", 3, bif_crypto_data_hash_3, "?string,?string,?list", false, false, BLAH},
 #endif
