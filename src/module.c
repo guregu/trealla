@@ -449,7 +449,12 @@ static void destroy_predicate(module *m, predicate *pr)
 
 	sl_destroy(pr->idx2);
 	sl_destroy(pr->idx);
-	free(pr->meta_args);
+
+	if (pr->meta_args) {
+		unshare_cells(pr->meta_args, pr->meta_args->nbr_cells);
+		free(pr->meta_args);
+	}
+
 	free(pr);
 }
 
@@ -799,6 +804,12 @@ void set_meta_predicate_in_db(module *m, cell *c)
 		snprintf(tmpbuf, sizeof(tmpbuf), "meta_predicate(%s)", dst);
 		free(dst);
 		push_property(m, name, arity, tmpbuf);
+
+		if (pr->meta_args) {
+			unshare_cells(pr->meta_args, pr->meta_args->nbr_cells);
+			free(pr->meta_args);
+		}
+
 		pr->is_meta_predicate = true;
 		pr->meta_args = malloc(sizeof(cell)*c->nbr_cells);
 		dup_cells(pr->meta_args, c, c->nbr_cells);
@@ -1174,9 +1185,9 @@ bool set_op(module *m, const char *name, unsigned specifier, unsigned priority)
 	return true;
 }
 
-static unsigned find_op_internal(module *m, const char *name, unsigned specifier)
+static unsigned find_op_internal(const module *m, const char *name, unsigned specifier)
 {
-	op_table *ptr;
+	const op_table *ptr;
 	sliter *iter = sl_find_key(m->ops, name);
 
 	while (sl_next_key(iter, (void**)&ptr)) {
@@ -1228,9 +1239,9 @@ unsigned find_op(module *m, const char *name, unsigned specifier)
 	return 0;
 }
 
-static unsigned search_op_internal(module *m, const char *name, unsigned *specifier, bool hint_prefix)
+static unsigned search_op_internal(const module *m, const char *name, unsigned *specifier, bool hint_prefix)
 {
-	op_table *ptr;
+	const op_table *ptr;
 	sliter *iter = sl_find_key(m->defops, name);
 
 	while (sl_next_key(iter, (void**)&ptr)) {
@@ -2161,9 +2172,9 @@ void module_destroy(module *m)
 	sl_destroy(m->ops);
 
 	for (predicate *pr = m->head; pr;) {
-		predicate *save = pr->next;
-		destroy_predicate(m, pr);
-		pr = save;
+		predicate *save = pr;
+		pr = pr->next;
+		destroy_predicate(m, save);
 	}
 
 	if (m->pl->modules == m) {
@@ -2179,6 +2190,12 @@ void module_destroy(module *m)
 
 	if (m->fp)
 		fclose(m->fp);
+
+	while (m->gex_head) {
+		gex *save = m->gex_head;
+		m->gex_head = m->gex_head->next;
+		free(save);
+	}
 
 	sl_destroy(m->index);
 	parser_destroy(m->p);
