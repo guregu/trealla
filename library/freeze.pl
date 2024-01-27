@@ -1,10 +1,13 @@
-:- module(freeze, [freeze/2, frozen/2]).
+:- module(freeze, [
+	freeze/2,
+	frozen/2
+	]).
 
 :- use_module(library(atts)).
 :- use_module(library(dcgs)).
-:- use_module(library(lists)).
+:- use_module(library(lists, [flatten/2])).
 
-:- meta_predicate(freeze(?, 0)).
+:- meta_predicate(freeze(-, 0)).
 :- attribute frozen/1.
 
 frozen(Term, Goal) :-
@@ -28,14 +31,17 @@ verify_attributes(Var, Other, Goals) :-
 verify_attributes(_, _, []).
 
 freeze(X, Goal) :-
+	var(X),
+	!,
 	put_atts(Fresh, frozen(Goal)),
 	Fresh = X.
+freeze(_, Goal) :-
+	Goal.
 
 :- help(freeze(+var,:callable), [iso(false),desc('Delay the execution of Goal until Var is bound (i.e., is not a variable or attributed variable).')]).
 
-attribute_goal(Var, freeze(Var,Goal)) :-     % interpretation as goal
-	get_atts(Var, frozen(Goal)).
-
 attribute_goals(Var) -->
-	{ attribute_goal(Var, Goal) },
-	[Goal].
+    { get_atts(Var, frozen(Goals)),
+      put_atts(Var, -frozen(_)) },
+    [freeze(Var, Goals)].
+

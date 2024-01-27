@@ -1932,7 +1932,7 @@ static bool parse_read_params(query *q, stream *str, cell *c, pl_idx c_ctx, cell
 			}
 		}
 	} else if (!CMP_STRING_TO_CSTR(q, c, "variables")) {
-		if (is_iso_list_or_nil_or_var(c1) && valid_list(q, c1, c1_ctx)) {
+		if ((is_iso_list_or_nil_or_var(c1) && valid_list(q, c1, c1_ctx)) || true) {
 			if (vars) *vars = c1;
 			if (vars_ctx) *vars_ctx = c1_ctx;
 		} else {
@@ -1940,7 +1940,7 @@ static bool parse_read_params(query *q, stream *str, cell *c, pl_idx c_ctx, cell
 			return false;
 		}
 	} else if (!CMP_STRING_TO_CSTR(q, c, "variable_names")) {
-		if (is_iso_list_or_nil_or_var(c1) && valid_list(q, c1, c1_ctx)) {
+		if ((is_iso_list_or_nil_or_var(c1) && valid_list(q, c1, c1_ctx)) || true) {
 			if (varnames) *varnames = c1;
 			if (varnames_ctx) *varnames_ctx = c1_ctx;
 		} else {
@@ -1948,7 +1948,7 @@ static bool parse_read_params(query *q, stream *str, cell *c, pl_idx c_ctx, cell
 			return false;
 		}
 	} else if (!CMP_STRING_TO_CSTR(q, c, "singletons")) {
-		if (is_iso_list_or_nil_or_var(c1) && valid_list(q, c1, c1_ctx)) {
+		if ((is_iso_list_or_nil_or_var(c1) && valid_list(q, c1, c1_ctx)) || true) {
 			if (sings) *sings = c1;
 			if (sings_ctx) *sings_ctx = c1_ctx;
 		} else {
@@ -2287,7 +2287,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 				cell v;
 				make_atom(&v, g_unify_s);
 				v.flags |= FLAG_BUILTIN;
-				v.bif_ptr = get_fn_ptr(bif_iso_unify_2);
+				//v.bif_ptr = get_fn_ptr(bif_iso_unify_2);
 				v.arity = 2;
 				v.nbr_cells = 3;
 				SET_OP(&v,OP_XFX);
@@ -2295,6 +2295,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 				make_atom(&v, q->pl->tabs[i].val_off);
 				tmp[idx++] = v;
 				make_ref(&v, q->pl->tabs[i].var_nbr, q->st.curr_frame);
+				v.flags |= FLAG_VAR_FRESH;
 				tmp[idx++] = v;
 				done++;
 			}
@@ -2349,7 +2350,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 				cell v;
 				make_atom(&v, g_unify_s);
 				v.flags |= FLAG_BUILTIN;
-				v.bif_ptr = get_fn_ptr(bif_iso_unify_2);
+				//v.bif_ptr = get_fn_ptr(bif_iso_unify_2);
 				v.arity = 2;
 				v.nbr_cells = 3;
 				SET_OP(&v,OP_XFX);
@@ -2357,6 +2358,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 				make_atom(&v, q->pl->tabs[i].val_off);
 				tmp[idx++] = v;
 				make_ref(&v, q->pl->tabs[i].var_nbr, q->st.curr_frame);
+				v.flags |= FLAG_VAR_FRESH;
 				tmp[idx++] = v;
 				done++;
 			}
