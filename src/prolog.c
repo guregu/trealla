@@ -481,6 +481,10 @@ void g_init_lib() {
 
 static bool g_init(prolog *pl)
 {
+#if USE_THREADS
+	thread_initialize();
+#endif
+
 	bool error = false;
 
 	g_pool = calloc(1, s_pool_size);
@@ -695,6 +699,7 @@ prolog *pl_create()
 		return pl;
 	}
 
+	init_lock(&pl->guard);
 	pl->user_m->flags.strict_iso = false;
 	pl->curr_m = pl->user_m;
 

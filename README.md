@@ -1127,21 +1127,100 @@ engines.
 	engine_destroy/1
 
 
-Multi-threading (Prolog threads)			##EXPERIMENTAL##
+Multi-threading (Prolog queries)			##EXPERIMENTAL## / ##IN-PROGRESS##
 ================================
 
+Start independent (shared state) Prolog queries as dedicated
+threads and communicate via message queues. Each thread has it's own
+message queue associated with it. Note: the database
+*is* shared.
+
+```
+	thread_create/3		# thread_create(:callable,-thread,+options)
+	thread_create/2		# thread_create(:callable,-thread)
+	thread_signal/2		# thread_signal(+thread,:callable)
+	thread_join/2		# thread_join(+thread,-integer)
+	thread_cancel/1		# thread_cancel(+thread)
+	thread_detach/1		# thread_detach(+thread)
+	thread_self/1		# thread_self(-thread)
+	thread_exit/1		# thread_exit(+term)
+	thread_sleep/1		# thread_sleep(+integer)
+	thread_yield/0		# thread_yield
+	thread_property/2	# thread_property(+thread,+term)
+	thread_property/1	# thread_property(+term)
+```
+
+Where 'options' can be *alias(+atom)*, *at_exit(:term)* and/or *detached(+boolean)*
+(the default is *NOT* detached, ie. joinable).
+
+Create a stand-alone message queue...
+
+```
+	message_queue_create/2		# message_queue_create(-queue,+options)
+	message_queue_create/1		# message_queue_create(-queue)
+	message_queue_destroy/1		# message_queue_destroy(+queue)
+	message_queue_property/2	# message_queue_property(+queue,+term)
+	thread_send_message/2		# thread_send_message(+queue,+term)
+	thread_send_message/1		# thread_send_message(+term)
+	thread_get_message/2		# thread_get_message(+queue,?term)
+	thread_get_message/1		# thread_get_message(?term)
+	thread_peek_message/2		# thread_peek_message(+queue,?term)
+	thread_peek_message/1		# thread_peek_message(?term)
+```
+
+Where 'options' can be *alias(+atom)*. Note: you can send/get/peek
+to a thread as well.
+
+Create a stand-alone mutex...
+
+```
+	mutex_create/2				# mutex_create(-mutex,+options)
+	mutex_create/1				# mutex_create(-mutex)
+	mutex_destroy/1				# mutex_destroy(+mutex)
+	mutex_trylock/1				# mutex_trylock(+mutex)
+	mutex_lock/1				# mutex_lock(+mutex)
+	mutex_unlock/1				# mutex_unlock(+mutex)
+	mutex_unlock_all/0			# mutex_unlock_all
+	mutex_property/2			# mutex_property(+mutex,+term)
+```
+
+Where 'options' can be *alias(+atom)*.
+
+Note: you can trylock/lock/unlock a thread or message queue as well.
+
+For example...
+
+```
+?- thread_create((format("thread_hello~n",[]),sleep(1),format("thread_done~n",[]),thread_exit(99)), Tid, []), format("joining~n",[]), thread_join(Tid,Status), format("join_done~n",[]).
+joining
+thread_hello
+thread_done
+join_done
+   Tid = 1, Status = exited(99).
+?-
+```
+
+
+Multi-threading (Prolog instances)			##EXPERIMENTAL##
+==================================
+
 Start independent (no shared state) Prolog instances as dedicated
-threads and communicate via fast builtin channels. Note: the database
-is *not* shared. For shared data consider using SQLite.
+threads and communicate via message queues. Each thread has it's own
+message queue associated with it. Note: the database is *not* shared.
+For shared data in this case consider using SQLite.
 
 ```
 	pl_thread/3				# pl_thread(-thread,+filename,+options)
 	pl_thread/2				# pl_thread(-thread,+filename)
-	pl_send/2				# pl_send(+thread, @term)
-	pl_recv/2				# pl_recv(-thread, -term)
 ```
 
 Where 'options' can be (currently just) *alias(+atom)*.
+
+```
+	pl_msg_send/2			# pl_msg_send(+queue,@term)
+	pl_msg_recv/2			# pl_msg_recv(-queue,-term)
+
+```
 
 For example...
 
@@ -1154,18 +1233,18 @@ For example...
 	main :-
 		write('Calculator running...'), nl,
 		repeat,
-			pl_recv(Tid, Term),
+			pl_msg_recv(Tid, Term),
 			Term = sqrt(X, Y),
 			Y is sqrt(X),
-			pl_send(Tid, Term),
+			pl_msg_send(Tid, Term),
 			fail.
 
 	$ tpl
 	?- pl_thread(_, 'samples/thread_calc.pl', [alias(calc)]).
 	Calculator running...
 	?- Term = sqrt(2, V),
-		pl_send(calc, Term),
-		pl_recv(_, Term).
+		pl_msg_send(calc, Term),
+		pl_msg_recv(_, Term).
 	   Term = sqrt(2,1.4142135623731), V = 1.4142135623731.
 	?-
 ```

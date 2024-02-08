@@ -11,7 +11,8 @@
 :- attribute frozen/1.
 
 frozen(Term, Goal) :-
-	copy_term(Term, _, Gs),
+	copy_term(Term, Term2, Gs),
+	Term = Term2,
 	flatten(Gs, Gs2),
 	list_to_conjunction(Gs2, Fresh),
 	Fresh = Goal.

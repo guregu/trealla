@@ -512,6 +512,35 @@ static bool copy_vars(query *q, cell *tmp, bool copy_attrs, const cell *from, pl
 	return true;
 }
 
+unsigned rebase_vars(query *q, cell *c, unsigned start_nbr)
+{
+	q->vars = sl_create(NULL, NULL, NULL);
+	q->varno = start_nbr;
+	q->tab_idx = 0;
+
+	if (!copy_vars(q, c, false, NULL, 0, NULL, 0)) {
+		sl_destroy(q->vars);
+		q->vars = NULL;
+		return start_nbr;
+	}
+
+	sl_destroy(q->vars);
+	q->vars = NULL;
+
+	// Turn refs back into vars to decontextualize
+
+	cell *tmp = c;
+
+	for (unsigned i = 0; i < c->nbr_cells; i++, tmp++) {
+		if (!is_ref(tmp))
+			continue;
+
+		tmp->flags &= ~FLAG_VAR_REF;
+	}
+
+	return q->varno;
+}
+
 static cell *deep_copy_to_tmp_with_replacement(query *q, cell *p1, pl_idx p1_ctx, bool copy_attrs, cell *from, pl_idx from_ctx, cell *to, pl_idx to_ctx)
 {
 	cell *c = deref(q, p1, p1_ctx);

@@ -433,14 +433,17 @@ int get_named_stream(prolog *pl, const char *name, size_t len)
 
 int new_stream(prolog *pl)
 {
+	acquire_lock(&pl->guard);
+
 	for (int i = 0; i < MAX_STREAMS; i++) {
 		stream *str = &pl->streams[i];
 		if (!is_live_stream(str) && !str->ignore) {
-			// memset(str, 0, sizeof(stream));
+			release_lock(&pl->guard);
 			return i;
 		}
 	}
 
+	release_lock(&pl->guard);
 	return -1;
 }
 
@@ -797,7 +800,7 @@ static void clear_streams_properties(query *q)
 		for (rule *r = pr->head; r;) {
 			rule *save = r;
 			r = r->next;
-			retract_from_db(save);
+			retract_from_db(pr->m, save);
 		}
 
 		pr->head = pr->tail = NULL;
@@ -1970,9 +1973,10 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 {
 	if (!str->p) {
 		str->p = parser_create(q->st.m);
+		check_heap_error(str->p);
 		str->p->flags = q->st.m->flags;
 		str->p->fp = str->fp;
-		str->p->no_fp = q->p->no_fp;
+		if (q->p) str->p->no_fp = q->p->no_fp;
 	} else
 		reset(str->p);
 

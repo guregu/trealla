@@ -307,7 +307,7 @@ static predicate *find_predicate_(module *m, cell *c, bool abolished)
 	predicate *pr = NULL;
 
 	while (sl_next_key(iter, (void*)&pr)) {
-		if (pr->is_abolished && !abolished)
+		if (!pr || (pr->is_abolished && !abolished))
 			continue;
 
 		sl_done(iter);
@@ -388,10 +388,12 @@ predicate *create_predicate(module *m, cell *c, bool *created)
 	if (c->val_off == g_neck_s)
 		return NULL;
 
+	acquire_lock(&m->guard);
 	builtins *b;
 
 	if (b = get_builtin_term(m, c, &found, &evaluable),
 		!evaluable && found && b->iso) {
+		release_lock(&m->guard);
 		return NULL;
 	}
 
@@ -400,8 +402,11 @@ predicate *create_predicate(module *m, cell *c, bool *created)
 	if (!pr) {
 		pr = calloc(1, sizeof(predicate));
 		ensure(pr);
+
 		pr->prev = m->tail;
-		if (created) *created = true;
+
+		if (created)
+			*created = true;
 
 		if (m->tail)
 			m->tail->next = pr;
@@ -418,6 +423,7 @@ predicate *create_predicate(module *m, cell *c, bool *created)
 		pr->key.nbr_cells = 1;
 		pr->is_noindex = m->pl->noindex || !pr->key.arity;
 		sl_app(m->index, &pr->key, pr);
+		release_lock(&m->guard);
 		return pr;
 	}
 
@@ -433,6 +439,7 @@ predicate *create_predicate(module *m, cell *c, bool *created)
 
 	pr->dirty_list = NULL;
 	pr->is_abolished = false;
+	release_lock(&m->guard);
 	return pr;
 }
 
@@ -1614,7 +1621,10 @@ rule *asserta_to_db(module *m, unsigned nbr_vars, unsigned nbr_temporaries, cell
 
 	do {
 		r = assert_begin(m, nbr_vars, nbr_temporaries, p1, consulting);
-		if (!r) return NULL;
+
+		if (!r)
+			return NULL;
+
 		pr = r->owner;
 
 		if (pr->head)
@@ -1628,7 +1638,9 @@ rule *asserta_to_db(module *m, unsigned nbr_vars, unsigned nbr_temporaries, cell
 	if (!pr->tail)
 		pr->tail = r;
 
+	acquire_lock(&m->guard);
 	assert_commit(m, r, pr, false);
+	release_lock(&m->guard);
 
 	if (!consulting && !pr->idx)
 		pr->is_processed = false;
@@ -1643,7 +1655,10 @@ rule *assertz_to_db(module *m, unsigned nbr_vars, unsigned nbr_temporaries, cell
 
 	do {
 		r = assert_begin(m, nbr_vars, nbr_temporaries, p1, consulting);
-		if (!r) return NULL;
+
+		if (!r)
+			return NULL;
+
 		pr = r->owner;
 
 		if (pr->tail)
@@ -1657,12 +1672,47 @@ rule *assertz_to_db(module *m, unsigned nbr_vars, unsigned nbr_temporaries, cell
 	if (!pr->head)
 		pr->head = r;
 
+	acquire_lock(&m->guard);
 	assert_commit(m, r, pr, true);
+	release_lock(&m->guard);
 
 	if (!consulting && !pr->idx)
 		pr->is_processed = false;
 
 	return r;
+}
+
+// Module must be locked to enter here...
+
+bool remove_from_predicate(module *m, predicate *pr, rule *r)
+{
+	if (r->cl.dbgen_erased)
+		return false;
+
+	r->cl.dbgen_erased = ++m->pl->dbgen;
+	r->filename = NULL;
+	pr->cnt--;
+
+	if (pr->idx && !pr->cnt && !pr->refcnt) {
+		sl_destroy(pr->idx2);
+		sl_destroy(pr->idx);
+		pr->idx = pr->idx2 = NULL;
+	}
+
+	return true;
+}
+
+void retract_from_db(module *m, rule *r)
+{
+	predicate *pr = r->owner;
+	acquire_lock(&m->guard);
+
+	if (remove_from_predicate(m, pr, r)) {
+		r->dirty = pr->dirty_list;
+		pr->dirty_list = r;
+	}
+
+	release_lock(&m->guard);
 }
 
 static void xref_cell(module *m, clause *cl, cell *c, int last_was_colon, bool is_directive)
@@ -1796,6 +1846,8 @@ module *load_text(module *m, const char *src, const char *filename)
 
 static bool unload_realfile(module *m, const char *filename)
 {
+	acquire_lock(&m->guard);
+
 	for (predicate *pr = m->head; pr; pr = pr->next) {
 		if (pr->filename && strcmp(pr->filename, filename))
 			continue;
@@ -1805,7 +1857,7 @@ static bool unload_realfile(module *m, const char *filename)
 				continue;
 
 			if (r->filename && !strcmp(r->filename, filename)) {
-				if (!remove_from_predicate(pr, r))
+				if (!remove_from_predicate(m, pr, r))
 					continue;
 
 				r->dirty = pr->dirty_list;
@@ -1826,6 +1878,7 @@ static bool unload_realfile(module *m, const char *filename)
 	}
 
 	set_unloaded(m, filename);
+	release_lock(&m->guard);
 	return true;
 }
 
@@ -2214,6 +2267,7 @@ module *module_create(prolog *pl, const char *name)
 {
 	module *m = calloc(1, sizeof(module));
 	ensure(m);
+
 	m->pl = pl;
 	m->filename = set_known(m, name);
 	m->name = set_known(m, name);
@@ -2253,8 +2307,11 @@ module *module_create(prolog *pl, const char *name)
 		m = NULL;
 	}
 
+	init_lock(&m->guard);
+	acquire_lock(&pl->guard);
 	m->next = pl->modules;
 	pl->modules = m;
+	release_lock(&pl->guard);
 
 	set_discontiguous_in_db(m, "term_expansion", 2);
 	set_discontiguous_in_db(m, "goal_expansion", 2);

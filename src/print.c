@@ -603,11 +603,24 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 		int parens = 0;
 
 		if (has_visited(visited, head, head_ctx)) {
-			q->cycle_error = true;
-			if (is_iso_list(save_head))
-				print_term_to_buf_(q, head, head_ctx, 0, -1, 0, depth+1, visited);
-			else
-				SB_sprintf(q->sb, "%s", !is_ref(save_head) ? C_STR(q, save_head) : "_");
+			cell v = *(c+1);
+			pl_idx v_ctx = c_ctx;
+
+#if 0
+			if (is_var(c+1)) printf("*** c+1 = %u/%u\n", (c+1)->var_nbr, c_ctx);
+			if (is_var(head)) printf("*** head = %u/%u\n", head->var_nbr, head_ctx);
+			if (is_var(save_head)) printf("*** save_head = %u/%u\n", save_head->var_nbr, save_head_ctx);
+			if (is_var(save_c)) printf("*** save_c = %u/%u\n", save_c->var_nbr, save_c_ctx);
+			if (is_var(orig_c)) printf("*** orig_c = %u/%u\n", orig_c->var_nbr, orig_c_ctx);
+#endif
+
+			if (q->portray_vars || q->do_dump_vars) {
+				//SB_sprintf(q->sb, "%s", q->p->vartab.var_name[q->dump_var_nbr]);
+				SB_sprintf(q->sb, "%s", q->p->vartab.var_name[save_head->var_nbr]);
+				//print_variable(q, save_head, save_head_ctx, running);
+			} else {
+				SB_sprintf(q->sb, "%s", "...");
+			}
 		} else {
 			bool special_op = false;
 
@@ -660,7 +673,7 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 			cell v = *(c+1);
 			pl_idx v_ctx = c_ctx;
 
-			if (is_var(c+1)) {
+			if (is_var(c+1) && !q->do_dump_vars) {
 				v = *(c+1);
 				v_ctx = c_ctx;
 			} else if (is_var(save_tail) && !q->do_dump_vars) {
@@ -672,7 +685,9 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 			}
 
 			if (q->portray_vars || q->do_dump_vars) {
-				print_variable(q, &v, v_ctx, running);
+				//SB_sprintf(q->sb, "%s", q->p->vartab.var_name[q->dump_var_nbr]);
+				SB_sprintf(q->sb, "%s", q->p->vartab.var_name[save_tail->var_nbr]);
+				//print_variable(q, save_head, save_head_ctx, running);
 			} else {
 				SB_sprintf(q->sb, "%s", "...");
 			}

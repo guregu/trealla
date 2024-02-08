@@ -47,6 +47,7 @@ typedef uint32_t pl_idx;
 #include "trealla.h"
 #include "cdebug.h"
 #include "stringbuf.h"
+#include "threads.h"
 #include "imath/imath.h"
 #include "imath/imrat.h"
 #include "sre/re.h"
@@ -61,6 +62,7 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define ERR_IDX (~(pl_idx)0)
 #define IDX_MAX (ERR_IDX-1)
 
+#define MAX_THREADS 256
 #define MAX_SMALL_STRING ((sizeof(void*)*2)-1)
 #define MAX_VAR_POOL_SIZE 16000
 #define MAX_ARITY UINT8_MAX
@@ -650,6 +652,7 @@ struct query_ {
 	rule *dirty_list;
 	query *tasks;
 	skiplist *vars;
+	void *thread_ptr;
 	cell accum;
 	mpz_t tmp_ival;
 	mpq_t tmp_irat;
@@ -662,7 +665,7 @@ struct query_ {
 	uint64_t get_started, autofail_n, yield_at;
 	uint64_t time_cpu_started, time_cpu_last_started, future;
 	unsigned max_depth, max_eval_depth, print_idx, tab_idx, dump_var_nbr;
-	unsigned varno, tab0_varno, curr_engine, curr_chan, oom;
+	unsigned varno, tab0_varno, curr_engine, curr_chan, my_chan, oom;
 	pl_idx tmphp, latest_ctx, popp, variable_names_ctx;
 	pl_idx frames_size, slots_size, trails_size, choices_size;
 	pl_idx hw_choices, hw_frames, hw_slots, hw_trails, hw_heap_nbr;
@@ -678,6 +681,7 @@ struct query_ {
 	enum { WAS_OTHER, WAS_SPACE, WAS_COMMA, WAS_SYMBOL } last_thing;
 	bool is_cyclic1:1;
 	bool is_cyclic2:1;
+	bool thread_signal:1;
 	bool done:1;
 	bool parens:1;
 	bool in_attvar_print:1;
@@ -720,6 +724,7 @@ struct query_ {
 	bool double_quotes:1;
 	bool end_wait:1;
 	bool access_private:1;
+	bool did_unhandled_excpetion:1;
 };
 
 struct parser_ {
@@ -791,6 +796,7 @@ struct module_ {
 	FILE *fp;
 	skiplist *index, *ops, *defops;
 	loaded_file *loaded_files;
+	lock guard;
 	prolog_flags flags;
 	unsigned id, idx_used, arity;
 	int if_depth;
@@ -821,11 +827,12 @@ struct prolog_ {
 	module *modules, *system_m, *user_m, *curr_m, *dcgs;
 	var_item *tabs;
 	parser *p;
-	query *curr_query;
 	skiplist *biftab, *keyval, *help, *fortab;
 	FILE *logfp;
+	lock guard;
 	size_t tabs_size;
-	uint64_t s_last, s_cnt, seed, dbgen;
+	uint64_t s_last, s_cnt, seed;
+	pl_atomic uint64_t dbgen;
 	unsigned next_mod_id, def_max_depth, my_chan;
 	uint8_t current_input, current_output, current_error;
 	int8_t halt_code, opt;
@@ -959,6 +966,12 @@ inline static pl_idx dup_cells_by_ref(cell *dst, const cell *src, pl_idx src_ctx
 	}
 
 	return nbr_cells;
+}
+
+inline static void share_cells(cell *src, pl_idx nbr_cells)
+{
+	for (pl_idx i = 0; i < nbr_cells; i++, src++)
+		share_cell(src);
 }
 
 inline static void unshare_cells(cell *src, pl_idx nbr_cells)

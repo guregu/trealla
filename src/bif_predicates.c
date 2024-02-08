@@ -1970,10 +1970,81 @@ static bool bif_term_singletons_2(query *q)
 	return unify(q, p2, p2_ctx, tmp2, q->st.curr_frame);
 }
 
-// Don't copy attributes as per SICStus & YAP, this
-// makes copy_term/2 the same as copy_term_nat/2
+// Copy attributes (Note: SICStus & YAP don't, Scryer & SWI do)
+
+static bool bif_duplicate_term_2(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,any);
+
+	if (is_var(p1) && is_var(p2)) {
+		const frame *f1 = GET_FRAME(p1_ctx);
+		const frame *f2 = GET_FRAME(p2_ctx);
+		slot *e1 = GET_SLOT(f1, p1->var_nbr);
+		slot *e2 = GET_SLOT(f2, p2->var_nbr);
+
+		if (e1->c.attrs) {
+			e2->c.attrs = deep_copy_to_heap_with_replacement(q, e1->c.attrs, e1->c.attrs_ctx, false, p1, p1_ctx, p2, p2_ctx);
+			check_heap_error(e2->c.attrs);
+			e2->c.attrs_ctx = q->st.curr_frame;
+		}
+
+		return true;
+	}
+
+	if (is_atomic(p1) && is_var(p2))
+		return unify(q, p1, p1_ctx, p2, p2_ctx);
+
+	if (!is_var(p2) && !has_vars(q, p1, p1_ctx))
+		return unify(q, p1, p1_ctx, p2, p2_ctx);
+
+	GET_FIRST_RAW_ARG(from,any);
+	cell *tmp;
+
+	if (is_var(from)) {
+		GET_NEXT_RAW_ARG(to,any);
+		tmp = deep_copy_to_heap_with_replacement(q, from, from_ctx, true, from, from_ctx, to, to_ctx);
+		check_heap_error(tmp);
+	} else {
+		tmp = deep_copy_to_heap(q, from, from_ctx, true);
+		check_heap_error(tmp);
+	}
+
+	return unify(q, p2, p2_ctx, tmp, q->st.curr_frame);
+}
+
+// Don't copy attributes (Note: SICStus & YAP don't, Scryer & SWI do)
 
 static bool bif_iso_copy_term_2(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,any);
+
+	if (is_var(p1) && is_var(p2))
+		return true;
+
+	if (is_atomic(p1) && is_var(p2))
+		return unify(q, p1, p1_ctx, p2, p2_ctx);
+
+	if (!is_var(p2) && !has_vars(q, p1, p1_ctx))
+		return unify(q, p1, p1_ctx, p2, p2_ctx);
+
+	GET_FIRST_RAW_ARG(from,any);
+	cell *tmp;
+
+	if (is_var(from)) {
+		GET_NEXT_RAW_ARG(to,any);
+		tmp = deep_copy_to_heap_with_replacement(q, from, from_ctx, false, from, from_ctx, to, to_ctx);
+		check_heap_error(tmp);
+	} else {
+		tmp = deep_copy_to_heap(q, from, from_ctx, false);
+		check_heap_error(tmp);
+	}
+
+	return unify(q, p2, p2_ctx, tmp, q->st.curr_frame);
+}
+
+static bool bif_copy_term_nat_2(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 	GET_NEXT_ARG(p2,any);
@@ -2330,6 +2401,25 @@ static bool bif_iso_current_prolog_flag_2(query *q)
 		cell tmp;
 		make_atom(&tmp, q->pl->quiet ? g_false_s : g_true_s);
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
+#if USE_THREADS
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "threads")) {
+		cell tmp;
+		make_atom(&tmp, g_true_s);
+		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "max_threads")) {
+		cell tmp;
+		make_int(&tmp, MAX_THREADS);
+		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "hardware_threads")) {
+		cell tmp;
+		make_int(&tmp, 4);
+		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
+#else
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "threads")) {
+		cell tmp;
+		make_atom(&tmp, g_false_s);
+		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
+#endif
 	} else if (!CMP_STRING_TO_CSTR(q, p1, "unix")) {
 		cell tmp;
 		make_atom(&tmp, g_true_s);
@@ -2634,6 +2724,11 @@ static bool bif_iso_set_prolog_flag_2(query *q)
 		|| !CMP_STRING_TO_CSTR(q, p1, "version_git")
 		|| !CMP_STRING_TO_CSTR(q, p1, "encoding")
 		|| !CMP_STRING_TO_CSTR(q, p1, "unix")
+		|| !CMP_STRING_TO_CSTR(q, p1, "threads")
+#if USE_THREADS
+		|| !CMP_STRING_TO_CSTR(q, p1, "hardware_threads")
+		|| !CMP_STRING_TO_CSTR(q, p1, "max_threads")
+#endif
 		|| !CMP_STRING_TO_CSTR(q, p1, "verbose")
 		|| !CMP_STRING_TO_CSTR(q, p1, "integer_rounding_function")
 		|| !CMP_STRING_TO_CSTR(q, p1, "dialect")
@@ -3451,8 +3546,7 @@ static bool bif_statistics_2(query *q)
 	return false;
 }
 
-#ifndef WASI_TARGET_JS
-static bool bif_sleep_1(query *q)
+static bool bif_delay_1(query *q)
 {
 	if (q->retry)
 		return true;
@@ -3465,38 +3559,17 @@ static bool bif_sleep_1(query *q)
 	if (is_bigint(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
 
-	unsigned ms = 0;
-
-	if (is_float(p1))
-		ms = (unsigned)(get_float(p1) * 1000);
-	else
-		ms = get_smalluint(p1) * 1000;
-
-	if (q->is_task)
-		return do_yield(q, ms);
-
-	msleep(ms);
-	return true;
-}
-#endif
-
-static bool bif_delay_1(query *q)
-{
-	if (q->retry)
-		return true;
-
-	GET_FIRST_ARG(p1,integer);
-
-	if (is_negative(p1))
-		return throw_error(q, p1, p1_ctx, "domain_error", "not_less_than_zero");
-
-	if (is_bigint(p1))
-		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
-
 	if (q->is_task)
 		return do_yield(q, get_smallint(p1));
 
-	msleep((unsigned)get_smallint(p1));
+	int ms = is_float(p1) ? (int)get_float(p1) : get_smallint(p1);
+
+	while ((ms > 0) && !q->halt) {
+		CHECK_INTERRUPT();
+		msleep(ms > 10 ? 10 : ms);
+		ms -= 10;
+	}
+
 	return true;
 }
 
@@ -6344,6 +6417,13 @@ static void load_flags(query *q)
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "unknown", m->flags.unknown == UNK_ERROR?"error":m->flags.unknown == UNK_WARNING?"warning":m->flags.unknown == UNK_CHANGEABLE?"changeable":"fail");
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "encoding", "'UTF-8'");
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "unix", "true");
+#if USE_THREADS
+	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "threads", "true");
+	SB_sprintf(pr, "'$current_prolog_flag'(%s, %u).\n", "hardware_threads", 4);
+	SB_sprintf(pr, "'$current_prolog_flag'(%s, %u).\n", "max_threads", MAX_THREADS);
+#else
+	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "threads", "false");
+#endif
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "verbose", q->pl->quiet?"false":"true");
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "dialect", "trealla");
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "bounded", "false");
@@ -6537,10 +6617,7 @@ builtins g_other_bifs[] =
 	{"*->", 2, bif_if_2, "+term,+term", false, false, BLAH},
 	{"if", 3, bif_if_3, "+term,+term,+term", false, false, BLAH},
 
-#ifndef WASI_TARGET_JS
-	{"sleep", 1, bif_sleep_1, "+number", false, false, BLAH},
 	{"delay", 1, bif_delay_1, "+number", false, false, BLAH},
-#endif
 	{"listing", 0, bif_listing_0, NULL, false, false, BLAH},
 	{"listing", 1, bif_listing_1, "+predicate_indicator", false, false, BLAH},
 	{"time", 1, bif_time_1, ":callable", false, false, BLAH},
@@ -6587,7 +6664,6 @@ builtins g_other_bifs[] =
 	{"abolish", 2, bif_abolish_2, "+term,+list", false, false, BLAH},
 	{"assert", 1, bif_iso_assertz_1, "+term", false, false, BLAH},
 	{"string", 1, bif_string_1, "+term", false, false, BLAH},
-	{"copy_term_nat", 2, bif_iso_copy_term_2, "+term,-term", false, false, BLAH},
 	{"atomic_concat", 3, bif_atomic_concat_3, "+atomic,+atomic,?atomic", false, false, BLAH},
 	{"atomic_list_concat", 3, bif_atomic_list_concat_3, "+list,+list,-atomic", false, false, BLAH},
 	{"replace", 4, bif_replace_4, "+string,+integer,+integer,-string", false, false, BLAH},
@@ -6627,7 +6703,8 @@ builtins g_other_bifs[] =
 	{"getenv", 2, bif_getenv_2, "+atom,-atom", false, false, BLAH},
 	{"setenv", 2, bif_setenv_2, "+atom,+atom", false, false, BLAH},
 	{"unsetenv", 1, bif_unsetenv_1, "+atom", false, false, BLAH},
-	{"duplicate_term", 2, bif_iso_copy_term_2, "+term,-term", false, false, BLAH},
+	{"duplicate_term", 2, bif_duplicate_term_2, "+term,-term", false, false, BLAH},
+	{"copy_term_nat", 2, bif_copy_term_nat_2, "+term,-term", false, false, BLAH},
 	{"call_nth", 2, bif_call_nth_2, ":callable,+integer", false, false, BLAH},
 	{"limit", 2, bif_limit_2, "+integer,:callable", false, false, BLAH},
 	{"offset", 2, bif_offset_2, "+integer,+callable", false, false, BLAH},

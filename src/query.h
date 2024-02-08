@@ -80,10 +80,12 @@ bool do_parse_csv_line(query *q, csv *params, const char *src, cell *p2, pl_idx 
 void add_trail(query *q, pl_idx c_ctx, unsigned c_var_nbr, cell *attrs, pl_idx attrs_ctx);
 void reset_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx);
 bool valid_list(query *q, cell *c, pl_idx c_ctx);
-bool remove_from_predicate(predicate *pr, rule *r);
-void retract_from_db(rule *r);
 void make_call(query *q, cell *tmp);
 void make_call_redo(query *q, cell *tmp);
+
+#if USE_THREADS
+void do_signal(query *q, void *thread_ptr);
+#endif
 
 int compare(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_ctx);
 bool unify(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_ctx);

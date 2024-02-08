@@ -104,13 +104,15 @@ static void trace_call(query *q, cell *c, pl_idx c_ctx, box_t box)
 	SB(pr);
 
 #ifdef DEBUG
-	SB_sprintf(pr, "[%s:%"PRIu64":f%u:fp%u:cp%u:sp%u:hp%u:tp%u] ",
+	SB_sprintf(pr, "[%u:%s:%"PRIu64":f%u:fp%u:cp%u:sp%u:hp%u:tp%u] ",
+		q->my_chan,
 		q->st.m->name,
 		q->step,
 		q->st.curr_frame, q->st.fp, q->cp, q->st.sp, q->st.hp, q->st.tp
 		);
 #else
-	SB_sprintf(pr, "[%s:%"PRIu64":cp%u] ",
+	SB_sprintf(pr, "[%u:%s:%"PRIu64":cp%u] ",
+		q->my_chan,
 		q->st.m->name,
 		q->step,
 		q->cp
@@ -1567,6 +1569,13 @@ bool start(query *q)
 			}
 		}
 
+#if USE_THREADS
+		if (q->thread_signal) {
+			q->thread_signal = false;
+			do_signal(q, q->thread_ptr);
+		}
+#endif
+
 		if (q->retry) {
 			int ok = retry_choice(q);
 
@@ -1808,10 +1817,10 @@ uint64_t get_time_in_usec(void)
 
 bool execute(query *q, cell *cells, unsigned nbr_vars)
 {
+	q->retry = q->halt = q->error = q->abort = false;
 	q->pl->did_dump_vars = false;
 	q->st.curr_instr = cells;
 	q->st.sp = nbr_vars;
-	q->abort = false;
 	q->is_redo = false;
 
 	// There is an initial frame (fp=0), so this
@@ -1848,6 +1857,9 @@ void purge_dirty_list(query *q)
 
 void query_destroy(query *q)
 {
+	if (!q)
+		return;
+
 	q->done = true;
 
 	for (page *a = q->heap_pages; a;) {
@@ -1888,6 +1900,7 @@ void query_destroy(query *q)
 	module *m = find_module(q->pl, "concurrent");
 
 	if (m) {
+		acquire_lock(&m->guard);
 		predicate *pr = find_functor(m, "$future", 1);
 
 		if (pr) {
@@ -1895,37 +1908,39 @@ void query_destroy(query *q)
 				retract_from_db(r);
 			}
 		}
+
+		release_lock(&m->guard);
 	}
 #endif
 
 	module *m = q->pl->modules;
 
 	while (m) {
-		if (m) {
-			predicate *pr = find_functor(m, "$bb_key", 3);
+		acquire_lock(&m->guard);
+		predicate *pr = find_functor(m, "$bb_key", 3);
 
-			if (pr) {
-				rule *r = pr->head;
+		if (pr) {
+			rule *r = pr->head;
 
-				while (r) {
-					cell *c = r->cl.cells;
-					cell *arg1 = c + 1;
-					cell *arg2 = arg1 + arg1->nbr_cells;
-					cell *arg3 = arg2 + arg2->nbr_cells;
+			while (r) {
+				cell *c = r->cl.cells;
+				cell *arg1 = c + 1;
+				cell *arg2 = arg1 + arg1->nbr_cells;
+				cell *arg3 = arg2 + arg2->nbr_cells;
 
-					if (!CMP_STRING_TO_CSTR(m, arg3, "b")) {
-						pr->cnt--;
-						delink(pr, r);
-						rule *save = r;
-						r = r->next;
-						clear_clause(&save->cl);
-						free(save);
-					} else
-						r = r->next;
-				}
+				if (!CMP_STRING_TO_CSTR(m, arg3, "b")) {
+					pr->cnt--;
+					delink(pr, r);
+					rule *save = r;
+					r = r->next;
+					clear_clause(&save->cl);
+					free(save);
+				} else
+					r = r->next;
 			}
 		}
 
+		release_lock(&m->guard);
 		m = m->next;
 	}
 
