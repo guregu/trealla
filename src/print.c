@@ -800,31 +800,20 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		return false;
 	}
 
-	if (q->is_dump_vars && (c->tag == TAG_INTEGER) && is_stream(c)) {
+	if ((c->tag == TAG_INTEGER) && (c->flags & FLAG_INT_STREAM)) {
 		int n = get_stream(q, c);
 		stream *str = &q->pl->streams[n];
-		sliter *iter = sl_first(str->alias);
 
-		if (iter && sl_next(iter, NULL)) {
-			const char *alias = sl_key(iter);
-
-			if (strcmp(alias, "user_input") && strcmp(alias, "user_output") && strcmp(alias, "user_error")) {
-				SB_strcat_and_free(q->sb, formatted(alias, strlen(alias), false, q->json));
-			} else {
-				SB_sprintf(q->sb, "'<$stream>'(%d)", (int)get_smallint(c));
-			}
-
-			sl_done(iter);
+		if (str->is_queue) {
+			SB_sprintf(q->sb, "'<$queue>'(%d)", (int)get_smallint(c));
+		} else if (str->is_mutex) {
+			SB_sprintf(q->sb, "'<$mutex>'(%d)", (int)get_smallint(c));
+		} else if (str->is_thread) {
+			SB_sprintf(q->sb, "'<$thread>'(%d)", (int)get_smallint(c));
 		} else {
 			SB_sprintf(q->sb, "'<$stream>'(%d)", (int)get_smallint(c));
 		}
 
-		q->last_thing = WAS_OTHER;
-		return true;
-	}
-
-	if ((c->tag == TAG_INTEGER) && (c->flags & FLAG_INT_STREAM)) {
-		SB_sprintf(q->sb, "'<$stream>'(%d)", (int)get_smallint(c));
 		q->last_thing = WAS_OTHER;
 		return true;
 	}
@@ -1476,7 +1465,6 @@ bool print_term_to_buf(query *q, cell *c, pl_idx c_ctx, int running, int cons)
 	me.next = NULL;
 	me.c = c;
 	me.c_ctx = c_ctx;
-
 	return print_term_to_buf_(q, c, c_ctx, running, cons, 0, 0, &me);
 }
 
@@ -1488,6 +1476,7 @@ char *print_canonical_to_strbuf(query *q, cell *c, pl_idx c_ctx, int running)
 	q->did_quote = false;
 	SB_init(q->sb);
 	print_term_to_buf(q, c, c_ctx, running, false);
+	if (q->nl) SB_putchar(q->sb, '\n');
 	q->ignore_ops = false;
 	q->quoted = 0;
 	char *buf = malloc(SB_strlen(q->sb)+1+1); // dcg_expansion needs this extra char space
@@ -1504,6 +1493,7 @@ bool print_canonical_to_stream(query *q, stream *str, cell *c, pl_idx c_ctx, int
 	q->did_quote = false;
 	SB_init(q->sb);
 	print_term_to_buf(q, c, c_ctx, running, false);
+	if (q->nl) SB_putchar(q->sb, '\n');
 	q->ignore_ops = false;
 	q->quoted = 0;
 	const char *src = SB_cstr(q->sb);
@@ -1534,6 +1524,7 @@ bool print_canonical(query *q, FILE *fp, cell *c, pl_idx c_ctx, int running)
 	q->did_quote = false;
 	SB_init(q->sb);
 	print_term_to_buf(q, c, c_ctx, running, false);
+	if (q->nl) SB_putchar(q->sb, '\n');
 	q->ignore_ops = false;
 	q->quoted = 0;
 	const char *src = SB_cstr(q->sb);
@@ -1575,6 +1566,7 @@ bool print_term_to_stream(query *q, stream *str, cell *c, pl_idx c_ctx, int runn
 	q->last_thing = WAS_SPACE;
 	SB_init(q->sb);
 	print_term_to_buf(q, c, c_ctx, running, false);
+	if (q->nl) SB_putchar(q->sb, '\n');
 	const char *src = SB_cstr(q->sb);
 	ssize_t len = SB_strlen(q->sb);
 
@@ -1601,6 +1593,7 @@ bool print_term(query *q, FILE *fp, cell *c, pl_idx c_ctx, int running)
 	q->last_thing = WAS_SPACE;
 	SB_init(q->sb);
 	print_term_to_buf(q, c, c_ctx, running, false);
+	if (q->nl) SB_putchar(q->sb, '\n');
 	const char *src = SB_cstr(q->sb);
 	ssize_t len = SB_strlen(q->sb);
 
