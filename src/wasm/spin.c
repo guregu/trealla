@@ -11,7 +11,7 @@
 #include "prolog.h"
 #include "spin-http.h"
 #include "stringbuf.h"
-#include "skiplist/skiplist.h"
+#include "skiplist.h"
 #include "internal.h"
 
 #include "spin.h"

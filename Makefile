@@ -264,7 +264,7 @@ leaks:
 clean:
 	rm -f tpl tpl.wasm tpl*.wasm libtpl*.wasm \
 		src/*.o src/imath/*.o src/isocline/src/*.o src/sre/*.o src/wasm/*.o \
-		src/skiplist/*.o src/utf8/*.o \
+		src/utf8/*.o \
 		library/*.o library/*.c *.o samples/*.o samples/*.so \
 		vgcore.* *.core core core.* *.exe gmon.* \
 		samples/*.xwam
