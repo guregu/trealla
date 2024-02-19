@@ -412,22 +412,32 @@ ssize_t getline(char **lineptr, size_t *n, FILE *stream) {
 }
 #endif
 
+// FIXME: this is too slow. There should be one overall
+// alias map, not one per stream.
+
 int get_named_stream(prolog *pl, const char *name, size_t len)
 {
+	acquire_lock(&pl->guard);
+
 	for (int i = 0; i < MAX_STREAMS; i++) {
 		stream *str = &pl->streams[i];
 
 		if (!is_live_stream(str) || str->ignore || !str->alias)
 			continue;
 
-		if (sl_get(str->alias, name, NULL))
+		if (sl_get(str->alias, name, NULL)) {
+			release_lock(&pl->guard);
 			return i;
+		}
 
 		if (str->filename && (strlen(str->filename) == len)
-			&& !strncmp(str->filename, name, len))
+			&& !strncmp(str->filename, name, len)) {
+			release_lock(&pl->guard);
 			return i;
+		}
 	}
 
+	release_lock(&pl->guard);
 	return -1;
 }
 
@@ -436,10 +446,16 @@ int new_stream(prolog *pl)
 	acquire_lock(&pl->guard);
 
 	for (int i = 0; i < MAX_STREAMS; i++) {
-		stream *str = &pl->streams[i];
+		unsigned n = pl->str_cnt++ % MAX_STREAMS;
+
+		if (n < 4)
+			continue;
+
+		stream *str = &pl->streams[n];
+
 		if (!is_live_stream(str) && !str->ignore) {
 			release_lock(&pl->guard);
-			return i;
+			return n;
 		}
 	}
 
@@ -1698,13 +1714,13 @@ bool stream_close(query *q, int n)
 		|| (str->fp == stderr))
 		return true;
 
-	if (q->pl->current_input == n)
+	if ((int)q->pl->current_input == n)
 		q->pl->current_input = 0;
 
-	if (q->pl->current_output == n)
+	if ((int)q->pl->current_output == n)
 		q->pl->current_output = 1;
 
-	if (q->pl->current_error == n)
+	if ((int)q->pl->current_error == n)
 		q->pl->current_error = 2;
 
 	if (sl_get(str->alias, "user_input", NULL)) {
@@ -1722,7 +1738,7 @@ bool stream_close(query *q, int n)
 		sl_set(str2->alias, strdup("user_error"), NULL);
 	}
 
-	if (!str->socket)
+	if (!str->socket && !str->is_mutex && !str->is_queue && !str->is_thread)
 		del_stream_properties(q, n);
 
 	bool ok = true;
@@ -1736,7 +1752,7 @@ bool stream_close(query *q, int n)
 	} else if (is_engine_stream(str)) {
 		query_destroy(str->engine);
 		str->engine = NULL;
-	} else if (str->is_thread) {
+	} else if (str->is_thread || str->is_queue || str->is_mutex) {
 	} else
 		ok = !net_close(str);
 
@@ -4110,7 +4126,7 @@ static bool bif_iso_current_input_1(query *q)
 		return throw_error(q, pstr, q->st.curr_frame, "domain_error", "stream");
 
 	int n = get_stream(q, pstr);
-	return n == q->pl->current_input ? true : false;
+	return n == (int)q->pl->current_input ? true : false;
 }
 
 static bool bif_iso_current_output_1(query *q)
@@ -4128,7 +4144,7 @@ static bool bif_iso_current_output_1(query *q)
 		return throw_error(q, pstr, q->st.curr_frame, "domain_error", "stream");
 
 	int n = get_stream(q, pstr);
-	return n == q->pl->current_output ? true : false;
+	return n == (int)q->pl->current_output ? true : false;
 }
 
 static bool bif_iso_current_error_1(query *q)
@@ -4146,7 +4162,7 @@ static bool bif_iso_current_error_1(query *q)
 		return throw_error(q, pstr, q->st.curr_frame, "domain_error", "stream");
 
 	int n = get_stream(q, pstr);
-	return n == q->pl->current_error ? true : false;
+	return n == (int)q->pl->current_error ? true : false;
 }
 
 static bool bif_iso_set_input_1(query *q)

@@ -16,7 +16,7 @@
 
 void convert_path(char *filename);
 
-static skiplist *s_symtab;
+static skiplist *g_symtab;
 static size_t s_pool_size = 64000, s_pool_offset = 0;
 char *g_pool = NULL;
 
@@ -75,7 +75,7 @@ static pl_idx add_to_pool(const char *name)
 	memcpy(g_pool + offset, name, len+1);
 	s_pool_offset += len + 1;
 	const char *key = strdup(name);
-	sl_set(s_symtab, key, (void*)(size_t)offset);
+	sl_set(g_symtab, key, (void*)(size_t)offset);
 	return (pl_idx)offset;
 }
 
@@ -93,7 +93,7 @@ pl_idx new_atom(prolog *pl, const char *name)
 	SPIN_LOCK(s_atomtable_lock);
 	const void *val;
 
-	if (sl_get(s_symtab, name, &val)) {
+	if (sl_get(g_symtab, name, &val)) {
 		SPIN_UNLOCK(s_atomtable_lock);
 		return (pl_idx)(size_t)val;
 	}
@@ -285,6 +285,8 @@ bool pl_restore(prolog *pl, const char *filename)
 
 static void g_destroy()
 {
+	sl_destroy(g_symtab);
+	free(g_pool);
 	free(g_tpl_lib);
 }
 
@@ -481,16 +483,12 @@ void g_init_lib() {
 
 static bool g_init(prolog *pl)
 {
-#if USE_THREADS
-	thread_initialize();
-#endif
-
 	bool error = false;
 
 	g_pool = calloc(1, s_pool_size);
 	s_pool_offset = 0;
 
-	CHECK_SENTINEL(s_symtab = sl_create((void*)fake_strcmp, (void*)keyfree, NULL), NULL);
+	CHECK_SENTINEL(g_symtab = sl_create((void*)fake_strcmp, (void*)keyfree, NULL), NULL);
 	CHECK_SENTINEL(g_dummy_s = new_atom(pl, "dummy"), ERR_IDX);
 	CHECK_SENTINEL(g_false_s = new_atom(pl, "false"), ERR_IDX);
 	CHECK_SENTINEL(g_true_s = new_atom(pl, "true"), ERR_IDX);
@@ -577,9 +575,6 @@ void pl_destroy(prolog *pl)
 	sl_destroy(pl->help);
 	free(pl->tabs);
 
-	if (!--g_tpl_count)
-		g_destroy();
-
 	for (int i = 0; i < MAX_STREAMS; i++) {
 		stream *str = &pl->streams[i];
 
@@ -611,9 +606,17 @@ void pl_destroy(prolog *pl)
 		free(str->data);
 	}
 
-	memset(pl->streams, 0, sizeof(pl->streams));
 	parser_destroy(pl->p);
-	free(pl);
+
+	if (!--g_tpl_count)
+		g_destroy();
+
+	if (pl->q_cnt && isatty(fileno(stdout))) {
+		printf("*** Oops, outstanding queries: %u\n", (unsigned)pl->q_cnt);
+	}
+
+	if (!pl->q_cnt)
+		free(pl);
 }
 
 prolog *pl_create()
@@ -674,6 +677,10 @@ prolog *pl_create()
 
 	pl->streams[3].ignore = true;
 
+#if USE_THREADS
+	thread_initialize(pl);
+#endif
+
 	pl->help = sl_create((void*)fake_strcmp, (void*)ptrfree, NULL);
 	pl->fortab = sl_create((void*)fake_strcmp, NULL, NULL);
 	pl->biftab = sl_create((void*)fake_strcmp, NULL, NULL);
@@ -687,16 +694,14 @@ prolog *pl_create()
 
 	if (!pl->system_m || pl->system_m->error) {
 		pl_destroy(pl);
-		pl = NULL;
-		return pl;
+		return NULL;
 	}
 
 	pl->user_m = module_create(pl, "user");
 
 	if (!pl->user_m || pl->user_m->error) {
 		pl_destroy(pl);
-		pl = NULL;
-		return pl;
+		return NULL;
 	}
 
 	init_lock(&pl->guard);
@@ -709,11 +714,11 @@ prolog *pl_create()
 	pl->def_max_depth = 19;
 	pl->def_quoted = true;
 	pl->def_double_quotes = true;
+	pl->rnd_first_time = true;
 
 	// In user space...
 
 	set_discontiguous_in_db(pl->user_m, "$predicate_property", 3);
-
 	set_multifile_in_db(pl->user_m, "$predicate_property", 3);
 
 	set_dynamic_in_db(pl->user_m, "$record_key", 2);

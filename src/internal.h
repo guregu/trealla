@@ -51,8 +51,8 @@ typedef uint32_t pl_idx;
 #include "imath/imath.h"
 #include "imath/imrat.h"
 #include "sre/re.h"
-#include "skiplist/skiplist.h"
-#include "utf8/utf8.h"
+#include "skiplist.h"
+#include "utf8.h"
 
 #if defined(_WIN32) || defined(__wasi__)
 char *realpath(const char *path, char resolved_path[PATH_MAX]);
@@ -68,10 +68,10 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define MAX_IF_DEPTH 255
 #define MAX_VARS 1024
 #define MAX_QUEUES 255
-#define MAX_STREAMS 1024
 #define MAX_MODULES 1024
 #define MAX_IGNORES 64000
-#define MAX_THREADS MAX_STREAMS
+#define MAX_STREAMS 2048
+#define MAX_THREADS (MAX_STREAMS / 2)
 
 #define STREAM_BUFLEN 1024
 
@@ -455,7 +455,7 @@ struct predicate_ {
 	rule *dirty_list;
 	const char *filename;
 	cell *meta_args;
-	uint64_t cnt, refcnt, db_id;
+	pl_atomic uint64_t cnt, refcnt, db_id;
 	bool is_reload:1;
 	bool is_prebuilt:1;
 	bool is_public:1;
@@ -668,6 +668,7 @@ struct query_ {
 	uint64_t time_cpu_started, time_cpu_last_started, future;
 	unsigned max_depth, max_eval_depth, print_idx, tab_idx, dump_var_nbr;
 	unsigned varno, tab0_varno, curr_engine, curr_chan, my_chan, oom;
+	unsigned s_cnt;
 	pl_idx tmphp, latest_ctx, popp, variable_names_ctx;
 	pl_idx frames_size, slots_size, trails_size, choices_size;
 	pl_idx hw_choices, hw_frames, hw_slots, hw_trails, hw_heap_nbr;
@@ -833,11 +834,13 @@ struct prolog_ {
 	FILE *logfp;
 	lock guard;
 	size_t tabs_size;
-	uint64_t s_last, s_cnt, seed;
-	pl_atomic uint64_t dbgen;
+	uint64_t s_last, s_cnt, seed, str_cnt;
+	pl_atomic uint64_t q_cnt, dbgen;
 	unsigned next_mod_id, def_max_depth, my_chan;
-	uint8_t current_input, current_output, current_error;
+	unsigned current_input, current_output, current_error;
+	pl_uint rnd_seed;
 	int8_t halt_code, opt;
+	bool rnd_first_time:1;
 	bool def_quoted:1;
 	bool def_double_quotes:1;
 	bool is_redo:1;

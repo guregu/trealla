@@ -1,6 +1,7 @@
 
 :- module(wasm_js, [js_fetch/3, http_fetch/3, http_consult/1, crypto_data_hash/3,
-	await/1, await_all/1, future_all/2, future_any/2, wait/1]).
+	await/1, await_all/1, future_all/2, future_any/2, wait/1, 
+	(:=)/2, op(700, xfx, :=)]).
 
 :- use_module(library(lists)).
 :- use_module(library(error)).
@@ -8,6 +9,48 @@
 :- use_module(library(pseudojson)).
 
 :- dynamic('$task'/1).
+
+
+/*
+
+greet :-
+	Ask = "Sup?",
+	Ret := window->prompt(Ask).
+
+*/
+
+'$externref'(_).
+
+Return := Call :-
+	phrase(jspl(Call), JS),
+	js_eval(JS, Return).
+
+jspl(Goal) -->
+	[].
+
+pl_js((A, B)) -->
+	{ A \= (_, _) },
+	pl_js(A),
+	";",
+	pl_js(B).
+
+pl_js(A->B) -->
+	pl_js(A),
+	".",
+	pl_js(B).
+
+pl_js(X) -->
+	{ compound(X), \+is_list(X), X =.. [Functor|Args] },
+	js_function(Functor),
+	"(",
+	js_args(Args),
+	")".
+pl_js(X) -->
+	{ number(X), number_chars(Cs) },
+	Cs.
+pl_js(X) -->
+	{ string(X) },
+	X.
 
 js_eval(Expr) :- js_eval(Expr, _).
 

@@ -2837,7 +2837,7 @@ static bool do_op(query *q, cell *p3, pl_idx p3_ctx)
 
 	tmp_pri = find_op(q->st.m, C_STR(q, p3), OP_FX);
 
-	if (IS_POSTFIX(specifier) && (IS_INFIX(tmp_optype) || tmp_pri))
+	if (IS_POSTFIX(specifier) && (IS_INFIX(tmp_optype)/* || tmp_pri*/))
 		return throw_error(q, p3, p3_ctx, "permission_error", "create,operator");
 
 	tmp_pri = find_op(q->st.m, C_STR(q, p3), OP_FY);
@@ -4358,8 +4358,8 @@ static bool bif_crypto_n_random_bytes_2(query *q)
 	static bool s_seed = false;
 
 	if (!s_seed) {
-		s_seed = true;
 		srand(time(NULL));
+		s_seed = true;
 	}
 
 	GET_FIRST_ARG(p1,integer);
@@ -5312,37 +5312,36 @@ static bool bif_char_type_2(query *q)
 	else if (!CMP_STRING_TO_CSTR(q, p2, "prolog"))
 		return iswalpha(ch) || iswdigit(ch) || iswgraph(ch);
 	else if (!CMP_STRING_TO_CSTR(q, p2, "hexadecimal_digit")) {
-		static const char *s_hex = "0123456789abcdefABCDEF";
-		return strchr(s_hex, ch);
+		return isxdigit(ch);
 	} else if (!CMP_STRING_TO_CSTR(q, p2, "octal_digit")) {
 		static const char *s_hex = "01234567";
-		return strchr(s_hex, ch);
+		return isdigit(ch) && strchr(s_hex, ch);
 	} else if (!CMP_STRING_TO_CSTR(q, p2, "decimal_digit"))
-		return iswdigit(ch);
+		return isdigit(ch);
 	else if (!CMP_STRING_TO_CSTR(q, p2, "numeric"))
 		return iswdigit(ch);
 	else if (!CMP_STRING_TO_CSTR(q, p2, "whitespace"))
-		return iswblank(ch) || iswspace(ch);
+		return iswblank(ch) || iswspace(ch) || (ch == 0x85) || (ch == 0xA0) || (ch == 0x2007) || (ch == 0x202f);
 	else if (!CMP_STRING_TO_CSTR(q, p2, "lower") && !p2->arity)
 		return iswlower(ch);
 	else if (!CMP_STRING_TO_CSTR(q, p2, "upper") && !p2->arity)
 		return iswupper(ch);
 	else if (!CMP_STRING_TO_CSTR(q, p2, "lower") && p2->arity) {
-		cell *arg1 = deref(q, p2+1, p2_ctx);
-		pl_idx arg1_ctx = q->latest_ctx;
+		cell *arg21 = deref(q, p2+1, p2_ctx);
+		pl_idx arg21_ctx = q->latest_ctx;
 		char tmpbuf[20];
-		sprintf(tmpbuf, "%c", tolower(ch));
+		put_char_utf8(tmpbuf, tolower(ch));
 		cell tmp;
 		make_string(&tmp, tmpbuf);
-		return unify(q, arg1, arg1_ctx, &tmp, q->st.curr_frame);
+		return unify(q, arg21, arg21_ctx, &tmp, q->st.curr_frame);
 	} else if (!CMP_STRING_TO_CSTR(q, p2, "upper") && p2->arity) {
-		cell *arg1 = deref(q, p2+1, p2_ctx);
-		pl_idx arg1_ctx = q->latest_ctx;
+		cell *arg21 = deref(q, p2+1, p2_ctx);
+		pl_idx arg21_ctx = q->latest_ctx;
 		char tmpbuf[20];
-		sprintf(tmpbuf, "%c", toupper(ch));
+		put_char_utf8(tmpbuf, toupper(ch));
 		cell tmp;
 		make_string(&tmp, tmpbuf);
-		return unify(q, arg1, arg1_ctx, &tmp, q->st.curr_frame);
+		return unify(q, arg21, arg21_ctx, &tmp, q->st.curr_frame);
 	} else if (!CMP_STRING_TO_CSTR(q, p2, "graphic"))
 		return iswgraph(ch) && !iswalnum(ch);
 	else if (!CMP_STRING_TO_CSTR(q, p2, "graphic_token"))	// ???
@@ -6324,6 +6323,16 @@ static void load_properties(module *m)
  	}
 
 	for (const builtins *ptr = g_maps_bifs; ptr->name; ptr++) {
+		sl_app(m->pl->biftab, ptr->name, ptr);
+		if (ptr->name[0] == '$') continue;
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
+ 	}
+
+	for (const builtins *ptr = g_threads_bifs; ptr->name; ptr++) {
 		sl_app(m->pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
 		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);

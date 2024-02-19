@@ -179,9 +179,12 @@ void make_atom(cell *tmp, pl_idx offset)
 
 cell *make_nil(void)
 {
-	static cell tmp = {0};
-	tmp.tag = TAG_INTERNED;
-	tmp.nbr_cells = 1;
+	static cell tmp = {
+		.tag = TAG_INTERNED,
+		.nbr_cells = 1,
+		.val_off = 0
+	};
+
 	tmp.val_off = g_nil_s;
 	return &tmp;
 }
@@ -1252,14 +1255,14 @@ static pl_idx get_varno(parser *p, const char *src, bool in_body)
 	return i;
 }
 
-static bool get_in_body(parser *p, const char *src)
+static bool get_in_body(parser *p, const char *var_name)
 {
-	int anon = !strcmp(src, "_");
+	bool anon = !strcmp(var_name, "_");
 	size_t offset = 0;
 	unsigned i = 0;
 
 	while (p->vartab.var_pool[offset]) {
-		if (!strcmp(p->vartab.var_pool+offset, src) && !anon) {
+		if (!strcmp(p->vartab.var_pool+offset, var_name) && !anon) {
 			return p->vartab.in_body[i];
 		}
 
@@ -3931,8 +3934,11 @@ bool run(parser *p, const char *pSrc, bool dump, query **subq, unsigned int yiel
 		q->run_init = p->run_init;
 		execute(q, p->cl->cells, p->cl->nbr_vars);
 
-		p->m->pl->halt = q->halt;
-		p->m->pl->halt_code = q->halt_code;
+		if (q->halt) {
+			p->m->pl->halt = q->halt;
+			p->m->pl->halt_code = q->halt_code;
+		}
+
 		p->m->pl->status = q->status;
 		p->m->pl->error = q->error;
 		p->m->pl->is_redo = q->is_redo;

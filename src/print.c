@@ -118,8 +118,9 @@ bool needs_quoting(module *m, const char *src, int srclen)
 		int ch = get_char_utf8(&s);
 
 		if (((ch < 256) && strchr(g_solo, ch))
-			|| iswspace(ch)
-			|| (ch == 0xA0)
+			|| iswspace(ch) || iswblank(ch)
+			|| (ch == 0xa0) || (ch == 0x85)
+			|| (ch == 0x2007) || (ch == 0x202f)
 			)
 			return true;
 	}
@@ -245,6 +246,16 @@ char *formatted(const char *src, int srclen, bool dq, bool json)
 		} else if (ch == (dq?'"':'\'')) {
 			SB_putchar(sb, '\\');
 			SB_putchar(sb, ch);
+		} else if (!json && (ch > 127) && (iswblank(ch) || iswspace(ch))) {
+			SB_putchar(sb, '\\');
+			SB_putchar(sb, 'x');
+			SB_sprintf(sb, "%x", ch);
+			SB_putchar(sb, '\\');
+		} else if (!json && ((ch == 0x85) || (ch == 0xA0) || (ch == 0x2007) || (ch == 0x202f))) {
+			SB_putchar(sb, '\\');
+			SB_putchar(sb, 'x');
+			SB_sprintf(sb, "%x", ch);
+			SB_putchar(sb, '\\');
 		} else if (!json && (ch < ' ')) {
 			SB_putchar(sb, '\\');
 			SB_putchar(sb, 'x');
@@ -801,7 +812,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 	}
 
 	if ((c->tag == TAG_INTEGER) && (c->flags & FLAG_INT_STREAM)) {
-		int n = get_stream(q, c);
+		int n = get_smallint(c);
 		stream *str = &q->pl->streams[n];
 
 		if (str->is_queue) {

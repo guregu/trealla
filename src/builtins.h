@@ -16,7 +16,7 @@ bool wrap_ffi_function(query *q, builtins *bif_ptr);
 bool wrap_ffi_predicate(query *q, builtins *bif_ptr);
 #endif
 
-#define is_callable_or_var(c) (is_interned(c) || is_cstring(c) || is_var(c))
+#define is_callable_or_var(c) (is_callable(c) || is_var(c))
 #define is_list_or_nil(c) (is_list(c) || is_nil(c))
 #define is_list_or_atom_or_var(c) (is_list(c) || is_atom(c) || is_var(c))
 #define is_list_or_nil_or_var(c) (is_list_or_nil(c) || is_var(c))
@@ -61,7 +61,8 @@ bool wrap_ffi_predicate(query *q, builtins *bif_ptr);
 #define is_map_stream(str) ((str)->is_map)
 #define is_engine_stream(str) ((str)->is_engine)
 #define is_thread_stream(str) ((str)->is_thread)
-#define is_virtual_stream(str) (is_memory_stream(str) || is_map_stream(str) || is_engine_stream(str) || is_thread_stream(str))
+#define is_mutex_stream(str) ((str)->is_mutex)
+#define is_virtual_stream(str) (is_memory_stream(str) || is_map_stream(str) || is_engine_stream(str) || is_thread_stream(str) || is_mutex_stream(str))
 #define is_live_stream(str) ((str)->fp || is_virtual_stream(str))
 
 #if USE_FFI
