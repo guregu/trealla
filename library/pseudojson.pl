@@ -16,7 +16,7 @@
 json_chars(JSON, Cs) :-
 	ground(JSON),
 	json(JSON),
-	write_term_to_chars(JSON, [json(true), double_quotes(true)], Cs),
+	write_term_to_chars(JSON, [json(true), double_quotes(true), max_depth(0)], Cs),
 	!.
 json_chars(JSON, Cs) :-
 	string(Cs),

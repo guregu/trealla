@@ -223,4 +223,4 @@ term_json_stream_(Stream, _) :-
 	write(Stream, '"_"').
 
 write_json_term(Stream, T) :-
-	write_term(Stream, T, [json(true), double_quotes(true), quoted(true)]).
+	write_term(Stream, T, [json(true), double_quotes(true), quoted(true), max_depth(0)]).
