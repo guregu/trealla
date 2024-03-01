@@ -11,6 +11,7 @@ typedef struct {
 } csv;
 
 query *query_create(module *m, bool sub_query);
+query *query_create_subquery(query *q, cell *curr_instr);
 query *query_create_task(query *q, cell *curr_instr);
 void query_destroy(query *q);
 
@@ -65,6 +66,7 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 size_t slicecpy(char *dst, size_t dstlen, const char *src, size_t len);
 int new_stream(prolog *pl);
 int get_stream(query *q, cell *p1);
+int get_thread(query *q, cell *p1);
 int get_named_stream(prolog *pl, const char *name, size_t len);
 bool call_builtin(query *q, cell *c, pl_idx c_ctx);
 bool call_userfun(query *q, cell *c, pl_idx c_ctx);
@@ -81,7 +83,6 @@ void reset_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx);
 bool valid_list(query *q, cell *c, pl_idx c_ctx);
 void make_call(query *q, cell *tmp);
 void make_call_redo(query *q, cell *tmp);
-bool stream_close(query *q, int n);
 
 #if USE_THREADS
 void do_signal(query *q, void *thread_ptr);
@@ -129,20 +130,6 @@ bool bif_iso_unify_2(query *q);
 bool bif_sys_block_catcher_1(query *q);
 bool bif_sys_cleanup_if_det_1(query *q);
 bool bif_sys_queue_1(query *q);
-bool bif_iso_clause_2(query *q);
-bool bif_sys_clause_2(query *q);
-bool bif_iso_retract_1(query *q);
-bool bif_iso_retractall_1(query *q);
-bool bif_iso_abolish_1(query *q);
-bool bif_iso_asserta_1(query *q);
-bool bif_iso_assertz_1(query *q);
-bool bif_sys_assertz_2(query *q);
-bool bif_assertz_2(query *q);
-bool bif_sys_asserta_2(query *q);
-bool bif_asserta_2(query *q);
-bool bif_clause_3(query *q);
-bool bif_sys_clause_3(query *q);
-bool bif_abolish_2(query *q);
 bool bif_parse_csv_file_2(query *q);
 bool bif_parse_csv_line_3(query *q);
 bool bif_parse_csv_line_2(query *q);
@@ -156,7 +143,6 @@ bool bif_sort_4(query *q);
 bool bif_iso_keysort_2(query *q);
 bool bif_iso_msort_2(query *q);
 bool bif_iso_sort_2(query *q);
-bool bif_erase_1(query *q);
 
 void save_db(FILE *fp, query *q, int logging);
 char *uuid_to_buf(const uuid *u, char *buf, size_t buflen);

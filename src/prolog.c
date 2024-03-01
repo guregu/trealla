@@ -16,9 +16,10 @@
 
 void convert_path(char *filename);
 
-static skiplist *g_symtab;
+static lock g_symtab_guard = {0};
+static skiplist *g_symtab = NULL;
 static size_t s_pool_size = 64000, s_pool_offset = 0;
-char *g_pool = NULL;
+static pl_atomic int g_tpl_count = 0;
 
 pl_idx g_empty_s, g_dot_s, g_cut_s, g_nil_s, g_true_s, g_fail_s;
 pl_idx g_anon_s, g_neck_s, g_eof_s, g_lt_s, g_gt_s, g_eq_s, g_false_s;
@@ -33,13 +34,12 @@ pl_idx g_goal_expansion_s, g_term_expansion_s, g_tm_s, g_float_s;
 pl_idx g_sys_cut_if_det_s, g_as_s, g_colon_s, g_member_s;
 pl_idx g_caret_s, g_sys_counter_s, g_catch_s, g_memberchk_s;
 
-unsigned g_cpu_count = 4;
+char *g_pool = NULL;
 char *g_tpl_lib = NULL;
 int g_ac = 0, g_avc = 1;
 char **g_av = NULL, *g_argv0 = NULL;
-unsigned g_max_depth = 6000;
-
-static pl_atomic int g_tpl_count = 0;
+unsigned g_max_depth = 6000;			// default recursion limit (Linux)
+unsigned g_cpu_count = 4;				// FIXME: query system
 
 bool is_multifile_in_db(prolog *pl, const char *mod, const char *name, unsigned arity)
 {
@@ -79,27 +79,18 @@ static pl_idx add_to_pool(const char *name)
 	return (pl_idx)offset;
 }
 
-#if USE_THREADS
-static pl_atomic int64_t s_atomtable_lock = 0;
-#define SPIN_LOCK(v) while (v++)
-#define SPIN_UNLOCK(v) v = 0
-#else
-#define SPIN_LOCK(v)
-#define SPIN_UNLOCK(v)
-#endif
-
 pl_idx new_atom(prolog *pl, const char *name)
 {
-	SPIN_LOCK(s_atomtable_lock);
+	acquire_lock(&g_symtab_guard);
 	const void *val;
 
 	if (sl_get(g_symtab, name, &val)) {
-		SPIN_UNLOCK(s_atomtable_lock);
+		release_lock(&g_symtab_guard);
 		return (pl_idx)(size_t)val;
 	}
 
 	pl_idx off = add_to_pool(name);
-	SPIN_UNLOCK(s_atomtable_lock);
+	release_lock(&g_symtab_guard);
 	return off;
 }
 
@@ -288,6 +279,7 @@ static void g_destroy()
 	sl_destroy(g_symtab);
 	free(g_pool);
 	free(g_tpl_lib);
+	deinit_lock(&g_symtab_guard);
 }
 
 void ptrfree(const void *key, const void *val, const void *p)
@@ -371,6 +363,31 @@ builtins *get_fn_ptr(void *fn)
 			return ptr;
 	}
 
+	for (builtins *ptr = g_atts_bifs; ptr->name; ptr++) {
+		if (ptr->fn == fn)
+			return ptr;
+	}
+
+	for (builtins *ptr = g_db_bifs; ptr->name; ptr++) {
+		if (ptr->fn == fn)
+			return ptr;
+	}
+
+	for (builtins *ptr = g_csv_bifs; ptr->name; ptr++) {
+		if (ptr->fn == fn)
+			return ptr;
+	}
+
+	for (builtins *ptr = g_sregex_bifs; ptr->name; ptr++) {
+		if (ptr->fn == fn)
+			return ptr;
+	}
+
+	for (builtins *ptr = g_sort_bifs; ptr->name; ptr++) {
+		if (ptr->fn == fn)
+			return ptr;
+	}
+
 	for (builtins *ptr = g_tasks_bifs; ptr->name; ptr++) {
 		if (ptr->fn == fn)
 			return ptr;
@@ -381,7 +398,7 @@ builtins *get_fn_ptr(void *fn)
 			return ptr;
 	}
 
-	for (builtins *ptr = g_files_bifs; ptr->name; ptr++) {
+	for (builtins *ptr = g_streams_bifs; ptr->name; ptr++) {
 		if (ptr->fn == fn)
 			return ptr;
 	}
@@ -411,7 +428,25 @@ builtins *get_fn_ptr(void *fn)
 
 void load_builtins(prolog *pl)
 {
-	for (const builtins *ptr = g_iso_bifs; ptr->name; ptr++) {
+	for (const builtins *ptr = g_atts_bifs; ptr->name; ptr++) {
+		sl_app(pl->biftab, ptr->name, ptr);
+		if (ptr->name[0] == '$') continue;
+		sl_app(pl->help, ptr->name, ptr);
+	}
+
+	for (const builtins *ptr = g_contrib_bifs; ptr->name; ptr++) {
+		sl_app(pl->biftab, ptr->name, ptr);
+		if (ptr->name[0] == '$') continue;
+		sl_app(pl->help, ptr->name, ptr);
+	}
+
+	for (const builtins *ptr = g_csv_bifs; ptr->name; ptr++) {
+		sl_app(pl->biftab, ptr->name, ptr);
+		if (ptr->name[0] == '$') continue;
+		sl_app(pl->help, ptr->name, ptr);
+	}
+
+	for (const builtins *ptr = g_db_bifs; ptr->name; ptr++) {
 		sl_app(pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_app(pl->help, ptr->name, ptr);
@@ -423,7 +458,55 @@ void load_builtins(prolog *pl)
 		sl_app(pl->help, ptr->name, ptr);
 	}
 
+	for (const builtins *ptr = g_ffi_bifs; ptr->name; ptr++) {
+		sl_app(pl->biftab, ptr->name, ptr);
+		if (ptr->name[0] == '$') continue;
+		sl_app(pl->help, ptr->name, ptr);
+	}
+
+	for (const builtins *ptr = g_format_bifs; ptr->name; ptr++) {
+		sl_app(pl->biftab, ptr->name, ptr);
+		if (ptr->name[0] == '$') continue;
+		sl_app(pl->help, ptr->name, ptr);
+	}
+
+	for (const builtins *ptr = g_iso_bifs; ptr->name; ptr++) {
+		sl_app(pl->biftab, ptr->name, ptr);
+		if (ptr->name[0] == '$') continue;
+		sl_app(pl->help, ptr->name, ptr);
+	}
+
+	for (const builtins *ptr = g_maps_bifs; ptr->name; ptr++) {
+		sl_app(pl->biftab, ptr->name, ptr);
+		if (ptr->name[0] == '$') continue;
+		sl_app(pl->help, ptr->name, ptr);
+	}
+
 	for (const builtins *ptr = g_other_bifs; ptr->name; ptr++) {
+		sl_app(pl->biftab, ptr->name, ptr);
+		if (ptr->name[0] == '$') continue;
+		sl_app(pl->help, ptr->name, ptr);
+	}
+
+	for (const builtins *ptr = g_posix_bifs; ptr->name; ptr++) {
+		sl_app(pl->biftab, ptr->name, ptr);
+		if (ptr->name[0] == '$') continue;
+		sl_app(pl->help, ptr->name, ptr);
+	}
+
+	for (const builtins *ptr = g_sort_bifs; ptr->name; ptr++) {
+		sl_app(pl->biftab, ptr->name, ptr);
+		if (ptr->name[0] == '$') continue;
+		sl_app(pl->help, ptr->name, ptr);
+	}
+
+	for (const builtins *ptr = g_sregex_bifs; ptr->name; ptr++) {
+		sl_app(pl->biftab, ptr->name, ptr);
+		if (ptr->name[0] == '$') continue;
+		sl_app(pl->help, ptr->name, ptr);
+	}
+
+	for (const builtins *ptr = g_streams_bifs; ptr->name; ptr++) {
 		sl_app(pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_app(pl->help, ptr->name, ptr);
@@ -436,36 +519,6 @@ void load_builtins(prolog *pl)
 	}
 
 	for (const builtins *ptr = g_threads_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
-		if (ptr->name[0] == '$') continue;
-		sl_app(pl->help, ptr->name, ptr);
-	}
-
-	for (const builtins *ptr = g_files_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
-		if (ptr->name[0] == '$') continue;
-		sl_app(pl->help, ptr->name, ptr);
-	}
-
-	for (const builtins *ptr = g_maps_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
-		if (ptr->name[0] == '$') continue;
-		sl_app(pl->help, ptr->name, ptr);
-	}
-
-	for (const builtins *ptr = g_ffi_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
-		if (ptr->name[0] == '$') continue;
-		sl_app(pl->help, ptr->name, ptr);
-	}
-
-	for (const builtins *ptr = g_posix_bifs; ptr->name; ptr++) {
-		sl_app(pl->biftab, ptr->name, ptr);
-		if (ptr->name[0] == '$') continue;
-		sl_app(pl->help, ptr->name, ptr);
-	}
-
-	for (const builtins *ptr = g_contrib_bifs; ptr->name; ptr++) {
 		sl_app(pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_app(pl->help, ptr->name, ptr);
@@ -485,6 +538,7 @@ static bool g_init(prolog *pl)
 {
 	bool error = false;
 
+	init_lock(&g_symtab_guard);
 	g_pool = calloc(1, s_pool_size);
 	s_pool_offset = 0;
 
@@ -560,6 +614,11 @@ void pl_destroy(prolog *pl)
 {
 	if (!pl) return;
 
+#if USE_THREADS
+	if (pl->q_cnt)
+		thread_cancel_all(pl);
+#endif
+
 	if (pl->logfp)
 		fclose(pl->logfp);
 
@@ -611,12 +670,7 @@ void pl_destroy(prolog *pl)
 	if (!--g_tpl_count)
 		g_destroy();
 
-	if (pl->q_cnt && isatty(fileno(stdout))) {
-		printf("*** Oops, outstanding queries: %u\n", (unsigned)pl->q_cnt);
-	}
-
-	if (!pl->q_cnt)
-		free(pl);
+	free(pl);
 }
 
 prolog *pl_create()
@@ -711,7 +765,7 @@ prolog *pl_create()
 	pl->current_input = 0;		// STDIN
 	pl->current_output = 1;		// STDOUT
 	pl->current_error = 2;		// STDERR
-	pl->def_max_depth = 19;
+	pl->def_max_depth = 100;
 	pl->def_quoted = true;
 	pl->def_double_quotes = true;
 	pl->rnd_first_time = true;

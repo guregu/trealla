@@ -1401,10 +1401,9 @@ static bool check_multifile(module *m, predicate *pr, rule *dbe_orig)
 
 static void optimize_rule(module *m, rule *dbe_orig)
 {
-	clause *cl = &dbe_orig->cl;
-	cell *head = get_head(cl->cells);
+	cell *head = get_head(dbe_orig->cl.cells);
 	bool matched = false;
-	cl->is_unique = false;
+	dbe_orig->cl.is_unique = false;
 
 	for (rule *r = dbe_orig->next; r; r = r->next) {
 		if (r->cl.dbgen_erased)
@@ -1419,7 +1418,7 @@ static void optimize_rule(module *m, rule *dbe_orig)
 	}
 
 	if (!matched)
-		cl->is_unique = true;
+		dbe_orig->cl.is_unique = true;
 }
 
 static void check_goal_expansion(module *m, cell *p1)

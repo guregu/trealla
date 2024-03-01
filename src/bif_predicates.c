@@ -19,6 +19,7 @@
 
 #if USE_OPENSSL
 #include "openssl/sha.h"
+#include "openssl/hmac.h"
 #endif
 
 #ifdef __wasi__
@@ -216,6 +217,7 @@ static bool bif_sys_unifiable_3(query *q)
 		const frame *f = GET_FRAME(tr->var_ctx);
 		slot *e = GET_SLOT(f, tr->var_nbr);
 		cell *c = deref(q, &e->c, e->c.var_ctx);
+		pl_idx c_ctx = q->latest_ctx;
 		cell *tmp = malloc(sizeof(cell)*(2+c->nbr_cells));
 		check_heap_error(tmp);
 		make_struct(tmp, g_unify_s, bif_iso_unify_2, 2, 1+c->nbr_cells);
@@ -223,7 +225,7 @@ static bool bif_sys_unifiable_3(query *q)
 		cell v;
 		make_ref(&v, tr->var_nbr, q->st.curr_frame);
 		tmp[1] = v;
-		dup_cells(tmp+2, c, c->nbr_cells);
+		dup_cells_by_ref(tmp+2, c, c_ctx, c->nbr_cells);
 		append_list(q, tmp);
 		free(tmp);
 		save_tp++;
@@ -1584,6 +1586,8 @@ static void compare_and_zero(uint64_t v1, uint64_t *v2, uint64_t *v)
 
 void uuid_gen(prolog *pl, uuid *u)
 {
+	acquire_lock(&pl->guard);
+
 	if (!pl->seed)
 		pl->seed = (uint64_t)time(0) & MASK_FINAL;
 
@@ -1593,6 +1597,7 @@ void uuid_gen(prolog *pl, uuid *u)
 	u->u2 = pl->s_cnt++;
 	u->u2 <<= 48;
 	u->u2 |= pl->seed;
+	release_lock(&pl->guard);
 }
 
 char *uuid_to_buf(const uuid *u, char *buf, size_t buflen)
@@ -1970,9 +1975,7 @@ static bool bif_term_singletons_2(query *q)
 	return unify(q, p2, p2_ctx, tmp2, q->st.curr_frame);
 }
 
-// Copy attributes (Note: SICStus & YAP don't, Scryer & SWI do)
-
-static bool bif_duplicate_term_2(query *q)
+static bool do_duplicate_term(query *q, bool copy_attrs)
 {
 	GET_FIRST_ARG(p1,any);
 	GET_NEXT_ARG(p2,any);
@@ -1983,7 +1986,7 @@ static bool bif_duplicate_term_2(query *q)
 		slot *e1 = GET_SLOT(f1, p1->var_nbr);
 		slot *e2 = GET_SLOT(f2, p2->var_nbr);
 
-		if (e1->c.attrs) {
+		if (e1->c.attrs && copy_attrs) {
 			e2->c.attrs = deep_copy_to_heap_with_replacement(q, e1->c.attrs, e1->c.attrs_ctx, false, p1, p1_ctx, p2, p2_ctx);
 			check_heap_error(e2->c.attrs);
 			e2->c.attrs_ctx = q->st.curr_frame;
@@ -1998,79 +2001,44 @@ static bool bif_duplicate_term_2(query *q)
 	if (!is_var(p2) && !has_vars(q, p1, p1_ctx))
 		return unify(q, p1, p1_ctx, p2, p2_ctx);
 
-	GET_FIRST_RAW_ARG(from,any);
-	cell *tmp;
+	// You are not expected to understand this: basically we have
+	// to make sure the p1 variables get copied along with the
+	// deref'd values and they get linked.
 
-	if (is_var(from)) {
-		GET_NEXT_RAW_ARG(to,any);
-		tmp = deep_copy_to_heap_with_replacement(q, from, from_ctx, true, from, from_ctx, to, to_ctx);
-		check_heap_error(tmp);
-	} else {
-		tmp = deep_copy_to_heap(q, from, from_ctx, true);
-		check_heap_error(tmp);
-	}
+	check_heap_error(init_tmp_heap(q));
+	cell *tmp1 = deep_clone_to_tmp(q, p1, p1_ctx);
+	check_heap_error(tmp1);
+	GET_FIRST_RAW_ARG(p1x,any);
+	cell *tmp = alloc_on_heap(q, 1 + p1x->nbr_cells + tmp1->nbr_cells);
+	make_struct(tmp, g_eq_s, NULL, 2, p1x->nbr_cells + tmp1->nbr_cells);
+	dup_cells_by_ref(tmp+1, p1x, p1x_ctx, p1x->nbr_cells);
+	dup_cells_by_ref(tmp+1+p1x->nbr_cells, tmp1, q->st.curr_frame, tmp1->nbr_cells);
+	tmp = deep_copy_to_heap(q, tmp, q->st.curr_frame, copy_attrs);
+	cell *tmpp1 = tmp + 1;
+	cell *tmpp2 = tmpp1 + tmpp1->nbr_cells;
+	unify(q, tmpp1, q->st.curr_frame, tmpp2, q->st.curr_frame);
+	return unify(q, p2, p2_ctx, tmpp1, q->st.curr_frame);
+}
 
-	return unify(q, p2, p2_ctx, tmp, q->st.curr_frame);
+// Do copy attributes
+
+static bool bif_duplicate_term_2(query *q)
+{
+	return do_duplicate_term(q, true);
 }
 
 // Don't copy attributes (Note: SICStus & YAP don't, Scryer & SWI do)
 
 static bool bif_iso_copy_term_2(query *q)
 {
-	GET_FIRST_ARG(p1,any);
-	GET_NEXT_ARG(p2,any);
-
-	if (is_var(p1) && is_var(p2))
-		return true;
-
-	if (is_atomic(p1) && is_var(p2))
-		return unify(q, p1, p1_ctx, p2, p2_ctx);
-
-	if (!is_var(p2) && !has_vars(q, p1, p1_ctx))
-		return unify(q, p1, p1_ctx, p2, p2_ctx);
-
-	GET_FIRST_RAW_ARG(from,any);
-	cell *tmp;
-
-	if (is_var(from)) {
-		GET_NEXT_RAW_ARG(to,any);
-		tmp = deep_copy_to_heap_with_replacement(q, from, from_ctx, false, from, from_ctx, to, to_ctx);
-		check_heap_error(tmp);
-	} else {
-		tmp = deep_copy_to_heap(q, from, from_ctx, false);
-		check_heap_error(tmp);
-	}
-
-	return unify(q, p2, p2_ctx, tmp, q->st.curr_frame);
+	return do_duplicate_term(q, false);
 }
+
+// Don't copy attributes
 
 static bool bif_copy_term_nat_2(query *q)
 {
-	GET_FIRST_ARG(p1,any);
-	GET_NEXT_ARG(p2,any);
-
-	if (is_var(p1) && is_var(p2))
-		return true;
-
-	if (is_atomic(p1) && is_var(p2))
-		return unify(q, p1, p1_ctx, p2, p2_ctx);
-
-	if (!is_var(p2) && !has_vars(q, p1, p1_ctx))
-		return unify(q, p1, p1_ctx, p2, p2_ctx);
-
-	GET_FIRST_RAW_ARG(from,any);
-	cell *tmp;
-
-	if (is_var(from)) {
-		GET_NEXT_RAW_ARG(to,any);
-		tmp = deep_copy_to_heap_with_replacement(q, from, from_ctx, false, from, from_ctx, to, to_ctx);
-		check_heap_error(tmp);
-	} else {
-		tmp = deep_copy_to_heap(q, from, from_ctx, false);
-		check_heap_error(tmp);
-	}
-
-	return unify(q, p2, p2_ctx, tmp, q->st.curr_frame);
+	return do_duplicate_term(q, false);
 }
 
 static bool bif_iso_functor_3(query *q)
@@ -2408,7 +2376,7 @@ static bool bif_iso_current_prolog_flag_2(query *q)
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 	} else if (!CMP_STRING_TO_CSTR(q, p1, "max_threads")) {
 		cell tmp;
-		make_int(&tmp, MAX_THREADS);
+		make_int(&tmp, MAX_ACTUAL_THREADS);
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 	} else if (!CMP_STRING_TO_CSTR(q, p1, "hardware_threads")) {
 		cell tmp;
@@ -3505,7 +3473,7 @@ static bool bif_statistics_2(query *q)
 
 	if (!CMP_STRING_TO_CSTR(q, p1, "cputime") && is_var(p2)) {
 		uint64_t now = cpu_time_in_usec();
-		double elapsed = now - q->time_cpu_started;
+		double elapsed = now - q->cpu_started;
 		cell tmp;
 		make_float(&tmp, elapsed/1000/1000);
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
@@ -3524,19 +3492,19 @@ static bool bif_statistics_2(query *q)
 	if (!CMP_STRING_TO_CSTR(q, p1, "wall") && is_var(p2)) {
 		uint64_t now = get_time_in_usec();
 		cell tmp;
-		make_int(&tmp, now/1000);
+		make_uint(&tmp, now/1000);
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 	}
 
 	if (!CMP_STRING_TO_CSTR(q, p1, "runtime")) {
 		uint64_t now = cpu_time_in_usec();
-		double elapsed = now - q->time_cpu_started;
+		double elapsed = now - q->cpu_started;
 		cell tmp;
 		make_int(&tmp, elapsed/1000);
 		allocate_list(q, &tmp);
 		elapsed = now - q->time_cpu_last_started;
 		q->time_cpu_last_started = now;
-		make_int(&tmp, elapsed/1000);
+		make_uint(&tmp, elapsed/1000);
 		append_list(q, &tmp);
 		cell *l = end_list(q);
 		check_heap_error(l);
@@ -3546,7 +3514,7 @@ static bool bif_statistics_2(query *q)
 	return false;
 }
 
-static bool bif_delay_1(query *q)
+static bool bif_sys_msleep_1(query *q)
 {
 	if (q->retry)
 		return true;
@@ -3629,7 +3597,7 @@ static bool bif_get_time_1(query *q)
 static bool bif_cpu_time_1(query *q)
 {
 	GET_FIRST_ARG(p1,var);
-	double v = ((double)cpu_time_in_usec()-q->time_cpu_started) / 1000 / 1000;
+	double v = ((double)cpu_time_in_usec()-q->cpu_started) / 1000 / 1000;
 	cell tmp;
 	make_float(&tmp, (pl_flt)v);
 	return unify (q, p1, p1_ctx, &tmp, q->st.curr_frame);
@@ -4216,12 +4184,6 @@ static bool bif_sys_skip_max_list_4(query *q)
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 }
 
-static bool bif_is_stream_1(query *q)
-{
-	GET_FIRST_ARG(p1,any);
-	return is_stream(p1);
-}
-
 static bool bif_wall_time_1(query *q)
 {
 	GET_FIRST_ARG(p1,var);
@@ -4320,37 +4282,6 @@ static bool bif_shell_2(query *q)
 }
 #endif
 
-static bool bif_format_2(query *q)
-{
-	GET_FIRST_ARG(p1,atom_or_list);
-	GET_NEXT_ARG(p2,list_or_nil);
-
-	if (is_nil(p1)) {
-		if (is_nil(p2))
-			return true;
-		else
-			return throw_error(q, p2, p2_ctx, "domain_error", "list");
-	}
-
-	return do_format(q, NULL, 0, p1, p1_ctx, !is_nil(p2)?p2:NULL, p2_ctx);
-}
-
-static bool bif_format_3(query *q)
-{
-	GET_FIRST_ARG(pstr,any);
-	GET_NEXT_ARG(p1,atom_or_list);
-	GET_NEXT_ARG(p2,list_or_nil);
-
-	if (is_nil(p1)) {
-		if (is_nil(p2))
-			return true;
-		else
-			return throw_error(q, p2, p2_ctx, "domain_error", "list");
-	}
-
-	return do_format(q, pstr, pstr_ctx, p1, p1_ctx, !is_nil(p2)?p2:NULL, p2_ctx);
-}
-
 // FIXME: not truly crypto strength
 
 static bool bif_crypto_n_random_bytes_2(query *q)
@@ -4391,6 +4322,8 @@ static bool bif_crypto_data_hash_3(query *q)
 	GET_NEXT_ARG(p3,list_or_nil);
 	bool is_sha384 = false, is_sha512 = false, is_sha1 = false;
 	bool is_sha256 = true;
+	char *key = NULL;
+	int keylen = 0;
 	LIST_HANDLER(p3);
 
 	while (is_list(p3)) {
@@ -4424,6 +4357,9 @@ static bool bif_crypto_data_hash_3(query *q)
 					is_sha1 = true;
 				} else
 					return throw_error(q, arg, arg_ctx, "domain_error", "algorithm");
+			} else if (!CMP_STRING_TO_CSTR(q, h, "hmac") && is_iso_list(arg)
+				&& (keylen = scan_is_chars_list(q, arg, 0, true)) > 0) {
+				key = chars_list_to_string(q, arg, 0, keylen);
 			} else
 				return throw_error(q, h, h_ctx, "domain_error", "hash_option");
 		} else
@@ -4439,7 +4375,37 @@ static bool bif_crypto_data_hash_3(query *q)
 	*dst = '\0';
 	size_t buflen = sizeof(tmpbuf);
 
-	if (is_sha256) {
+	if (key && is_sha256) {
+		unsigned char digest[SHA256_DIGEST_LENGTH];
+		unsigned digest_len = 0;
+		HMAC(EVP_sha256(), key, keylen, (unsigned char*)C_STR(q, p1), C_STRLEN(q, p1), digest, &digest_len);
+
+		for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+			size_t len = snprintf(dst, buflen, "%02x", digest[i]);
+			dst += len;
+			buflen -= len;
+		}
+	} else if (key && is_sha384) {
+		unsigned char digest[SHA384_DIGEST_LENGTH];
+		unsigned digest_len = 0;
+		HMAC(EVP_sha384(), key, keylen, (unsigned char*)C_STR(q, p1), C_STRLEN(q, p1), digest, &digest_len);
+
+		for (int i = 0; i < SHA384_DIGEST_LENGTH; i++) {
+			size_t len = snprintf(dst, buflen, "%02x", digest[i]);
+			dst += len;
+			buflen -= len;
+		}
+	} else if (key && is_sha512) {
+		unsigned char digest[SHA512_DIGEST_LENGTH];
+		unsigned digest_len = 0;
+		HMAC(EVP_sha512(), key, keylen, (unsigned char*)C_STR(q, p1), C_STRLEN(q, p1), digest, &digest_len);
+
+		for (int i = 0; i < SHA512_DIGEST_LENGTH; i++) {
+			size_t len = snprintf(dst, buflen, "%02x", digest[i]);
+			dst += len;
+			buflen -= len;
+		}
+	} else if (is_sha256) {
 		unsigned char digest[SHA256_DIGEST_LENGTH];
 		SHA256((unsigned char*)C_STR(q, p1), C_STRLEN(q, p1), digest);
 
@@ -4476,6 +4442,9 @@ static bool bif_crypto_data_hash_3(query *q)
 			buflen -= len;
 		}
 	}
+
+	if (key)
+		free(key);
 
 	cell tmp;
 	make_string(&tmp, tmpbuf);
@@ -6005,6 +5974,50 @@ static bool bif_sys_get_level_1(query *q)
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 }
 
+static bool bif_sys_dump_term_2(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,atom);
+	GET_FIRST_RAW_ARG(p1x,any);
+	bool deref = p2->val_off == g_true_s;
+	p1 = deref ? p1 : p1x;
+	cell *tmp = p1;
+
+	for (unsigned i = 0; i <p1->nbr_cells; i++, tmp++) {
+		printf("[%02u] tag=%10s, nbr_cells=%u, arity=%u",
+			i,
+			(
+				(tmp->tag == TAG_VAR && is_ref(tmp))? "var_ref" :
+				tmp->tag == TAG_VAR ? "var" :
+				tmp->tag == TAG_INTERNED ? "interned" :
+				tmp->tag == TAG_CSTR ? "cstr" :
+				tmp->tag == TAG_INTEGER ? "integer" :
+				tmp->tag == TAG_DOUBLE ? "float" :
+				tmp->tag == TAG_RATIONAL ? "rational" :
+				tmp->tag == TAG_INDIRECT ? "indirect" :
+				tmp->tag == TAG_BLOB ? "blob" :
+				tmp->tag == TAG_DBID ? "dbid" :
+				"other"
+			),
+			tmp->nbr_cells, tmp->arity);
+
+		if ((tmp->tag == TAG_INTEGER) && !is_managed(tmp))
+			printf(", %lld", (long long)tmp->val_int);
+
+		if (tmp->tag == TAG_INTERNED)
+			printf(", '%s'", C_STR(q, tmp));
+
+		if (is_ref(tmp))
+			printf(", slot=%u, ctx=%u", tmp->var_nbr, tmp->var_ctx);
+		else if (is_var(tmp))
+			printf(", slot=%u", tmp->var_nbr);
+
+		printf("\n");
+	}
+
+	return true;
+}
+
 static bool bif_abort_0(query *q)
 {
 	return throw_error(q, q->st.curr_instr, q->st.curr_frame, "$aborted", "abort_error");
@@ -6137,24 +6150,6 @@ bool bif_sys_counter_1(query *q)
 	GET_RAW_ARG(1, p1_raw);
 	reset_var(q, p1_raw, p1_raw_ctx, &tmp, q->st.curr_frame);
 	return true;
-}
-
-bool bif_sys_retract_on_backtrack_1(query *q)
-{
-	GET_FIRST_ARG(p1,atom);
-	unsigned var_nbr;
-
-	if (!(var_nbr = create_vars(q, 1)))
-		return false;
-
-	blob *b = calloc(1, sizeof(blob));
-	b->ptr = (void*)q->st.m;
-	b->ptr2 = (void*)strdup(C_STR(q, p1));
-
-	cell c, v;
-	make_ref(&c, var_nbr, q->st.curr_frame);
-	make_dbref(&v, b);
-	return unify(q, &c, q->st.curr_frame, &v, q->st.curr_frame);
 }
 
 void format_property(module *m, char *tmpbuf, size_t buflen, const char *name, unsigned arity, const char *type, bool function)
@@ -6302,7 +6297,7 @@ static void load_properties(module *m)
 		format_property(m, tmpbuf, sizeof(tmpbuf), "task", i, metabuf, false); SB_strcat(pr, tmpbuf);
 	}
 
-	for (const builtins *ptr = g_iso_bifs; ptr->name; ptr++) {
+	for (const builtins *ptr = g_atts_bifs; ptr->name; ptr++) {
 		sl_app(m->pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
 		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
@@ -6310,9 +6305,9 @@ static void load_properties(module *m)
 		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
 		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
 		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
- 	}
+	}
 
-	for (const builtins *ptr = g_files_bifs; ptr->name; ptr++) {
+	for (const builtins *ptr = g_contrib_bifs; ptr->name; ptr++) {
 		sl_app(m->pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
 		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
@@ -6320,9 +6315,9 @@ static void load_properties(module *m)
 		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
 		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
 		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
- 	}
+	}
 
-	for (const builtins *ptr = g_maps_bifs; ptr->name; ptr++) {
+	for (const builtins *ptr = g_csv_bifs; ptr->name; ptr++) {
 		sl_app(m->pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
 		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
@@ -6330,9 +6325,9 @@ static void load_properties(module *m)
 		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
 		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
 		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
- 	}
+	}
 
-	for (const builtins *ptr = g_threads_bifs; ptr->name; ptr++) {
+	for (const builtins *ptr = g_db_bifs; ptr->name; ptr++) {
 		sl_app(m->pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
 		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
@@ -6340,29 +6335,9 @@ static void load_properties(module *m)
 		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
 		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
 		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
- 	}
+	}
 
 	for (const builtins *ptr = g_evaluable_bifs; ptr->name; ptr++) {
-		sl_app(m->pl->biftab, ptr->name, ptr);
-		if (ptr->name[0] == '$') continue;
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
-		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
-		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
-		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
-	}
-
-	for (const builtins *ptr = g_other_bifs; ptr->name; ptr++) {
-		sl_app(m->pl->biftab, ptr->name, ptr);
-		if (ptr->name[0] == '$') continue;
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
-		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
-		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
-		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
-	}
-
-	for (const builtins *ptr = g_tasks_bifs; ptr->name; ptr++) {
 		sl_app(m->pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
 		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
@@ -6382,6 +6357,36 @@ static void load_properties(module *m)
 		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
 	}
 
+	for (const builtins *ptr = g_iso_bifs; ptr->name; ptr++) {
+		sl_app(m->pl->biftab, ptr->name, ptr);
+		if (ptr->name[0] == '$') continue;
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
+ 	}
+
+	for (const builtins *ptr = g_maps_bifs; ptr->name; ptr++) {
+		sl_app(m->pl->biftab, ptr->name, ptr);
+		if (ptr->name[0] == '$') continue;
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
+ 	}
+
+	for (const builtins *ptr = g_other_bifs; ptr->name; ptr++) {
+		sl_app(m->pl->biftab, ptr->name, ptr);
+		if (ptr->name[0] == '$') continue;
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
+	}
+
 	for (const builtins *ptr = g_posix_bifs; ptr->name; ptr++) {
 		sl_app(m->pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
@@ -6392,7 +6397,7 @@ static void load_properties(module *m)
 		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
 	}
 
-	for (const builtins *ptr = g_contrib_bifs; ptr->name; ptr++) {
+	for (const builtins *ptr = g_sort_bifs; ptr->name; ptr++) {
 		sl_app(m->pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
 		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
@@ -6401,6 +6406,46 @@ static void load_properties(module *m)
 		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
 		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
 	}
+
+	for (const builtins *ptr = g_sregex_bifs; ptr->name; ptr++) {
+		sl_app(m->pl->biftab, ptr->name, ptr);
+		if (ptr->name[0] == '$') continue;
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
+	}
+
+	for (const builtins *ptr = g_streams_bifs; ptr->name; ptr++) {
+		sl_app(m->pl->biftab, ptr->name, ptr);
+		if (ptr->name[0] == '$') continue;
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
+ 	}
+
+	for (const builtins *ptr = g_tasks_bifs; ptr->name; ptr++) {
+		sl_app(m->pl->biftab, ptr->name, ptr);
+		if (ptr->name[0] == '$') continue;
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
+	}
+
+	for (const builtins *ptr = g_threads_bifs; ptr->name; ptr++) {
+		sl_app(m->pl->biftab, ptr->name, ptr);
+		if (ptr->name[0] == '$') continue;
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
+ 	}
 
 	parser *p = parser_create(m);
 	p->srcptr = SB_cstr(pr);
@@ -6434,7 +6479,7 @@ static void load_flags(query *q)
 #if USE_THREADS
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "threads", "true");
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %u).\n", "hardware_threads", 4);
-	SB_sprintf(pr, "'$current_prolog_flag'(%s, %u).\n", "max_threads", MAX_THREADS);
+	SB_sprintf(pr, "'$current_prolog_flag'(%s, %u).\n", "max_threads", MAX_ACTUAL_THREADS);
 #else
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "threads", "false");
 #endif
@@ -6593,7 +6638,6 @@ builtins g_iso_bifs[] =
 	{"atom_codes", 2, bif_iso_atom_codes_2, "?number,?list", true, false, BLAH},
 	{"number_chars", 2, bif_iso_number_chars_2, "?number,?list", true, false, BLAH},
 	{"number_codes", 2, bif_iso_number_codes_2, "?number,?list", true, false, BLAH},
-	{"clause", 2, bif_iso_clause_2, "+term,?term", true, false, BLAH},
 	{"arg", 3, bif_iso_arg_3, "+integer,+term,?term", true, false, BLAH},
 	{"functor", 3, bif_iso_functor_3, "?term,?atom,?integer", true, false, BLAH},
 	{"copy_term", 2, bif_iso_copy_term_2, "+term,?term", true, false, BLAH},
@@ -6603,17 +6647,9 @@ builtins g_iso_bifs[] =
 	{"sub_atom", 5, bif_iso_sub_atom_5, "+atom,?before,?length,?after,?atom", true, false, BLAH},
 	{"sub_string", 5, bif_iso_sub_string_5, "+character_list,?before,?length,?after,?character_list", true, false, BLAH},
 	{"current_rule", 1, bif_iso_current_rule_1, "-term", true, false, BLAH},
-	{"sort", 2, bif_iso_sort_2, "+list,?list", true, false, BLAH},
-	{"msort", 2, bif_iso_msort_2, "+list,?list", true, false, BLAH},
-	{"keysort", 2, bif_iso_keysort_2, "+list,?list", true, false, BLAH},
 	{"end_of_file", 0, bif_iso_halt_0, NULL, true, false, BLAH},
 	{"halt", 0, bif_iso_halt_0, NULL, true, false, BLAH},
 	{"halt", 1, bif_iso_halt_1, "+integer", true, false, BLAH},
-	{"abolish", 1, bif_iso_abolish_1, "+predicate_indicator", true, false, BLAH},
-	{"asserta", 1, bif_iso_asserta_1, "+term", true, false, BLAH},
-	{"assertz", 1, bif_iso_assertz_1, "+term", true, false, BLAH},
-	{"retract", 1, bif_iso_retract_1, "+term", true, false, BLAH},
-	{"retractall", 1, bif_iso_retractall_1, "+term", true, false, BLAH},
 	{"$legacy_current_prolog_flag", 2, bif_iso_current_prolog_flag_2, "+atom,?term", true, false, BLAH},
 	{"set_prolog_flag", 2, bif_iso_set_prolog_flag_2, "+atom,+term", true, false, BLAH},
 	{"op", 3, bif_iso_op_3, "?integer,?atom,+atom", true, false, BLAH},
@@ -6631,7 +6667,11 @@ builtins g_other_bifs[] =
 	{"*->", 2, bif_if_2, "+term,+term", false, false, BLAH},
 	{"if", 3, bif_if_3, "+term,+term,+term", false, false, BLAH},
 
-	{"delay", 1, bif_delay_1, "+number", false, false, BLAH},
+#ifndef __wasi__
+	{"shell", 1, bif_shell_1, "+atom", false, false, BLAH},
+	{"shell", 2, bif_shell_2, "+atom,-integer", false, false, BLAH},
+#endif
+
 	{"listing", 0, bif_listing_0, NULL, false, false, BLAH},
 	{"listing", 1, bif_listing_1, "+predicate_indicator", false, false, BLAH},
 	{"time", 1, bif_time_1, ":callable", false, false, BLAH},
@@ -6639,10 +6679,6 @@ builtins g_other_bifs[] =
 	{"notrace", 0, fn_notrace_0, NULL, false, false, BLAH},
 	{"statistics", 0, bif_statistics_0, NULL, false, false, BLAH},
 	{"statistics", 2, bif_statistics_2, "+atom,-term", false, false, BLAH},
-
-	{"attribute", 3, bif_attribute_3, "?atom,+atom,+integer", false, false, BLAH},
-	{"put_atts", 2, bif_put_atts_2, "@variable,+term", false, false, BLAH},
-	{"get_atts", 2, bif_get_atts_2, "@variable,-term", false, false, BLAH},
 
 	{"current_module", 1, bif_current_module_1, "-atom", false, false, BLAH},
 	{"prolog_load_context", 2, bif_prolog_load_context_2, "+atom,?term", false, false, BLAH},
@@ -6662,10 +6698,6 @@ builtins g_other_bifs[] =
 	{"module_help", 2, bif_module_help_2, "+atom,+predicate_indicator", false, false, BLAH},
 	{"module_help", 1, bif_module_help_1, "+atom", false, false, BLAH},
 
-	{"parse_csv_line", 2, bif_parse_csv_line_2, "+atom,-list", false, false, BLAH},
-	{"parse_csv_line", 3, bif_parse_csv_line_3, "+atom,-compound,+list", false, false, BLAH},
-	{"parse_csv_file", 2, bif_parse_csv_file_2, "+atom,+list", false, false, BLAH},
-
 	{"abort", 0, bif_abort_0, NULL, false, false, BLAH},
 	{"sort", 4, bif_sort_4, "+integer,+atom,+list,?list", false, false, BLAH},
 	{"ignore", 1, bif_ignore_1, ":callable", false, false, BLAH},
@@ -6673,10 +6705,6 @@ builtins g_other_bifs[] =
 	{"term_singletons", 2, bif_term_singletons_2, "+term,-list", false, false, BLAH},
 	{"get_unbuffered_code", 1, bif_get_unbuffered_code_1, "?integer", false, false, BLAH},
 	{"get_unbuffered_char", 1, bif_get_unbuffered_char_1, "?character", false, false, BLAH},
-	{"format", 2, bif_format_2, "+string,+list", false, false, BLAH},
-	{"format", 3, bif_format_3, "+stream,+string,+list", false, false, BLAH},
-	{"abolish", 2, bif_abolish_2, "+term,+list", false, false, BLAH},
-	{"assert", 1, bif_iso_assertz_1, "+term", false, false, BLAH},
 	{"string", 1, bif_string_1, "+term", false, false, BLAH},
 	{"atomic_concat", 3, bif_atomic_concat_3, "+atomic,+atomic,?atomic", false, false, BLAH},
 	{"atomic_list_concat", 3, bif_atomic_list_concat_3, "+list,+list,-atomic", false, false, BLAH},
@@ -6695,7 +6723,6 @@ builtins g_other_bifs[] =
 	{"is_partial_list", 1, bif_is_partial_list_1, "+term", false, false, BLAH},
 	{"is_list", 1, bif_is_list_1, "+term", false, false, BLAH},
 	{"list", 1, bif_is_list_1, "+term", false, false, BLAH},
-	{"is_stream", 1, bif_is_stream_1, "+term", false, false, BLAH},
 	{"term_hash", 2, bif_term_hash_2, "+term,?integer", false, false, BLAH},
 	{"base64", 3, bif_base64_3, "?string,?string,+list", false, false, BLAH},
 	{"urlenc", 3, bif_urlenc_3, "?string,?string,+list", false, false, BLAH},
@@ -6709,11 +6736,7 @@ builtins g_other_bifs[] =
 	{"$char_type", 2, bif_char_type_2, "+character,+term", false, false, BLAH},
 	{"$code_type", 2, bif_char_type_2, "+integer,+term", false, false, BLAH},
 	{"uuid", 1, bif_uuid_1, "-string", false, false, BLAH},
-	{"asserta", 2, bif_asserta_2, "+term,-string", false, false, BLAH},
-	{"assertz", 2, bif_assertz_2, "+term,-string", false, false, BLAH},
 	{"instance", 2, bif_instance_2, "+string,?term", false, false, BLAH},
-	{"erase", 1, bif_erase_1, "+string", false, false, BLAH},
-	{"clause", 3, bif_clause_3, "?term,?term,-string", false, false, BLAH},
 	{"getenv", 2, bif_getenv_2, "+atom,-atom", false, false, BLAH},
 	{"setenv", 2, bif_setenv_2, "+atom,+atom", false, false, BLAH},
 	{"unsetenv", 1, bif_unsetenv_1, "+atom", false, false, BLAH},
@@ -6734,12 +6757,7 @@ builtins g_other_bifs[] =
 	{"$must_be", 2, bif_must_be_2, "+atom,+term", false, false, BLAH},
 	{"$can_be", 2, bif_can_be_2, "+atom,+term,", false, false, BLAH},
 
-	{"sre_compile", 2, bif_sre_compile_2, "+string,-string,", false, false, BLAH},
-	{"sre_matchp", 4, bif_sre_matchp_4, "+string,+string,-string,-string,", false, false, BLAH},
-	{"sre_match", 4, bif_sre_match_4, "+string,+string,-string,-string,", false, false, BLAH},
-	{"sre_substp", 4, bif_sre_substp_4, "+string,+string,-string,-string,", false, false, BLAH},
-	{"sre_subst", 4, bif_sre_subst_4, "+string,+string,-string,-string,", false, false, BLAH},
-
+	{"$msleep", 1, bif_sys_msleep_1, "+number", false, false, BLAH},
 	{"$det_length_rundown", 2, bif_sys_det_length_rundown_2, "?list,+integer", false, false, BLAH},
 	{"$memberchk", 3, bif_sys_memberchk_3, "?term,?list,-term", false, false, BLAH},
 	{"$countall", 2, bif_sys_countall_2, "@callable,-integer", false, false, BLAH},
@@ -6760,20 +6778,14 @@ builtins g_other_bifs[] =
 	{"$incr", 2, bif_sys_incr_2, "@integer,+integer", false, false, BLAH},
 	{"$choice", 0, bif_sys_choice_0, NULL, false, false, BLAH},
 	{"$alarm", 1, bif_sys_alarm_1, "+integer", false, false, BLAH},
-	{"$list_attributed", 1, bif_sys_list_attributed_1, "-list", false, false, BLAH},
-	{"$unattributed_var", 1, bif_sys_unattributed_var_1, "@variable", false, false, BLAH},
-	{"$attributed_var", 1, bif_sys_attributed_var_1, "@variable", false, false, BLAH},
 	{"$first_non_octet", 2, bif_sys_first_non_octet_2, "+chars,-integer", false, false, BLAH},
 	{"$skip_max_list", 4, bif_sys_skip_max_list_4, "?integer,?integer?,?term,?term", false, false, BLAH},
-	{"$asserta", 2, bif_sys_asserta_2, "+term,+atom", true, false, BLAH},
-	{"$assertz", 2, bif_sys_assertz_2, "+term,+atom", true, false, BLAH},
-	{"$clause", 2, bif_sys_clause_2, "?term,?term", false, false, BLAH},
-	{"$clause", 3, bif_sys_clause_3, "?term,?term,-string", false, false, BLAH},
+	{"$dump_term", 2, bif_sys_dump_term_2, "+term, +bool", false, false, BLAH},
+
 #ifdef __wasi__
 	{"$host_call", 2, fn_sys_host_call_2, "+string,-string", false, false, BLAH},
 	{"$host_resume", 1, fn_sys_host_resume_1, "-string", false, false, BLAH},
 #endif
-	{"$retract_on_backtrack", 1, bif_sys_retract_on_backtrack_1, "+string", false, false, BLAH},
 
 #if USE_OPENSSL
 	{"crypto_data_hash", 3, bif_crypto_data_hash_3, "?string,?string,?list", false, false, BLAH},

@@ -288,7 +288,7 @@ void make_blob(cell *tmp, void *ptr)
 void make_dbref(cell *tmp, void *ptr)
 {
 	*tmp = (cell){0};
-	tmp->tag = TAG_DBREF;
+	tmp->tag = TAG_DBID;
 	tmp->flags = FLAG_MANAGED;
 	tmp->nbr_cells = 1;
 	tmp->val_blob = ptr;
@@ -855,9 +855,6 @@ static bool directives(parser *p, cell *d)
 		} else
 			name = C_STR(p, p1);
 
-		//if (!strcmp(name, "clpz"))
-		//	p->pl->opt = false;
-
 		if (!p->m->make) {
 			module *tmp_m;
 
@@ -882,6 +879,9 @@ static bool directives(parser *p, cell *d)
 
 			p->m = tmp_m;
 			p->pl->user_m->used[p->pl->user_m->idx_used++] = tmp_m;
+
+			if (!strcmp(name, "clpz"))
+				p->m->no_tco = true;
 		}
 
 		if (c->arity == 1)

@@ -126,53 +126,6 @@ cell *alloc_on_tmp(query *q, unsigned nbr_cells)
 	return c;
 }
 
-// The cache is used for instruction allocations and a realloc() can't be
-// done as it will invalidate existing pointers. Build any compounds
-// first on the tmp heap, then allocate in one go here and copy in.
-// When more space is need allocate a new page and keep them in the
-// page list. Backtracking will garbage collect and free as needed.
-
-cell *alloc_on_cache(query *q, unsigned nbr_cells)
-{
-	if (((uint64_t)q->st.hp + nbr_cells) > UINT32_MAX)
-		return NULL;
-
-	if (!q->heap_pages) {
-		page *a = calloc(1, sizeof(page));
-		if (!a) return NULL;
-		a->next = q->heap_pages;
-		unsigned n = MAX_OF(q->heap_size, nbr_cells);
-		a->cells = calloc(a->page_size=n, sizeof(cell));
-		if (!a->cells) { free(a); return NULL; }
-		a->nbr = q->st.heap_nbr++;
-		q->heap_pages = a;
-	}
-
-	if ((q->st.hp + nbr_cells) >= q->heap_pages->page_size) {
-		page *a = calloc(1, sizeof(page));
-		if (!a) return NULL;
-		a->next = q->heap_pages;
-		unsigned n = MAX_OF(q->heap_size, nbr_cells);
-		a->cells = calloc(a->page_size=n, sizeof(cell));
-		if (!a->cells) { free(a); return NULL; }
-		a->nbr = q->st.heap_nbr++;
-		q->heap_pages = a;
-		q->st.hp = 0;
-	}
-
-	if (q->st.heap_nbr > q->hw_heap_nbr)
-		q->hw_heap_nbr = q->st.heap_nbr;
-
-	cell *c = q->heap_pages->cells + q->st.hp;
-	q->st.hp += nbr_cells;
-	q->heap_pages->idx = q->st.hp;
-
-	if (q->heap_pages->idx > q->heap_pages->max_idx_used)
-		q->heap_pages->max_idx_used = q->heap_pages->idx;
-
-	return c;
-}
-
 // The heap is used for data allocations and a realloc() can't be
 // done as it will invalidate existing pointers. Build any compounds
 // first on the tmp heap, then allocate in one go here and copy in.
@@ -220,39 +173,8 @@ cell *alloc_on_heap(query *q, unsigned nbr_cells)
 	return c;
 }
 
-static void trim_cache(query *q)
-{
-	// q->heap_pages is a push-down stack and points to the
-	// most recent page of heap allocations...
-
-	for (page *a = q->heap_pages; a;) {
-		if (a->nbr < q->st.heap_nbr)
-			break;
-
-		cell *c = a->cells;
-
-		for (pl_idx i = 0; i < a->idx; i++, c++)
-			unshare_cell(c);
-
-		page *save = a;
-		q->heap_pages = a = a->next;
-		free(save->cells);
-		free(save);
-	}
-
-	const page *a = q->heap_pages;
-
-	for (pl_idx i = q->st.hp; a && (i < a->idx); i++) {
-		cell *c = a->cells + i;
-		unshare_cell(c);
-		init_cell(c);
-	}
-}
-
 void trim_heap(query *q)
 {
-	trim_cache(q);
-
 	// q->heap_pages is a push-down stack and points to the
 	// most recent page of heap allocations...
 
@@ -543,26 +465,16 @@ unsigned rebase_term(query *q, cell *c, unsigned start_nbr)
 
 static cell *deep_copy_to_tmp_with_replacement(query *q, cell *p1, pl_idx p1_ctx, bool copy_attrs, cell *from, pl_idx from_ctx, cell *to, pl_idx to_ctx)
 {
-	cell *c = deref(q, p1, p1_ctx);
-	pl_idx c_ctx = q->latest_ctx;
 	const frame *f = GET_CURR_FRAME();
 	q->vars = sl_create(NULL, NULL, NULL);
 	q->varno = f->actual_slots;
 	q->tab_idx = 0;
 
-	if (is_var(p1)) {
-		const frame *f = GET_FRAME(p1_ctx);
-		slot *e = GET_SLOT(f, p1->var_nbr);
-		const pl_idx slot_nbr = f->base + p1->var_nbr;
-		e->vgen = q->vgen+1; // +1 because that is what deep_clone_to_tmp() will do
-		if (e->vgen == 0) e->vgen++;
-		q->tab0_varno = q->varno;
-		q->tab_idx++;
-		sl_set(q->vars, (void*)(size_t)slot_nbr, (void*)(size_t)q->varno);
-		q->varno++;
-	}
+	cell *c = deref(q, p1, p1_ctx);
+	pl_idx c_ctx = q->latest_ctx;
 
 	cell *tmp = deep_clone_to_tmp(q, c, c_ctx);
+
 	if (!tmp) {
 		sl_destroy(q->vars);
 		q->vars = NULL;
@@ -584,13 +496,6 @@ static cell *deep_copy_to_tmp_with_replacement(query *q, cell *p1, pl_idx p1_ctx
 			throw_error(q, c, c_ctx, "resource_error", "stack");
 			return NULL;
 		}
-	}
-
-	if (is_var(p1)) {
-		cell tmp2;
-		tmp2 = *p1;
-		tmp2.var_nbr = q->tab0_varno;
-		unify(q, &tmp2, q->st.curr_frame, tmp, q->st.curr_frame);
 	}
 
 	if (!copy_attrs)

@@ -399,39 +399,41 @@ static void leave_predicate(query *q, predicate *pr)
 	if (!pr || !pr->is_dynamic || !pr->refcnt)
 		return;
 
-	if (--pr->refcnt != 0)
+	acquire_lock(&pr->m->guard);
+
+	if (--pr->refcnt != 0) {
+		release_lock(&pr->m->guard);
 		return;
+	}
 
 	// Predicate is no longer being used
 
-	if (!pr->dirty_list)
+	if (!pr->dirty_list) {
+		release_lock(&pr->m->guard);
 		return;
-
-	acquire_lock(&pr->m->guard);
+	}
 
 	if (!pr->is_abolished) {
 		// Just because this predicate is no longer in use doesn't
 		// mean there are no shared references to terms contained
-		// within. So move items on the dirty-list to the query
-		// dirty-list. They will be freed up at end of the query.
+		// within. So move items on the predicate dirty-list to the
+		// query dirty-list. They will be freed up at end of the query.
 		// FIXME: this is a memory drain.
 
-		rule *r = pr->dirty_list;
-
-		while (r) {
-			delink(pr, r);
+		while (pr->dirty_list) {
+			delink(pr, pr->dirty_list);
 
 			if (pr->idx && pr->cnt) {
-				//predicate *pr = r->owner;
-				sl_remove(pr->idx2, r);
-				sl_remove(pr->idx, r);
+				//predicate *pr = pr->dirty_list->owner;
+				sl_remove(pr->idx2, pr->dirty_list);
+				sl_remove(pr->idx, pr->dirty_list);
 			}
 
-			r->cl.is_deleted = true;
-			rule *save = r->dirty;
-			r->dirty = q->dirty_list;
-			q->dirty_list = r;
-			r = save;
+			pr->dirty_list->cl.is_deleted = true;
+			rule *save = pr->dirty_list->dirty;
+			pr->dirty_list->dirty = q->dirty_list;
+			q->dirty_list = pr->dirty_list;
+			pr->dirty_list = save;
 		}
 
 		pr->dirty_list = NULL;
@@ -442,17 +444,13 @@ static void leave_predicate(query *q, predicate *pr)
 			pr->idx = pr->idx2 = NULL;
 		}
 	} else {
-		rule *r = pr->dirty_list;
-
-		while (r) {
-			delink(pr, r);
-			rule *save = r->dirty;
-			clear_clause(&r->cl);
-			free(r);
-			r = save;
+		while (pr->dirty_list) {
+			delink(pr, pr->dirty_list);
+			rule *save = pr->dirty_list;
+			pr->dirty_list = pr->dirty_list->dirty;
+			clear_clause(&save->cl);
+			free(save);
 		}
-
-		pr->dirty_list = NULL;
 	}
 
 	release_lock(&pr->m->guard);
@@ -602,12 +600,18 @@ static void reuse_frame(query *q, const clause *cl)
 	f->overflow = 0;
 
 	const frame *newf = GET_FRAME(q->st.fp);
-	const slot *from = GET_SLOT(newf, 0);
+	slot *from = GET_SLOT(newf, 0);
 	slot *to = GET_SLOT(f, 0);
 
 	for (pl_idx i = 0; i < cl->nbr_vars - cl->nbr_temporaries; i++) {
 		cell *c = &to->c;
 		unshare_cell(c);
+
+		if (is_ref(&from->c)) {
+			if (from->c.var_ctx == q->st.fp)
+				from->c.var_ctx = q->st.curr_frame;
+		}
+
 		*to++ = *from++;
 	}
 
@@ -679,7 +683,7 @@ static void commit_frame(query *q, cell *body)
 	if (q->st.r->owner->is_tco)
 		q->no_tco = false;
 
-	if (!q->no_tco && !f->no_tco && last_match
+	if (!q->no_tco && !f->no_tco && !q->st.m->no_tco && last_match
 			&& (q->st.fp == (q->st.curr_frame + 1))) {
 		bool tail_call = is_tail_call(q->st.curr_instr);
 		bool tail_recursive = tail_call && q->st.recursive;
@@ -1962,11 +1966,11 @@ query *query_create(module *m, bool is_task)
 	q->trace = m->pl->trace;
 	q->flags = m->flags;
 	q->get_started = get_time_in_usec();
-	q->time_cpu_last_started = q->time_cpu_started = cpu_time_in_usec();
+	q->time_cpu_last_started = q->cpu_started = cpu_time_in_usec();
 	q->ops_dirty = true;
 	q->double_quotes = false;
 	q->st.prob = 1.0;
-	q->max_depth = 0;
+	q->max_depth = m->pl->def_max_depth;
 	mp_int_init(&q->tmp_ival);
 	mp_rat_init(&q->tmp_irat);
 	clr_accum(&q->accum);
@@ -1985,21 +1989,20 @@ query *query_create(module *m, bool is_task)
 
 	// Allocate these later as needed...
 
-	q->heap_size = is_task ? INITIAL_NBR_HEAP_CELLS/4 : INITIAL_NBR_HEAP_CELLS;
+	q->heap_size = INITIAL_NBR_HEAP_CELLS;
 	q->tmph_size = INITIAL_NBR_CELLS;
 
 	for (int i = 0; i < MAX_QUEUES; i++)
-		q->q_size[i] = is_task ? INITIAL_NBR_QUEUE_CELLS/4 : INITIAL_NBR_QUEUE_CELLS;
+		q->q_size[i] = INITIAL_NBR_QUEUE_CELLS;
 
 	clear_write_options(q);
 	return q;
 }
 
-query *query_create_task(query *q, cell *curr_instr)
+query *query_create_subquery(query *q, cell *curr_instr)
 {
 	query *task = query_create(q->st.m, true);
 	if (!task) return NULL;
-	task->is_task = true;
 	task->parent = q;
 	task->st.fp = 1;
 	task->p = q->p;
@@ -2014,5 +2017,13 @@ query *query_create_task(query *q, cell *curr_instr)
 	fdst->initial_slots = fdst->actual_slots = fsrc->actual_slots;
 	fdst->dbgen = ++q->pl->dbgen;
 	task->st.sp = fdst->actual_slots;
+	return task;
+}
+
+query *query_create_task(query *q, cell *curr_instr)
+{
+	query *task = query_create_subquery(q, curr_instr);
+	if (!task) return NULL;
+	task->is_task = true;
 	return task;
 }

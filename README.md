@@ -129,7 +129,7 @@ unless you choose to build without SSL/TLS support:
 
 	make NOSSL=1
 
-To build without multi-threading support:
+To build without pre-emptive multi-threading support:
 
 	make NOTHREADS=1
 
@@ -156,7 +156,11 @@ or memory leaks (there may be one perhaps spurious error).
 
 On *BSD* systems use *gmake* to build and do
 
-	pkg install editors/vim
+	pkg install xxd
+
+or
+
+	pkg install editors/vim   # if necessary
 
 to get the *xxd* utility.
 
@@ -185,24 +189,17 @@ To build the WebAssembinary binary, set CC to wasi-sdk's clang:
 Setting WASI_CC also works as an alternative to CC.
 
 
-Contributions
-=============
-
-Contributions are welcome.
-
-
 Cross-compile for Windows x64
 =============================
 
 To cross-compile on Linux and produce a Windows/x86-64 executable...
 
-	sudo apt-get install mingw-w64 wine wine64 wine-mono
-	make CC=x86_64-w64-mingw32-gcc NOSSL=1 NOFFI=1 ISOCLINE=1
+	sudo apt install mingw-w64
+	make CC=x86_64-w64-mingw32-gcc NOSSL=1 NOFFI=1 ISOCLINE=1 NOTHREADS=1
 
 ```console
 	$ file tpl.exe
 	tpl.exe: PE32+ executable (console) x86-64, for MS Windows
-	$ wine tpl.exe -g test5,halt -f samples/sieve.pl
 ```
 
 Cross-compile for Linux x86
@@ -218,6 +215,12 @@ To cross-compile on Linux and produce a Linux/x86-32 executable...
 	$ file tpl
 	tpl: ELF 32-bit LSB shared object, Intel 80386, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux.so.2, BuildID[sha1]=31f643d7a4cfacb0a34e81b7c12c78410493de60, for GNU/Linux 3.2.0, with debug_info, not stripped
 ```
+
+
+Contributions
+=============
+
+Contributions are welcome.
 
 
 Acknowledgements
@@ -505,7 +508,7 @@ communication...
 
 For example...
 
-```
+```console
 tpl -g "use_module(library(apply)),popen('ps -a',read,S,[]),getlines(S,Ls),close(S),maplist(print,Ls),halt"
 	PID   TTY      TIME     CMD
 	2806  tty2     00:00:00 gnome-session-b
@@ -524,7 +527,7 @@ For general *POSIX* process creation use these *SWI-compatible* calls...
 
 For example...
 
-```
+```console
 	?- process_create('ls',['-l'],[process(Pid)]),process_wait(Pid).
 	total 2552
 	   4 -rw-rw-r-- 1 andrew andrew    1813 Aug 25 10:18 ATTRIBUTION
@@ -569,10 +572,9 @@ Crypto functions
 
 Hash a plain-text data string to a hexadecimal byte string
 representing the cryptographic strength hashed value. The options
-are *algorithm(Name)* where *Name* can be *sha256*, *sha384* or *sha512*
-at the moment. If it is a var it will be unified with the default
-*sha256* algorithm. This predicate is only available when compiled
-with OpenSSL...
+are *algorithm(Name)* where *Name* can be *sha256*, *sha384* or
+*sha512*, and optionally *hmac(Key)* where *Key* is a list of byte
+values. This predicate is only available when compiled with OpenSSL...
 
 	crypto_data_hash/3          # crypto_data_hash(+data,-hash,+options)
 
@@ -611,7 +613,7 @@ Where options can be:
 
 Examples...
 
-```
+```console
 	?- parse_csv_line('123,2.345,3456789',T).
 	   T = ['123','2.345','3456789'].
 	?- parse_csv_line("123,2.345,3456789",T).
@@ -693,9 +695,7 @@ HTTP 1.1
 	http_patch/4			# http_patch(Url, Data, Opts)
 	http_put/4				# http_put(Url, Data, Opts)
 	http_delete/3			# http_delete(Url, Data, Opts)
-
 	http_server/2			# http_server(Goal,Opts),
-
 	http_request/5			# http_request(S, Method, Path, Ver, Hdrs)
 
 A server *Goal* takes a single arg, the connection stream.
@@ -709,7 +709,7 @@ These two are bidirectional...
 	http_location/2         # http_location(?list,?url)
 	parse_url/2             # parse_url(?url,?list)
 
-```
+```console
 	$ tpl
 	?- parse_url('http://www.xyz.org:81/hello?msg=Hello+World%21&foo=bar#xyz',P).
 	   P = [search([msg='Hello World!',foo=bar]),protocol(http),host('www.xyz.org'),port(81),path('/hello'),fragment(xyz)].
@@ -744,8 +744,8 @@ meaning return all bytes until end end of file,
 Simple regular expressions				##EXPERIMENTAL##
 ==========================
 
-This is meant as a place-holder until a proper regular expresion
-package (packages?) is included.
+This is meant as a place-holder until a proper regex package
+ is included.
 
 	sre_compile/2				# sre_compile(+pattern,-reg)
 	sre_matchp/4				# sre_matchp(+reg,+text,-match,-rest)
@@ -762,6 +762,7 @@ package (packages?) is included.
 	sre_subst_all/4				# sre_subst(+pattern,+text,+subst,-text)
 
 	sre_subst_all_in_file/4		# sre_subst_in_file(+pattern,+filename,+subst,-text)
+
 ```
 	 * Supports:
 	 * ---------
@@ -915,30 +916,28 @@ Foreign Module Interface (libffi)		##EXPERIMENTAL##
 This is a simplified interface to FFIs inspired by Adrián Arroyo Calle
 and largely supercedes the implementation given above.
 
-```
 	foreign_struct(+atom, +list)
 	use_foreign_module(+atom, +list)
-```
 
 For example...
 
-```
+```prolog
 	:- use_foreign_module('samples/libfoo.so', [
 		bar([double, sint64, -double], sint64),
 		baz([cstr, cstr], cstr)
 	]).
 ```
 
-See the *library/raylib.pl* and *samples/testraylib.pl* for an example
+See the *library/raylib.pl* and *samples/test_raylib.pl* for an example
 usage including passing and returning structs by value.
 
-See the *library/curl.pl* and *samples/testcurl.pl* for an example
+See the *library/curl.pl* and *samples/test_curl.pl* for an example
 usage downloading a file.
 
 This is an example using SQLITE. Given the code in
 *samples/sqlite3.pl*...
 
-```console
+```prolog
 	:- use_module(library(sqlite3)).
 
 	run :-
@@ -958,24 +957,19 @@ Run...
 	[[1,'Paul',32,'California',20000.0],[2,'Allen',25,'Texas',15000.0],[3,'Teddy',23,'Norway',20000.0],[4,'Mark',25,'Rich-Mond ',65000.0],[5,'David',27,'Texas',85000.0],[6,'Kim',22,'South-Hall',45000.0]]
 ```
 
-Concurrency (tasks)						##EXPERIMENTAL##
-===================
+Concurrent Tasks						##EXPERIMENTAL##
+================
 
-Trealla is thread-safe, but single-threaded internally. Cooperative
-multitasking is available in the form of light-weight coroutines that
-run until they yield either explicitly or implicitly (when waiting on
-an event of some kind). They are called a `task` here.
+Co-operative multi-tasking is available in the form of light-weight
+coroutines that run until they yield either explicitly or implicitly
+(when waiting on an event of some kind). They are called a `task` here.
 
 	task/[1-n]	            # concurrent form of call/1-n
 	tasklist/[2-8]          # concurrent form of maplist/1-n
 
-Note: *tasklist* limits the number of concurrent tasks to a small
-pool (4?) of tasks active at one time. New tasks are scheduled as prior
-ones complete (should this be optional?).
-
 An example:
 
-```
+```prolog
 	:-use_module(library(http)).
 
 	geturl(Url) :-
@@ -1011,14 +1005,12 @@ An example:
 	Time elapsed 0.33 secs
 ```
 
-Concurrency (linda)							##EXPERIMENTAL##
-===================
+Linda Co-ordination Language			##EXPERIMENTAL##
+============================
 
-Implements a toy (local-only) version of the Linda coordination
-language using coroutines (tasks). See:
+Implements a toy (local-only) version of Linda using tasks. See:
 [swi-prolog](https://www.swi-prolog.org/pldoc/man?section=tipc-linda-clients).
 
-```
 	linda_eval/1                    # linda_eval(:goal)
 	out/1                           # out(+tuple)
 	in/1                            # in(?tuple)
@@ -1029,13 +1021,12 @@ language using coroutines (tasks). See:
 	bagof_rd_noblock/3              # bagof_rd_noblock(+term,+tuple,?list)
 	wait/0
 	end_wait/0
-```
 
 For example:
 
-```
-	:- initialization(main).
+```prolog
 	:- use_module(library(linda)).
+	:- initialization(main).
 
 	main :-
 		linda_eval(consumer('A')),
@@ -1063,8 +1054,8 @@ For example:
 		fail.
 ```
 
-```
-	$ tpl samples/testlinda.pl
+```console
+	$ tpl samples/test_linda.pl
 	[consumer,B,got=,1]
 	[consumer,B,got=,2]
 	[consumer,B,got=,3]
@@ -1078,43 +1069,42 @@ For example:
 	done
 ```
 
-Concurrency (futures)						##EXPERIMENTAL##
-=====================
+Concurrent Futures						##EXPERIMENTAL##
+==================
 
 Inspired by [Tau-Prolog](http://tau-prolog.org/documentation#concurrent)
-futures.
+concurrent futures. Uses co-operative tasks.
 
-```
 	future/3 – Make a Future from a Prolog goal.
 	future_all/2 – Make a Future that resolves to a list of the results of an input list of futures.
 	future_any/2 – Make a Future that resolves as soon as any of the futures in a list succeeds.
 	future_cancel/1 – Cancel unfinished future.
 	future_done/1 – Check if a future finished.
 	await/2 – Wait for a Future.
-```
 
 For example:
 
-:- use_module(library(http)).
+```prolog
+	:- use_module(library(concurrent)).
+	:- use_module(library(http)).
 
+	test :-
+		future(Status1, geturl("www.google.com", Status1), F1),
+		future(Status2, geturl("www.bing.com", Status2), F2),
+		future(Status3, geturl("www.duckduckgo.com", Status3), F3),
+		future_all([F1,F2,F3], F),
+		await(F, StatusCodes),
+		C = StatusCodes.
 ```
-test9(C) :-
-	future(Status1, geturl("www.google.com", Status1), F1),
-	future(Status2, geturl("www.bing.com", Status2), F2),
-	future(Status3, geturl("www.duckduckgo.com", Status3), F3),
-	future_all([F1,F2,F3], F),
-	await(F, StatusCodes),
-	C = StatusCodes.
-```
 
-See `samples/testconcurrent.pl`.
+See `samples/test_concurrent.pl`.
 
 
-Concurrency (engines)						##EXPERIMENTAL##
-=====================
+Engines						##EXPERIMENTAL##
+=======
 
 Inspired by [SWI-Prolog](https://www.swi-prolog.org/pldoc/man?section=engine-predicates)
-engines.
+engines. Uses co-operative tasks.
 
 	engine_create/[3,4]
 	engine_next/2
@@ -1127,15 +1117,15 @@ engines.
 	engine_destroy/1
 
 
-Multi-threading (Prolog queries)
-================================
+Pre-emptive Multi-threading
+===========================
 
-Start independent (shared state) Prolog queries as dedicated
-threads and communicate via message queues. Each thread has it's own
-message queue associated with it. Note: the database
-*is* shared.
+Start independent (shared state) Prolog queries as dedicated threads
+and communicate via message queues. Note: the database *is* shared.
+These predicates conform to the *ISO Prolog multi-threading
+support* standards proposal (ISO/IEC DTR 13211–5:2007), now lapsed.
 
-```
+
 	thread_create/3		# thread_create(:callable,-thread,+options)
 	thread_create/2		# thread_create(:callable,-thread)
 	thread_signal/2		# thread_signal(+thread,:callable)
@@ -1148,14 +1138,12 @@ message queue associated with it. Note: the database
 	thread_yield/0		# thread_yield
 	thread_property/2	# thread_property(+thread,+term)
 	thread_property/1	# thread_property(+term)
-```
 
 Where 'options' can be *alias(+atom)*, *at_exit(:term)* and/or *detached(+boolean)*
 (the default is *NOT* detached, ie. joinable).
 
 Create a stand-alone message queue...
 
-```
 	message_queue_create/2		# message_queue_create(-queue,+options)
 	message_queue_create/1		# message_queue_create(-queue)
 	message_queue_destroy/1		# message_queue_destroy(+queue)
@@ -1166,65 +1154,56 @@ Create a stand-alone message queue...
 	thread_get_message/1		# thread_get_message(?term)
 	thread_peek_message/2		# thread_peek_message(+queue,?term)
 	thread_peek_message/1		# thread_peek_message(?term)
-```
 
-Where 'options' can be *alias(+atom)*. Note: you can send/get/peek
-to a thread as well.
+Where 'options' can be *alias(+atom)*.
 
 Create a stand-alone mutex...
 
-```
 	mutex_create/2				# mutex_create(-mutex,+options)
 	mutex_create/1				# mutex_create(-mutex)
 	mutex_destroy/1				# mutex_destroy(+mutex)
+	mutex_property/2			# mutex_property(+mutex,+term)
+	with_mutex/2				# with_mutex(+mutex,:callable)
+
 	mutex_trylock/1				# mutex_trylock(+mutex)
 	mutex_lock/1				# mutex_lock(+mutex)
 	mutex_unlock/1				# mutex_unlock(+mutex)
 	mutex_unlock_all/0			# mutex_unlock_all
-	mutex_property/2			# mutex_property(+mutex,+term)
-```
 
 Where 'options' can be *alias(+atom)*.
 
-Note: you can trylock/lock/unlock a thread or message queue as well.
-
 For example...
 
-```
-?- thread_create((format("thread_hello~n",[]),sleep(1),format("thread_done~n",[]),thread_exit(99)), Tid, []), format("joining~n",[]), thread_join(Tid,Status), format("join_done~n",[]).
-joining
-thread_hello
-thread_done
-join_done
-   Tid = 1, Status = exited(99).
-?-
-```
+	```console
+	?- thread_create((format("thread_hello~n",[]),sleep(1),format("thread_done~n",[]),thread_exit(99)), Tid, []), format("joining~n",[]), thread_join(Tid,Status), format("join_done~n",[]).
+	joining
+	thread_hello
+	thread_done
+	join_done
+	   Tid = 1, Status = exited(99).
+	?-
+	```
 
-
-Multi-threading (Prolog instances)			##EXPERIMENTAL##
-==================================
+Prolog instances			##EXPERIMENTAL##
+================
 
 Start independent (no shared state) Prolog instances as dedicated
-threads and communicate via message queues. Each thread has it's own
-message queue associated with it. Note: the database is *not* shared.
-For shared data in this case consider using SQLite.
+pre-emptive threads and communicate via message queues. Each thread
+has it's own message queue associated with it. Note: the database
+is *not* shared. For shared data in this case consider using SQLite.
 
-```
 	pl_thread/3				# pl_thread(-thread,+filename,+options)
 	pl_thread/2				# pl_thread(-thread,+filename)
-```
 
 Where 'options' can be (currently just) *alias(+atom)*.
 
-```
-	pl_msg_send/2			# pl_msg_send(+queue,@term)
-	pl_msg_recv/2			# pl_msg_recv(-queue,-term)
+	pl_msg_send/2			# pl_msg_send(+thread,+term)
+	pl_msg_recv/2			# pl_msg_recv(-thread,-term)
 
-```
 
 For example...
 
-```
+```console
 	$ cat samples/thread_calc.pl
 	:- initialization(main).
 
@@ -1255,7 +1234,7 @@ Profile
 
 Why did I put this here?
 
-```
+```console
 	$ time tpl -q -g 'main,statistics(profile,_),halt' -f ~/trealla/samples/chess.pl 2>chess.csv
 	$ head -1 chess.csv >chess_sorted.csv && tail -n+2 chess.csv | sort -k 3 -t ',' -n -r >> chess_sorted.csv
 	$ cat chess_sorted.csv
@@ -1271,8 +1250,11 @@ Why did I put this here?
 	'occupied_by/4',673316,673316,0
 	...
 ```
+<<<<<<< HEAD
 >>>>>>> a930c3f425b67c645b1fa4f69964edc23aafba48
 
 - [Trealla Prolog](https://github.com/trealla-prolog/trealla): parent repository
 - [trealla-js](https://github.com/guregu/trealla-js): Trealla for Javascript
 - [trealla-prolog/go](https://github.com/trealla-prolog/go): Trealla for Go
+=======
+>>>>>>> 15e930c1c6b91c1ba2df520d16fe4a6182d04f42

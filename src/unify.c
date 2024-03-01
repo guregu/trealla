@@ -48,13 +48,16 @@ static int compare_lists(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_
 		DEREF_VAR(any2, both1, save_vgen, e1, e1->vgen, p1, p1_ctx, q->vgen);
 		DEREF_VAR(any2, both2, save_vgen2, e2, e2->vgen2, p2, p2_ctx, q->vgen);
 
+		if (both1 && both2)
+			break;
+
 		if (both1)
-			q->is_cyclic1 = true;
+			q->is_cyclic1++;
 
 		if (both2)
-			q->is_cyclic2 = true;
+			q->is_cyclic2++;
 
-		if (q->is_cyclic1 && q->is_cyclic2)
+		if ((q->is_cyclic1 > 2) && (q->is_cyclic2 > 2))
 			break;
 #else
 		p1 = deref(q, p1, p1_ctx);
@@ -316,21 +319,23 @@ inline static void set_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_id
 	if (is_compound(v)) {
 		make_indirect(&e->c, v, v_ctx);
 
-		if ((c_ctx == q->st.fp) && (v_ctx >= q->st.curr_frame))
+		if ((c_ctx == q->st.fp) && (v_ctx == q->st.curr_frame))
 			q->no_tco = true;
 		else if (v_ctx == q->st.fp)
 			q->no_tco = true;
 	} else if (is_var(v)) {
 		make_ref(&e->c, v->var_nbr, v_ctx);
 
-		if ((c_ctx == q->st.fp) && (v_ctx >= q->st.curr_frame))
+		if ((c_ctx == q->st.fp) && (v_ctx == q->st.curr_frame))
 			q->no_tco = true;
-	} else {
-		share_cell(v);
+	} else if (is_indirect(v)) {
 		e->c = *v;
 
 		if ((c_ctx == q->st.fp) && (v_ctx == q->st.curr_frame))
 			q->no_tco = true;
+	} else {
+		e->c = *v;
+		share_cell(v);
 	}
 }
 
@@ -348,8 +353,8 @@ void reset_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx)
 		e->c.var_nbr = v->var_nbr;
 		e->c.var_ctx = v_ctx;
 	} else {
-		share_cell(v);
 		e->c = *v;
+		share_cell(v);
 	}
 }
 
@@ -531,13 +536,16 @@ static bool unify_lists(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_c
 		DEREF_VAR(any2, both1, save_vgen, e1, e1->vgen, p1, p1_ctx, q->vgen);
 		DEREF_VAR(any2, both2, save_vgen2, e2, e2->vgen2, p2, p2_ctx, q->vgen);
 
+		if (both1 && both2)
+			break;
+
 		if (both1)
-			q->is_cyclic1 = true;
+			q->is_cyclic1++;
 
 		if (both2)
-			q->is_cyclic2 = true;
+			q->is_cyclic2++;
 
-		if (q->is_cyclic1 && q->is_cyclic2)
+		if ((q->is_cyclic1 > 2) && (q->is_cyclic2 > 2))
 			break;
 #else
 		p1 = deref(q, p1, p1_ctx);

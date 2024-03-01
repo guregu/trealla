@@ -588,6 +588,7 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 	bool any1 = false, any2 = false;
 
 	while (is_iso_list(c)) {
+		CHECK_INTERRUPT();
 		cell *save_c = c;
 		pl_idx save_c_ctx = c_ctx;
 
@@ -617,18 +618,8 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 			cell v = *(c+1);
 			pl_idx v_ctx = c_ctx;
 
-#if 0
-			if (is_var(c+1)) printf("*** c+1 = %u/%u\n", (c+1)->var_nbr, c_ctx);
-			if (is_var(head)) printf("*** head = %u/%u\n", head->var_nbr, head_ctx);
-			if (is_var(save_head)) printf("*** save_head = %u/%u\n", save_head->var_nbr, save_head_ctx);
-			if (is_var(save_c)) printf("*** save_c = %u/%u\n", save_c->var_nbr, save_c_ctx);
-			if (is_var(orig_c)) printf("*** orig_c = %u/%u\n", orig_c->var_nbr, orig_c_ctx);
-#endif
-
 			if (q->portray_vars || q->do_dump_vars) {
-				//SB_sprintf(q->sb, "%s", q->p->vartab.var_name[q->dump_var_nbr]);
-				SB_sprintf(q->sb, "%s", q->p->vartab.var_name[save_head->var_nbr]);
-				//print_variable(q, save_head, save_head_ctx, running);
+				SB_sprintf(q->sb, "%s", q->p->vartab.var_name[q->dump_var_nbr]);
 			} else {
 				SB_sprintf(q->sb, "%s", "...");
 			}
@@ -697,7 +688,7 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 
 			if (q->portray_vars || q->do_dump_vars) {
 				//SB_sprintf(q->sb, "%s", q->p->vartab.var_name[q->dump_var_nbr]);
-				SB_sprintf(q->sb, "%s", q->p->vartab.var_name[save_tail->var_nbr]);
+				SB_sprintf(q->sb, "%s", q->p->vartab.var_name[v.var_nbr]);
 				//print_variable(q, save_head, save_head_ctx, running);
 			} else {
 				SB_sprintf(q->sb, "%s", "...");
@@ -811,20 +802,25 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		return false;
 	}
 
-	if ((c->tag == TAG_INTEGER) && (c->flags & FLAG_INT_STREAM)) {
+	if ((c->tag == TAG_INTEGER) && (c->flags & FLAG_INT_THREAD)) {
 		int n = get_smallint(c);
 		stream *str = &q->pl->streams[n];
+		thread *t = &q->pl->threads[n];
 
-		if (str->is_queue) {
+		if (t->is_queue_only) {
 			SB_sprintf(q->sb, "'<$queue>'(%d)", (int)get_smallint(c));
-		} else if (str->is_mutex) {
+		} else if (t->is_mutex_only) {
 			SB_sprintf(q->sb, "'<$mutex>'(%d)", (int)get_smallint(c));
-		} else if (str->is_thread) {
-			SB_sprintf(q->sb, "'<$thread>'(%d)", (int)get_smallint(c));
 		} else {
-			SB_sprintf(q->sb, "'<$stream>'(%d)", (int)get_smallint(c));
+			SB_sprintf(q->sb, "'<$thread>'(%d)", (int)get_smallint(c));
 		}
 
+		q->last_thing = WAS_OTHER;
+		return true;
+	}
+
+	if ((c->tag == TAG_INTEGER) && (c->flags & FLAG_INT_STREAM)) {
+		SB_sprintf(q->sb, "'<$stream>'(%d)", (int)get_smallint(c));
 		q->last_thing = WAS_OTHER;
 		return true;
 	}
@@ -1628,7 +1624,8 @@ bool print_term(query *q, FILE *fp, cell *c, pl_idx c_ctx, int running)
 void clear_write_options(query *q)
 {
 	q->print_idx = 0;
-	q->max_depth = q->quoted = 0;
+	q->max_depth = q->pl->def_max_depth;
+	q->quoted = 0;
 	q->nl = q->fullstop = q->varnames = q->ignore_ops = false;
 	q->parens = q->numbervars = q->json = q->double_quotes = false;
 	q->last_thing = WAS_OTHER;

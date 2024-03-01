@@ -17,6 +17,16 @@
 #define USE_THREADS 0
 #endif
 
+#if USE_THREADS
+#ifdef _WIN32
+#include <process.h>
+#include <windows.h>
+#else
+#include <pthread.h>
+#include <unistd.h>
+#endif
+#endif
+
 #ifndef USE_RATIONAL_TREES
 #define USE_RATIONAL_TREES 1
 #endif
@@ -70,8 +80,9 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define MAX_QUEUES 255
 #define MAX_MODULES 1024
 #define MAX_IGNORES 64000
-#define MAX_STREAMS 2048
-#define MAX_THREADS (MAX_STREAMS / 2)
+#define MAX_STREAMS 1024
+#define MAX_THREADS 2048
+#define MAX_ACTUAL_THREADS 256	// Does nothing
 
 #define STREAM_BUFLEN 1024
 
@@ -102,11 +113,11 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define is_interned(c) ((c)->tag == TAG_INTERNED)
 #define is_cstring(c) ((c)->tag == TAG_CSTR)
 #define is_basic_integer(c) ((c)->tag == TAG_INTEGER)
-#define is_integer(c) (((c)->tag == TAG_INTEGER) && !((c)->flags & FLAG_INT_STREAM))
+#define is_integer(c) (((c)->tag == TAG_INTEGER) && !((c)->flags & FLAG_INT_STREAM) && !((c)->flags & FLAG_INT_THREAD))
 #define is_float(c) ((c)->tag == TAG_DOUBLE)
 #define is_rational(c) ((c)->tag == TAG_RATIONAL)
 #define is_indirect(c) ((c)->tag == TAG_INDIRECT)
-#define is_dbref(c) ((c)->tag == TAG_DBREF)
+#define is_dbid(c) ((c)->tag == TAG_DBID)
 #define is_blob(c) ((c)->tag == TAG_BLOB)
 #define is_end(c) ((c)->tag == TAG_END)
 
@@ -184,7 +195,7 @@ extern char *g_pool;
 typedef struct {
 	pl_atomic int64_t refcnt;
 	size_t len;
-	char cstr[];
+	char cstr[];	// len+1 bytes
 } strbuf;
 
 typedef struct {
@@ -260,7 +271,7 @@ enum {
 	TAG_RATIONAL=6,
 	TAG_INDIRECT=7,
 	TAG_BLOB=8,
-	TAG_DBREF=9,
+	TAG_DBID=9,
 	TAG_END=10
 };
 
@@ -270,6 +281,7 @@ enum {
 	FLAG_INT_BINARY=1<<2,				// used with TAG_INTEGER
 	FLAG_INT_HANDLE=1<<3,				// used with TAG_INTEGER
 	FLAG_INT_STREAM=1<<4,				// used with TAG_INTEGER
+	FLAG_INT_THREAD=1<<5,				// used with TAG_INTEGER
 
 	FLAG_CSTR_BLOB=1<<0,				// used with TAG_CSTR
 	FLAG_CSTR_STRING=1<<1,				// used with TAG_CSTR
@@ -432,7 +444,7 @@ struct clause_ {
 	bool is_unique:1;
 	bool is_fact:1;
 	bool is_deleted:1;
-	cell cells[];
+	cell cells[];		// nbr_allocated_cells+1 bytes
 };
 
 struct rule_ {
@@ -613,6 +625,34 @@ struct stream_ {
 	bool is_mutex:1;
 };
 
+typedef struct msg_ msg;
+typedef struct thread_ thread;
+
+struct thread_ {
+	const char *filename;
+	prolog *pl;
+	query *q;
+	skiplist *alias;
+	cell *goal, *exit_code, *at_exit, *ball;
+	msg *queue_head, *queue_tail;
+	msg *signal_head, *signal_tail;
+	unsigned nbr_vars, at_exit_nbr_vars, nbr_locks;
+	int chan, locked_by;
+	bool is_init, is_finished, is_detached, is_exception;
+	bool is_queue_only, is_mutex_only;
+	pl_atomic bool is_active;
+	lock guard;
+#if USE_THREADS
+#ifdef _WIN32
+    HANDLE id;
+#else
+    pthread_t id;
+    pthread_cond_t cond;
+    pthread_mutex_t mutex;
+#endif
+#endif
+};
+
 struct page_ {
 	page *next;
 	cell *cells;
@@ -665,7 +705,7 @@ struct query_ {
 	uint64_t tot_tcos, tot_frecovs, tot_srecovs;
 	uint64_t step, qid, tmo_msecs, chgen, cycle_error;
 	uint64_t get_started, autofail_n, yield_at;
-	uint64_t time_cpu_started, time_cpu_last_started, future;
+	uint64_t cpu_started, time_cpu_last_started, future;
 	unsigned max_depth, max_eval_depth, print_idx, tab_idx, dump_var_nbr;
 	unsigned varno, tab0_varno, curr_engine, curr_chan, my_chan, oom;
 	unsigned s_cnt;
@@ -678,12 +718,11 @@ struct query_ {
 	pl_idx q_size[MAX_QUEUES], tmpq_size[MAX_QUEUES], qp[MAX_QUEUES];
 	prolog_flags flags;
 	enum q_retry retry;
+	int is_cyclic1, is_cyclic2;
 	uint16_t vgen;
 	int8_t halt_code;
 	int8_t quoted;
 	enum { WAS_OTHER, WAS_SPACE, WAS_COMMA, WAS_SYMBOL } last_thing;
-	bool is_cyclic1:1;
-	bool is_cyclic2:1;
 	bool thread_signal:1;
 	bool done:1;
 	bool parens:1;
@@ -727,7 +766,7 @@ struct query_ {
 	bool double_quotes:1;
 	bool end_wait:1;
 	bool access_private:1;
-	bool did_unhandled_excpetion:1;
+	bool did_unhandled_exception:1;
 };
 
 struct parser_ {
@@ -813,6 +852,7 @@ struct module_ {
 	bool error:1;
 	bool ignore_vars:1;
 	bool wild_goal_expansion:1;
+	bool no_tco:1;
 	bool make:1;
 };
 
@@ -824,6 +864,7 @@ typedef struct {
 
 struct prolog_ {
 	stream streams[MAX_STREAMS];
+	thread threads[MAX_THREADS];
 	module *modmap[MAX_MODULES];
 	struct { pl_idx tab1[MAX_IGNORES], tab2[MAX_IGNORES]; };
 	char tmpbuf[8192];
@@ -834,7 +875,7 @@ struct prolog_ {
 	FILE *logfp;
 	lock guard;
 	size_t tabs_size;
-	uint64_t s_last, s_cnt, seed, str_cnt;
+	uint64_t s_last, s_cnt, seed, str_cnt, thr_cnt;
 	pl_atomic uint64_t q_cnt, dbgen;
 	unsigned next_mod_id, def_max_depth, my_chan;
 	unsigned current_input, current_output, current_error;
@@ -878,7 +919,7 @@ inline static void share_cell_(const cell *c)
 		(c)->val_bigint->refcnt++;
 	else if (is_blob(c))
 		(c)->val_blob->refcnt++;
-	else if (is_dbref(c))
+	else if (is_dbid(c))
 		(c)->val_blob->refcnt++;
 }
 
@@ -908,7 +949,7 @@ inline static void unshare_cell_(cell *c)
 			free((c)->val_blob);
 			c->flags = 0;
 		}
-	} else if (is_dbref(c)) {
+	} else if (is_dbid(c)) {
 		if (--c->val_blob->refcnt == 0) {
 			module *m = (module*)c->val_blob->ptr;
 			char *ref = (char*)c->val_blob->ptr2;

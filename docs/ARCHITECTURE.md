@@ -55,13 +55,23 @@ Var
 
 Where *tag* is TAG_VAR.
 Where *arity* is always 0.
+Where *flags* is 0.
 Where *nbr_cells* is always 1.
 Where *val_off* is a byte_offset into the symbol table.
 Where *var_nbr* is the index into the current context
 
+A variables will usually only be found in asserted database rules.
+Such a variable, when matched, will have an implied context. For
+example when matching against a term (in a rule) all variables
+in the term will be relative (the *var_nbr*) to the context.
+
 
 Ref
 ===
+
+A reference is a variable with an implicit context. They are
+generated when copying terms or making instructions.
+
 
 ```
         +----------+---------+----------+---------+
@@ -84,7 +94,7 @@ Where *arity* is always 0.
 Where *flags* is FLAG_REF
 Where *nbr_cells* is always 1.
 Where *var_ctx* is the context (or environment)
-Where *var_nbr* is the index into the current context
+Where *var_nbr* is the index into the specified context
 
 
 Integer

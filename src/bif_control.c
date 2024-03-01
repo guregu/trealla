@@ -78,9 +78,11 @@ bool bif_call_0(query *q, cell *p1, pl_idx p1_ctx)
 	if (!is_callable(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "callable");
 
-	cell *tmp = prepare_call(q, false, p1, p1_ctx, 1);
+	cell *tmp = prepare_call(q, false, p1, p1_ctx, 3);
 	check_heap_error(tmp);
 	pl_idx nbr_cells = NOPREFIX_LEN + p1->nbr_cells;
+	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
+	make_uint(tmp+nbr_cells++, q->cp);
 	make_call(q, tmp+nbr_cells);
 	check_heap_error(push_barrier(q));
 	choice *ch = GET_CURR_CHOICE();
@@ -333,7 +335,7 @@ static bool do_if_then_else(query *q, cell *p1, cell *p2, cell *p3)
 	make_struct(tmp+nbr_cells++, g_cut_s, bif_iso_cut_0, 0, 0);
 	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+nbr_cells++, q->cp);
-	nbr_cells += dup_cells(tmp+nbr_cells, p2, p2->nbr_cells);
+	nbr_cells += dup_cells_by_ref(tmp+nbr_cells, p2, q->st.curr_frame, p2->nbr_cells);
 	make_call(q, tmp+nbr_cells);
 	check_heap_error(push_barrier(q));
 	q->st.curr_instr = tmp;
@@ -355,7 +357,7 @@ static bool soft_do_if_then_else(query *q, cell *p1, cell *p2, cell *p3)
 	pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+nbr_cells++, q->cp);
-	nbr_cells += dup_cells(tmp+nbr_cells, p2, p2->nbr_cells);
+	nbr_cells += dup_cells_by_ref(tmp+nbr_cells, p2, q->st.curr_frame, p2->nbr_cells);
 	make_call(q, tmp+nbr_cells);
 	check_heap_error(push_barrier(q));
 	q->st.curr_instr = tmp;
@@ -444,6 +446,8 @@ bool bif_iso_negation_1(query *q)
 	choice *ch = GET_CURR_CHOICE();
 	ch->succeed_on_retry = true;
 	q->st.curr_instr = tmp;
+	frame *f = GET_CURR_FRAME();
+	f->no_tco = true;				// Why?
 	return true;
 }
 
@@ -646,7 +650,7 @@ static bool find_exception_handler(query *q, char *ball)
 
 	cell *e = parse_to_heap(q, ball);
 	pl_idx e_ctx = q->st.curr_frame;
-	q->did_unhandled_excpetion = true;
+	q->did_unhandled_exception = true;
 
 	if (!strcmp(C_STR(q, e+1), "$aborted")) {
 		fprintf(stdout, "%% Execution aborted\n");
@@ -654,6 +658,9 @@ static bool find_exception_handler(query *q, char *ball)
 		q->ball = NULL;
 		q->error = true;
 		return false;
+	} else {
+		q->ball = deep_clone_to_heap(q, e, e_ctx);
+		rebase_term(q, q->ball, 0);
 	}
 
 	if (!q->thread_ptr) {
@@ -693,7 +700,6 @@ static bool find_exception_handler(query *q, char *ball)
 	}
 
 	q->pl->did_dump_vars = true;
-	q->ball = NULL;
 	//q->error = true;
 	q->abort = true;
 	return false;
@@ -718,7 +724,7 @@ bool bif_iso_throw_1(query *q)
 
 bool throw_error3(query *q, cell *c, pl_idx c_ctx, const char *err_type, const char *expected, cell *goal)
 {
-	if (g_tpl_interrupt)
+	if (g_tpl_interrupt || q->halt || q->pl->halt)
 		return false;
 
 	q->did_throw = true;
@@ -789,7 +795,7 @@ bool throw_error3(query *q, cell *c, pl_idx c_ctx, const char *err_type, const c
 		pl_idx nbr_cells = 0;
 		make_struct(tmp+nbr_cells++, g_error_s, NULL, 2, 5+(c->nbr_cells-1));
 		make_struct(tmp+nbr_cells++, new_atom(q->pl, err_type), NULL, 1, 1+(c->nbr_cells-1));
-		dup_cells(tmp+nbr_cells, c, c->nbr_cells);
+		dup_cells_by_ref(tmp+nbr_cells, c, c_ctx, c->nbr_cells);
 		nbr_cells += c->nbr_cells;
 		make_struct(tmp+nbr_cells, g_slash_s, NULL, 2, 2);
 		SET_OP(tmp+nbr_cells, OP_YFX); nbr_cells++;
@@ -956,7 +962,7 @@ bool throw_error3(query *q, cell *c, pl_idx c_ctx, const char *err_type, const c
 			make_atom(tmp+nbr_cells++, new_atom(q->pl, ptr));
 		}
 
-		nbr_cells += dup_cells(tmp+nbr_cells, c, c->nbr_cells);
+		nbr_cells += dup_cells_by_ref(tmp+nbr_cells, c, c_ctx, c->nbr_cells);
 		make_struct(tmp+nbr_cells, g_slash_s, NULL, 2, 2);
 		SET_OP(tmp+nbr_cells, OP_YFX); nbr_cells++;
 		make_atom(tmp+nbr_cells++, new_atom(q->pl, functor));

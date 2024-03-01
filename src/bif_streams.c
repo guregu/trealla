@@ -165,7 +165,7 @@ restart:
 			if (!check_dir) goto skip_readlink;
 		}
 		ssize_t k = readlink(output, stack, p);
-		if (k==p) goto toolong;
+		if (k==(ssize_t)p) goto toolong;
 		if (!k) {
 			errno = ENOENT;
 			return 0;
@@ -1112,6 +1112,7 @@ static bool bif_process_create_3(query *q)
 	LIST_HANDLER(p2);
 
 	while (is_iso_list(p2)) {
+		assert(args < MAX_ARGS);
 		cell *h = LIST_HEAD(p2);
 		cell *c = deref(q, h, p2_ctx);
 		pl_idx c_ctx = q->latest_ctx;
@@ -1703,7 +1704,7 @@ static bool bif_iso_open_4(query *q)
 	return true;
 }
 
-bool stream_close(query *q, int n)
+static bool stream_close(query *q, int n)
 {
 	stream *str = &q->pl->streams[n];
 	parser_destroy(str->p);
@@ -7224,7 +7225,13 @@ static bool bif_portray_clause_2(query *q)
 	return true;
 }
 
-builtins g_files_bifs[] =
+static bool bif_is_stream_1(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	return is_stream(p1);
+}
+
+builtins g_streams_bifs[] =
 {
 	// ISO...
 
@@ -7292,6 +7299,7 @@ builtins g_files_bifs[] =
 
 	// Other...
 
+	{"is_stream", 1, bif_is_stream_1, "+term", false, false, BLAH},
 	{"unget_char", 1, bif_unget_char_1, "+integer", true, false, BLAH},
 	{"unget_char", 2, bif_unget_char_2, "+stream,+integer", true, false, BLAH},
 	{"unget_code", 1, bif_unget_code_1, "+integer", true, false, BLAH},

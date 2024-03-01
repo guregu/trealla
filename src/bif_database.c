@@ -15,7 +15,7 @@
 #include "prolog.h"
 #include "query.h"
 
-bool bif_clause_3(query *q)
+static bool bif_clause_3(query *q)
 {
 	GET_FIRST_ARG(p1,callable_or_var);
 	GET_NEXT_ARG(p2,callable_or_var);
@@ -135,7 +135,7 @@ void db_log(query *q, rule *r, enum log_type l)
 	q->quoted = 0;
 }
 
-bool bif_iso_clause_2(query *q)
+static bool bif_iso_clause_2(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 	GET_NEXT_ARG(p2,callable_or_var);
@@ -180,7 +180,7 @@ bool bif_iso_clause_2(query *q)
 	return false;
 }
 
-bool bif_sys_clause_2(query *q)
+static bool bif_sys_clause_2(query *q)
 {
 	q->access_private = true;
 	bool ok = bif_iso_clause_2(q);
@@ -188,7 +188,7 @@ bool bif_sys_clause_2(query *q)
 	return ok;
 }
 
-bool bif_sys_clause_3(query *q)
+static bool bif_sys_clause_3(query *q)
 {
 	q->access_private = true;
 	bool ok = bif_clause_3(q);
@@ -251,7 +251,7 @@ bool do_retract(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract)
 	return true;
 }
 
-bool bif_iso_retract_1(query *q)
+static bool bif_iso_retract_1(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 	acquire_lock(&q->st.m->guard);
@@ -261,8 +261,10 @@ bool bif_iso_retract_1(query *q)
 		cell *cm = deref(q, p1, p1_ctx);
 		module *m = find_module(q->pl, C_STR(q, cm));
 
-		if (!m)
+		if (!m) {
+			release_lock(&q->st.m->guard);
 			return throw_error(q, cm, p1_ctx, "existence_error", "module");
+		}
 
 		p1 += p1->nbr_cells;
 	}
@@ -272,7 +274,7 @@ bool bif_iso_retract_1(query *q)
 	return ok;
 }
 
-bool bif_iso_retractall_1(query *q)
+static bool bif_iso_retractall_1(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 	acquire_lock(&q->st.m->guard);
@@ -282,8 +284,10 @@ bool bif_iso_retractall_1(query *q)
 		cell *cm = deref(q, p1, p1_ctx);
 		module *m = find_module(q->pl, C_STR(q, cm));
 
-		if (!m)
+		if (!m) {
+			release_lock(&q->st.m->guard);
 			return throw_error(q, cm, p1_ctx, "existence_error", "module");
+		}
 
 		p1 += p1->nbr_cells;
 	}
@@ -292,6 +296,7 @@ bool bif_iso_retractall_1(query *q)
 	predicate *pr = search_predicate(q->st.m, head, NULL);
 
 	if (!pr) {
+		release_lock(&q->st.m->guard);
 		bool found = false;
 
 		if (get_builtin_term(q->st.m, head, &found, NULL), found)
@@ -301,7 +306,11 @@ bool bif_iso_retractall_1(query *q)
 	}
 
 	while (do_retract(q, p1, p1_ctx, DO_RETRACTALL)) {
-		if (q->did_throw) return true;
+		if (q->did_throw) {
+			release_lock(&q->st.m->guard);
+			return true;
+		}
+
 		q->retry = QUERY_RETRY;
 		q->tot_backtracks++;
 		retry_choice(q);
@@ -355,7 +364,7 @@ bool do_abolish(query *q, cell *c_orig, cell *c_pi, bool hard)
 	return true;
 }
 
-bool bif_iso_abolish_1(query *q)
+static bool bif_iso_abolish_1(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 
@@ -386,7 +395,6 @@ bool bif_iso_abolish_1(query *q)
 	if (get_smallint(p1_arity) > MAX_ARITY)
 		return throw_error(q, p1_arity, p1_ctx, "representation_error", "max_arity");
 
-	acquire_lock(&q->st.m->guard);
 	bool found = false;
 
 	if (get_builtin(q->pl, C_STR(q, p1_name), C_STRLEN(q, p1_name), get_smallint(p1_arity), &found, NULL), found) {
@@ -399,6 +407,7 @@ bool bif_iso_abolish_1(query *q)
 	tmp.arity = get_smallint(p1_arity);
 	CLR_OP(&tmp);
 
+	acquire_lock(&q->st.m->guard);
 	bool ok = do_abolish(q, p1, &tmp, true);
 	release_lock(&q->st.m->guard);
 	return ok;
@@ -457,7 +466,7 @@ static void do_term_assign_vars(parser *p)
 	}
 }
 
-bool bif_iso_asserta_1(query *q)
+static bool bif_iso_asserta_1(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 	check_heap_error(init_tmp_heap(q));
@@ -471,16 +480,15 @@ bool bif_iso_asserta_1(query *q)
 	if (!is_interned(head) && !is_cstring(head))
 		return throw_error(q, head, q->st.curr_frame, "type_error", "callable");
 
-	acquire_lock(&q->st.m->guard);
 	bool found = false;
 
 	if (get_builtin_term(q->st.m, head, &found, NULL), found) {
 		if (!GET_OP(head)) {
-			release_lock(&q->st.m->guard);
 			return throw_error(q, head, q->st.curr_frame, "permission_error", "modify,static_procedure");
 		}
 	}
 
+	acquire_lock(&q->st.m->guard);
 	cell *tmp2, *body = get_body(tmp);
 
 	if (body && ((tmp2 = check_body_callable(body)) != NULL)) {
@@ -521,7 +529,7 @@ bool bif_iso_asserta_1(query *q)
 	return true;
 }
 
-bool bif_iso_assertz_1(query *q)
+static bool bif_iso_assertz_1(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 	check_heap_error(init_tmp_heap(q));
@@ -535,16 +543,15 @@ bool bif_iso_assertz_1(query *q)
 	if (!is_interned(head) && !is_cstring(head))
 		return throw_error(q, head, q->st.curr_frame, "type_error", "callable");
 
-	acquire_lock(&q->st.m->guard);
 	bool found = false, evaluable = false;
 
 	if (get_builtin_term(q->st.m, head, &found, &evaluable), found && !evaluable) {
 		if (!GET_OP(head)) {
-			release_lock(&q->st.m->guard);
 			return throw_error(q, head, q->st.curr_frame, "permission_error", "modify,static_procedure");
 		}
 	}
 
+	acquire_lock(&q->st.m->guard);
 	cell *tmp2, *body = get_body(tmp);
 
 	if (body && ((tmp2 = check_body_callable(body)) != NULL)) {
@@ -593,16 +600,15 @@ static bool do_asserta_2(query *q)
 	if (is_var(head))
 		return throw_error(q, head, q->latest_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
 
-	acquire_lock(&q->st.m->guard);
 	bool found = false;
 
 	if (get_builtin_term(q->st.m, head, &found, NULL), found) {
 		if (!GET_OP(head)) {
-			release_lock(&q->st.m->guard);
 			return throw_error(q, head, q->latest_ctx, "permission_error", "modify,static_procedure");
 		}
 	}
 
+	acquire_lock(&q->st.m->guard);
 	cell *body = get_body(p1);
 
 	if (body)
@@ -672,14 +678,14 @@ static bool do_asserta_2(query *q)
 	return true;
 }
 
-bool bif_asserta_2(query *q)
+static bool bif_asserta_2(query *q)
 {
 	GET_FIRST_ARG(p1,nonvar);
 	GET_NEXT_ARG(p2,var);
 	return do_asserta_2(q);
 }
 
-bool bif_sys_asserta_2(query *q)
+static bool bif_sys_asserta_2(query *q)
 {
 	GET_FIRST_ARG(p1,nonvar);
 	GET_NEXT_ARG(p2,atom);
@@ -694,16 +700,15 @@ static bool do_assertz_2(query *q)
 	if (is_var(head))
 		return throw_error(q, head, q->latest_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
 
-	acquire_lock(&q->st.m->guard);
 	bool found = false;
 
 	if (get_builtin_term(q->st.m, head, &found, NULL), found) {
 		if (!GET_OP(head)) {
-			release_lock(&q->st.m->guard);
 			return throw_error(q, head, q->latest_ctx, "permission_error", "modify,static_procedure");
 		}
 	}
 
+	acquire_lock(&q->st.m->guard);
 	cell *body = get_body(p1);
 
 	if (body)
@@ -773,14 +778,14 @@ static bool do_assertz_2(query *q)
 	return true;
 }
 
-bool bif_assertz_2(query *q)
+static bool bif_assertz_2(query *q)
 {
 	GET_FIRST_ARG(p1,nonvar);
 	GET_NEXT_ARG(p2,var);
 	return do_assertz_2(q);
 }
 
-bool bif_sys_assertz_2(query *q)
+static bool bif_sys_assertz_2(query *q)
 {
 	GET_FIRST_ARG(p1,nonvar);
 	GET_NEXT_ARG(p2,atom);
@@ -831,7 +836,7 @@ void save_db(FILE *fp, query *q, int logging)
 	q->listing = false;
 }
 
-bool bif_abolish_2(query *q)
+static bool bif_abolish_2(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 	GET_NEXT_ARG(p2,iso_list_or_nil);
@@ -932,9 +937,52 @@ bool do_erase(module* m, const char *str)
 	return true;
 }
 
-bool bif_erase_1(query *q)
+static bool bif_erase_1(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
 	return do_erase(q->st.m, C_STR(q, p1));
 }
+
+static bool bif_sys_retract_on_backtrack_1(query *q)
+{
+	GET_FIRST_ARG(p1,atom);
+	unsigned var_nbr;
+
+	if (!(var_nbr = create_vars(q, 1)))
+		return false;
+
+	blob *b = calloc(1, sizeof(blob));
+	b->ptr = (void*)q->st.m;
+	b->ptr2 = (void*)strdup(C_STR(q, p1));
+
+	cell c, v;
+	make_ref(&c, var_nbr, q->st.curr_frame);
+	make_dbref(&v, b);
+	return unify(q, &c, q->st.curr_frame, &v, q->st.curr_frame);
+}
+
+builtins g_db_bifs[] =
+{
+	{"abolish", 1, bif_iso_abolish_1, "+predicate_indicator", true, false, BLAH},
+	{"asserta", 1, bif_iso_asserta_1, "+term", true, false, BLAH},
+	{"assertz", 1, bif_iso_assertz_1, "+term", true, false, BLAH},
+	{"retract", 1, bif_iso_retract_1, "+term", true, false, BLAH},
+	{"retractall", 1, bif_iso_retractall_1, "+term", true, false, BLAH},
+	{"clause", 2, bif_iso_clause_2, "+term,?term", true, false, BLAH},
+
+	{"assert", 1, bif_iso_assertz_1, "+term", false, false, BLAH},
+	{"asserta", 2, bif_asserta_2, "+term,-string", false, false, BLAH},
+	{"assertz", 2, bif_assertz_2, "+term,-string", false, false, BLAH},
+	{"erase", 1, bif_erase_1, "+string", false, false, BLAH},
+	{"clause", 3, bif_clause_3, "?term,?term,-string", false, false, BLAH},
+	{"abolish", 2, bif_abolish_2, "+term,+list", false, false, BLAH},
+
+	{"$asserta", 2, bif_sys_asserta_2, "+term,+atom", true, false, BLAH},
+	{"$assertz", 2, bif_sys_assertz_2, "+term,+atom", true, false, BLAH},
+	{"$clause", 2, bif_sys_clause_2, "?term,?term", false, false, BLAH},
+	{"$clause", 3, bif_sys_clause_3, "?term,?term,-string", false, false, BLAH},
+	{"$retract_on_backtrack", 1, bif_sys_retract_on_backtrack_1, "+string", false, false, BLAH},
+
+	{0}
+};
 
