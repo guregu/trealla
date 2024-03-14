@@ -427,9 +427,6 @@ Non-standard predicates
 	offset/2
 	limit/2
 
-	reset/3						# reset(:goal,?ball,-cont)
-	shift/1						# shift(+ball)
-
 	getenv/2
 	setenv/2
 	unsetenv/1
@@ -505,7 +502,8 @@ Non-standard predicates
 	open(stream(Str),...)       # with open/4 reopen a stream
 	open(F,M,S,[mmap(Ls)])      # with open/4 mmap() the file to Ls
 
-	:- help(+term,+list)		# provides a combinded mode/type declaration
+	reset/3						# reset(:goal,?ball,-cont)
+	shift/1						# shift(+ball)
 
 Note: consult/1 and load_files/2 support lists of files as args. Also
 support loading into modules eg. *consult(MOD:FILE-SPEC)*.
@@ -614,7 +612,7 @@ Where options can be:
 	header(Boolean)				# default false, skip first (header) line in file
 	comments(Boolean)			# default false, skip lines beginning with comment character in file
 	comment(Char)				# default '#', set the comment character
-	strings(Boolean)			# default depends on type of input (atom ot string)
+	strings(Boolean)			# default depends on type of input (atom or string)
 	arity(Integer)				# default to not checking arity, otherwise throw domain_error
 	assert(Boolean)				# default false, assertz to database instead (assumed for files, needs a functor)
 	functor(Atom)				# default output is a list, create a structure (mandatory for files and with assert)
@@ -640,7 +638,7 @@ Examples...
 	   true.
 	?- f(A,B,C).
 	   A = 123, B = 2.345, C = 3456789.
-	?- time(parse_csv_file('/home/infradig/lgt3git/library/csv/test_files/tickers.csv',[functor(f),quote('\'')])).
+	?- time(parse_csv_file('/home/infradig/logtalk3/library/csv/test_files/tickers.csv',[functor(f),quote('\'')])).
 	% Parsed 35193 lines
 	% Time elapsed 0.096s, 3 Inferences, 0.000 MLips)
 		  true.
@@ -653,6 +651,7 @@ Examples...
 	;  A = 'AAA', B = 'NYSEARCA', C = 'ETF', D = 'USD', E = '2020-09-09', F = '2021-06-25'
 	;
 ```
+
 
 Application maps (dictionaries)
 ===============================
@@ -944,8 +943,7 @@ usage including passing and returning structs by value.
 See the *library/curl.pl* and *samples/test_curl.pl* for an example
 usage downloading a file.
 
-This is an example using SQLITE. Given the code in
-*samples/sqlite3.pl*...
+This is an example using SQLITE. Given the code in *samples/sqlite3.pl*...
 
 ```prolog
 	:- use_module(library(sqlite3)).
@@ -1200,7 +1198,7 @@ Prolog instances			##EXPERIMENTAL##
 Start independent (no shared state) Prolog instances as dedicated
 pre-emptive threads and communicate via message queues. Each thread
 has it's own message queue associated with it. Note: the database
-is *not* shared. For shared data in this case consider using SQLite.
+is *not* shared. For shared state consider using the blackboard.
 
 	pl_thread/3				# pl_thread(-thread,+filename,+options)
 	pl_thread/2				# pl_thread(-thread,+filename)
