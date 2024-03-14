@@ -1586,7 +1586,7 @@ static void compare_and_zero(uint64_t v1, uint64_t *v2, uint64_t *v)
 
 void uuid_gen(prolog *pl, uuid *u)
 {
-	acquire_lock(&pl->guard);
+	prolog_lock(pl);
 
 	if (!pl->seed)
 		pl->seed = (uint64_t)time(0) & MASK_FINAL;
@@ -1597,7 +1597,7 @@ void uuid_gen(prolog *pl, uuid *u)
 	u->u2 = pl->s_cnt++;
 	u->u2 <<= 48;
 	u->u2 |= pl->seed;
-	release_lock(&pl->guard);
+	prolog_unlock(pl);
 }
 
 char *uuid_to_buf(const uuid *u, char *buf, size_t buflen)
@@ -2069,9 +2069,9 @@ static bool bif_iso_functor_3(query *q)
 		if (!arity) {
 			unify(q, p1, p1_ctx, p2, p2_ctx);
 		} else {
-			unsigned var_nbr = 0;
+			int var_nbr = 0;
 
-			if (!(var_nbr = create_vars(q, arity)))
+			if ((var_nbr = create_vars(q, arity)) < 0)
 				return throw_error(q, p3, p3_ctx, "resource_error", "stack");
 
 			cell *tmp = alloc_on_heap(q, 1+arity);
@@ -3601,6 +3601,17 @@ static bool bif_cpu_time_1(query *q)
 	cell tmp;
 	make_float(&tmp, (pl_flt)v);
 	return unify (q, p1, p1_ctx, &tmp, q->st.curr_frame);
+}
+
+bool bif_sys_set_if_var_2(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,any);
+
+	if (!is_var(p1))
+		return true;
+
+	return unify(q, p1, p1_ctx, p2, p2_ctx);
 }
 
 static bool bif_between_3(query *q)
@@ -5743,6 +5754,30 @@ static bool bif_use_module_2(query *q)
 	return do_use_module_2(q->st.m, q->st.curr_instr);
 }
 
+static bool bif_multifile_1(query *q)
+{
+	GET_FIRST_ARG(p1,compound);
+
+	if (p1->val_off == g_colon_s) {
+		const char *mod = C_STR(q, p1+1);
+		p1 += 2;
+		const char *name = C_STR(q, p1+1);
+		unsigned arity = get_smalluint(p1+2);
+
+		if (!is_multifile_in_db(q->pl, mod, name, arity)) {
+			//fprintf(stdout, "Error: not multifile %s:%s/%u\n", mod, name, arity);
+			//return true;
+		}
+	} else if (p1->val_off == g_slash_s) {
+		const char *name = C_STR(q, p1+1);
+		unsigned arity = get_smalluint(p1+2);
+		set_multifile_in_db(q->st.m, name, arity);
+	} else
+		return false;
+
+	return true;
+}
+
 static bool bif_prolog_load_context_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
@@ -5904,9 +5939,10 @@ static bool bif_sys_det_length_rundown_2(query *q)
 {
 	GET_FIRST_ARG(p1,list_or_var);
 	GET_NEXT_ARG(p2,integer);
-	unsigned var_nbr, n = get_smalluint(p2);
+	int var_nbr;
+	unsigned n = get_smalluint(p2);
 
-	if (!(var_nbr = create_vars(q, n)))
+	if ((var_nbr = create_vars(q, n)) < 0)
 		return throw_error(q, p2, p2_ctx, "resource_error", "stack");
 
 	cell *l;
@@ -5997,6 +6033,7 @@ static bool bif_sys_dump_term_2(query *q)
 				tmp->tag == TAG_INDIRECT ? "indirect" :
 				tmp->tag == TAG_BLOB ? "blob" :
 				tmp->tag == TAG_DBID ? "dbid" :
+				tmp->tag == TAG_KVID ? "kvid" :
 				"other"
 			),
 			tmp->nbr_cells, tmp->arity);
@@ -6007,10 +6044,13 @@ static bool bif_sys_dump_term_2(query *q)
 		if (tmp->tag == TAG_INTERNED)
 			printf(", '%s'", C_STR(q, tmp));
 
+		if (is_var(tmp))
+			printf(", local=%d, temp=%d", is_local(tmp), is_temporary(tmp));
+
 		if (is_ref(tmp))
 			printf(", slot=%u, ctx=%u", tmp->var_nbr, tmp->var_ctx);
 		else if (is_var(tmp))
-			printf(", slot=%u", tmp->var_nbr);
+			printf(", slot=%u, %s", tmp->var_nbr, C_STR(q, tmp));
 
 		printf("\n");
 	}
@@ -6237,6 +6277,7 @@ static void load_properties(module *m)
 
 	format_property(m, tmpbuf, sizeof(tmpbuf), "\\+", 1, "meta_predicate((\\+0))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "catch", 3, "meta_predicate(catch(0,?,0))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "reset", 3, "meta_predicate(reset(0,?,?))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "", 2, "meta_predicate((0,0))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), ",", 2, "meta_predicate((0,0))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), ";", 2, "meta_predicate((0;0))", false); SB_strcat(pr, tmpbuf);
@@ -6265,6 +6306,11 @@ static void load_properties(module *m)
 	format_property(m, tmpbuf, sizeof(tmpbuf), "clause", 2, "meta_predicate(clause(:,?))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "clause", 3, "meta_predicate(clause(:,?,?))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "call_residue_vars", 2, "meta_predicate(call_residue_vars(0,?))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "bb_b_put", 2, "meta_predicate(bb_b_put(:,?))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "bb_put", 2, "meta_predicate(bb_put(:,?))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "bb_get", 2, "meta_predicate(bb_get(:,?))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "bb_update", 3, "meta_predicate(bb_update(:,?,?))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "bb_delete", 2, "meta_predicate(bb_delete(:,?))", false); SB_strcat(pr, tmpbuf);
 
 #if USE_THREADS
 	format_property(m, tmpbuf, sizeof(tmpbuf), "thread_create", 3, "meta_predicate(thread_create(0,-,?))", false); SB_strcat(pr, tmpbuf);
@@ -6307,6 +6353,16 @@ static void load_properties(module *m)
 		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
 	}
 
+	for (const builtins *ptr = g_bboard_bifs; ptr->name; ptr++) {
+		sl_app(m->pl->biftab, ptr->name, ptr);
+		if (ptr->name[0] == '$') continue;
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
+	}
+
 	for (const builtins *ptr = g_contrib_bifs; ptr->name; ptr++) {
 		sl_app(m->pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
@@ -6327,7 +6383,7 @@ static void load_properties(module *m)
 		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
 	}
 
-	for (const builtins *ptr = g_db_bifs; ptr->name; ptr++) {
+	for (const builtins *ptr = g_database_bifs; ptr->name; ptr++) {
 		sl_app(m->pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
 		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
@@ -6664,8 +6720,8 @@ builtins g_iso_bifs[] =
 
 builtins g_other_bifs[] =
 {
-	{"*->", 2, bif_if_2, "+term,+term", false, false, BLAH},
-	{"if", 3, bif_if_3, "+term,+term,+term", false, false, BLAH},
+	{"*->", 2, bif_if_2, ":callable,:callable", false, false, BLAH},
+	{"if", 3, bif_if_3, ":callable,:callable,:callable", false, false, BLAH},
 
 #ifndef __wasi__
 	{"shell", 1, bif_shell_1, "+atom", false, false, BLAH},
@@ -6679,6 +6735,7 @@ builtins g_other_bifs[] =
 	{"notrace", 0, fn_notrace_0, NULL, false, false, BLAH},
 	{"statistics", 0, bif_statistics_0, NULL, false, false, BLAH},
 	{"statistics", 2, bif_statistics_2, "+atom,-term", false, false, BLAH},
+	{"shift", 1, bif_shift_1, "+term", false, false, BLAH},
 
 	{"current_module", 1, bif_current_module_1, "-atom", false, false, BLAH},
 	{"prolog_load_context", 2, bif_prolog_load_context_2, "+atom,?term", false, false, BLAH},
@@ -6690,6 +6747,7 @@ builtins g_other_bifs[] =
 	{"use_module", 2, bif_use_module_2, "+term,+list", false, false, BLAH},
 	{"module_info", 2, bif_module_info_2, "+atom,-list", false, false, BLAH},
 	{"source_info", 2, bif_source_info_2, "+predicate_indicator,-list", false, false, BLAH},
+	{"multifile", 1, bif_multifile_1, "+term", false, false, BLAH},
 
 	{"help", 2, bif_help_2, "+predicate_indicator,+atom", false, false, BLAH},
 	{"help", 1, bif_help_1, "+predicate_indicator", false, false, BLAH},
@@ -6751,12 +6809,14 @@ builtins g_other_bifs[] =
 	{"crypto_n_random_bytes", 2, bif_crypto_n_random_bytes_2, "+integer,-codes", false, false, BLAH},
 	{"cyclic_term", 1, bif_cyclic_term_1, "+term", false, false, BLAH},
 	{"call_residue_vars", 2, bif_call_residue_vars_2, ":callable,-list", false, false, BLAH},
+	{"reset", 3, bif_reset_3, ":callable,?term,-term", false, false, BLAH},
 
 	{"$must_be", 4, bif_must_be_4, "+term,+atom,+term,?any", false, false, BLAH},
 	{"$can_be", 4, bif_can_be_4, "+term,+atom,+term,?any", false, false, BLAH},
 	{"$must_be", 2, bif_must_be_2, "+atom,+term", false, false, BLAH},
 	{"$can_be", 2, bif_can_be_2, "+atom,+term,", false, false, BLAH},
 
+	{"$set_if_var", 2, bif_sys_set_if_var_2, "?term,+term", false, false, BLAH},
 	{"$msleep", 1, bif_sys_msleep_1, "+number", false, false, BLAH},
 	{"$det_length_rundown", 2, bif_sys_det_length_rundown_2, "?list,+integer", false, false, BLAH},
 	{"$memberchk", 3, bif_sys_memberchk_3, "?term,?list,-term", false, false, BLAH},

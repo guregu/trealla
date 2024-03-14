@@ -382,6 +382,7 @@ Non-standard predicates
 	module/1
 	line_count/2
 	atom_number/2
+	repeat/1					# repeat(+integer)
 	make/0
 
 	rdiv/2						# evaluable
@@ -395,6 +396,12 @@ Non-standard predicates
 
 	call_with_time_limit/2		# SWI-compatible
 	time_out/3					# SICStus-compatible
+
+	bb_b_put/2					# bb_b_put(:atom, +term)
+	bb_put/2					# bb_put(:atom, +term)
+	bb_get/2					# bb_get(:atom, ?term)
+	bb_update/3					# bb_update(:atom, ?term, ?term)
+	bb_delete/2					# bb_delete(:atom, ?term)
 
 	posix_strftime/3			# posix_strftime(+format,-text,+tm(NNN,...))
 	posix_strptime/3			# posix_strptime(+format,+text,-tm(NNN,...))
@@ -419,6 +426,9 @@ Non-standard predicates
 	call_nth/2
 	offset/2
 	limit/2
+
+	reset/3						# reset(:goal,?ball,-cont)
+	shift/1						# shift(+ball)
 
 	getenv/2
 	setenv/2

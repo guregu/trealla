@@ -295,10 +295,20 @@ void make_dbref(cell *tmp, void *ptr)
 	tmp->val_blob->refcnt = 0;
 }
 
+void make_kvref(cell *tmp, void *ptr)
+{
+	*tmp = (cell){0};
+	tmp->tag = TAG_KVID;
+	tmp->flags = FLAG_MANAGED;
+	tmp->nbr_cells = 1;
+	tmp->val_blob = ptr;
+	tmp->val_blob->refcnt = 0;
+}
+
 void clear_clause(clause *cl)
 {
 	unshare_cells(cl->cells, cl->cidx);
-	cl->nbr_vars = cl->nbr_temporaries = 0;
+	cl->nbr_vars = 0;
 	cl->cidx = 0;
 }
 
@@ -1110,9 +1120,13 @@ static bool directives(parser *p, cell *d)
 		return true;
 	}
 
-	while (is_interned(p1)) {
+	//printf("*** here %s\n", dirname);
+
+	while (is_interned(p1) && (p1->val_off != g_dot_s)) {
 		module *m = p->m;
 		cell *c_id = p1;
+
+		//printf("*** here1 %s\n", C_STR(p, c_id));
 
 		if (!strcmp(C_STR(p, p1), ":") && (p1->arity == 2)) {
 			cell *c_mod = p1 + 1;
@@ -1127,6 +1141,8 @@ static bool directives(parser *p, cell *d)
 
 			c_id = p1 + 2;
 		}
+
+		//printf("*** here2 %s\n", C_STR(p, c_id));
 
 		if (!strcmp(C_STR(p, c_id), "/") && (p1->arity == 2)) {
 			cell *c_name = c_id + 1;
@@ -1150,6 +1166,7 @@ static bool directives(parser *p, cell *d)
 			unsigned arity = get_smallint(c_arity);
 			cell tmp = *c_name;
 			tmp.arity = arity;
+
 
 			if (!strcmp(C_STR(p, c_id), "//"))
 				arity += 2;
@@ -1198,6 +1215,7 @@ static bool directives(parser *p, cell *d)
 
 			p->error = true;
 			return true;
+			p1 += 1;
 		}
 	}
 
@@ -1235,6 +1253,12 @@ static pl_idx get_varno(parser *p, const char *src, bool in_body)
 
 	while (p->vartab.var_pool[offset]) {
 		if (!strcmp(p->vartab.var_pool+offset, src) && !anon) {
+			if (in_body)
+				p->vartab.in_body[i] = true;
+
+			if (!in_body)
+				p->vartab.in_head[i] = true;
+
 			return i;
 		}
 
@@ -1251,7 +1275,13 @@ static pl_idx get_varno(parser *p, const char *src, bool in_body)
 	}
 
 	memcpy(p->vartab.var_pool+offset, src, len+1);
-	p->vartab.in_body[i] = in_body;
+
+	if (in_body)
+		p->vartab.in_body[i] = true;
+
+	if (!in_body)
+		p->vartab.in_head[i] = true;
+
 	return i;
 }
 
@@ -1273,6 +1303,26 @@ static bool get_in_body(parser *p, const char *var_name)
 	return false;
 }
 
+static bool get_in_head(parser *p, const char *var_name)
+{
+	bool anon = !strcmp(var_name, "_");
+	size_t offset = 0;
+	unsigned i = 0;
+
+	while (p->vartab.var_pool[offset]) {
+		if (!strcmp(p->vartab.var_pool+offset, var_name) && !anon) {
+			return p->vartab.in_head[i];
+		}
+
+		offset += strlen(p->vartab.var_pool+offset) + 1;
+		i++;
+	}
+
+	return false;
+}
+
+// Temporary variables are assigned last
+
 void clause_assign_vars(parser *p, unsigned start, bool rebase)
 {
 	if (!p || p->error)
@@ -1285,12 +1335,12 @@ void clause_assign_vars(parser *p, unsigned start, bool rebase)
 
 	if (!p->reuse) {
 		memset(&p->vartab, 0, sizeof(p->vartab));
-		cl->nbr_vars = cl->nbr_temporaries = 0;
+		cl->nbr_vars = 0;
 		p->nbr_vars = 0;
 	}
 
 	const cell *body = get_body(cl->cells);
-	bool in_body = false;
+	bool in_body = p->in_body;
 
 	for (unsigned i = 0; i < cl->cidx; i++) {
 		cell *c = cl->cells + i;
@@ -1330,7 +1380,7 @@ void clause_assign_vars(parser *p, unsigned start, bool rebase)
 		}
 	}
 
-	in_body = false;
+	in_body = p->in_body;
 
 	for (unsigned i = 0; i < cl->cidx; i++) {
 		cell *c = cl->cells + i;
@@ -1376,16 +1426,17 @@ void clause_assign_vars(parser *p, unsigned start, bool rebase)
 		if (!is_var(c))
 			continue;
 
-		// A temporary variable is one that occurs
-		// only in the head of a clause...
+		// A temporary variable is one that occurs only in the
+		// head of a clause. A local is one only in the body.
 
 		if (!get_in_body(p, C_STR(p, c)))
 			c->flags |= FLAG_VAR_TEMPORARY;
+		else if (!get_in_head(p, C_STR(p, c)))
+			c->flags |= FLAG_VAR_LOCAL;
 	}
 
 	for (unsigned i = 0; i < cl->nbr_vars; i++) {
 		if (!p->vartab.in_body[i])
-			cl->nbr_temporaries++;
 
 		if (p->consulting && !p->do_read_term && (p->vartab.var_used[i] == 1) &&
 			(p->vartab.var_name[i][strlen(p->vartab.var_name[i])-1] != '_') &&
@@ -3121,6 +3172,16 @@ static bool process_term(parser *p, cell *p1)
 	if (p->m->ifs_blocked[p->m->if_depth])
 		return true;
 
+	// Note: we actually assert directives after processing
+	// so that they can be examined.
+
+#if 0
+	query *q = query_create(p->m, false);
+	check_error(q);
+	DUMP_TERM("***", p1, 0, 0);
+	query_destroy(q);
+#endif
+
 	directives(p, p1);
 
 	if (p->error)
@@ -3162,7 +3223,7 @@ static bool process_term(parser *p, cell *p1)
 
 	rule *r;
 
-	if ((r = assertz_to_db(p->m, p->cl->nbr_vars, p->cl->nbr_temporaries, p1, consulting)) == NULL) {
+	if ((r = assertz_to_db(p->m, p->cl->nbr_vars, p1, consulting)) == NULL) {
 		if ((DUMP_ERRS || !p->do_read_term) && 0)
 			fprintf_to_stream(p->pl, ERROR_FP, "Error: assertion failed '%s', %s:%d\n", SB_cstr(p->token), get_loaded(p->m, p->m->filename), p->line_nbr);
 
@@ -3303,7 +3364,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 
 						p1 = LIST_TAIL(p1);
 
-						if (is_nil(p1))
+						if (is_nil(p1) || is_var(p1))
 							tail = true;
 					}
 
@@ -3877,6 +3938,7 @@ bool run(parser *p, const char *pSrc, bool dump, query **subq, unsigned int yiel
 	SB_trim(src, '.');
 	SB_strcat(src, ".");
 
+	p->in_body = true;
 	p->srcptr = SB_cstr(src);
 	bool ok;
 

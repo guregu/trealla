@@ -417,7 +417,7 @@ ssize_t getline(char **lineptr, size_t *n, FILE *stream) {
 
 int get_named_stream(prolog *pl, const char *name, size_t len)
 {
-	acquire_lock(&pl->guard);
+	prolog_lock(pl);
 
 	for (int i = 0; i < MAX_STREAMS; i++) {
 		stream *str = &pl->streams[i];
@@ -426,24 +426,24 @@ int get_named_stream(prolog *pl, const char *name, size_t len)
 			continue;
 
 		if (sl_get(str->alias, name, NULL)) {
-			release_lock(&pl->guard);
+			prolog_unlock(pl);
 			return i;
 		}
 
 		if (str->filename && (strlen(str->filename) == len)
 			&& !strncmp(str->filename, name, len)) {
-			release_lock(&pl->guard);
+			prolog_unlock(pl);
 			return i;
 		}
 	}
 
-	release_lock(&pl->guard);
+	prolog_unlock(pl);
 	return -1;
 }
 
 int new_stream(prolog *pl)
 {
-	acquire_lock(&pl->guard);
+	prolog_lock(pl);
 
 	for (int i = 0; i < MAX_STREAMS; i++) {
 		unsigned n = pl->str_cnt++ % MAX_STREAMS;
@@ -454,12 +454,12 @@ int new_stream(prolog *pl)
 		stream *str = &pl->streams[n];
 
 		if (!is_live_stream(str) && !str->ignore) {
-			release_lock(&pl->guard);
+			prolog_unlock(pl);
 			return n;
 		}
 	}
 
-	release_lock(&pl->guard);
+	prolog_unlock(pl);
 	return -1;
 }
 
@@ -2301,7 +2301,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 	xref_clause(str->p->m, str->p->cl);
 
 	if (str->p->nbr_vars) {
-		if (!create_vars(q, str->p->nbr_vars))
+		if (create_vars(q, str->p->nbr_vars) < 0)
 			return throw_error(q, p1, p1_ctx, "resource_error", "stack");
 	}
 

@@ -7,15 +7,13 @@
 #include <sys/stat.h>
 
 #include "heap.h"
+#include "list.h"
 #include "module.h"
 #include "parser.h"
 #include "prolog.h"
 #include "query.h"
 
 #if USE_THREADS
-#ifdef _WIN32
-#define msleep Sleep
-#else
 static void msleep(int ms)
 {
 	struct timespec tv;
@@ -23,12 +21,11 @@ static void msleep(int ms)
 	tv.tv_nsec = ((ms) % 1000) * 1000 * 1000;
 	nanosleep(&tv, &tv);
 }
-#endif
 
 #define is_thread_only(t) (!(t)->is_queue_only && !(t)->is_mutex_only)
 
 typedef struct msg_ {
-	struct msg_ *prev, *next;
+	lnode hdr;			// must be first
 	int from_chan;
 	cell c[];
 } msg;
@@ -50,7 +47,7 @@ typedef struct msg_ {
 
 static int get_named_thread(prolog *pl, const char *name, size_t len)
 {
-	acquire_lock(&pl->guard);
+	prolog_lock(pl);
 
 	for (int i = 0; i < MAX_THREADS; i++) {
 		thread *t = &pl->threads[i];
@@ -59,24 +56,24 @@ static int get_named_thread(prolog *pl, const char *name, size_t len)
 			continue;
 
 		if (sl_get(t->alias, name, NULL)) {
-			release_lock(&pl->guard);
+			prolog_unlock(pl);
 			return i;
 		}
 
 		if (t->filename && (strlen(t->filename) == len)
 			&& !strncmp(t->filename, name, len)) {
-			release_lock(&pl->guard);
+			prolog_unlock(pl);
 			return i;
 		}
 	}
 
-	release_lock(&pl->guard);
+	prolog_unlock(pl);
 	return -1;
 }
 
 static int new_thread(prolog *pl)
 {
-	acquire_lock(&pl->guard);
+	prolog_lock(pl);
 
 	for (int i = 0; i < MAX_THREADS; i++) {
 		unsigned n = pl->thr_cnt++ % MAX_THREADS;
@@ -89,13 +86,8 @@ static int new_thread(prolog *pl)
 			}
 
 			t->is_active = true;
-			release_lock(&pl->guard);
-
-#ifdef _WIN32
-			t->id = (void*)(size_t)GetCurrentThreadId();
-#else
+			prolog_unlock(pl);
 			t->id = pthread_self();
-#endif
 
 			t->pl = pl;
 			t->chan = n;
@@ -105,15 +97,13 @@ static int new_thread(prolog *pl)
 			t->locked_by = -1;
 			t->nbr_locks = 0;
 			t->is_exception = false;
-			t->signal_head = t->queue_head = NULL;
-			t->signal_tail = t->queue_tail = NULL;
 			t->at_exit = NULL;
 			t->goal = NULL;
 			return n;
 		}
 	}
 
-	release_lock(&pl->guard);
+	prolog_unlock(pl);
 	return -1;
 }
 
@@ -278,41 +268,26 @@ static bool check_queue_or_alias(query *q, cell *c)
 
 static void suspend_thread(thread *t, int ms)
 {
-#ifdef _WIN32
-	SuspendThread(t->id);
-#else
 	struct timespec ts;
 	clock_gettime(CLOCK_REALTIME, &ts);
 	ts.tv_nsec += 1000 * 1000 * ms;
 	pthread_mutex_lock(&t->mutex);
 	pthread_cond_timedwait(&t->cond, &t->mutex, &ts);
 	pthread_mutex_unlock(&t->mutex);
-#endif
 }
 
 static void resume_thread(thread *t)
 {
-#ifdef _WIN32
-    ResumeThread(t->id);
-#else
     pthread_mutex_lock(&t->mutex);
     pthread_cond_signal(&t->cond);
     pthread_mutex_unlock(&t->mutex);
-#endif
 }
 
 static unsigned queue_size(prolog *pl, unsigned chan)
 {
 	thread *t = &pl->threads[chan];
 	acquire_lock(&t->guard);
-	unsigned cnt = 0;
-	msg *m = t->queue_head;
-
-	while (m) {
-		m = m->next;
-		cnt++;
-	}
-
+	unsigned cnt = list_count(&t->queue);
 	release_lock(&t->guard);
 	return cnt;
 }
@@ -331,21 +306,9 @@ static cell *queue_to_chan(prolog *pl, unsigned chan, const cell *c, unsigned fr
 	acquire_lock(&t->guard);
 
 	if (is_signal) {
-		if (!t->signal_head) {
-			t->signal_head = t->signal_tail = m;
-		} else {
-			m->prev = t->signal_tail;
-			t->signal_tail->next = m;
-			t->signal_tail = m;
-		}
+		list_push_back(&t->signals, &m->hdr);
 	} else {
-		if (!t->queue_head) {
-			t->queue_head = t->queue_tail = m;
-		} else {
-			m->prev = t->queue_tail;
-			t->queue_tail->next = m;
-			t->queue_tail = m;
-		}
+		list_push_back(&t->queue, &m->hdr);
 	}
 
 	release_lock(&t->guard);
@@ -393,11 +356,7 @@ static bool bif_thread_send_message_2(query *q)
 
 static thread *get_self(prolog *pl)
 {
-#ifdef _WIN32
-	HANDLE tid = (void*)GetCurrentThreadId();
-#else
 	pthread_t tid = pthread_self();
-#endif
 
 	for (unsigned i = 0; i < MAX_THREADS; i++) {
 		thread *t = &pl->threads[i];
@@ -419,13 +378,13 @@ static bool do_match_message(query *q, unsigned chan, cell *p1, pl_idx p1_ctx, b
 	thread *me = get_self(q->pl);
 
 	while (!q->halt) {
-		if (is_peek && !t->queue_head)
+		if (is_peek && !list_count(&t->queue))
 			return false;
 
 		uint64_t cnt = 0;
 
-		while (!t->queue_head && !q->halt) {
-			suspend_thread(me, cnt < 100 ? 0 : cnt < 1000 ? 1 : cnt < 10000 ? 10 : 100);
+		while (!list_count(&t->queue) && !q->halt) {
+			suspend_thread(me, cnt < 100 ? 0 : cnt < 1000 ? 1 : cnt < 10000 ? 10 : 10);
 			cnt++;
 		}
 
@@ -433,12 +392,16 @@ static bool do_match_message(query *q, unsigned chan, cell *p1, pl_idx p1_ctx, b
 
 		acquire_lock(&t->guard);
 
-		if (!t->queue_head) {
+		if (!list_count(&t->queue)) {
 			release_lock(&t->guard);
+
+			if (is_peek)
+				return false;
+
 			continue;
 		}
 
-		msg *m = t->queue_head;
+		msg *m = (msg*)list_front(&t->queue);
 
 		while (m) {
 			check_heap_error(push_choice(q));
@@ -450,19 +413,8 @@ static bool do_match_message(query *q, unsigned chan, cell *p1, pl_idx p1_ctx, b
 			if (unify(q, p1, p1_ctx, tmp, q->st.curr_frame)) {
 				q->curr_chan = m->from_chan;
 
-				if (!is_peek) {
-					if (m->prev)
-						m->prev->next = m->next;
-
-					if (m->next)
-						m->next->prev = m->prev;
-
-					if (t->queue_head == m)
-						t->queue_head = m->next;
-
-					if (t->queue_tail == m)
-						t->queue_tail = m->prev;
-				}
+				if (!is_peek)
+					list_remove(&t->queue, &m->hdr);
 
 				release_lock(&t->guard);
 
@@ -476,7 +428,7 @@ static bool do_match_message(query *q, unsigned chan, cell *p1, pl_idx p1_ctx, b
 			}
 
 			retry_choice(q);
-			m = m->next;
+			m = (msg*)list_next(&m->hdr);
 		}
 
 		release_lock(&t->guard);
@@ -514,12 +466,7 @@ static bool bif_thread_peek_message_2(query *q)
 
 static void do_unlock_all(prolog *pl)
 {
-#ifdef _WIN32
-	HANDLE id = (void*)GetCurrentThreadId();
-#else
 	pthread_t id = pthread_self();
-#endif
-
 	thread *me = get_self(pl);
 
 	for (unsigned i = 0; i < MAX_THREADS; i++) {
@@ -616,18 +563,10 @@ static bool bif_pl_thread_3(query *q)
 
 	t->filename = filename;
 
-#ifdef _WIN32
-    SECURITY_ATTRIBUTES sa = {0};
-    sa.nLength = sizeof(sa);
-    sa.lpSecurityDescriptor = 0;
-    sa.bInheritHandle = 0;
-    t->id = (void*)_beginthreadex(&sa, 0, (void*)start_routine_thread, (void*)t, 0, NULL);
-#else
     pthread_attr_t sa;
     pthread_attr_init(&sa);
     pthread_attr_setdetachstate(&sa, PTHREAD_CREATE_DETACHED);
     pthread_create((pthread_t*)&t->id, &sa, (void*)start_routine_thread, (void*)t);
-#endif
 
 	cell tmp;
 	make_int(&tmp, n);
@@ -666,18 +605,16 @@ static void *start_routine_thread_create(thread *t)
 	t->q = NULL;
 	acquire_lock(&t->guard);
 
-	while (t->queue_head) {
-		msg *save = t->queue_head;
-		t->queue_head = t->queue_head->next;
-		unshare_cells(save->c, save->c->nbr_cells);
-		free(save);
+	msg *m;
+
+	while ((m = (msg*)list_pop_front(&t->queue)) != NULL) {
+		unshare_cells(m->c, m->c->nbr_cells);
+		free(m);
 	}
 
-	while (t->signal_head) {
-		msg *save = t->signal_head;
-		t->signal_head = t->signal_head->next;
-		unshare_cells(save->c, save->c->nbr_cells);
-		free(save);
+	while ((m = (msg*)list_pop_front(&t->signals)) != NULL) {
+		unshare_cells(m->c, m->c->nbr_cells);
+		free(m);
 	}
 
 	if (t->ball) {
@@ -833,13 +770,6 @@ static bool bif_thread_create_3(query *q)
 		check_heap_error(t->at_exit);
 	}
 
-#ifdef _WIN32
-    SECURITY_ATTRIBUTES sa = {0};
-    sa.nLength = sizeof(sa);
-    sa.lpSecurityDescriptor = 0;
-    sa.bInheritHandle = 0;
-    t->id = (void*)_beginthreadex(&sa, 0, (void*)start_routine_thread_create, (void*)t, 0, NULL);
-#else
     pthread_attr_t sa;
     pthread_attr_init(&sa);
 
@@ -849,25 +779,20 @@ static bool bif_thread_create_3(query *q)
 	}
 
     pthread_create((pthread_t*)&t->id, &sa, (void*)start_routine_thread_create, (void*)t);
-#endif
-
 	return true;
 }
 
 void do_signal(query *q, void *thread_ptr)
 {
 	thread *t = (thread*)thread_ptr;
-
-	if (!t->signal_head)
-		return;
-
 	acquire_lock(&t->guard);
-	msg *m = t->signal_head;
-	t->signal_head = t->signal_head->next;
 
-	if (!t->signal_head)
-		t->signal_tail = NULL;
+	if (!list_count(&t->signals)) {
+		release_lock(&t->guard);
+		return;
+	}
 
+	msg *m = (msg*)list_pop_front(&t->signals);
 	release_lock(&t->guard);
 	try_me(q, MAX_ARITY);
 	THREAD_DEBUG DUMP_TERM("do_signal", m->c, q->st.fp, 0);
@@ -916,15 +841,10 @@ static bool bif_thread_join_2(query *q)
 	if (!is_thread_only(t))
 		return throw_error(q, p1, p1_ctx, "permission_error", "join,not_thread");
 
-#ifdef _WIN32
-	if (WaitForSingleObject(t->id, INFINITE) == WAIT_FAILED)
-		return false;
-#else
 	void *retval;
 
 	if (pthread_join((pthread_t)t->id, &retval))
-		return false;
-#endif
+		return throw_error(q, p1, p1_ctx, "system_error", "join,not_thread");
 
 	if (t->exit_code) {
 		cell *tmp = deep_copy_to_heap(q, t->exit_code, q->st.fp, false);
@@ -941,19 +861,16 @@ static bool bif_thread_join_2(query *q)
 	query_destroy(t->q);
 	t->q = NULL;
 	acquire_lock(&t->guard);
+	msg *m;
 
-	while (t->signal_head) {
-		msg *save = t->signal_head;
-		t->signal_head = t->signal_head->next;
-		unshare_cells(save->c, save->c->nbr_cells);
-		free(save);
+	while ((m = (msg*)list_pop_front(&t->queue)) != NULL) {
+		unshare_cells(m->c, m->c->nbr_cells);
+		free(m);
 	}
 
-	while (t->queue_head) {
-		msg *save = t->queue_head;
-		t->queue_head = t->queue_head->next;
-		unshare_cells(save->c, save->c->nbr_cells);
-		free(save);
+	while ((m = (msg*)list_pop_front(&t->signals)) != NULL) {
+		unshare_cells(m->c, m->c->nbr_cells);
+		free(m);
 	}
 
 	if (t->ball) {
@@ -971,31 +888,21 @@ static bool bif_thread_join_2(query *q)
 static void do_cancel(thread *t)
 {
 	acquire_lock(&t->guard);
-
-#ifdef _WIN32
-	DWORD exit_code;
-	TerminateThread(t->id, &exit_code);
-#else
 	pthread_cancel(t->id);
-#endif
-
 	sl_destroy(t->alias);
 	t->alias = NULL;
 	query_destroy(t->q);
 	t->is_active = false;
+	msg *m;
 
-	while (t->queue_head) {
-		msg *save = t->queue_head;
-		t->queue_head = t->queue_head->next;
-		unshare_cells(save->c, save->c->nbr_cells);
-		free(save);
+	while ((m = (msg*)list_pop_front(&t->queue)) != NULL) {
+		unshare_cells(m->c, m->c->nbr_cells);
+		free(m);
 	}
 
-	while (t->signal_head) {
-		msg *save = t->signal_head;
-		t->signal_head = t->signal_head->next;
-		unshare_cells(save->c, save->c->nbr_cells);
-		free(save);
+	while ((m = (msg*)list_pop_front(&t->signals)) != NULL) {
+		unshare_cells(m->c, m->c->nbr_cells);
+		free(m);
 	}
 
 	if (t->ball) {
@@ -1045,13 +952,8 @@ static bool bif_thread_detach_1(query *q)
 	t->q->halt_code = 0;
 	t->q->halt = t->q->error = true;
 
-	if (t->is_active) {
-#ifdef _WIN32
-		CloseHandle(t->id);
-#else
+	if (t->is_active)
 		pthread_detach(t->id);
-#endif
-	}
 
 	return true;
 }
@@ -1060,12 +962,7 @@ static bool bif_thread_self_1(query *q)
 {
 	THREAD_DEBUG DUMP_TERM("*** ", q->st.curr_instr, q->st.curr_frame, 1);
 	GET_FIRST_ARG(p1,var);
-
-#ifdef _WIN32
-	HANDLE id = (void*)GetCurrentThreadId();
-#else
 	pthread_t id = pthread_self();
-#endif
 
 	for (unsigned i = 0; i < MAX_THREADS; i++) {
 		thread *t = &q->pl->threads[i];
@@ -1099,9 +996,7 @@ static bool bif_thread_yield_0(query *q)
 {
 	THREAD_DEBUG DUMP_TERM("*** ", q->st.curr_instr, q->st.curr_frame, 1);
 
-#ifdef _WIN32
-	msleep(0);
-#elif 0
+#if 0
 	pthread_yield();
 #else
 	msleep(0);
@@ -1123,11 +1018,7 @@ static bool bif_thread_exit_1(query *q)
 	make_struct(tmp, new_atom(q->pl, "exited"), NULL, 1, tmp_p1->nbr_cells);
 	dup_cells(tmp+1, tmp_p1, tmp_p1->nbr_cells);
 
-#ifdef _WIN32
-	HANDLE tid = (void*)GetCurrentThreadId();
-#else
 	pthread_t tid = pthread_self();
-#endif
 
 	for (unsigned i = 0; i < MAX_THREADS; i++) {
 		thread *t = &q->pl->threads[i];
@@ -1490,12 +1381,11 @@ static bool bif_message_queue_destroy_1(query *q)
 		return throw_error(q, p1, p1_ctx, "permission_error", "destroy,not_queue");
 
 	acquire_lock(&t->guard);
+	msg *m;
 
-	while (t->queue_head) {
-		msg *save = t->queue_head;
-		t->queue_head = t->queue_head->next;
-		unshare_cells(save->c, save->c->nbr_cells);
-		free(save);
+	while ((m = (msg*)list_pop_front(&t->queue)) != NULL) {
+		unshare_cells(m->c, m->c->nbr_cells);
+		free(m);
 	}
 
 	sl_destroy(t->alias);
@@ -1719,7 +1609,6 @@ static bool bif_mutex_create_2(query *q)
 	THREAD_DEBUG DUMP_TERM("*** ", q->st.curr_instr, q->st.curr_frame, 1);
 	GET_FIRST_ARG(p1,var);
 	GET_NEXT_ARG(p2,list_or_nil);
-
 	int n = new_thread(q->pl);
 
 	if (n < 0)
@@ -2136,30 +2025,35 @@ static bool bif_pl_thread_set_priority_2(query *q)
 static bool do_recv_message(query *q, unsigned from_chan, cell *p1, pl_idx p1_ctx, bool is_peek)
 {
 	thread *t = &q->pl->threads[q->pl->my_chan];
-	uint64_t cnt = 0;
 
-	while (!t->queue_head && !q->pl->halt) {
-		suspend_thread(t, cnt < 1000 ? 0 : cnt < 10000 ? 1 : cnt < 100000 ? 10 : 100);
-		cnt++;
+	while (!q->halt) {
+		uint64_t cnt = 0;
+
+		while (!list_count(&t->queue) && !q->pl->halt) {
+			suspend_thread(t, cnt < 1000 ? 0 : cnt < 10000 ? 1 : cnt < 100000 ? 10 : 10);
+			cnt++;
+		}
+
+		acquire_lock(&t->guard);
+
+		if (!list_count(&t->queue)) {
+			release_lock(&t->guard);
+
+			if (is_peek)
+				return false;
+
+			continue;
+		}
+
+		break;
 	}
-
-	if (!t->queue_head && is_peek)
-		return false;
 
 	//printf("*** recv msg nbr_cells=%u\n", t->queue_head->nbr_cells);
 
-	acquire_lock(&t->guard);
-	msg *m = t->queue_head;
+	msg *m = (msg*)list_front(&t->queue);
 
-	if (!is_peek) {
-		if (m->next)
-			m->next->prev = NULL;
-
-		if (t->queue_head == t->queue_tail)
-			t->queue_tail = NULL;
-
-		t->queue_head = m->next;
-	}
+	if (!is_peek)
+		list_pop_front(&t->queue);
 
 	release_lock(&t->guard);
 	check_heap_error(push_choice(q));

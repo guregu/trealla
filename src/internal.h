@@ -18,13 +18,8 @@
 #endif
 
 #if USE_THREADS
-#ifdef _WIN32
-#include <process.h>
-#include <windows.h>
-#else
 #include <pthread.h>
 #include <unistd.h>
-#endif
 #endif
 
 #ifndef USE_RATIONAL_TREES
@@ -46,23 +41,24 @@ typedef uint32_t pl_idx;
 #define pl_atomic volatile
 #endif
 
+#define PATH_SEP_CHAR '/'
+
 #ifdef _WIN32
-#define PATH_SEP_CHAR '\\'
 #define NEWLINE_MODE "dos"
 #else
-#define PATH_SEP_CHAR '/'
 #define NEWLINE_MODE "posix"
 #endif
 
 #include "trealla.h"
 #include "cdebug.h"
+#include "list.h"
 #include "stringbuf.h"
 #include "threads.h"
+#include "utf8.h"
 #include "imath/imath.h"
 #include "imath/imrat.h"
 #include "sre/re.h"
 #include "skiplist.h"
-#include "utf8.h"
 
 #if defined(_WIN32) || defined(__wasi__)
 char *realpath(const char *path, char resolved_path[PATH_MAX]);
@@ -118,6 +114,7 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define is_rational(c) ((c)->tag == TAG_RATIONAL)
 #define is_indirect(c) ((c)->tag == TAG_INDIRECT)
 #define is_dbid(c) ((c)->tag == TAG_DBID)
+#define is_kvid(c) ((c)->tag == TAG_KVID)
 #define is_blob(c) ((c)->tag == TAG_BLOB)
 #define is_end(c) ((c)->tag == TAG_END)
 
@@ -180,6 +177,7 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define is_evaluable(c) ((c)->flags & FLAG_EVALUABLE)
 #define is_tail_call(c) ((c)->flags & FLAG_TAIL_CALL)
 #define is_temporary(c) (is_var(c) && ((c)->flags & FLAG_VAR_TEMPORARY))
+#define is_local(c) (is_var(c) && ((c)->flags & FLAG_VAR_LOCAL))
 #define is_ref(c) (is_var(c) && ((c)->flags & FLAG_VAR_REF))
 #define is_op(c) (c->flags & 0xE000) ? true : false
 #define is_callable(c) (is_interned(c) || (is_cstring(c) && !is_string(c)))
@@ -195,7 +193,7 @@ extern char *g_pool;
 typedef struct {
 	pl_atomic int64_t refcnt;
 	size_t len;
-	char cstr[];	// len+1 bytes
+	char cstr[];	// 'len+1' bytes
 } strbuf;
 
 typedef struct {
@@ -272,7 +270,8 @@ enum {
 	TAG_INDIRECT=7,
 	TAG_BLOB=8,
 	TAG_DBID=9,
-	TAG_END=10
+	TAG_KVID=10,
+	TAG_END=11
 };
 
 enum {
@@ -292,7 +291,8 @@ enum {
 	FLAG_VAR_FRESH=1<<1,				// used with TAG_VAR
 	FLAG_VAR_REF=1<<2,					// used with TAG_VAR
 	FLAG_VAR_TEMPORARY=1<<3,			// used with TAG_VAR
-	FLAG_VAR_CYCLIC=1<<4,				// used with TAG_VAR
+	FLAG_VAR_LOCAL=1<<4,				// used with TAG_VAR
+	FLAG_VAR_CYCLIC=1<<5,				// used with TAG_VAR
 
 	FLAG_HANDLE_DLL=1<<0,				// used with FLAG_INT_HANDLE
 	FLAG_HANDLE_FUNC=1<<1,				// used with FLAG_INT_HANDLE
@@ -438,13 +438,14 @@ typedef struct {
 
 struct clause_ {
 	uint64_t dbgen_created, dbgen_erased;
-	pl_idx cidx, nbr_allocated_cells, nbr_vars, nbr_temporaries;
+	pl_idx cidx, nbr_allocated_cells;
+	unsigned nbr_vars;
 	bool is_first_cut:1;
 	bool is_cut_only:1;
 	bool is_unique:1;
 	bool is_fact:1;
 	bool is_deleted:1;
-	cell cells[];		// nbr_allocated_cells+1 bytes
+	cell cells[];		// 'nbr_allocated_cells' bytes
 };
 
 struct rule_ {
@@ -539,7 +540,8 @@ struct frame_ {
 	cell *curr_instr;
 	uint64_t dbgen, chgen;
 	pl_idx prev_offset, hp;
-	pl_idx base, overflow, initial_slots, actual_slots;
+	pl_idx base, overflow;
+	unsigned initial_slots, actual_slots;
 	uint32_t mid;
 	bool no_tco:1;
 };
@@ -566,11 +568,12 @@ struct prolog_state_ {
 
 struct choice_ {
 	prolog_state st;
-	uint64_t chgen, frame_cgen, dbgen;
+	uint64_t chgen, frame_chgen, dbgen;
 	pl_idx base, overflow, initial_slots, actual_slots;
 	bool catchme_retry:1;
 	bool catchme_exception:1;
 	bool barrier:1;
+	bool reset:1;
 	bool register_cleanup:1;
 	bool block_catcher:1;
 	bool catcher:1;
@@ -634,8 +637,7 @@ struct thread_ {
 	query *q;
 	skiplist *alias;
 	cell *goal, *exit_code, *at_exit, *ball;
-	msg *queue_head, *queue_tail;
-	msg *signal_head, *signal_tail;
+	list signals, queue;
 	unsigned nbr_vars, at_exit_nbr_vars, nbr_locks;
 	int chan, locked_by;
 	bool is_init, is_finished, is_detached, is_exception;
@@ -643,13 +645,9 @@ struct thread_ {
 	pl_atomic bool is_active;
 	lock guard;
 #if USE_THREADS
-#ifdef _WIN32
-    HANDLE id;
-#else
     pthread_t id;
     pthread_cond_t cond;
     pthread_mutex_t mutex;
-#endif
 #endif
 };
 
@@ -687,7 +685,7 @@ struct query_ {
 	slot *slots;
 	choice *choices;
 	trail *trails;
-	cell *tmp_heap, *last_arg, *variable_names, *ball, *suspect;
+	cell *tmp_heap, *last_arg, *variable_names, *ball, *cont, *suspect;
 	cell *queue[MAX_QUEUES], *tmpq[MAX_QUEUES];
 	page *heap_pages;
 	slot *save_e;
@@ -712,13 +710,13 @@ struct query_ {
 	pl_idx tmphp, latest_ctx, popp, variable_names_ctx;
 	pl_idx frames_size, slots_size, trails_size, choices_size;
 	pl_idx hw_choices, hw_frames, hw_slots, hw_trails, hw_heap_nbr;
-	pl_idx cp, before_hook_tp, qcnt[MAX_QUEUES];
+	pl_idx cp, before_hook_tp, qcnt[MAX_QUEUES], ball_ctx, cont_ctx;
 	pl_idx heap_size, tmph_size, tot_heaps, tot_heapsize;
 	pl_idx undo_lo_tp, undo_hi_tp;
 	pl_idx q_size[MAX_QUEUES], tmpq_size[MAX_QUEUES], qp[MAX_QUEUES];
 	prolog_flags flags;
 	enum q_retry retry;
-	int is_cyclic1, is_cyclic2;
+	int is_cyclic1, is_cyclic2, in_call;
 	uint16_t vgen;
 	int8_t halt_code;
 	int8_t quoted;
@@ -765,6 +763,7 @@ struct query_ {
 	bool noderef:1;
 	bool double_quotes:1;
 	bool end_wait:1;
+	bool in_unify:1;
 	bool access_private:1;
 	bool did_unhandled_exception:1;
 };
@@ -776,6 +775,7 @@ struct parser_ {
 		const char *var_name[MAX_VARS];
 		uint8_t vars[MAX_VARS];
 		bool in_body[MAX_VARS];
+		bool in_head[MAX_VARS];
 	} vartab;
 
 	prolog *pl;
@@ -818,6 +818,7 @@ struct parser_ {
 	bool symbol:1;
 	bool reuse:1;
 	bool interactive:1;
+	bool in_body:1;
 };
 
 typedef struct loaded_file_ loaded_file;
@@ -921,6 +922,8 @@ inline static void share_cell_(const cell *c)
 		(c)->val_blob->refcnt++;
 	else if (is_dbid(c))
 		(c)->val_blob->refcnt++;
+	else if (is_kvid(c))
+		(c)->val_blob->refcnt++;
 }
 
 inline static void unshare_cell_(cell *c)
@@ -954,8 +957,15 @@ inline static void unshare_cell_(cell *c)
 			module *m = (module*)c->val_blob->ptr;
 			char *ref = (char*)c->val_blob->ptr2;
 			do_erase(m, ref);
-			//printf("*** RETRACT ref: %s\n", ref);
 			free(c->val_blob->ptr2);
+			free(c->val_blob);
+			c->flags = 0;
+		}
+	} else if (is_kvid(c)) {
+		if (--c->val_blob->refcnt == 0) {
+			module *m = (module*)c->val_blob->ptr;
+			char *ref = (char*)c->val_blob->ptr2;
+			sl_del(m->pl->keyval, ref);
 			free(c->val_blob);
 			c->flags = 0;
 		}

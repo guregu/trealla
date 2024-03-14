@@ -481,7 +481,7 @@ bool bif_sys_block_catcher_1(query *q)
 
 bool bif_iso_catch_3(query *q)
 {
-	GET_FIRST_ARG(p1,any);
+	GET_FIRST_ARG(p1,callable);
 
 	if (q->retry && q->ball) {
 		GET_NEXT_ARG(p2,any);
@@ -520,6 +520,87 @@ bool bif_iso_catch_3(query *q)
 	make_call(q, tmp+nbr_cells);
 	check_heap_error(push_catcher(q, QUERY_RETRY));
 	q->st.curr_instr = tmp;
+	return true;
+}
+
+bool bif_reset_3(query *q)
+{
+	GET_FIRST_ARG(p1,callable);
+	GET_NEXT_ARG(p2,any);
+	GET_NEXT_ARG(p3,any);
+
+	cell *tmp = prepare_call(q, true, p1, p1_ctx, 2+(1+p3->nbr_cells+1)+1);
+	check_heap_error(tmp);
+	pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
+	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
+	make_uint(tmp+nbr_cells++, q->cp);
+
+	make_struct(tmp+nbr_cells++, g_sys_set_if_var_s, bif_sys_set_if_var_2, 2, p3->nbr_cells+1);
+	nbr_cells += dup_cells_by_ref(tmp+nbr_cells, p3, p3_ctx, p3->nbr_cells);
+	make_atom(tmp+nbr_cells++, g_none_s);
+
+	make_call(q, tmp+nbr_cells);
+	check_heap_error(push_reset_handler(q));
+	q->st.curr_instr = tmp;
+	return true;
+}
+
+static bool find_reset_handler(query *q)
+{
+	if (!q->cp)
+		return false;
+
+	choice *ch = GET_CURR_CHOICE();
+
+	for (; ch; ch--) {
+		if (ch->reset) {
+			ch->reset = false;
+			q->st.curr_instr = ch->st.curr_instr;
+			q->st.curr_frame = ch->st.curr_frame;
+			q->st.m = ch->st.m;
+			GET_FIRST_ARG0(p1, any, ch->st.curr_instr);
+			GET_NEXT_ARG(p2, any);
+			GET_NEXT_ARG(p3, any);
+			cell tmp;
+
+			if (!q->ball) {
+				make_atom(&tmp, g_none_s);
+				return unify(q, p3, p3_ctx, &tmp, q->st.curr_frame);
+			}
+
+			if (!unify(q, p2, p2_ctx, q->ball, q->ball_ctx))
+				return false;
+
+			q->ball = NULL;
+
+			if (!unify(q, p3, p3_ctx, q->cont, q->cont_ctx))
+				return false;
+
+			return true;
+		}
+
+		if (ch == q->choices)
+			break;
+	}
+
+	return false;
+}
+
+bool bif_shift_1(query *q)
+{
+	GET_FIRST_ARG(p1,nonvar);
+	q->ball = p1;
+	q->ball_ctx = p1_ctx;
+	cell *next = q->st.curr_instr + q->st.curr_instr->nbr_cells;
+	cell *tmp2 = alloc_on_heap(q, 1+next->nbr_cells);
+	make_struct(tmp2, g_cont_s, NULL, 1, next->nbr_cells);
+	dup_cells_by_ref(tmp2+1, next, q->st.curr_frame, next->nbr_cells);
+	q->cont = tmp2;
+	q->cont_ctx = q->st.curr_frame;
+
+	if (!find_reset_handler(q))
+		return false;
+
 	return true;
 }
 
@@ -613,7 +694,7 @@ static cell *parse_to_heap(query *q, const char *src)
 	SB_free(s);
 
 	if (p2->nbr_vars) {
-		if (!create_vars(q, p2->nbr_vars)) {
+		if (create_vars(q, p2->nbr_vars) < 0) {
 			parser_destroy(p2);
 			return false;
 		}
@@ -664,7 +745,7 @@ static bool find_exception_handler(query *q, char *ball)
 	}
 
 	if (!q->thread_ptr) {
-		acquire_lock(&q->pl->guard);
+		prolog_lock(q->pl);
 
 		if (!q->pl->is_query) {
 			if (!q->is_redo)
@@ -695,8 +776,8 @@ static bool find_exception_handler(query *q, char *ball)
 			fprintf(stdout, "\n");
 
 		q->quoted = 0;
-		release_lock(&q->pl->guard);
 		fflush(stdout);
+		prolog_unlock(q->pl);
 	}
 
 	q->pl->did_dump_vars = true;

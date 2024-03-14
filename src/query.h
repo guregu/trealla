@@ -17,6 +17,7 @@ void query_destroy(query *q);
 
 bool push_choice(query *q);
 bool push_barrier(query *q);
+bool push_reset_handler(query *q);
 bool push_catcher(query *q, enum q_retry type);
 
 bool do_retract(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract);
@@ -48,6 +49,7 @@ void dump_vars(query *q, bool partial);
 int check_interrupt(query *q);
 bool make_slice(query *q, cell *d, const cell *orig, size_t off, size_t n);
 void check_pressure(query *q);
+void set_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx);
 
 bool throw_error(query *q, cell *c, pl_idx c_ctx, const char *err_type, const char *expected);
 bool throw_error3(query *q, cell *c, pl_idx c_ctx, const char *err_type, const char *expected, cell *goal);
@@ -58,7 +60,7 @@ size_t scan_is_chars_list(query *q, cell *l, pl_idx l_ctx, bool allow_codes);
 char *chars_list_to_string(query *q, cell *p_chars, pl_idx p_chars_ctx, size_t len);
 cell *string_to_chars_list(query *q, cell *p, pl_idx p_ctx);
 
-unsigned create_vars(query *q, unsigned cnt);
+int create_vars(query *q, unsigned cnt);
 cell *skip_max_list(query *q, cell *head, pl_idx *head_ctx, pl_int max, pl_int *skip, cell *tmp);
 bool is_cyclic_term(query *q, cell *p1, pl_idx p1_ctx);
 bool is_acyclic_term(query *q, cell *p1, pl_idx p1_ctx);
@@ -105,9 +107,9 @@ void dump_term(query *q, const char *s, const cell *c);
 
 bool bif_iso_halt_0(query *q);
 bool bif_sys_drop_barrier_1(query *q);
-bool bif_iso_throw_1(query *q);
 bool bif_sys_call_cleanup_3(query *q);
 bool bif_iso_catch_3(query *q);
+bool bif_iso_throw_1(query *q);
 bool bif_sys_block_catcher_0(query *q);
 bool bif_iso_negation_1(query *q);
 bool bif_iso_conjunction_2(query *q);
@@ -117,6 +119,9 @@ bool bif_if_2(query *q);
 bool bif_ignore_1(query *q);
 bool bif_sys_counter_1(query *q);
 bool bif_sys_countall_2(query *q);
+bool bif_sys_set_if_var_2(query *q);
+bool bif_reset_3(query *q);
+bool bif_shift_1(query *q);
 
 bool bif_iso_invoke_2(query *q);
 bool bif_iso_if_then_2(query *q);
@@ -149,8 +154,6 @@ char *uuid_to_buf(const uuid *u, char *buf, size_t buflen);
 bool do_abolish(query *q, cell *c_orig, cell *c_pi, bool hard);
 
 enum log_type { LOG_ASSERTA=1, LOG_ASSERTZ=2, LOG_ERASE=3 };
-
-void db_log(query *q, rule *r, enum log_type l);
 
 int uuid_from_buf(const char *s, uuid *u);
 builtins *get_fn_ptr(void *fn);

@@ -86,6 +86,7 @@ endif
 SRCOBJECTS = tpl.o \
 	src/base64.o \
 	src/bif_atts.o \
+	src/bif_bboard.o \
 	src/bif_contrib.o \
 	src/bif_control.o \
 	src/bif_csv.o \
@@ -104,6 +105,7 @@ SRCOBJECTS = tpl.o \
 	src/heap.o \
 	src/history.o \
 	src/library.o \
+	src/list.o \
 	src/module.o \
 	src/network.o \
 	src/parser.o \
@@ -278,6 +280,10 @@ src/bif_atts.o: src/bif_atts.c src/bif_atts.h src/threads.h src/heap.h src/inter
  src/imath/imath.h src/sre/re.h src/skiplist.h src/utf8.h \
  src/module.h src/parser.h src/prolog.h src/query.h src/builtins.h \
  src/bif_atts.h
+src/bif_bboard.o: src/bif_contrib.c src/threads.h src/trealla.h src/internal.h \
+ src/cdebug.h src/stringbuf.h src/imath/imath.h src/imath/imrat.h \
+ src/imath/imath.h src/sre/re.h src/skiplist.h src/utf8.h \
+ src/query.h src/parser.h src/builtins.h
 src/bif_contrib.o: src/bif_contrib.c src/threads.h src/trealla.h src/internal.h \
  src/cdebug.h src/stringbuf.h src/imath/imath.h src/imath/imrat.h \
  src/imath/imath.h src/sre/re.h src/skiplist.h src/utf8.h \
@@ -344,7 +350,7 @@ src/bif_tasks.o: src/bif_tasks.c src/base64.h src/threads.h src/heap.h src/inter
  src/prolog.h src/query.h src/builtins.h src/bif_atts.h
 src/bif_threads.o: src/bif_threads.c src/threads.h src/heap.h src/internal.h \
  src/trealla.h src/cdebug.h src/stringbuf.h src/imath/imath.h \
- src/imath/imrat.h src/imath/imath.h src/sre/re.h src/skiplist.h \
+ src/imath/imrat.h src/imath/imath.h src/sre/re.h src/skiplist.h src/list.h \
  src/utf8.h src/history.h src/library.h src/module.h src/parser.h \
  src/prolog.h src/query.h src/builtins.h src/bif_atts.h
 src/heap.o: src/heap.c src/heap.h src/threads.h src/internal.h src/trealla.h src/cdebug.h \
@@ -356,6 +362,7 @@ src/history.o: src/history.c src/internal.h src/trealla.h src/cdebug.h \
  src/sre/re.h src/skiplist.h src/utf8.h src/history.h \
  src/prolog.h
 src/library.o: src/library.c src/library.h
+src/list.o: src/list.c src/list.h
 src/module.o: src/module.c src/threads.h src/module.h src/internal.h src/trealla.h \
  src/cdebug.h src/stringbuf.h src/imath/imath.h src/imath/imrat.h \
  src/imath/imath.h src/sre/re.h src/skiplist.h src/utf8.h \

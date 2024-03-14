@@ -835,11 +835,28 @@ bool do_use_module_1(module *curr_m, cell *p)
 	cell *p1 = p + 1;
 	const char *name = C_STR(curr_m, p1);
 	char dstbuf[1024*4];
+	bool is_library = false;
 
 	if (is_compound(p1) && !strcmp(name, "library")) {
+		is_library = true;
 		p1 = p1 + 1;
 		if (!is_interned(p1)) return false;
+		snprintf(dstbuf, sizeof(dstbuf), "%s", g_tpl_lib);
 		name = C_STR(curr_m, p1);
+
+		while ((p1->arity == 2) && !strcmp(name, "/"))
+			p1++;
+
+		while (is_interned(p1) && !p1->arity
+			&& (p1->val_off != g_nil_s)) {
+			name = C_STR(curr_m, p1);
+			strcat(dstbuf, "/");
+			strcat(dstbuf, name);
+			p1++;
+		}
+
+		//printf("*** mod name=%s, %s\n", name, dstbuf);
+
 		module *m;
 
 		if ((m = find_module(curr_m->pl, name)) != NULL) {
@@ -861,6 +878,7 @@ bool do_use_module_1(module *curr_m, cell *p)
 			|| !strcmp(name, "crypto")
 		    || !strcmp(name, "files")
 		    || !strcmp(name, "time")
+		    || !strcmp(name, "cont")
 		    )
 			return true;
 
@@ -883,9 +901,6 @@ bool do_use_module_1(module *curr_m, cell *p)
 
 			return true;
 		}
-
-		snprintf(dstbuf, sizeof(dstbuf), "%s%c%s", g_tpl_lib, PATH_SEP_CHAR, C_STR(curr_m, p1));
-		name = dstbuf;
 	}
 
 	if (true) {
@@ -897,14 +912,6 @@ bool do_use_module_1(module *curr_m, cell *p)
 
 			return true;
 		}
-
-		if (!strcmp(name, "between")
-		    || !strcmp(name, "samsort")
-		    || !strcmp(name, "terms")
-		    || !strcmp(name, "types")
-			|| !strcmp(name, "iso_ext")
-		    || !strcmp(name, "files"))
-			return true;
 
 		for (library *lib = g_libs; lib->name; lib++) {
 			if (strcmp(lib->name, name))
@@ -927,7 +934,7 @@ bool do_use_module_1(module *curr_m, cell *p)
 		}
 	}
 
-	char *filename = relative_to(curr_m->filename, name);
+	char *filename = relative_to(curr_m->filename, is_library?dstbuf:name);
 	module *m;
 
 	if (!(m = load_file(curr_m, filename, false))) {
@@ -1438,7 +1445,7 @@ static void check_goal_expansion(module *m, cell *p1)
 	create_goal_expansion(m, arg1);
 }
 
-static rule *assert_begin(module *m, unsigned nbr_vars, unsigned nbr_temporaries, cell *p1, bool consulting)
+static rule *assert_begin(module *m, unsigned nbr_vars, cell *p1, bool consulting)
 {
 	cell *c = p1;
 
@@ -1532,7 +1539,6 @@ static rule *assert_begin(module *m, unsigned nbr_vars, unsigned nbr_temporaries
 	r->cl.cells[p1->nbr_cells] = (cell){0};
 	r->cl.cells[p1->nbr_cells].tag = TAG_END;
 	r->cl.nbr_vars = nbr_vars;
-	r->cl.nbr_temporaries = nbr_temporaries;
 	r->cl.nbr_allocated_cells = p1->nbr_cells;
 	r->cl.cidx = p1->nbr_cells+1;
 	r->cl.dbgen_created = ++m->pl->dbgen;
@@ -1611,13 +1617,13 @@ static void assert_commit(module *m, rule *r, predicate *pr, bool append)
 	}
 }
 
-rule *asserta_to_db(module *m, unsigned nbr_vars, unsigned nbr_temporaries, cell *p1, bool consulting)
+rule *asserta_to_db(module *m, unsigned nbr_vars, cell *p1, bool consulting)
 {
 	predicate *pr;
 	rule *r;
 
 	do {
-		r = assert_begin(m, nbr_vars, nbr_temporaries, p1, consulting);
+		r = assert_begin(m, nbr_vars, p1, consulting);
 
 		if (!r)
 			return NULL;
@@ -1643,13 +1649,13 @@ rule *asserta_to_db(module *m, unsigned nbr_vars, unsigned nbr_temporaries, cell
 	return r;
 }
 
-rule *assertz_to_db(module *m, unsigned nbr_vars, unsigned nbr_temporaries, cell *p1, bool consulting)
+rule *assertz_to_db(module *m, unsigned nbr_vars, cell *p1, bool consulting)
 {
 	predicate *pr;
 	rule *r;
 
 	do {
-		r = assert_begin(m, nbr_vars, nbr_temporaries, p1, consulting);
+		r = assert_begin(m, nbr_vars, p1, consulting);
 
 		if (!r)
 			return NULL;

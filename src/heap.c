@@ -384,6 +384,7 @@ cell *prepare_call(query *q, bool prefix, cell *p1, pl_idx p1_ctx, unsigned extr
 		tmp->bif_ptr = s_fn_ptr;
 	}
 
+	q->in_call++;
 	cell *dst = tmp + (prefix ? PREFIX_LEN : NOPREFIX_LEN);
 	dup_cells_by_ref(dst, p1, p1_ctx, p1->nbr_cells);
 	return tmp;
@@ -492,7 +493,7 @@ static cell *deep_copy_to_tmp_with_replacement(query *q, cell *p1, pl_idx p1_ctx
 	int cnt = q->varno - f->actual_slots;
 
 	if (cnt) {
-		if (!create_vars(q, cnt)) {
+		if (create_vars(q, cnt) < 0) {
 			throw_error(q, c, c_ctx, "resource_error", "stack");
 			return NULL;
 		}

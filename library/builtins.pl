@@ -20,7 +20,7 @@ predicate_property(P, A) :-
 	; 	(Controls = [
 			built_in,choice_construct,
 			discontiguous,private,static,
-			dynamic,foreign,tabled,multifile,
+			dynamic,foreign,multifile,
 			meta_predicate(_),iso,visible,
 			template(_)
 			],
@@ -349,6 +349,10 @@ directory_exists(F) :- exists_directory(F).
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+format(F) :- format(F, []).
+
+:- help(format(+string), [iso(false)]).
+
 :- meta_predicate(not(0)).
 
 not(X) :- X, !, fail.
@@ -582,6 +586,19 @@ delay(Msecs) :-
 	'$msleep'(Msecs).
 
 :- help(delay(+number), [iso(false)]).
+
+repeat_integer(N) :-
+	N > 0.
+repeat_integer(N0) :-
+	N0 > 0,
+	N1 is N0 - 1,
+	repeat_integer(N1).
+
+repeat(N) :-
+	'$must_be'(N, integer, repeat/1, _),
+	repeat_integer(N).
+
+:- help(repeat(+integer), [iso(false)]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %

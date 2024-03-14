@@ -399,17 +399,17 @@ static void leave_predicate(query *q, predicate *pr)
 	if (!pr || !pr->is_dynamic || !pr->refcnt)
 		return;
 
-	acquire_lock(&pr->m->guard);
+	module_lock(pr->m);
 
 	if (--pr->refcnt != 0) {
-		release_lock(&pr->m->guard);
+		module_unlock(pr->m);
 		return;
 	}
 
 	// Predicate is no longer being used
 
 	if (!pr->dirty_list) {
-		release_lock(&pr->m->guard);
+		module_unlock(pr->m);
 		return;
 	}
 
@@ -453,7 +453,7 @@ static void leave_predicate(query *q, predicate *pr)
 		}
 	}
 
-	release_lock(&pr->m->guard);
+	module_unlock(pr->m);
 }
 
 static void unwind_trail(query *q)
@@ -488,8 +488,12 @@ void try_me(query *q, unsigned nbr_vars)
 	frame *f = GET_NEW_FRAME();
 	f->initial_slots = f->actual_slots = nbr_vars;
 	f->base = q->st.sp;
-	slot *e = GET_SLOT(f, 0);
-	memset(e, 0, sizeof(slot)*nbr_vars);
+
+	for (unsigned i = 0; i < nbr_vars; i++) {
+		slot *e = GET_SLOT(f, i);
+		memset(e, 0, sizeof(slot));
+	}
+
 	q->has_vars = false;
 	q->no_tco = false;
 	q->tot_matches++;
@@ -521,11 +525,14 @@ int retry_choice(query *q)
 
 		frame *f = GET_CURR_FRAME();
 		f->dbgen = ch->dbgen;
-		f->chgen = ch->frame_cgen;
+		f->chgen = ch->frame_chgen;
 		f->initial_slots = ch->initial_slots;
 		f->actual_slots = ch->actual_slots;
 		f->overflow = ch->overflow;
 		f->base = ch->base;
+
+		if (ch->reset)
+			continue;
 
 		if (ch->catchme_exception || ch->fail_on_retry) {
 			leave_predicate(q, ch->st.pr);
@@ -582,11 +589,6 @@ static frame *push_frame(query *q, const clause *cl)
 	return f;
 }
 
-// Temporary variables occur only in the head and so are
-// not referenced after the matching process. The parser
-// puts them at the end of the frame so here we can just
-// chop them off.
-
 static void reuse_frame(query *q, const clause *cl)
 {
 	cell *c_next = q->st.curr_instr + q->st.curr_instr->nbr_cells;
@@ -600,22 +602,21 @@ static void reuse_frame(query *q, const clause *cl)
 	f->overflow = 0;
 
 	const frame *newf = GET_FRAME(q->st.fp);
-	slot *from = GET_SLOT(newf, 0);
-	slot *to = GET_SLOT(f, 0);
 
-	for (pl_idx i = 0; i < cl->nbr_vars - cl->nbr_temporaries; i++) {
+	for (pl_idx i = 0; i < cl->nbr_vars; i++) {
+		const slot *from = GET_SLOT(newf, i);
+		slot *to = GET_SLOT(f, i);
 		cell *c = &to->c;
 		unshare_cell(c);
+		to->c = from->c;
 
-		if (is_ref(&from->c)) {
-			if (from->c.var_ctx == q->st.fp)
-				from->c.var_ctx = q->st.curr_frame;
+		if (is_ref(&to->c)) {
+			if (to->c.var_ctx == q->st.fp)
+				to->c.var_ctx = q->st.curr_frame;
 		}
-
-		*to++ = *from++;
 	}
 
-	q->st.sp = f->base + cl->nbr_vars - cl->nbr_temporaries;
+	q->st.sp = f->base + cl->nbr_vars;
 	q->st.hp = f->hp;
 	q->st.r->tcos++;
 	q->tot_tcos++;
@@ -689,7 +690,6 @@ static void commit_frame(query *q, cell *body)
 		bool tail_recursive = tail_call && q->st.recursive;
 		bool vars_ok =
 			tail_recursive ? f->initial_slots == cl->nbr_vars :
-			tail_call ? f->initial_slots == (cl->nbr_vars - cl->nbr_temporaries) :
 			false;
 		bool choices = any_choices(q, f);
 		tco = vars_ok && !choices;
@@ -699,11 +699,11 @@ static void commit_frame(query *q, cell *body)
 		fprintf(stderr,
 			"*** %s/%u tco=%d,q->no_tco=%d,last_match=%d,is_det=%d,"
 			"next_key=%d,tail_call=%d/%d,vars_ok=%d,choices=%d,"
-			"cl->nbr_vars=%u/%u,f->initial_slots=%u/%u\n",
+			"cl->nbr_vars=%u,f->initial_slots=%u/%u\n",
 			C_STR(q, head), head->arity,
 			tco, q->no_tco, last_match, is_det,
 			next_key, tail_call, tail_recursive, vars_ok, choices,
-			cl->nbr_vars, cl->nbr_temporaries, f->initial_slots, f->actual_slots);
+			cl->nbr_vars, f->initial_slots, f->actual_slots);
 #endif
 	}
 
@@ -773,7 +773,7 @@ bool push_choice(query *q)
 	choice *ch = GET_CHOICE(curr_choice);
 	ch->st = q->st;
 	ch->dbgen = f->dbgen;
-	ch->frame_cgen = ch->chgen = f->chgen;
+	ch->frame_chgen = ch->chgen = f->chgen;
 	ch->initial_slots = f->initial_slots;
 	ch->actual_slots = f->actual_slots;
 	ch->overflow = f->overflow;
@@ -781,7 +781,7 @@ bool push_choice(query *q)
 	ch->catchme_retry =
 		ch->catchme_exception = ch->barrier = ch->register_cleanup =
 		ch->block_catcher = ch->catcher = ch->fail_on_retry =
-		ch->succeed_on_retry = false;
+		ch->succeed_on_retry = ch->reset = false;
 	return true;
 }
 
@@ -796,6 +796,18 @@ bool push_barrier(query *q)
 	choice *ch = GET_CURR_CHOICE();
 	ch->chgen = f->chgen = ++q->chgen;
 	ch->barrier = true;
+	return true;
+}
+
+// A reset adds the ability to do locate
+// delimited continuations
+
+bool push_reset_handler(query *q)
+{
+	check_heap_error(push_barrier(q));
+	choice *ch = GET_CURR_CHOICE();
+	ch->reset = true;
+	ch->fail_on_retry = true;
 	return true;
 }
 
@@ -887,6 +899,9 @@ inline static bool resume_frame(query *q)
 	if (!f->prev_offset)
 		return false;
 
+	if (q->in_call)
+		q->in_call--;
+
 	q->st.curr_instr = f->curr_instr;
 	q->st.curr_frame = q->st.curr_frame - f->prev_offset;
 	f = GET_CURR_FRAME();
@@ -914,7 +929,7 @@ inline static void proceed(query *q)
 
 #define MAX_LOCAL_VARS (1L<<30)
 
-unsigned create_vars(query *q, unsigned cnt)
+int create_vars(query *q, unsigned cnt)
 {
 	frame *f = GET_CURR_FRAME();
 
@@ -923,7 +938,7 @@ unsigned create_vars(query *q, unsigned cnt)
 
 	if ((f->actual_slots + cnt) > MAX_LOCAL_VARS) {
 		printf("*** Ooops %s %d\n", __FILE__, __LINE__);
-		return 0;
+		return -1;
 	}
 
 	unsigned var_nbr = f->actual_slots;
@@ -940,7 +955,7 @@ unsigned create_vars(query *q, unsigned cnt)
 
 		if (!check_slot(q, cnt2)) {
 			printf("*** Ooops %s %d\n", __FILE__, __LINE__);
-			return 0;
+			return -1;
 		}
 
 		memmove(q->slots+f->overflow, q->slots+save_overflow, sizeof(slot)*cnt2);
@@ -949,12 +964,15 @@ unsigned create_vars(query *q, unsigned cnt)
 
 	if (!check_slot(q, cnt)) {
 		printf("*** Ooops %s %d\n", __FILE__, __LINE__);
-		return 0;
+		return -1;
+	}
+
+	for (unsigned i = 0; i < cnt; i++) {
+		slot *e = GET_SLOT(f, f->actual_slots + i);
+		memset(e, 0, sizeof(slot));
 	}
 
 	q->st.sp += cnt;
-	slot *e = GET_SLOT(f, f->actual_slots);
-	memset(e, 0, sizeof(slot)*cnt);
 	f->actual_slots += cnt;
 	return var_nbr;
 }
@@ -1897,7 +1915,7 @@ void query_destroy(query *q)
 	module *m = find_module(q->pl, "concurrent");
 
 	if (m) {
-		acquire_lock(&m->guard);
+		module_lock(m);
 		predicate *pr = find_functor(m, "$future", 1);
 
 		if (pr) {
@@ -1906,14 +1924,14 @@ void query_destroy(query *q)
 			}
 		}
 
-		release_lock(&m->guard);
+		module_unlock(m);
 	}
 #endif
 
 	module *m = q->pl->modules;
 
 	while (m) {
-		acquire_lock(&m->guard);
+		module_lock(m);
 		predicate *pr = find_functor(m, "$bb_key", 3);
 
 		if (pr) {
@@ -1937,7 +1955,7 @@ void query_destroy(query *q)
 			}
 		}
 
-		release_lock(&m->guard);
+		module_unlock(m);
 		m = m->next;
 	}
 
