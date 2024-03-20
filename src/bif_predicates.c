@@ -36,7 +36,7 @@
 #include <unistd.h>
 static void msleep(int ms)
 {
-	struct timespec tv;
+	struct timespec tv = {0};
 	tv.tv_sec = (ms) / 1000;
 	tv.tv_nsec = ((ms) % 1000) * 1000 * 1000;
 	nanosleep(&tv, &tv);
@@ -2855,17 +2855,6 @@ static bool bif_iso_op_3(query *q)
 	return true;
 }
 
-static bool bif_instance_2(query *q)
-{
-	GET_FIRST_ARG(p1,atom);
-	GET_NEXT_ARG(p2,any);
-	uuid u;
-	uuid_from_buf(C_STR(q, p1), &u);
-	rule *r = find_in_db(q->st.m, &u);
-	check_heap_error(r);
-	return unify(q, p2, p2_ctx, r->cl.cells, q->st.curr_frame);
-}
-
 static bool bif_listing_0(query *q)
 {
 	int n = q->pl->current_output;
@@ -2879,7 +2868,8 @@ static void save_name(FILE *fp, query *q, pl_idx name, unsigned arity)
 	module *m = q->st.r ? q->st.r->owner->m : q->st.m;
 	q->listing = true;
 
-	for (predicate *pr = m->head; pr; pr = pr->next) {
+	for (predicate *pr = (predicate*)list_front(&m->predicates);
+		pr; pr = (predicate*)list_next(pr)) {
 		if (pr->is_prebuilt && (arity == -1U))
 			continue;
 
@@ -2890,7 +2880,7 @@ static void save_name(FILE *fp, query *q, pl_idx name, unsigned arity)
 			continue;
 
 		for (rule *r = pr->head; r; r = r->next) {
-			if (r->cl.dbgen_erased)
+			if (r->cl.dbgen_retracted)
 				continue;
 
 			for (unsigned i = 0; i < MAX_IGNORES; i++)
@@ -2976,7 +2966,8 @@ static bool bif_module_info_2(query *q)
 
 	check_heap_error(init_tmp_heap(q));
 
-	for (predicate *pr = m->head; pr; pr = pr->next) {
+	for (predicate *pr = (predicate*)list_front(&m->predicates);
+		pr; pr = (predicate*)list_next(pr)) {
 		if (!pr->is_public)
 			continue;
 
@@ -3421,8 +3412,10 @@ static bool do_profile(query *q)
 {
 	fprintf(stderr, "#functor/arity,match_attempts,matched,tcos\n");
 
-	for (module *m = q->pl->modules; m; m = m->next) {
-		for (predicate *pr = m->head; pr; pr = pr->next) {
+	for (module *m = (module*)list_front(&q->pl->modules);
+		m; m = (module*)list_next(m)) {
+		for (predicate *pr = (predicate*)list_front(&m->predicates);
+			pr; pr = (predicate*)list_next(pr)) {
 			for (rule *r = pr->head; r; r = r->next) {
 				if (!r->attempted)
 					continue;
@@ -4331,8 +4324,8 @@ static bool bif_crypto_data_hash_3(query *q)
 	GET_FIRST_ARG(p1,atom);
 	GET_NEXT_ARG(p2,atom_or_var);
 	GET_NEXT_ARG(p3,list_or_nil);
-	bool is_sha384 = false, is_sha512 = false, is_sha1 = false;
-	bool is_sha256 = true;
+	enum {is_sha256, is_sha384, is_sha512, is_sha1} algo;
+	algo = is_sha256;
 	char *key = NULL;
 	int keylen = 0;
 	LIST_HANDLER(p3);
@@ -4352,20 +4345,15 @@ static bool bif_crypto_data_hash_3(query *q)
 					cell tmp;
 					make_atom(&tmp, new_atom(q->pl, "sha256"));
 					unify(q, arg, arg_ctx, &tmp, q->st.curr_frame);
-					is_sha384 = is_sha512 = is_sha1 = false;
-					is_sha256 = true;
+					algo = is_sha256;
 				} else if (!CMP_STRING_TO_CSTR(q, arg, "sha256")) {
-					is_sha384 = is_sha512 = false;
-					is_sha256 = true;
+					algo = is_sha256;
 				} else if (!CMP_STRING_TO_CSTR(q, arg, "sha384")) {
-					is_sha256 = is_sha512 = false;
-					is_sha384 = true;
+					algo = is_sha384;
 				} else if (!CMP_STRING_TO_CSTR(q, arg, "sha512")) {
-					is_sha384 = is_sha256 = false;
-					is_sha512 = true;
+					algo = is_sha512;
 				} else if (!CMP_STRING_TO_CSTR(q, arg, "sha1")) {
-					is_sha384 = is_sha256 = is_sha512 = false;
-					is_sha1 = true;
+					algo = is_sha1;
 				} else
 					return throw_error(q, arg, arg_ctx, "domain_error", "algorithm");
 			} else if (!CMP_STRING_TO_CSTR(q, h, "hmac") && is_iso_list(arg)
@@ -4386,7 +4374,7 @@ static bool bif_crypto_data_hash_3(query *q)
 	*dst = '\0';
 	size_t buflen = sizeof(tmpbuf);
 
-	if (key && is_sha256) {
+	if (key && (algo == is_sha256)) {
 		unsigned char digest[SHA256_DIGEST_LENGTH];
 		unsigned digest_len = 0;
 		HMAC(EVP_sha256(), key, keylen, (unsigned char*)C_STR(q, p1), C_STRLEN(q, p1), digest, &digest_len);
@@ -4396,7 +4384,7 @@ static bool bif_crypto_data_hash_3(query *q)
 			dst += len;
 			buflen -= len;
 		}
-	} else if (key && is_sha384) {
+	} else if (key && (algo == is_sha384)) {
 		unsigned char digest[SHA384_DIGEST_LENGTH];
 		unsigned digest_len = 0;
 		HMAC(EVP_sha384(), key, keylen, (unsigned char*)C_STR(q, p1), C_STRLEN(q, p1), digest, &digest_len);
@@ -4406,7 +4394,7 @@ static bool bif_crypto_data_hash_3(query *q)
 			dst += len;
 			buflen -= len;
 		}
-	} else if (key && is_sha512) {
+	} else if (key && (algo == is_sha512)) {
 		unsigned char digest[SHA512_DIGEST_LENGTH];
 		unsigned digest_len = 0;
 		HMAC(EVP_sha512(), key, keylen, (unsigned char*)C_STR(q, p1), C_STRLEN(q, p1), digest, &digest_len);
@@ -4416,7 +4404,7 @@ static bool bif_crypto_data_hash_3(query *q)
 			dst += len;
 			buflen -= len;
 		}
-	} else if (is_sha256) {
+	} else if (algo == is_sha256) {
 		unsigned char digest[SHA256_DIGEST_LENGTH];
 		SHA256((unsigned char*)C_STR(q, p1), C_STRLEN(q, p1), digest);
 
@@ -4425,7 +4413,7 @@ static bool bif_crypto_data_hash_3(query *q)
 			dst += len;
 			buflen -= len;
 		}
-	} else if (is_sha384) {
+	} else if (algo == is_sha384) {
 		unsigned char digest[SHA384_DIGEST_LENGTH];
 		SHA384((unsigned char*)C_STR(q, p1), C_STRLEN(q, p1), digest);
 
@@ -4434,7 +4422,7 @@ static bool bif_crypto_data_hash_3(query *q)
 			dst += len;
 			buflen -= len;
 		}
-	} else if (is_sha512) {
+	} else if (algo == is_sha512) {
 		unsigned char digest[SHA512_DIGEST_LENGTH];
 		SHA512((unsigned char*)C_STR(q, p1), C_STRLEN(q, p1), digest);
 
@@ -5716,7 +5704,8 @@ static bool bif_current_module_1(query *q)
 		}
 
 		check_heap_error(push_choice(q));
-		module *m = q->current_m = q->pl->modules;
+
+		module *m = (module*)list_front(&q->pl->modules);
 		cell tmp;
 		make_atom(&tmp, new_atom(q->pl, m->name));
 		return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
@@ -5725,7 +5714,7 @@ static bool bif_current_module_1(query *q)
 	if (!q->current_m)
 		return false;
 
-	module *m = q->current_m = q->current_m->next;
+	module *m = (module*)list_next(q->current_m);
 
 	if (!m)
 		return false;
@@ -5853,7 +5842,8 @@ static bool bif_modules_1(query *q)
 	GET_FIRST_ARG(p1,var);
 	check_heap_error(init_tmp_heap(q));
 
-	for (module *m = q->pl->modules; m; m = m->next) {
+	for (module *m = (module*)list_front(&q->pl->modules);
+		m; m = (module*)list_next(m)) {
 		if (m->orig)
 			continue;
 
@@ -6662,16 +6652,6 @@ builtins g_iso_bifs[] =
 	{"=", 2, bif_iso_unify_2, "+term,+term", true, false, BLAH},
 	{"\\=", 2, bif_iso_notunify_2, "+term,+term", true, false, BLAH},
 
-	{"$call_cleanup", 3, bif_sys_call_cleanup_3, NULL, false, false, BLAH},
-	{"$block_catcher", 1, bif_sys_block_catcher_1, NULL, false, false, BLAH},
-	{"$cleanup_if_det", 1, bif_sys_cleanup_if_det_1, NULL, false, false, BLAH},
-	{"$drop_barrier", 1, bif_sys_drop_barrier_1, NULL, false, false, BLAH},
-	{"$timer", 0, bif_sys_timer_0, NULL, false, false, BLAH},
-	{"$elapsed", 0, bif_sys_elapsed_0, NULL, false, false, BLAH},
-	{"$lt", 2, bif_sys_lt_2, NULL, false, false, BLAH},
-	{"$gt", 2, bif_sys_gt_2, NULL, false, false, BLAH},
-	{"$ne", 2, bif_sys_ne_2, NULL, false, false, BLAH},
-
 	{"call", 1, bif_iso_call_1, ":callable", true, false, BLAH},
 	{"call", 2, bif_iso_call_n, ":callable,?term", true, false, BLAH},
 	{"call", 3, bif_iso_call_n, ":callable,?term,term", true, false, BLAH},
@@ -6739,7 +6719,6 @@ builtins g_other_bifs[] =
 	{"notrace", 0, fn_notrace_0, NULL, false, false, BLAH},
 	{"statistics", 0, bif_statistics_0, NULL, false, false, BLAH},
 	{"statistics", 2, bif_statistics_2, "+atom,-term", false, false, BLAH},
-	{"shift", 1, bif_shift_1, "+term", false, false, BLAH},
 
 	{"current_module", 1, bif_current_module_1, "-atom", false, false, BLAH},
 	{"prolog_load_context", 2, bif_prolog_load_context_2, "+atom,?term", false, false, BLAH},
@@ -6798,7 +6777,6 @@ builtins g_other_bifs[] =
 	{"$char_type", 2, bif_char_type_2, "+character,+term", false, false, BLAH},
 	{"$code_type", 2, bif_char_type_2, "+integer,+term", false, false, BLAH},
 	{"uuid", 1, bif_uuid_1, "-string", false, false, BLAH},
-	{"instance", 2, bif_instance_2, "+string,?term", false, false, BLAH},
 	{"getenv", 2, bif_getenv_2, "+atom,-atom", false, false, BLAH},
 	{"setenv", 2, bif_setenv_2, "+atom,+atom", false, false, BLAH},
 	{"unsetenv", 1, bif_unsetenv_1, "+atom", false, false, BLAH},
@@ -6814,6 +6792,7 @@ builtins g_other_bifs[] =
 	{"cyclic_term", 1, bif_cyclic_term_1, "+term", false, false, BLAH},
 	{"call_residue_vars", 2, bif_call_residue_vars_2, ":callable,-list", false, false, BLAH},
 	{"reset", 3, bif_reset_3, ":callable,?term,-term", false, false, BLAH},
+	{"shift", 1, bif_shift_1, "+term", false, false, BLAH},
 
 	{"$must_be", 4, bif_must_be_4, "+term,+atom,+term,?any", false, false, BLAH},
 	{"$can_be", 4, bif_can_be_4, "+term,+atom,+term,?any", false, false, BLAH},
@@ -6854,5 +6833,16 @@ builtins g_other_bifs[] =
 #if USE_OPENSSL
 	{"crypto_data_hash", 3, bif_crypto_data_hash_3, "?string,?string,?list", false, false, BLAH},
 #endif
+
+	{"$call_cleanup", 3, bif_sys_call_cleanup_3, NULL, false, false, BLAH},
+	{"$block_catcher", 1, bif_sys_block_catcher_1, NULL, false, false, BLAH},
+	{"$cleanup_if_det", 1, bif_sys_cleanup_if_det_1, NULL, false, false, BLAH},
+	{"$drop_barrier", 1, bif_sys_drop_barrier_1, NULL, false, false, BLAH},
+	{"$timer", 0, bif_sys_timer_0, NULL, false, false, BLAH},
+	{"$elapsed", 0, bif_sys_elapsed_0, NULL, false, false, BLAH},
+	{"$lt", 2, bif_sys_lt_2, NULL, false, false, BLAH},
+	{"$gt", 2, bif_sys_gt_2, NULL, false, false, BLAH},
+	{"$ne", 2, bif_sys_ne_2, NULL, false, false, BLAH},
+
 	{0}
 };

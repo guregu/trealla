@@ -132,7 +132,6 @@ void sl_destroy(skiplist *l)
 
 void sl_wild_card(skiplist *l) { if (l) l->wild_card = true; }
 bool sl_is_find(skiplist *l) { return l ? l->is_find : true; }
-skiplist *sl_get_map(const sliter *i) { return i->l; }
 size_t sl_count(const skiplist *l) { return l ? l->count : 0; }
 void sl_set_tmp(skiplist *l) { l->is_tmp_list = true; }
 
@@ -590,36 +589,6 @@ void *sl_key(sliter *iter)
 		return NULL;
 
 	return (void*)iter->key;
-}
-
-void sl_remove(skiplist *l, const void *v)
-{
-	if (!l || l->destroyed)
-		return;
-
-	slnode_t *p;
-	p = l->header;
-	p = p->forward[0];
-
-	while (p) {
-		slnode_t *q = p->forward[0];
-
-		for (int j = 0; j < p->nbr; j++) {
-			if (p->bkt[j].val != v)
-				continue;
-
-			while (j < (p->nbr - 1)) {
-				p->bkt[j] = p->bkt[j + 1];
-				j++;
-			}
-
-			p->nbr--;
-			l->count--;
-			return;
-		}
-
-		p = q;
-	}
 }
 
 sliter *sl_find_key(skiplist *l, const void *key)

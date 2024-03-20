@@ -190,19 +190,21 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 
 extern char *g_pool;
 
+typedef pl_atomic int64_t pl_refcnt;
+
 typedef struct {
-	pl_atomic int64_t refcnt;
+	pl_refcnt refcnt;
 	size_t len;
 	char cstr[];	// 'len+1' bytes
 } strbuf;
 
 typedef struct {
-	pl_atomic int64_t refcnt;
+	pl_refcnt refcnt;
 	union { mpz_t ival; mpq_t irat; };
 } bigint;
 
 typedef struct {
-	pl_atomic int64_t refcnt;
+	pl_refcnt refcnt;
 	char *ptr, *ptr2;
 } blob;
 
@@ -437,7 +439,7 @@ typedef struct {
 } uuid;
 
 struct clause_ {
-	uint64_t dbgen_created, dbgen_erased;
+	uint64_t dbgen_created, dbgen_retracted;
 	pl_idx cidx, nbr_allocated_cells;
 	unsigned nbr_vars;
 	bool is_first_cut:1;
@@ -449,10 +451,10 @@ struct clause_ {
 };
 
 struct rule_ {
+	lnode hdr;						// must be first
 	predicate *owner;
 	rule *prev, *next;
 	const char *filename;
-	rule *dirty;
 	uuid u;
 	uint64_t db_id, matched, attempted, tcos;
 	unsigned line_nbr_start, line_nbr_end;
@@ -460,15 +462,16 @@ struct rule_ {
 };
 
 struct predicate_ {
-	cell key;
-	predicate *prev, *next, *alias;
+	lnode hdr;						// must be first
+	predicate *alias;
 	rule *head, *tail;
 	module *m;
 	skiplist *idx, *idx2;
-	rule *dirty_list;
 	const char *filename;
 	cell *meta_args;
-	pl_atomic uint64_t cnt, refcnt, db_id;
+	list dirty;
+	cell key;
+	pl_refcnt refcnt, cnt, db_id;
 	bool is_reload:1;
 	bool is_prebuilt:1;
 	bool is_public:1;
@@ -677,6 +680,7 @@ struct prolog_flags_ {
 };
 
 struct query_ {
+	lnode hdr;						// must be first
 	query *prev, *next, *parent;
 	module *current_m;
 	prolog *pl;
@@ -689,15 +693,16 @@ struct query_ {
 	cell *queue[MAX_QUEUES], *tmpq[MAX_QUEUES];
 	page *heap_pages;
 	slot *save_e;
-	rule *dirty_list;
 	query *tasks;
 	skiplist *vars;
 	void *thread_ptr;
+	list dirty;
 	cell accum;
 	mpz_t tmp_ival;
 	mpq_t tmp_irat;
 	prolog_state st;
 	stringbuf sb_buf;
+	char tmpbuf[256];
 	bool ignores[MAX_IGNORES];
 	uint64_t tot_goals, tot_backtracks, tot_retries, tot_matches, tot_inferences;
 	uint64_t tot_tcos, tot_frecovs, tot_srecovs;
@@ -823,23 +828,27 @@ struct parser_ {
 
 typedef struct loaded_file_ loaded_file;
 
+// Goal expansion...
+
 typedef struct gex_ {
-	cell key;
+	lnode hdr;						// must be first
 	struct gex_ *prev, *next, *alias;
+	cell key;
 } gex;
 
 struct module_ {
+	lnode hdr;						// must be first
 	module *used[MAX_MODULES];
-	module *next, *orig;
+	module *orig;
 	prolog *pl;
 	const char *filename, *name, *actual_filename;
-	predicate *head, *tail;
 	gex *gex_head, *gex_tail;
 	parser *p;
 	FILE *fp;
 	skiplist *index, *ops, *defops;
 	loaded_file *loaded_files;
 	lock guard;
+	list predicates;
 	prolog_flags flags;
 	unsigned id, idx_used, arity;
 	int if_depth;
@@ -868,8 +877,8 @@ struct prolog_ {
 	thread threads[MAX_THREADS];
 	module *modmap[MAX_MODULES];
 	struct { pl_idx tab1[MAX_IGNORES], tab2[MAX_IGNORES]; };
-	char tmpbuf[8192];
-	module *modules, *system_m, *user_m, *curr_m, *dcgs;
+	list modules;
+	module *system_m, *user_m, *curr_m, *dcgs;
 	var_item *tabs;
 	parser *p;
 	skiplist *biftab, *keyval, *help, *fortab;
@@ -877,7 +886,7 @@ struct prolog_ {
 	lock guard;
 	size_t tabs_size;
 	uint64_t s_last, s_cnt, seed, str_cnt, thr_cnt;
-	pl_atomic uint64_t q_cnt, dbgen;
+	pl_refcnt q_cnt, dbgen;
 	unsigned next_mod_id, def_max_depth, my_chan;
 	unsigned current_input, current_output, current_error;
 	pl_uint rnd_seed;
@@ -1062,7 +1071,7 @@ inline static int fake_strcmp(const void *ptr1, const void *ptr2, const void *pa
 	return strcmp(ptr1, ptr2);
 }
 
-#define delink(l, e) {											\
+#define list_delink(l, e) {											\
 	if (e->prev) e->prev->next = e->next;						\
 	if (e->next) e->next->prev = e->prev;						\
 	if (l->head == e) l->head = e->next;						\

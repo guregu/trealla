@@ -76,7 +76,7 @@ extern void set_noindex(prolog*);
 EXPORT(set_opt)
 extern void set_opt(prolog*, int onoff);
 
-extern void convert_path(char *filename);
+void convert_path(char *filename);
 
 #ifdef __wasi__
 EXPORT(pl_global_init)
@@ -85,7 +85,7 @@ EXPORT(pl_global)
 extern void *pl_global();
 #endif
 
-extern volatile int g_tpl_interrupt;
+extern int g_tpl_interrupt;
 extern int g_ac, g_avc;
 extern char **g_av, *g_argv0;
 extern char *g_tpl_lib;

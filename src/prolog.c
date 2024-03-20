@@ -98,7 +98,8 @@ pl_idx new_atom(prolog *pl, const char *name)
 
 module *find_module(prolog *pl, const char *name)
 {
-	for (module *m = pl->modules; m; m = m->next) {
+	for (module *m = (module*)list_front(&pl->modules);
+		m; m = (module*)list_next(m)) {
 		if (!strcmp(m->name, name)) {
 			if (m->orig)
 				return m->orig;
@@ -640,6 +641,8 @@ void pl_destroy(prolog *pl)
 #if USE_THREADS
 	if (pl->q_cnt)
 		thread_cancel_all(pl);
+
+	thread_deinitialize(pl);
 #endif
 
 	if (pl->logfp)
@@ -648,9 +651,10 @@ void pl_destroy(prolog *pl)
 	module_destroy(pl->system_m);
 	module_destroy(pl->user_m);
 	sl_destroy(pl->biftab);
+	module *m;
 
-	while (pl->modules)
-		module_destroy(pl->modules);
+	while ((m = (module*)list_front(&pl->modules)) != NULL)
+		module_destroy(m);
 
 	sl_destroy(pl->fortab);
 	sl_destroy(pl->keyval);

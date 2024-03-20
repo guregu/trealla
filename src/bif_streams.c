@@ -4967,8 +4967,10 @@ static bool bif_unload_files_1(query *q)
 
 static bool bif_make_0(query *q)
 {
-	for (module *m = q->pl->modules; m; m = m->next)
+	for (module *m = (module*)list_front(&q->pl->modules);
+		m; m = (module*)list_next(m)) {
 		make(m);
+	}
 
 	return true;
 }

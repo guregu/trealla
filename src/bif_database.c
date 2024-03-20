@@ -20,7 +20,6 @@ static bool bif_clause_3(query *q)
 	GET_FIRST_ARG(p1,callable_or_var);
 	GET_NEXT_ARG(p2,callable_or_var);
 	GET_NEXT_ARG(p3,atom_or_var);
-	prolog_lock(q->pl);
 
 	if (!is_var(p1)) {
 		if (p1->val_off == g_colon_s) {
@@ -29,15 +28,12 @@ static bool bif_clause_3(query *q)
 			module *m = find_module(q->pl, C_STR(q, cm));
 
 			if (!m) {
-				prolog_unlock(q->pl);
 				return throw_error(q, cm, p1_ctx, "existence_error", "module");
 			}
 
 			p1 += p1->nbr_cells;
 		}
 	}
-
-	prolog_unlock(q->pl);
 
 	if (is_var(p1) && is_var(p2) && is_var(p3))
 		return throw_error(q, p3, p3_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
@@ -144,7 +140,6 @@ static bool bif_iso_clause_2(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 	GET_NEXT_ARG(p2,callable_or_var);
-	prolog_lock(q->pl);
 
 	if (p1->val_off == g_colon_s) {
 		p1 = p1 + 1;
@@ -152,15 +147,12 @@ static bool bif_iso_clause_2(query *q)
 		module *m = find_module(q->pl, C_STR(q, cm));
 
 		if (!m) {
-			prolog_unlock(q->pl);
 			return throw_error(q, cm, p1_ctx, "existence_error", "module");
 		}
 
 		q->st.m = m;
 		p1 += p1->nbr_cells;
 	}
-
-	prolog_unlock(q->pl);
 
 	while (match_clause(q, p1, p1_ctx, DO_CLAUSE)) {
 		if (q->did_throw) return true;
@@ -206,22 +198,17 @@ static bool bif_sys_clause_3(query *q)
 	return ok;
 }
 
-// Module must be locked to enter here...
-
 static void predicate_purge_dirty_list(predicate *pr)
 {
 	unsigned cnt = 0;
+	rule *r;
 
-	while (pr->dirty_list) {
-		rule *r = pr->dirty_list;
-		delink(pr, r);
-		pr->dirty_list = r->dirty;
+	while ((r = (rule*)list_pop_front(&pr->dirty)) != NULL) {
+		list_delink(pr, r);
 		clear_clause(&r->cl);
 		free(r);
 		cnt++;
 	}
-
-	pr->dirty_list = NULL;
 
 #if 0
 	if (cnt)
@@ -264,7 +251,6 @@ bool do_retract(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract)
 static bool bif_iso_retract_1(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
-	prolog_lock(q->pl);
 
 	if (p1->val_off == g_colon_s) {
 		p1 = p1 + 1;
@@ -272,13 +258,13 @@ static bool bif_iso_retract_1(query *q)
 		module *m = find_module(q->pl, C_STR(q, cm));
 
 		if (!m) {
-			prolog_unlock(q->pl);
 			return throw_error(q, cm, p1_ctx, "existence_error", "module");
 		}
 
 		p1 += p1->nbr_cells;
 	}
 
+	prolog_lock(q->pl);
 	bool ok = do_retract(q, p1, p1_ctx, DO_RETRACT);
 	prolog_unlock(q->pl);
 	return ok;
@@ -287,7 +273,6 @@ static bool bif_iso_retract_1(query *q)
 static bool bif_iso_retractall_1(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
-	prolog_lock(q->pl);
 
 	if (p1->val_off == g_colon_s) {
 		p1 = p1 + 1;
@@ -295,7 +280,6 @@ static bool bif_iso_retractall_1(query *q)
 		module *m = find_module(q->pl, C_STR(q, cm));
 
 		if (!m) {
-			prolog_unlock(q->pl);
 			return throw_error(q, cm, p1_ctx, "existence_error", "module");
 		}
 
@@ -306,7 +290,6 @@ static bool bif_iso_retractall_1(query *q)
 	predicate *pr = search_predicate(q->st.m, head, NULL);
 
 	if (!pr) {
-		prolog_unlock(q->pl);
 		bool found = false;
 
 		if (get_builtin_term(q->st.m, head, &found, NULL), found)
@@ -314,6 +297,8 @@ static bool bif_iso_retractall_1(query *q)
 
 		return true;
 	}
+
+	prolog_lock(q->pl);
 
 	while (do_retract(q, p1, p1_ctx, DO_RETRACTALL)) {
 		if (q->did_throw) {
@@ -353,12 +338,10 @@ bool do_abolish(query *q, cell *c_orig, cell *c_pi, bool hard)
 	if (pr->idx && !pr->cnt) {
 		predicate_purge_dirty_list(pr);
 	} else {
-		while (pr->dirty_list) {
-			rule *r = pr->dirty_list;
-			pr->dirty_list = r->dirty;
-			r->dirty = q->dirty_list;
-			q->dirty_list = r;
-		}
+		rule *r;
+
+		while ((r = (rule*)list_pop_front(&pr->dirty)) != NULL)
+			list_push_back(&q->dirty, r);
 	}
 
 	sl_destroy(pr->idx2);
@@ -377,7 +360,6 @@ bool do_abolish(query *q, cell *c_orig, cell *c_pi, bool hard)
 static bool bif_iso_abolish_1(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
-	prolog_lock(q->pl);
 
 	if (!is_var(p1)) {
 		if (p1->val_off == g_colon_s) {
@@ -385,8 +367,6 @@ static bool bif_iso_abolish_1(query *q)
 			p1 += p1->nbr_cells;
 		}
 	}
-
-	prolog_unlock(q->pl);
 
 	if (p1->arity != 2)
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
@@ -508,7 +488,6 @@ static bool bif_iso_asserta_1(query *q)
 		}
 	}
 
-	prolog_lock(q->pl);
 	cell *tmp2, *body = get_body(tmp);
 
 	if (body && ((tmp2 = check_body_callable(body)) != NULL)) {
@@ -517,11 +496,11 @@ static bool bif_iso_asserta_1(query *q)
 	}
 
 	pl_idx nbr_cells = tmp->nbr_cells;
-	parser *p = q->st.m->p;
+	parser *p = parser_create(q->st.m);
 
 	if (nbr_cells > p->cl->nbr_allocated_cells) {
 		p->cl = realloc(p->cl, sizeof(clause)+(sizeof(cell)*(nbr_cells+1)));
-		check_heap_error(p->cl);
+		check_heap_error(p->cl, prolog_unlock(q->pl));
 		p->cl->nbr_allocated_cells = nbr_cells;
 	}
 
@@ -534,17 +513,19 @@ static bool bif_iso_asserta_1(query *q)
 		convert_to_literal(q->st.m, h);
 
 	if (!is_interned(h)) {
-		prolog_unlock(q->pl);
 		return throw_error(q, h, q->st.curr_frame, "type_error", "callable");
 	}
 
+	prolog_lock(q->pl);
 	rule *r = asserta_to_db(q->st.m, p->cl->nbr_vars, p->cl->cells, 0);
 	prolog_unlock(q->pl);
+
+	p->cl->cidx = 0;
+	parser_destroy(p);
 
 	if (!r)
 		return throw_error(q, h, q->st.curr_frame, "permission_error", "modify,static_procedure");
 
-	p->cl->cidx = 0;
 	db_log(q, r, LOG_ASSERTA);
 	return true;
 }
@@ -571,20 +552,18 @@ static bool bif_iso_assertz_1(query *q)
 		}
 	}
 
-	prolog_lock(q->pl);
 	cell *tmp2, *body = get_body(tmp);
 
 	if (body && ((tmp2 = check_body_callable(body)) != NULL)) {
-		prolog_unlock(q->pl);
 		return throw_error(q, tmp2, q->st.curr_frame, "type_error", "callable");
 	}
 
 	pl_idx nbr_cells = tmp->nbr_cells;
-	parser *p = q->st.m->p;
+	parser *p = parser_create(q->st.m);
 
 	if (nbr_cells > p->cl->nbr_allocated_cells) {
 		p->cl = realloc(p->cl, sizeof(clause)+(sizeof(cell)*(nbr_cells+1)));
-		check_heap_error(p->cl);
+		check_heap_error(p->cl, prolog_unlock(q->pl));
 		p->cl->nbr_allocated_cells = nbr_cells;
 	}
 
@@ -597,17 +576,19 @@ static bool bif_iso_assertz_1(query *q)
 		convert_to_literal(q->st.m, h);
 
 	if (!is_interned(h)) {
-		prolog_unlock(q->pl);
 		return throw_error(q, h, q->st.curr_frame, "type_error", "callable");
 	}
 
+	prolog_lock(q->pl);
 	rule *r = assertz_to_db(q->st.m, p->cl->nbr_vars, p->cl->cells, false);
 	prolog_unlock(q->pl);
+
+	p->cl->cidx = 0;
+	parser_destroy(p);
 
 	if (!r)
 		return throw_error(q, h, q->st.curr_frame, "permission_error", "modify,static_procedure");
 
-	p->cl->cidx = 0;
 	db_log(q, r, LOG_ASSERTZ);
 	return true;
 }
@@ -628,21 +609,18 @@ static bool do_asserta_2(query *q)
 		}
 	}
 
-	prolog_lock(q->pl);
 	cell *body = get_body(p1);
 
 	if (body)
 		body = deref(q, body, p1_ctx);
 
 	if (body && !is_callable(body)) {
-		prolog_unlock(q->pl);
 		return throw_error(q, body, q->latest_ctx, "type_error", "callable");
 	}
 
 	cell *tmp2;
 
 	if (body && ((tmp2 = check_body_callable(body)) != NULL)) {
-		prolog_unlock(q->pl);
 		return throw_error(q, tmp2, q->latest_ctx, "type_error", "callable");
 	}
 
@@ -650,12 +628,13 @@ static bool do_asserta_2(query *q)
 	check_heap_error(init_tmp_heap(q));
 	cell *tmp = deep_copy_to_tmp(q, p1, p1_ctx, false);
 	check_heap_error(tmp);
+
 	pl_idx nbr_cells = tmp->nbr_cells;
-	parser *p = q->st.m->p;
+	parser *p = parser_create(q->st.m);
 
 	if (nbr_cells > p->cl->nbr_allocated_cells) {
 		p->cl = realloc(p->cl, sizeof(clause)+(sizeof(cell)*(nbr_cells+1)));
-		check_heap_error(p->cl);
+		check_heap_error(p->cl, prolog_unlock(q->pl));
 		p->cl->nbr_allocated_cells = nbr_cells;
 	}
 
@@ -668,17 +647,18 @@ static bool do_asserta_2(query *q)
 		convert_to_literal(q->st.m, h);
 
 	if (!is_interned(h)) {
-		prolog_unlock(q->pl);
 		return throw_error(q, h, q->latest_ctx, "type_error", "callable");
 	}
 
+	prolog_lock(q->pl);
 	rule *r = asserta_to_db(q->st.m, p->cl->nbr_vars, p->cl->cells, 0);
 	prolog_unlock(q->pl);
 
+	p->cl->cidx = 0;
+	parser_destroy(p);
+
 	if (!r)
 		return throw_error(q, h, q->st.curr_frame, "permission_error", "modify,static_procedure");
-
-	p->cl->cidx = 0;
 
 	if (!is_var(p2)) {
 		uuid u;
@@ -728,21 +708,18 @@ static bool do_assertz_2(query *q)
 		}
 	}
 
-	prolog_lock(q->pl);
 	cell *body = get_body(p1);
 
 	if (body)
 		body = deref(q, body, p1_ctx);
 
 	if (body && !is_callable(body)) {
-		prolog_unlock(q->pl);
 		return throw_error(q, body, q->latest_ctx, "type_error", "callable");
 	}
 
 	cell *tmp2;
 
 	if (body && ((tmp2 = check_body_callable(body)) != NULL)) {
-		prolog_unlock(q->pl);
 		return throw_error(q, tmp2, q->latest_ctx, "type_error", "callable");
 	}
 
@@ -750,12 +727,13 @@ static bool do_assertz_2(query *q)
 	check_heap_error(init_tmp_heap(q));
 	cell *tmp = deep_copy_to_tmp(q, p1, p1_ctx, false);
 	check_heap_error(tmp);
+
 	pl_idx nbr_cells = tmp->nbr_cells;
-	parser *p = q->st.m->p;
+	parser *p = parser_create(q->st.m);
 
 	if (nbr_cells > p->cl->nbr_allocated_cells) {
 		p->cl = realloc(p->cl, sizeof(clause)+(sizeof(cell)*(nbr_cells+1)));
-		check_heap_error(p->cl);
+		check_heap_error(p->cl, prolog_unlock(q->pl));
 		p->cl->nbr_allocated_cells = nbr_cells;
 	}
 
@@ -768,17 +746,18 @@ static bool do_assertz_2(query *q)
 		convert_to_literal(q->st.m, h);
 
 	if (!is_interned(h)) {
-		prolog_unlock(q->pl);
 		return throw_error(q, h, q->latest_ctx, "type_error", "callable");
 	}
 
+	prolog_lock(q->pl);
 	rule *r = assertz_to_db(q->st.m, p->cl->nbr_vars, p->cl->cells, false);
 	prolog_unlock(q->pl);
 
+	p->cl->cidx = 0;
+	parser_destroy(p);
+
 	if (!r)
 		return throw_error(q, h, q->st.curr_frame, "permission_error", "modify,static_procedure");
-
-	p->cl->cidx = 0;
 
 	if (!is_var(p2)) {
 		uuid u;
@@ -817,7 +796,8 @@ void save_db(FILE *fp, query *q, int logging)
 	q->listing = true;
 	q->double_quotes = true;
 
-	for (predicate *pr = q->st.m->head; pr; pr = pr->next) {
+	for (predicate *pr = (predicate*)list_front(&q->st.m->predicates);
+		pr; pr = (predicate*)list_next(pr)) {
 		if (pr->is_prebuilt)
 			continue;
 
@@ -827,7 +807,7 @@ void save_db(FILE *fp, query *q, int logging)
 			continue;
 
 		for (rule *r = pr->head; r; r = r->next) {
-			if (r->cl.dbgen_erased)
+			if (r->cl.dbgen_retracted)
 				continue;
 
 			if (logging)
@@ -860,7 +840,6 @@ static bool bif_abolish_2(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 	GET_NEXT_ARG(p2,iso_list_or_nil);
-	prolog_lock(q->pl);
 
 	if (!is_var(p1)) {
 		if (p1->val_off == g_colon_s) {
@@ -868,8 +847,6 @@ static bool bif_abolish_2(query *q)
 			p1 += p1->nbr_cells;
 		}
 	}
-
-	prolog_unlock(q->pl);
 
 	if (p1->arity != 2)
 		return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
@@ -937,13 +914,10 @@ static bool bif_abolish_2(query *q)
 			return throw_error(q, p2, p2_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
 	}
 
-	prolog_lock(q->pl);
-
 	if (!force) {
 		bool found = false;
 
 		if (get_builtin(q->pl, C_STR(q, p1_name), C_STRLEN(q, p1_name), get_smallint(p1_arity), &found, NULL), found) {
-			prolog_unlock(q->pl);
 			return throw_error(q, p1, p1_ctx, "permission_error", "modify,static_procedure");
 		}
 	}
@@ -952,8 +926,8 @@ static bool bif_abolish_2(query *q)
 	tmp = *p1_name;
 	tmp.arity = get_smallint(p1_arity);
 	CLR_OP(&tmp);
+
 	bool ok = do_abolish(q, p1, &tmp, true);
-	prolog_unlock(q->pl);
 	return ok;
 }
 
@@ -961,9 +935,7 @@ bool do_erase(module* m, const char *str)
 {
 	uuid u;
 	uuid_from_buf(str, &u);
-	module_lock(m);
 	erase_from_db(m, &u);
-	module_unlock(m);
 	return true;
 }
 
@@ -971,6 +943,17 @@ static bool bif_erase_1(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
 	return do_erase(q->st.m, C_STR(q, p1));
+}
+
+static bool bif_instance_2(query *q)
+{
+	GET_FIRST_ARG(p1,atom);
+	GET_NEXT_ARG(p2,any);
+	uuid u;
+	uuid_from_buf(C_STR(q, p1), &u);
+	rule *r = find_in_db(q->st.m, &u);
+	check_heap_error(r);
+	return unify(q, p2, p2_ctx, r->cl.cells, q->st.curr_frame);
 }
 
 static bool bif_sys_retract_on_backtrack_1(query *q)
@@ -1005,6 +988,7 @@ builtins g_database_bifs[] =
 	{"erase", 1, bif_erase_1, "+string", false, false, BLAH},
 	{"clause", 3, bif_clause_3, "?term,?term,-string", false, false, BLAH},
 	{"abolish", 2, bif_abolish_2, "+term,+list", false, false, BLAH},
+	{"instance", 2, bif_instance_2, "+string,?term", false, false, BLAH},
 
 	{"$asserta", 2, bif_sys_asserta_2, "+term,+atom", true, false, BLAH},
 	{"$assertz", 2, bif_sys_assertz_2, "+term,+atom", true, false, BLAH},

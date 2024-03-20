@@ -362,7 +362,8 @@ predicate *search_predicate(module *m, cell *c, bool *prebuilt)
 	}
 
 
-	for (module *tmp_m = m->pl->modules; tmp_m; tmp_m = tmp_m->next) {
+	for (module *tmp_m = (module*)list_front(&m->pl->modules);
+		tmp_m; tmp_m = (module*)list_next(tmp_m)) {
 		if (m == tmp_m)
 			continue;
 
@@ -400,18 +401,10 @@ predicate *create_predicate(module *m, cell *c, bool *created)
 	if (!pr) {
 		pr = calloc(1, sizeof(predicate));
 		ensure(pr);
-		pr->prev = m->tail;
+		list_push_back(&m->predicates, pr);
 
 		if (created)
 			*created = true;
-
-		if (m->tail)
-			m->tail->next = pr;
-
-		m->tail = pr;
-
-		if (!m->head)
-			m->head = pr;
 
 		pr->filename = m->filename;
 		pr->m = m;
@@ -422,20 +415,6 @@ predicate *create_predicate(module *m, cell *c, bool *created)
 		sl_app(m->index, &pr->key, pr);
 		return pr;
 	}
-
-#if 0
-	rule *r = pr->dirty_list;
-
-	while (r) {
-		delink(pr, r);
-		rule *save = r;
-		r = r->dirty;
-		clear_clause(&save->cl);
-		free(save);
-	}
-
-	pr->dirty_list = NULL;
-#endif
 
 	pr->is_abolished = false;
 	return pr;
@@ -460,6 +439,7 @@ static void destroy_predicate(module *m, predicate *pr)
 		free(pr->meta_args);
 	}
 
+	list_remove(&m->predicates, pr);
 	free(pr);
 }
 
@@ -494,7 +474,8 @@ bool search_goal_expansion(module *m, cell *c)
 	}
 
 
-	for (module *tmp_m = m->pl->modules; tmp_m; tmp_m = tmp_m->next) {
+	for (module *tmp_m = (module*)list_front(&m->pl->modules);
+		tmp_m; tmp_m = (module*)list_next(tmp_m)) {
 		if (m == tmp_m)
 			continue;
 
@@ -687,13 +668,15 @@ int index_cmpkey(const void *ptr1, const void *ptr2, const void *param, void *l)
 
 rule *find_in_db(module *m, uuid *ref)
 {
-	for (m = m->pl->modules; m; m = m->next) {
-		for (predicate *pr = m->head; pr; pr = pr->next) {
+	for (module *tmp_m = (module*)list_front(&m->pl->modules);
+		tmp_m; tmp_m = (module*)list_next(tmp_m)) {
+		for (predicate *pr = (predicate*)list_front(&m->predicates);
+			pr; pr = (predicate*)list_next(pr)) {
 			if (!pr->is_dynamic)
 				continue;
 
 			for (rule *r = pr->head ; r; r = r->next) {
-				if (r->cl.dbgen_erased)
+				if (r->cl.dbgen_retracted)
 					continue;
 
 				if (!memcmp(&r->u, ref, sizeof(uuid)))
@@ -727,14 +710,6 @@ void push_template(module *m, const char *name, unsigned arity, const builtins *
 	p->internal = true;
 	tokenize(p, false, false);
 	parser_destroy(p);
-}
-
-rule *erase_from_db(module *m, uuid *ref)
-{
-	rule *r = find_in_db(m, ref);
-	if (!r) return 0;
-	r->cl.dbgen_erased = ++m->pl->dbgen;
-	return r;
 }
 
 void set_discontiguous_in_db(module *m, const char *name, unsigned arity)
@@ -1413,7 +1388,7 @@ static void optimize_rule(module *m, rule *dbe_orig)
 	dbe_orig->cl.is_unique = false;
 
 	for (rule *r = dbe_orig->next; r; r = r->next) {
-		if (r->cl.dbgen_erased)
+		if (r->cl.dbgen_retracted)
 			continue;
 
 		cell *head2 = get_head(r->cl.cells);
@@ -1582,7 +1557,7 @@ static void assert_commit(module *m, rule *r, predicate *pr, bool append)
 		for (rule *cl2 = pr->head; cl2; cl2 = cl2->next) {
 			cell *c = get_head(cl2->cl.cells);
 
-			if (cl2->cl.dbgen_erased)
+			if (cl2->cl.dbgen_retracted)
 				continue;
 
 			sl_app(pr->idx, c, cl2);
@@ -1683,10 +1658,10 @@ rule *assertz_to_db(module *m, unsigned nbr_vars, cell *p1, bool consulting)
 
 static bool remove_from_predicate(module *m, predicate *pr, rule *r)
 {
-	if (r->cl.dbgen_erased)
+	if (r->cl.dbgen_retracted)
 		return false;
 
-	r->cl.dbgen_erased = ++m->pl->dbgen;
+	r->cl.dbgen_retracted = ++m->pl->dbgen;
 	r->filename = NULL;
 	pr->cnt--;
 
@@ -1703,10 +1678,16 @@ void retract_from_db(module *m, rule *r)
 {
 	predicate *pr = r->owner;
 
-	if (remove_from_predicate(m, pr, r)) {
-		r->dirty = pr->dirty_list;
-		pr->dirty_list = r;
-	}
+	if (remove_from_predicate(m, pr, r))
+		list_push_back(&pr->dirty, r);
+}
+
+rule *erase_from_db(module *m, uuid *ref)
+{
+	rule *r = find_in_db(m, ref);
+	if (!r) return 0;
+	retract_from_db(m, r);
+	return r;
 }
 
 static void xref_cell(module *m, clause *cl, cell *c, int last_was_colon, bool is_directive)
@@ -1775,7 +1756,8 @@ void xref_clause(module *m, clause *cl)
 
 void xref_db(module *m)
 {
-	for (predicate *pr = m->head; pr; pr = pr->next) {
+	for (predicate *pr = (predicate*)list_front(&m->predicates);
+		pr; pr = (predicate*)list_next(pr)) {
 		if (pr->is_processed)
 			continue;
 
@@ -1840,20 +1822,20 @@ module *load_text(module *m, const char *src, const char *filename)
 
 static bool unload_realfile(module *m, const char *filename)
 {
-	for (predicate *pr = m->head; pr; pr = pr->next) {
+	for (predicate *pr = (predicate*)list_front(&m->predicates);
+		pr; pr = (predicate*)list_next(pr)) {
 		if (pr->filename && strcmp(pr->filename, filename))
 			continue;
 
 		for (rule *r = pr->head; r; r = r->next) {
-			if (r->cl.dbgen_erased)
+			if (r->cl.dbgen_retracted)
 				continue;
 
 			if (r->filename && !strcmp(r->filename, filename)) {
 				if (!remove_from_predicate(m, pr, r))
 					continue;
 
-				r->dirty = pr->dirty_list;
-				pr->dirty_list = r;
+				list_push_back(&pr->dirty, r);
 				pr->is_processed = false;
 			}
 		}
@@ -2025,8 +2007,10 @@ module *load_file(module *m, const char *filename, bool including)
 			if (!sl_get(str->alias, "user_input", NULL))
 				continue;
 
-			for (predicate *pr = m->head; pr; pr = pr->next)
+			for (predicate *pr = (predicate*)list_front(&m->predicates);
+				pr; pr = (predicate*)list_next(pr)) {
 				pr->is_reload = true;
+			}
 
 			// Process extra input line text...
 
@@ -2165,12 +2149,13 @@ static void module_save_fp(module *m, FILE *fp, int canonical, int dq)
 	q.pl = m->pl;
 	q.st.m = m;
 
-	for (predicate *pr = m->head; pr; pr = pr->next) {
+	for (predicate *pr = (predicate*)list_front(&m->predicates);
+		pr; pr = (predicate*)list_next(pr)) {
 		if (pr->is_prebuilt)
 			continue;
 
 		for (rule *r = pr->head; r; r = r->next) {
-			if (r->cl.dbgen_erased)
+			if (r->cl.dbgen_retracted)
 				continue;
 
 			if (canonical)
@@ -2214,23 +2199,10 @@ void module_destroy(module *m)
 
 	sl_done(iter);
 	sl_destroy(m->ops);
+	predicate *pr;
 
-	for (predicate *pr = m->head; pr;) {
-		predicate *save = pr;
-		pr = pr->next;
-		destroy_predicate(m, save);
-	}
-
-	if (m->pl->modules == m) {
-		m->pl->modules = m->next;
-	} else {
-		for (module *tmp = m->pl->modules; tmp; tmp = tmp->next) {
-			if (tmp->next == m) {
-				tmp->next = m->next;
-				break;
-			}
-		}
-	}
+	while ((pr = (predicate*)list_front(&m->predicates)) != NULL)
+		destroy_predicate(m, pr);
 
 	if (m->fp)
 		fclose(m->fp);
@@ -2244,6 +2216,7 @@ void module_destroy(module *m)
 	sl_destroy(m->index);
 	parser_destroy(m->p);
 	clear_loaded(m);
+	list_remove(&m->pl->modules, m);
 	free(m);
 }
 
@@ -2296,6 +2269,7 @@ module *module_create(prolog *pl, const char *name)
 	if (!m->name || !m->p || m->error || !p) {
 		module_destroy(m);
 		m = NULL;
+		return m;
 	}
 
 	set_discontiguous_in_db(m, "term_expansion", 2);
@@ -2311,7 +2285,6 @@ module *module_create(prolog *pl, const char *name)
 	set_dynamic_in_db(m, "$bb_key", 3);
 
 	init_lock(&m->guard);
-	m->next = pl->modules;
-	pl->modules = m;
+	list_push_back(&pl->modules, m);
 	return m;
 }

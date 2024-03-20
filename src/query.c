@@ -19,7 +19,7 @@
 #else
 static void msleep(int ms)
 {
-	struct timespec tv;
+	struct timespec tv = {0};
 	tv.tv_sec = (ms) / 1000;
 	tv.tv_nsec = ((ms) % 1000) * 1000 * 1000;
 	nanosleep(&tv, &tv);
@@ -36,7 +36,7 @@ static const unsigned INITIAL_NBR_TRAILS = 32000;
 static const unsigned INITIAL_NBR_CHOICES = 8000;
 static const unsigned INITIAL_NBR_CELLS = 1000;
 
-volatile int g_tpl_interrupt = 0;
+int g_tpl_interrupt = 0;
 
 typedef enum { CALL, EXIT, REDO, NEXT, FAIL } box_t;
 
@@ -70,35 +70,19 @@ static void trace_call(query *q, cell *c, pl_idx c_ctx, box_t box)
 	if (!c || is_empty(c))
 		return;
 
-#if 1
 	if (is_builtin(c) && c->bif_ptr && !c->bif_ptr->fn)
 		return;
-#endif
 
-#if 0
-	if (is_builtin(c))
-		return;
-#endif
-
-#if 1
 	if (c->val_off == g_sys_drop_barrier_s)
 		return;
-#endif
 
 	if (box == CALL)
 		box = q->retry?REDO:CALL;
 
 	const char *src = C_STR(q, c);
 
-#if 1
 	if (!strcmp(src, ","))
 		return;
-#endif
-
-#if 0
-	if (!strcmp(src, ";") || !strcmp(src, "->") || !strcmp(src, "*->"))
-		return;
-#endif
 
 	q->step++;
 	SB(pr);
@@ -396,7 +380,7 @@ static void leave_predicate(query *q, predicate *pr)
 {
 	q->st.recursive = false;
 
-	if (!pr || !pr->is_dynamic || !pr->refcnt)
+	if (!pr->is_dynamic || !pr->refcnt)
 		return;
 
 	module_lock(pr->m);
@@ -408,49 +392,42 @@ static void leave_predicate(query *q, predicate *pr)
 
 	// Predicate is no longer being used
 
-	if (!pr->dirty_list) {
+	if (!list_count(&pr->dirty)) {
 		module_unlock(pr->m);
 		return;
 	}
 
-	if (!pr->is_abolished) {
-		// Just because this predicate is no longer in use doesn't
-		// mean there are no shared references to terms contained
-		// within. So move items on the predicate dirty-list to the
-		// query dirty-list. They will be freed up at end of the query.
-		// FIXME: this is a memory drain.
+	if (pr->is_abolished) {
+		rule *r;
 
-		while (pr->dirty_list) {
-			delink(pr, pr->dirty_list);
-
-			if (pr->idx && pr->cnt) {
-				//predicate *pr = pr->dirty_list->owner;
-				sl_remove(pr->idx2, pr->dirty_list);
-				sl_remove(pr->idx, pr->dirty_list);
-			}
-
-			pr->dirty_list->cl.is_deleted = true;
-			rule *save = pr->dirty_list->dirty;
-			pr->dirty_list->dirty = q->dirty_list;
-			q->dirty_list = pr->dirty_list;
-			pr->dirty_list = save;
+		while ((r = (rule*)list_pop_front(&pr->dirty)) != NULL) {
+			list_delink(pr, r);
+			clear_clause(&r->cl);
+			free(r);
 		}
 
-		pr->dirty_list = NULL;
+		module_unlock(pr->m);
+		return;
+	}
 
-		if (pr->idx && !pr->cnt) {
-			sl_destroy(pr->idx2);
-			sl_destroy(pr->idx);
-			pr->idx = pr->idx2 = NULL;
-		}
-	} else {
-		while (pr->dirty_list) {
-			delink(pr, pr->dirty_list);
-			rule *save = pr->dirty_list;
-			pr->dirty_list = pr->dirty_list->dirty;
-			clear_clause(&save->cl);
-			free(save);
-		}
+	// Just because this predicate is no longer in use doesn't
+	// mean there are no shared references to terms contained
+	// within. So move items on the predicate dirty-list to the
+	// query dirty-list. They will be freed up at end of the query.
+	// FIXME: this is a memory drain.
+
+	rule *r;
+
+	while ((r = (rule*)list_pop_front(&pr->dirty)) != NULL) {
+		list_delink(pr, r);
+		r->cl.is_deleted = true;
+		list_push_back(&q->dirty, r);
+	}
+
+	if (pr->idx && !pr->cnt) {
+		sl_destroy(pr->idx2);
+		sl_destroy(pr->idx);
+		pr->idx = pr->idx2 = NULL;
 	}
 
 	module_unlock(pr->m);
@@ -937,7 +914,7 @@ int create_vars(query *q, unsigned cnt)
 		return f->actual_slots;
 
 	if ((f->actual_slots + cnt) > MAX_LOCAL_VARS) {
-		printf("*** Ooops %s %d\n", __FILE__, __LINE__);
+		printf("*** Oops %s %d\n", __FILE__, __LINE__);
 		return -1;
 	}
 
@@ -954,7 +931,7 @@ int create_vars(query *q, unsigned cnt)
 		pl_idx cnt2 = f->actual_slots - f->initial_slots;
 
 		if (!check_slot(q, cnt2)) {
-			printf("*** Ooops %s %d\n", __FILE__, __LINE__);
+			printf("*** Oops %s %d\n", __FILE__, __LINE__);
 			return -1;
 		}
 
@@ -963,7 +940,7 @@ int create_vars(query *q, unsigned cnt)
 	}
 
 	if (!check_slot(q, cnt)) {
-		printf("*** Ooops %s %d\n", __FILE__, __LINE__);
+		printf("*** Oops %s %d\n", __FILE__, __LINE__);
 		return -1;
 	}
 
@@ -985,7 +962,7 @@ static bool can_view(query *q, uint64_t dbgen, const rule *r)
 	if (r->cl.dbgen_created > dbgen)
 		return false;
 
-	if (r->cl.dbgen_erased && (r->cl.dbgen_erased <= dbgen))
+	if (r->cl.dbgen_retracted && (r->cl.dbgen_retracted <= dbgen))
 		return false;
 
 	return true;
@@ -1329,8 +1306,8 @@ bool match_rule(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract)
 		undo_me(q);
 	}
 
-	drop_choice(q);
 	leave_predicate(q, q->st.pr);
+	drop_choice(q);
 	return false;
 }
 
@@ -1420,8 +1397,8 @@ bool match_clause(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract
 		undo_me(q);
 	}
 
-	drop_choice(q);
 	leave_predicate(q, q->st.pr);
+	drop_choice(q);
 	return false;
 }
 
@@ -1857,10 +1834,9 @@ bool execute(query *q, cell *cells, unsigned nbr_vars)
 static void query_purge_dirty_list(query *q)
 {
 	unsigned cnt = 0;
+	rule *r;
 
-	while (q->dirty_list) {
-		rule *r = q->dirty_list;
-		q->dirty_list = r->dirty;
+	while ((r = (rule *)list_pop_front(&q->dirty)) != NULL) {
 		clear_clause(&r->cl);
 		free(r);
 		cnt++;
@@ -1928,7 +1904,7 @@ void query_destroy(query *q)
 	}
 #endif
 
-	module *m = q->pl->modules;
+	module *m = (module*)list_front(&q->pl->modules);
 
 	while (m) {
 		module_lock(m);
@@ -1945,7 +1921,7 @@ void query_destroy(query *q)
 
 				if (!CMP_STRING_TO_CSTR(m, arg3, "b")) {
 					pr->cnt--;
-					delink(pr, r);
+					list_delink(pr, r);
 					rule *save = r;
 					r = r->next;
 					clear_clause(&save->cl);
@@ -1956,7 +1932,7 @@ void query_destroy(query *q)
 		}
 
 		module_unlock(m);
-		m = m->next;
+		m = (module*)list_next(m);
 	}
 
 	mp_int_clear(&q->tmp_ival);
