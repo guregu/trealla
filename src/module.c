@@ -412,7 +412,7 @@ predicate *create_predicate(module *m, cell *c, bool *created)
 		pr->key.tag = TAG_INTERNED;
 		pr->key.nbr_cells = 1;
 		pr->is_noindex = m->pl->noindex || !pr->key.arity;
-		sl_app(m->index, &pr->key, pr);
+		sl_set(m->index, &pr->key, pr);
 		return pr;
 	}
 
@@ -638,7 +638,7 @@ static int index_cmpkey_(const void *ptr1, const void *ptr2, const void *param, 
 					if (sl_is_find(l))
 						break;
 
-					sl_wild_card(l);
+					sl_set_wild_card(l);
 					p1 += p1->nbr_cells;
 					p2 += p2->nbr_cells;
 					continue;
@@ -1168,7 +1168,7 @@ bool set_op(module *m, const char *name, unsigned specifier, unsigned priority)
 	tmp->priority = priority;
 	tmp->specifier = specifier;
 	m->user_ops = true;
-	sl_app(m->ops, tmp->name, tmp);
+	sl_set(m->ops, tmp->name, tmp);
 	return true;
 }
 
@@ -1560,12 +1560,12 @@ static void assert_commit(module *m, rule *r, predicate *pr, bool append)
 			if (cl2->cl.dbgen_retracted)
 				continue;
 
-			sl_app(pr->idx, c, cl2);
+			sl_set(pr->idx, c, cl2);
 
 			if (pr->idx2) {
 				cell *arg1 = FIRST_ARG(c);
 				cell *arg2 = NEXT_ARG(arg1);
-				sl_app(pr->idx2, arg2, cl2);
+				sl_set(pr->idx2, arg2, cl2);
 			}
 		}
 
@@ -1585,10 +1585,10 @@ static void assert_commit(module *m, rule *r, predicate *pr, bool append)
 		if (pr->idx2 && arg2)
 			sl_set(pr->idx2, arg2, r);
 	} else {
-		sl_app(pr->idx, c, r);
+		sl_set(pr->idx, c, r);
 
 		if (pr->idx2 && arg2)
-			sl_app(pr->idx2, arg2, r);
+			sl_set(pr->idx2, arg2, r);
 	}
 }
 
@@ -2249,7 +2249,7 @@ module *module_create(prolog *pl, const char *name)
 			op_table *tmp = malloc(sizeof(op_table));
 			ensure(tmp);
 			memcpy(tmp, ptr, sizeof(op_table));
-			sl_app(m->defops, tmp->name, tmp);
+			sl_set(m->defops, tmp->name, tmp);
 		}
 	}
 

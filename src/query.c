@@ -420,6 +420,16 @@ static void leave_predicate(query *q, predicate *pr)
 
 	while ((r = (rule*)list_pop_front(&pr->dirty)) != NULL) {
 		list_delink(pr, r);
+
+		if (pr->idx && pr->cnt) {
+			cell *c = get_head(r->cl.cells);
+			cell *arg1 = c->arity ? FIRST_ARG(c) : NULL;
+			cell *arg2 = c->arity > 1 ? NEXT_ARG(arg1) : NULL;
+			sl_rem(pr->idx2, arg2, r);
+			sl_rem(pr->idx, c, r);
+		}
+
+
 		r->cl.is_deleted = true;
 		list_push_back(&q->dirty, r);
 	}
@@ -1182,7 +1192,7 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 			sl_set_tmp(tmp_idx);
 		}
 
-		sl_app(tmp_idx, (void*)(size_t)r->db_id, (void*)r);
+		sl_set(tmp_idx, (void*)(size_t)r->db_id, (void*)r);
 	}
 
 	sl_done(iter);
