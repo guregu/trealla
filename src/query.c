@@ -933,7 +933,7 @@ int create_vars(query *q, unsigned cnt)
 		return f->actual_slots;
 
 	if ((f->actual_slots + cnt) > MAX_LOCAL_VARS) {
-		printf("*** Oops %s %d\n", __FILE__, __LINE__);
+		printf("*** OOPS %s %d\n", __FILE__, __LINE__);
 		return -1;
 	}
 
@@ -950,7 +950,7 @@ int create_vars(query *q, unsigned cnt)
 		pl_idx cnt2 = f->actual_slots - f->initial_slots;
 
 		if (!check_slot(q, cnt2)) {
-			printf("*** Oops %s %d\n", __FILE__, __LINE__);
+			printf("*** OOPS %s %d\n", __FILE__, __LINE__);
 			return -1;
 		}
 
@@ -959,7 +959,7 @@ int create_vars(query *q, unsigned cnt)
 	}
 
 	if (!check_slot(q, cnt)) {
-		printf("*** Oops %s %d\n", __FILE__, __LINE__);
+		printf("*** OOPS %s %d\n", __FILE__, __LINE__);
 		return -1;
 	}
 
@@ -1871,6 +1871,18 @@ void query_destroy(query *q)
 		return;
 
 	q->done = true;
+
+	for (page *a = q->cache_pages; a;) {
+		cell *c = a->cells;
+
+		for (pl_idx i = 0; i < a->max_idx_used; i++, c++)
+			unshare_cell(c);
+
+		page *save = a;
+		a = a->next;
+		free(save->cells);
+		free(save);
+	}
 
 	for (page *a = q->heap_pages; a;) {
 		cell *c = a->cells;
