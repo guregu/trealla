@@ -908,7 +908,7 @@ static bool bif_iso_stream_property_2(query *q)
 		return false;
 	}
 
-	clause *cl = &q->st.r->cl;
+	clause *cl = &q->st.curr_rule->cl;
 	GET_FIRST_ARG(pstrx,any);
 	pstrx->flags |= FLAG_INT_STREAM | FLAG_INT_HEX;
 	stash_frame(q, cl, false);
@@ -921,7 +921,7 @@ void convert_path(char *filename)
 
 	while (*src) {
 		if ((*src == '/') || (*src == '\\'))
-			*src = PATH_SEP_CHAR;
+			*src = '/';
 
 		src++;
 	}
@@ -6041,7 +6041,7 @@ static bool bif_make_directory_path_1(query *q)
 	struct stat st = {0};
 
 	for (char *ptr = filename+1; *ptr; ptr++) {
-		if (*ptr == PATH_SEP_CHAR) {
+		if (*ptr == '/') {
 			*ptr = '\0';
 
 			if (stat(filename, &st)) {
@@ -6051,7 +6051,7 @@ static bool bif_make_directory_path_1(query *q)
 				}
 			}
 
-			*ptr = PATH_SEP_CHAR;
+			*ptr = '/';
 		}
 	}
 

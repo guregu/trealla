@@ -41,24 +41,23 @@ typedef uint32_t pl_idx;
 #define pl_atomic volatile
 #endif
 
-#define PATH_SEP_CHAR '/'
-
 #ifdef _WIN32
 #define NEWLINE_MODE "dos"
 #else
 #define NEWLINE_MODE "posix"
 #endif
 
-#include "trealla.h"
 #include "cdebug.h"
 #include "list.h"
+#include "skiplist.h"
 #include "stringbuf.h"
 #include "threads.h"
+#include "trealla.h"
 #include "utf8.h"
+
 #include "imath/imath.h"
 #include "imath/imrat.h"
 #include "sre/re.h"
-#include "skiplist.h"
 
 #if defined(_WIN32) || defined(__wasi__)
 char *realpath(const char *path, char resolved_path[PATH_MAX]);
@@ -542,7 +541,7 @@ struct slot_ {
 struct frame_ {
 	cell *curr_instr;
 	uint64_t dbgen, chgen;
-	pl_idx prev_offset, hp;
+	pl_idx prev_offset, hp, cap;
 	pl_idx base, overflow;
 	unsigned initial_slots, actual_slots;
 	uint32_t mid;
@@ -550,9 +549,9 @@ struct frame_ {
 };
 
 struct prolog_state_ {
-	cell *curr_instr;
 	predicate *pr;
-	rule *r;
+	cell *curr_instr;
+	rule *curr_rule;
 	sliter *iter, *f_iter;
 	module *m;
 
@@ -564,7 +563,7 @@ struct prolog_state_ {
 	};
 
 	uint64_t timer_started;
-	pl_idx curr_frame, fp, hp, cp, tp, sp, heap_nbr, key_ctx;
+	pl_idx curr_frame, fp, hp, cap, cp, tp, sp, heap_nbr, cache_nbr, key_ctx;
 	float prob;
 	uint8_t qnbr;
 };
@@ -691,7 +690,7 @@ struct query_ {
 	trail *trails;
 	cell *tmp_heap, *last_arg, *variable_names, *ball, *cont, *suspect;
 	cell *queue[MAX_QUEUES], *tmpq[MAX_QUEUES];
-	page *heap_pages;
+	page *heap_pages, *cache_pages;
 	slot *save_e;
 	query *tasks;
 	skiplist *vars;
@@ -714,9 +713,9 @@ struct query_ {
 	unsigned s_cnt;
 	pl_idx tmphp, latest_ctx, popp, variable_names_ctx;
 	pl_idx frames_size, slots_size, trails_size, choices_size;
-	pl_idx hw_choices, hw_frames, hw_slots, hw_trails, hw_heap_nbr;
+	pl_idx hw_choices, hw_frames, hw_slots, hw_trails, hw_heap_nbr, hw_cache_nbr;
 	pl_idx cp, before_hook_tp, qcnt[MAX_QUEUES], ball_ctx, cont_ctx;
-	pl_idx heap_size, tmph_size, tot_heaps, tot_heapsize;
+	pl_idx heap_size, cache_size, tmph_size, tot_heaps, tot_heapsize;
 	pl_idx undo_lo_tp, undo_hi_tp;
 	pl_idx q_size[MAX_QUEUES], tmpq_size[MAX_QUEUES], qp[MAX_QUEUES];
 	prolog_flags flags;

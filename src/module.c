@@ -4,10 +4,10 @@
 #include <string.h>
 #include <sys/stat.h>
 
-#include "module.h"
-#include "parser.h"
 #include "history.h"
 #include "library.h"
+#include "module.h"
+#include "parser.h"
 #include "prolog.h"
 #include "query.h"
 
@@ -866,7 +866,7 @@ bool do_use_module_1(module *curr_m, cell *p)
 			memcpy(src, lib->start, *lib->len);
 			src[*lib->len] = '\0';
 			SB(s1);
-			SB_sprintf(s1, "library%c%s", PATH_SEP_CHAR, lib->name);
+			SB_sprintf(s1, "library%c%s", '/', lib->name);
 			m = load_text(curr_m, src, SB_cstr(s1));
 			SB_free(s1);
 			free(src);
@@ -1664,13 +1664,6 @@ static bool remove_from_predicate(module *m, predicate *pr, rule *r)
 	r->cl.dbgen_retracted = ++m->pl->dbgen;
 	r->filename = NULL;
 	pr->cnt--;
-
-	if (pr->idx && !pr->cnt && !pr->refcnt) {
-		sl_destroy(pr->idx2);
-		sl_destroy(pr->idx);
-		pr->idx = pr->idx2 = NULL;
-	}
-
 	return true;
 }
 

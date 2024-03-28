@@ -3,8 +3,28 @@
 This is a fork of [Trealla Prolog](https://github.com/trealla-prolog/trealla) for experimenting with WebAssembly/WASI.
 For more info on Trealla, check out the parent repository.
 
+<<<<<<< HEAD
 We endeavor to keep this fork as close as possible to the upstream and contribute all stable changes upstream.
 Ideally, when Wasm support is better stablized, this fork won't need to exist.
+=======
+	MIT licensed
+	Integers & Rationals are unbounded
+	Atoms are UTF-8 of unlimited length
+	The default double-quoted representation is *chars* list
+	Strings & slices are super-efficient (especially with mmap'd files)
+	REPL with history
+	Runs on Linux, Android, FreeBSD, macOS, and WebAssembly (WASI) & Go
+	API for calling from C (or by using WASM from Go & JS)
+	Foreign function interface (FFI) for calling out to user C code
+	Access SQLITE databases using builtin module (uses FFI)
+	Concurrency via tasks / linda / futures / engines (generators)
+	Pre-emptive multi-threading
+	Blackboarding primitives
+	...
+	Delimited continuations ##EXPERIMENTAL##
+	Rational trees ##EXPERIMENTAL##
+	CLP(Z) ##EXPERIMENTAL##
+>>>>>>> a7aacc08b97bbbf925c70739cd4ec9b93225affd
 
 ## Download
 
@@ -195,12 +215,15 @@ Cross-compile for Windows x64
 To cross-compile on Linux and produce a Windows/x86-64 executable...
 
 	sudo apt install mingw-w64
-	make CC=x86_64-w64-mingw32-gcc NOSSL=1 NOFFI=1 ISOCLINE=1 NOTHREADS=1
+	make WIN=1
 
 ```console
 	$ file tpl.exe
 	tpl.exe: PE32+ executable (console) x86-64, for MS Windows
 ```
+
+Some have reported success with a native Windows build using msys2.
+
 
 Cross-compile for Linux x86
 ===========================
@@ -231,7 +254,7 @@ without help from these people:
 
 Special thanks to [Xin Wang](https://github.com/dram) for providing the
 testing framework, for the initial push to get serious and for being
-the first to take this work (in it's nascent form) seriously.
+the first to take this work (in it's original form) seriously.
 
 Special thanks to [Paulo Moura](https://github.com/pmoura) for his patience
 and sleuthing in the quest for Trealla to run his Logtalk project.
@@ -472,7 +495,6 @@ Non-standard predicates
 	current_key/1
 	string_length/2
 	sleep/1                     # sleep time in secs
-	delay/1                     # sleep time in ms
 	split/4                     # split(+string,+sep,?left,?right)
 	shell/1
 	shell/2
@@ -747,11 +769,10 @@ many bytes, = 0 meaning return what is there (if non-blocking) or a var
 meaning return all bytes until end end of file,
 
 
-Simple regular expressions				##EXPERIMENTAL##
+Simple regular expressions
 ==========================
 
-This is meant as a place-holder until a proper regex package
- is included.
+This is meant as a place-holder until a proper regex package is included.
 
 	sre_compile/2				# sre_compile(+pattern,-reg)
 	sre_matchp/4				# sre_matchp(+reg,+text,-match,-rest)
@@ -836,7 +857,7 @@ file then regex searches can be performed quickly and efficiently over
 huge files.
 
 
-Foreign Function Interface (libffi)		##EXPERIMENTAL##
+Foreign Function Interface (libffi)
 ===================================
 
 Allows the loading of dynamic libraries and calling of foreign functions
@@ -916,7 +937,7 @@ Note: the foreign function return value is passed as an extra argument
 to the predicate call, unless it was specified to be of type *void*.
 
 
-Foreign Module Interface (libffi)		##EXPERIMENTAL##
+Foreign Module Interface (libffi)
 =================================
 
 This is a simplified interface to FFIs inspired by Adrián Arroyo Calle
@@ -1045,17 +1066,17 @@ For example:
 	producer :-
 		between(1, 10, I),
 			out({msg:I}),
-			delay(250),
+			sleep(0.25),
 			fail.
 	producer :-
-		forall(rd_noblock({msg:_}), delay(1)),
+		forall(rd_noblock({msg:_}), sleep(0.001)),
 		end_wait.
 
 	consumer(N) :-
 		in({msg:I}),
 		write(['consumer',N,'got=',I]), nl,
-		random(R), Ms is floor(R*1000),
-		delay(Ms),
+		random(R),
+		sleep(R),
 		fail.
 ```
 
@@ -1125,11 +1146,10 @@ engines. Uses co-operative tasks.
 Pre-emptive Multi-threading
 ===========================
 
-Start independent (shared state) Prolog queries as dedicated threads
-and communicate via message queues. Note: the database *is* shared.
-These predicates conform to the *ISO Prolog multi-threading
+Start independent (shared state) Prolog queries as dedicated POSIX
+threads and communicate via message queues. Note: the database *is*
+shared. These predicates conform to the *ISO Prolog multi-threading
 support* standards proposal (ISO/IEC DTR 13211–5:2007), now lapsed.
-
 
 	thread_create/3		# thread_create(:callable,-thread,+options)
 	thread_create/2		# thread_create(:callable,-thread)

@@ -11,7 +11,6 @@
 #include "base64.h"
 #include "heap.h"
 #include "history.h"
-#include "library.h"
 #include "module.h"
 #include "parser.h"
 #include "prolog.h"
@@ -126,7 +125,7 @@ static cell *nodesort(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool keysor
 	return l;
 }
 
-bool bif_iso_sort_2(query *q)
+static bool bif_iso_sort_2(query *q)
 {
 	GET_FIRST_ARG(p1,list_or_nil);
 	GET_NEXT_ARG(p2,list_or_nil_or_var);
@@ -170,7 +169,7 @@ bool bif_iso_sort_2(query *q)
 	return unify(q, p2, p2_ctx, l, q->st.curr_frame);
 }
 
-bool bif_iso_msort_2(query *q)
+static bool bif_iso_msort_2(query *q)
 {
 	GET_FIRST_ARG(p1,list_or_nil);
 	GET_NEXT_ARG(p2,list_or_nil_or_var);
@@ -214,7 +213,7 @@ bool bif_iso_msort_2(query *q)
 	return unify(q, p2, p2_ctx, l, q->st.curr_frame);
 }
 
-bool bif_iso_keysort_2(query *q)
+static bool bif_iso_keysort_2(query *q)
 {
 	GET_FIRST_ARG(p1,list_or_nil);
 	GET_NEXT_ARG(p2,list_or_nil_or_var);
@@ -314,7 +313,7 @@ static cell *nodesort4(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool ascen
 	return l;
 }
 
-bool bif_sort_4(query *q)
+static bool bif_sort_4(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
 	GET_NEXT_ARG(p2,atom);
@@ -381,6 +380,8 @@ builtins g_sort_bifs[] =
 	{"sort", 2, bif_iso_sort_2, "+list,?list", true, false, BLAH},
 	{"msort", 2, bif_iso_msort_2, "+list,?list", true, false, BLAH},
 	{"keysort", 2, bif_iso_keysort_2, "+list,?list", true, false, BLAH},
+
+	{"sort", 4, bif_sort_4, "+integer,+atom,+list,?list", false, false, BLAH},
 
 	{0}
 };

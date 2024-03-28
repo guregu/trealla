@@ -476,8 +476,8 @@ void dump_vars(query *q, bool partial)
 		q->tab_idx = 0;
 		cell p1;
 		make_atom(&p1, new_atom(q->pl, "dump_attvars"));
-		cell *tmp = prepare_call(q, false, &p1, q->st.curr_frame, 1);
-		pl_idx nbr_cells = NOPREFIX_LEN + p1.nbr_cells;
+		cell *tmp = prepare_call(q, NOPREFIX_LEN, &p1, q->st.curr_frame, 1);
+		pl_idx nbr_cells = p1.nbr_cells;
 		make_end(tmp+nbr_cells);
 		q->st.curr_instr = tmp;
 		q->in_attvar_print = true;
