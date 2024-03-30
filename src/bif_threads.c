@@ -7,7 +7,6 @@
 #include <sys/stat.h>
 
 #include "heap.h"
-#include "list.h"
 #include "module.h"
 #include "parser.h"
 #include "prolog.h"
@@ -802,7 +801,7 @@ void do_signal(query *q, void *thread_ptr)
 	cell *c = deep_copy_to_heap(q, m->c, q->st.fp, false);	// Copy into thread
 	unshare_cells(c, c->nbr_cells);
 	free(m);
-	cell *tmp = prepare_call(q, true, c, q->st.curr_frame, 1);
+	cell *tmp = prepare_call(q, PREFIX_LEN, c, q->st.curr_frame, 1);
 	ensure(tmp);
 	pl_idx nbr_cells = PREFIX_LEN + c->nbr_cells;
 	make_call_redo(q, tmp+nbr_cells);

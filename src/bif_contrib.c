@@ -2,8 +2,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "trealla.h"
-#include "internal.h"
 #include "query.h"
 #include "heap.h"
 #include "prolog.h"

@@ -4,10 +4,10 @@
 #include <string.h>
 #include <sys/stat.h>
 
-#include "module.h"
-#include "parser.h"
 #include "history.h"
 #include "library.h"
+#include "module.h"
+#include "parser.h"
 #include "prolog.h"
 #include "query.h"
 
@@ -805,9 +805,9 @@ static bool is_check_directive(const cell *c)
 	return false;
 }
 
-bool do_use_module_1(module *curr_m, cell *p)
+bool do_use_module_1(module *curr_m, cell *c)
 {
-	cell *p1 = p + 1;
+	cell *p1 = c + 1;
 	const char *name = C_STR(curr_m, p1);
 	char dstbuf[1024*4];
 	bool is_library = false;
@@ -866,7 +866,7 @@ bool do_use_module_1(module *curr_m, cell *p)
 			memcpy(src, lib->start, *lib->len);
 			src[*lib->len] = '\0';
 			SB(s1);
-			SB_sprintf(s1, "library%c%s", PATH_SEP_CHAR, lib->name);
+			SB_sprintf(s1, "library%c%s", '/', lib->name);
 			m = load_text(curr_m, src, SB_cstr(s1));
 			SB_free(s1);
 			free(src);
@@ -926,13 +926,13 @@ bool do_use_module_1(module *curr_m, cell *p)
 	return true;
 }
 
-bool do_use_module_2(module *curr_m, cell *p)
+bool do_use_module_2(module *curr_m, cell *c)
 {
-	cell *p1 = p + 1;
+	cell *p1 = c + 1;
 	cell *p2 = p1 + p1->nbr_cells;
 	LIST_HANDLER(p2);
 
-	if (!do_use_module_1(curr_m, p))
+	if (!do_use_module_1(curr_m, c))
 		return false;
 
 	while (is_iso_list(p2)) {
@@ -1664,13 +1664,6 @@ static bool remove_from_predicate(module *m, predicate *pr, rule *r)
 	r->cl.dbgen_retracted = ++m->pl->dbgen;
 	r->filename = NULL;
 	pr->cnt--;
-
-	if (pr->idx && !pr->cnt && !pr->refcnt) {
-		sl_destroy(pr->idx2);
-		sl_destroy(pr->idx);
-		pr->idx = pr->idx2 = NULL;
-	}
-
 	return true;
 }
 
@@ -1815,7 +1808,7 @@ module *load_text(module *m, const char *src, const char *filename)
 	}
 
 	module *save_m = p->m;
-	p->m->filename = save_filename;
+	m->filename = save_filename;
 	parser_destroy(p);
 	return save_m;
 }

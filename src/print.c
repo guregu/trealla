@@ -765,7 +765,7 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 			if (is_var(tail)) {
 				print_variable(q, tail, tail_ctx, running);
 			} else {
-				visit *me = malloc(sizeof(visit));;
+				visit *me = malloc(sizeof(visit));
 				me->next = visited;
 				me->c = tail;
 				me->c_ctx = tail_ctx;
@@ -1088,7 +1088,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 			}
 
 			SB_strcatn(q->sb, src, len_str);
-			q->last_thing = is_symbol ? WAS_SYMBOL : WAS_OTHER;;
+			q->last_thing = is_symbol ? WAS_SYMBOL : WAS_OTHER;
 		}
 
 		SB_sprintf(q->sb, "%s", !braces&&quote?dq?"\"":"'":"");

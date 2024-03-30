@@ -9,7 +9,6 @@
 #include "base64.h"
 #include "heap.h"
 #include "history.h"
-#include "library.h"
 #include "module.h"
 #include "parser.h"
 #include "prolog.h"
@@ -140,7 +139,7 @@ static bool bif_iso_findall_3(query *q)
 		if (q->st.qnbr == MAX_QUEUES)
 			return throw_error(q, p2, p2_ctx, "resource_error", "max_queues");
 
-		cell *tmp = prepare_call(q, true, p2, p2_ctx, 1+p1->nbr_cells+2);
+		cell *tmp = prepare_call(q, PREFIX_LEN, p2, p2_ctx, 1+p1->nbr_cells+2);
 		check_heap_error(tmp, drop_queuen(q));
 		pl_idx nbr_cells = PREFIX_LEN + p2->nbr_cells;
 		make_struct(tmp+nbr_cells++, g_sys_queue_s, bif_sys_queue_1, 1, p1->nbr_cells);
@@ -252,7 +251,7 @@ static bool bif_iso_notunify_2(query *q)
 	cell tmp2;
 	make_struct(&tmp2, g_unify_s, bif_iso_unify_2, 2, 0);
 	SET_OP(&tmp2, OP_XFX);
-	cell *tmp = prepare_call(q, true, &tmp2, q->st.curr_frame, p1->nbr_cells+p2->nbr_cells+4);
+	cell *tmp = prepare_call(q, PREFIX_LEN, &tmp2, q->st.curr_frame, p1->nbr_cells+p2->nbr_cells+4);
 	pl_idx nbr_cells = PREFIX_LEN;
 	tmp[nbr_cells++].nbr_cells += p1->nbr_cells+p2->nbr_cells;
 	dup_cells_by_ref(tmp+nbr_cells, p1, p1_ctx, p1->nbr_cells);
@@ -1043,7 +1042,7 @@ static bool bif_hex_bytes_2(query *q)
 			return throw_error(q, p1, p1_ctx, "type_error", "char");
 
 		const char *src = C_STR(q, h);
-		int n = peek_char_utf8(src);;
+		int n = peek_char_utf8(src);
 		unsigned val = 0;
 
 		if (isdigit(n))
@@ -1071,7 +1070,7 @@ static bool bif_hex_bytes_2(query *q)
 			return throw_error(q, p1, p1_ctx, "type_error", "char");
 
 		src = C_STR(q, h);
-		n = peek_char_utf8(src);;
+		n = peek_char_utf8(src);
 
 		if (isdigit(n))
 			val += n - '0';
@@ -2306,7 +2305,7 @@ static bool bif_call_residue_vars_2(query *q)
 	if (is_iso_list(p2) && !check_list(q, p2, p2_ctx, &is_partial, NULL))
 		return throw_error(q, p2, p2_ctx, "type_error", "list");
 
-	cell *tmp = prepare_call(q, true, p1, p1_ctx, 6);
+	cell *tmp = prepare_call(q, PREFIX_LEN, p1, p1_ctx, 6);
 	check_heap_error(tmp);
 	tmp[1].flags &= ~FLAG_TAIL_CALL;
 	pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
@@ -2865,7 +2864,7 @@ static bool bif_listing_0(query *q)
 
 static void save_name(FILE *fp, query *q, pl_idx name, unsigned arity)
 {
-	module *m = q->st.r ? q->st.r->owner->m : q->st.m;
+	module *m = q->st.curr_rule ? q->st.curr_rule->owner->m : q->st.m;
 	q->listing = true;
 
 	for (predicate *pr = (predicate*)list_front(&m->predicates);
@@ -3384,7 +3383,7 @@ static bool bif_time_1(query *q)
 
 	bif_sys_timer_0(q);
 	GET_FIRST_ARG(p1,callable);
-	cell *tmp = prepare_call(q, true, p1, p1_ctx, 4);
+	cell *tmp = prepare_call(q, PREFIX_LEN, p1, p1_ctx, 4);
 	pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_sys_elapsed_s, bif_sys_elapsed_0, 0, 0);
 	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
@@ -3439,22 +3438,22 @@ static bool bif_statistics_0(query *q)
 		"choices %u, "
 		"trails %u, "
 		"slots %u, "
-		"heap pages %u.\n"
+		"heap/cache %u/%u.\n"
 		"Active frames %u, "
 		"choices %u, "
 		"trails %u, "
 		"slots %u, "
-		"heap pages %u.\n"
+		"heap/cache %u/%u.\n"
 		"Backtracks %"PRIu64", "
 		"TCOs:%"PRIu64", "
-		"Recovered frames: %"PRIu64", "
-		"slots: %"PRIu64", "
 		"Queue: %u\n",
 		q->tot_inferences, q->tot_matches,
-		q->hw_frames, q->hw_choices, q->hw_trails, q->hw_slots, q->hw_heap_nbr,
+		q->hw_frames, q->hw_choices, q->hw_trails, q->hw_slots,
+		q->hw_heap_nbr, q->hw_cache_nbr,
 		q->st.fp, q->cp, q->st.tp, q->st.sp,
-		q->st.heap_nbr, q->tot_retries, q->tot_tcos,
-		q->tot_frecovs, q->tot_srecovs, (unsigned)q->qcnt[q->st.qnbr]
+		q->st.heap_nbr, q->st.cache_nbr,
+		q->tot_retries, q->tot_tcos,
+		(unsigned)q->qcnt[q->st.qnbr]
 		);
 	return true;
 }
@@ -3507,7 +3506,7 @@ static bool bif_statistics_2(query *q)
 	return false;
 }
 
-static bool bif_sys_msleep_1(query *q)
+static bool bif_sleep_1(query *q)
 {
 	if (q->retry)
 		return true;
@@ -3521,9 +3520,9 @@ static bool bif_sys_msleep_1(query *q)
 		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
 
 	if (q->is_task)
-		return do_yield(q, get_smallint(p1));
+		return do_yield(q, get_smallint(p1)*1000);
 
-	int ms = is_float(p1) ? (int)get_float(p1) : get_smallint(p1);
+	int ms = (is_float(p1) ? (double)get_float(p1) : (double)get_smallint(p1)) * 1000;
 
 	while ((ms > 0) && !q->halt) {
 		CHECK_INTERRUPT();
@@ -3594,66 +3593,6 @@ static bool bif_cpu_time_1(query *q)
 	cell tmp;
 	make_float(&tmp, (pl_flt)v);
 	return unify (q, p1, p1_ctx, &tmp, q->st.curr_frame);
-}
-
-bool bif_sys_set_if_var_2(query *q)
-{
-	GET_FIRST_ARG(p1,any);
-	GET_NEXT_ARG(p2,any);
-
-	if (!is_var(p1))
-		return true;
-
-	return unify(q, p1, p1_ctx, p2, p2_ctx);
-}
-
-static bool bif_between_3(query *q)
-{
-	GET_FIRST_ARG(p1,integer);
-	GET_NEXT_ARG(p2,integer);
-	GET_NEXT_ARG(p3,integer_or_var);
-
-	if (is_bigint(p1))
-		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
-
-	if (is_bigint(p2))
-		return throw_error(q, p2, p1_ctx, "domain_error", "small_integer_range");
-
-	if (is_bigint(p3))
-		return throw_error(q, p3, p3_ctx, "domain_error", "small_integer_range");
-
-	if (!q->retry) {
-		if (get_smallint(p1) > get_smallint(p2))
-			return false;
-
-		if (!is_var(p3)) {
-			if (get_smallint(p3) > get_smallint(p2))
-				return false;
-
-			if (get_smallint(p3) < get_smallint(p1))
-				return false;
-
-			return true;
-		}
-
-		if (get_smallint(p1) != get_smallint(p2)) {
-			q->st.cnt = get_smallint(p1);
-			check_heap_error(push_choice(q));
-		}
-
-		return unify(q, p3, p3_ctx, p1, p1_ctx);
-	}
-
-	int64_t cnt = q->st.cnt;
-	cell tmp;
-	make_int(&tmp, ++cnt);
-
-	if (cnt != get_smallint(p2)) {
-		q->st.cnt = cnt;
-		check_heap_error(push_choice(q));
-	}
-
-	return unify(q, p3, p3_ctx, &tmp, q->st.curr_frame);
 }
 
 static bool bif_split_string_4(query *q)
@@ -5370,7 +5309,7 @@ static bool bif_limit_2(query *q)
 	if (is_bigint(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
 
-	cell *tmp = prepare_call(q, true, p2, p2_ctx, 4);
+	cell *tmp = prepare_call(q, PREFIX_LEN, p2, p2_ctx, 4);
 	pl_idx nbr_cells = PREFIX_LEN + p2->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_fail_s, bif_sys_lt_2, 2, 2);
 	make_int(tmp+nbr_cells++, 1);
@@ -5409,7 +5348,7 @@ static bool bif_offset_2(query *q)
 	if (is_bigint(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
 
-	cell *tmp = prepare_call(q, true, p2, p2_ctx, 4);
+	cell *tmp = prepare_call(q, PREFIX_LEN, p2, p2_ctx, 4);
 	pl_idx nbr_cells = PREFIX_LEN + p2->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_fail_s, bif_sys_gt_2, 2, 2);
 	make_int(tmp+nbr_cells++, 1);
@@ -5474,7 +5413,7 @@ static bool bif_call_nth_2(query *q)
 		return throw_error(q, p2, p2_ctx, "domain_error", "not_less_than_zero");
 
 	if (is_var(p2)) {
-		cell *tmp = prepare_call(q, true, p1, p1_ctx, 4);
+		cell *tmp = prepare_call(q, PREFIX_LEN, p1, p1_ctx, 4);
 		pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
 		make_struct(tmp+nbr_cells++, g_sys_incr_s, bif_sys_incr_2, 2, 2);
 		GET_RAW_ARG(2,p2_raw);
@@ -5489,7 +5428,7 @@ static bool bif_call_nth_2(query *q)
 		return true;
 	}
 
-	cell *tmp = prepare_call(q, true, p1, p1_ctx, 7);
+	cell *tmp = prepare_call(q, PREFIX_LEN, p1, p1_ctx, 7);
 	pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_sys_ne_s, bif_sys_ne_2, 2, 2);
 	make_int(tmp+nbr_cells++, 1);
@@ -5679,7 +5618,7 @@ bool bif_iso_invoke_2(query *q)
 		q->st.m = m;
 	}
 
-	cell *tmp = prepare_call(q, true, p2, p2_ctx, 1);
+	cell *tmp = prepare_call(q, PREFIX_LEN, p2, p2_ctx, 1);
 	check_heap_error(tmp);
 	pl_idx nbr_cells = PREFIX_LEN;
 
@@ -5912,7 +5851,7 @@ static bool bif_sys_register_cleanup_1(query *q)
 {
 	if (q->retry) {
 		GET_FIRST_ARG(p1,callable);
-		cell *tmp = prepare_call(q, true, p1, p1_ctx, 5);
+		cell *tmp = prepare_call(q, PREFIX_LEN, p1, p1_ctx, 5);
 		pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
 		make_struct(tmp+nbr_cells++, g_cut_s, bif_iso_cut_0, 0, 0);
 		make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
@@ -6039,7 +5978,7 @@ static bool bif_sys_dump_term_2(query *q)
 			printf(", '%s'", C_STR(q, tmp));
 
 		if (is_var(tmp))
-			printf(", local=%d, temp=%d", is_local(tmp), is_temporary(tmp));
+			printf(", local=%d, temp=%d, anon=%d", is_local(tmp), is_temporary(tmp), is_anon(tmp));
 
 		if (is_ref(tmp))
 			printf(", slot=%u, ctx=%u", tmp->var_nbr, tmp->var_ctx);
@@ -6437,6 +6376,16 @@ static void load_properties(module *m)
 		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
 	}
 
+	for (const builtins *ptr = g_control_bifs; ptr->name; ptr++) {
+		sl_set(m->pl->biftab, ptr->name, ptr);
+		if (ptr->name[0] == '$') continue;
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
+		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
+		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
+	}
+
 	for (const builtins *ptr = g_posix_bifs; ptr->name; ptr++) {
 		sl_set(m->pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
@@ -6638,32 +6587,11 @@ static void load_ops(query *q)
 
 builtins g_iso_bifs[] =
 {
-	{"true", 0, bif_iso_true_0, NULL, true, false, BLAH},
-	{"fail", 0, bif_iso_fail_0, NULL, true, false, BLAH},
-	{"false", 0, bif_iso_fail_0, NULL, true, false, BLAH},
-
-	{",", 2, bif_iso_conjunction_2, ":callable,:callable", true, false, BLAH},
-	{";", 2, bif_iso_disjunction_2, ":callable,:callable", true, false, BLAH},
-	{"!", 0, bif_iso_cut_0, NULL, true, false, BLAH},
 	{":", 2, bif_iso_invoke_2, "+atom,:callable", true, false, BLAH},
 	{"=..", 2, bif_iso_univ_2, "+term,?list", true, false, BLAH},
-	{"->", 2, bif_iso_if_then_2, ":callable,:callable", true, false, BLAH},
-	{"\\+", 1, bif_iso_negation_1, ":callable", true, false, BLAH},
 	{"=", 2, bif_iso_unify_2, "+term,+term", true, false, BLAH},
 	{"\\=", 2, bif_iso_notunify_2, "+term,+term", true, false, BLAH},
 
-	{"call", 1, bif_iso_call_1, ":callable", true, false, BLAH},
-	{"call", 2, bif_iso_call_n, ":callable,?term", true, false, BLAH},
-	{"call", 3, bif_iso_call_n, ":callable,?term,term", true, false, BLAH},
-	{"call", 4, bif_iso_call_n, ":callable,?term,?term,?term", true, false, BLAH},
-	{"call", 5, bif_iso_call_n, ":callable,?term,?term,?term,?term", true, false, BLAH},
-	{"call", 6, bif_iso_call_n, ":callable,?term,?term,?term,?term,?term", true, false, BLAH},
-	{"call", 7, bif_iso_call_n, ":callable,?term,?term,?term,?term,?term,?term", true, false, BLAH},
-	{"call", 8, bif_iso_call_n, ":callable,?term,?term,?term,?term,?term,?term,?term", true, false, BLAH},
-
-	{"$catch", 3, bif_iso_catch_3, ":callable,?term,:callable", true, false, BLAH},
-	{"throw", 1, bif_iso_throw_1, "+term", true, false, BLAH},
-	{"once", 1, bif_iso_once_1, ":callable", true, false, BLAH},
 	{"repeat", 0, bif_iso_repeat_0, NULL, true, false, BLAH},
 	{"atom", 1, bif_iso_atom_1, "+term", true, false, BLAH},
 	{"atomic", 1, bif_iso_atomic_1, "+term", true, false, BLAH},
@@ -6704,9 +6632,6 @@ builtins g_iso_bifs[] =
 
 builtins g_other_bifs[] =
 {
-	{"*->", 2, bif_if_2, ":callable,:callable", false, false, BLAH},
-	{"if", 3, bif_if_3, ":callable,:callable,:callable", false, false, BLAH},
-
 #ifndef __wasi__
 	{"shell", 1, bif_shell_1, "+atom", false, false, BLAH},
 	{"shell", 2, bif_shell_2, "+atom,-integer", false, false, BLAH},
@@ -6740,8 +6665,6 @@ builtins g_other_bifs[] =
 	{"module_help", 1, bif_module_help_1, "+atom", false, false, BLAH},
 
 	{"abort", 0, bif_abort_0, NULL, false, false, BLAH},
-	{"sort", 4, bif_sort_4, "+integer,+atom,+list,?list", false, false, BLAH},
-	{"ignore", 1, bif_ignore_1, ":callable", false, false, BLAH},
 	{"string_codes", 2, bif_string_codes_2, "+string,-list", false, false, BLAH},
 	{"term_singletons", 2, bif_term_singletons_2, "+term,-list", false, false, BLAH},
 	{"get_unbuffered_code", 1, bif_get_unbuffered_code_1, "?integer", false, false, BLAH},
@@ -6786,30 +6709,24 @@ builtins g_other_bifs[] =
 	{"limit", 2, bif_limit_2, "+integer,:callable", false, false, BLAH},
 	{"offset", 2, bif_offset_2, "+integer,+callable", false, false, BLAH},
 	{"unifiable", 3, bif_sys_unifiable_3, "+term,+term,-list", false, false, BLAH},
-	{"between", 3, bif_between_3, "+integer,+integer,-integer", false, false, BLAH},
 	{"string_length", 2, bif_string_length_2, "+string,?integer", false, false, BLAH},
 	{"crypto_n_random_bytes", 2, bif_crypto_n_random_bytes_2, "+integer,-codes", false, false, BLAH},
 	{"cyclic_term", 1, bif_cyclic_term_1, "+term", false, false, BLAH},
 	{"call_residue_vars", 2, bif_call_residue_vars_2, ":callable,-list", false, false, BLAH},
-	{"reset", 3, bif_reset_3, ":callable,?term,-term", false, false, BLAH},
-	{"shift", 1, bif_shift_1, "+term", false, false, BLAH},
+	{"sleep", 1, bif_sleep_1, "+number", false, false, BLAH},
 
 	{"$must_be", 4, bif_must_be_4, "+term,+atom,+term,?any", false, false, BLAH},
 	{"$can_be", 4, bif_can_be_4, "+term,+atom,+term,?any", false, false, BLAH},
 	{"$must_be", 2, bif_must_be_2, "+atom,+term", false, false, BLAH},
 	{"$can_be", 2, bif_can_be_2, "+atom,+term,", false, false, BLAH},
 
-	{"$set_if_var", 2, bif_sys_set_if_var_2, "?term,+term", false, false, BLAH},
-	{"$msleep", 1, bif_sys_msleep_1, "+number", false, false, BLAH},
 	{"$det_length_rundown", 2, bif_sys_det_length_rundown_2, "?list,+integer", false, false, BLAH},
 	{"$memberchk", 3, bif_sys_memberchk_3, "?term,?list,-term", false, false, BLAH},
-	{"$countall", 2, bif_sys_countall_2, "@callable,-integer", false, false, BLAH},
 	{"$register_cleanup", 1, bif_sys_register_cleanup_1, NULL, false, false, BLAH},
 	{"$get_level", 1, bif_sys_get_level_1, "?integer", false, false, BLAH},
 	{"$is_partial_string", 1, bif_sys_is_partial_string_1, "+string", false, false, BLAH},
 	{"$undo_trail", 2, bif_sys_undo_trail_2, "-list,-blob", false, false, BLAH},
 	{"$redo_trail", 1, bif_sys_redo_trail_1, "+blob", false, false, BLAH},
-	{"$counter", 1, bif_sys_counter_1, NULL, false, false, BLAH},
 	{"$legacy_predicate_property", 2, bif_sys_legacy_predicate_property_2, "+callable,?string", false, false, BLAH},
 	{"$legacy_evaluable_property", 2, bif_sys_legacy_evaluable_property_2, "+callable,?string", false, false, BLAH},
 	{"$load_properties", 0, bif_sys_load_properties_0, NULL, false, false, BLAH},
@@ -6835,7 +6752,6 @@ builtins g_other_bifs[] =
 #endif
 
 	{"$call_cleanup", 3, bif_sys_call_cleanup_3, NULL, false, false, BLAH},
-	{"$block_catcher", 1, bif_sys_block_catcher_1, NULL, false, false, BLAH},
 	{"$cleanup_if_det", 1, bif_sys_cleanup_if_det_1, NULL, false, false, BLAH},
 	{"$drop_barrier", 1, bif_sys_drop_barrier_1, NULL, false, false, BLAH},
 	{"$timer", 0, bif_sys_timer_0, NULL, false, false, BLAH},

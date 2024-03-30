@@ -575,18 +575,6 @@ read_line_to_codes(Stream, Codes) :-
 
 :- help(read_line_to_codes(+stream,?list), [iso(false)]).
 
-sleep(Secs) :-
-	'$must_be'(Secs, number, sleep/1, _),
-	Ms is Secs * 1000,
-	'$msleep'(Ms).
-
-:- help(sleep(+number), [iso(false)]).
-
-delay(Msecs) :-
-	'$msleep'(Msecs).
-
-:- help(delay(+number), [iso(false)]).
-
 repeat_integer(N) :-
 	N > 0.
 repeat_integer(N0) :-

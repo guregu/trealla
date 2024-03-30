@@ -16,7 +16,7 @@
 
 void convert_path(char *filename);
 
-static lock g_symtab_guard = {0};
+static lock g_symtab_guard;
 static skiplist *g_symtab = NULL;
 static size_t s_pool_size = 64000, s_pool_offset = 0;
 static pl_atomic int g_tpl_count = 0;
@@ -374,6 +374,11 @@ builtins *get_fn_ptr(void *fn)
 			return ptr;
 	}
 
+	for (builtins *ptr = g_control_bifs; ptr->name; ptr++) {
+		if (ptr->fn == fn)
+			return ptr;
+	}
+
 	for (builtins *ptr = g_atts_bifs; ptr->name; ptr++) {
 		if (ptr->fn == fn)
 			return ptr;
@@ -505,6 +510,12 @@ void load_builtins(prolog *pl)
 	}
 
 	for (const builtins *ptr = g_other_bifs; ptr->name; ptr++) {
+		sl_set(pl->biftab, ptr->name, ptr);
+		if (ptr->name[0] == '$') continue;
+		sl_set(pl->help, ptr->name, ptr);
+	}
+
+	for (const builtins *ptr = g_control_bifs; ptr->name; ptr++) {
 		sl_set(pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
 		sl_set(pl->help, ptr->name, ptr);
@@ -723,7 +734,7 @@ prolog *pl_create()
 		if (g_tpl_lib) {
 			char *src = g_tpl_lib + strlen(g_tpl_lib) - 1;
 
-			while ((src != g_tpl_lib) && (*src != PATH_SEP_CHAR))
+			while ((src != g_tpl_lib) && (*src != '/'))
 				src--;
 
 			*src = '\0';

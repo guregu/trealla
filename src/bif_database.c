@@ -6,14 +6,30 @@
 #include <sys/time.h>
 #include <sys/stat.h>
 
-#include "base64.h"
 #include "heap.h"
-#include "history.h"
-#include "library.h"
 #include "module.h"
 #include "parser.h"
 #include "prolog.h"
 #include "query.h"
+
+static bool module_context(query *q, cell **p1, pl_idx p1_ctx)
+{
+	if (!is_var(*p1)) {
+		if ((*p1)->val_off == g_colon_s) {
+			*p1 = *p1 + 1;
+			cell *cm = deref(q, *p1, p1_ctx);
+			module *m = find_module(q->pl, C_STR(q, cm));
+
+			if (!m) {
+				return throw_error(q, cm, p1_ctx, "existence_error", "module");
+			}
+
+			*p1 += (*p1)->nbr_cells;
+		}
+	}
+
+	return true;
+}
 
 static bool bif_clause_3(query *q)
 {
@@ -21,19 +37,8 @@ static bool bif_clause_3(query *q)
 	GET_NEXT_ARG(p2,callable_or_var);
 	GET_NEXT_ARG(p3,atom_or_var);
 
-	if (!is_var(p1)) {
-		if (p1->val_off == g_colon_s) {
-			p1 = p1 + 1;
-			cell *cm = deref(q, p1, p1_ctx);
-			module *m = find_module(q->pl, C_STR(q, cm));
-
-			if (!m) {
-				return throw_error(q, cm, p1_ctx, "existence_error", "module");
-			}
-
-			p1 += p1->nbr_cells;
-		}
-	}
+	if (!module_context(q, &p1, p1_ctx))
+		return false;
 
 	if (is_var(p1) && is_var(p2) && is_var(p3))
 		return throw_error(q, p3, p3_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
@@ -49,7 +54,7 @@ static bool bif_clause_3(query *q)
 			if (!r || (!u.u1 && !u.u2))
 				break;
 
-			q->st.r = r;
+			q->st.curr_rule = r;
 			cl = &r->cl;
 			cell *head = get_head(cl->cells);
 
@@ -60,12 +65,12 @@ static bool bif_clause_3(query *q)
 				break;
 
 			char tmpbuf[128];
-			uuid_to_buf(&q->st.r->u, tmpbuf, sizeof(tmpbuf));
+			uuid_to_buf(&q->st.curr_rule->u, tmpbuf, sizeof(tmpbuf));
 			cell tmp;
 			make_cstring(&tmp, tmpbuf);
 			unify(q, p3, p3_ctx, &tmp, q->st.curr_frame);
 			unshare_cell(&tmp);
-			cl = &q->st.r->cl;
+			cl = &q->st.curr_rule->cl;
 		}
 
 		cell *body = get_body(cl->cells);
@@ -118,18 +123,18 @@ static void db_log(query *q, rule *r, enum log_type l)
 	case LOG_ASSERTA:
 		dst = print_term_to_strbuf(q, r->cl.cells, q->st.curr_frame, 1);
 		uuid_to_buf(&r->u, tmpbuf, sizeof(tmpbuf));
-		fprintf(fp, "%s:'$asserta'((%s),'%s').\n", q->st.m->name, dst, tmpbuf);
+		fprintf(fp, "%s:'$a_'((%s),'%s').\n", q->st.m->name, dst, tmpbuf);
 		free(dst);
 		break;
 	case LOG_ASSERTZ:
 		dst = print_term_to_strbuf(q, r->cl.cells, q->st.curr_frame, 1);
 		uuid_to_buf(&r->u, tmpbuf, sizeof(tmpbuf));
-		fprintf(fp, "%s:'$assertz'((%s),'%s').\n", q->st.m->name, dst, tmpbuf);
+		fprintf(fp, "%s:'$z_'((%s),'%s').\n", q->st.m->name, dst, tmpbuf);
 		free(dst);
 		break;
 	case LOG_ERASE:
 		uuid_to_buf(&r->u, tmpbuf, sizeof(tmpbuf));
-		fprintf(fp, "%s:erase('%s').\n", q->st.m->name, tmpbuf);
+		fprintf(fp, "%s:'$e_'('%s').\n", q->st.m->name, tmpbuf);
 		break;
 	}
 
@@ -141,22 +146,12 @@ static bool bif_iso_clause_2(query *q)
 	GET_FIRST_ARG(p1,callable);
 	GET_NEXT_ARG(p2,callable_or_var);
 
-	if (p1->val_off == g_colon_s) {
-		p1 = p1 + 1;
-		cell *cm = deref(q, p1, p1_ctx);
-		module *m = find_module(q->pl, C_STR(q, cm));
-
-		if (!m) {
-			return throw_error(q, cm, p1_ctx, "existence_error", "module");
-		}
-
-		q->st.m = m;
-		p1 += p1->nbr_cells;
-	}
+	if (!module_context(q, &p1, p1_ctx))
+		return false;
 
 	while (match_clause(q, p1, p1_ctx, DO_CLAUSE)) {
 		if (q->did_throw) return true;
-		clause *cl = &q->st.r->cl;
+		clause *cl = &q->st.curr_rule->cl;
 		cell *body = get_body(cl->cells);
 		bool ok;
 
@@ -240,11 +235,11 @@ bool do_retract(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract)
 	if (!match || q->did_throw)
 		return match;
 
-	rule *r = q->st.r;
+	rule *r = q->st.curr_rule;
+	db_log(q, r, LOG_ERASE);
 	retract_from_db(r->owner->m, r);
 	bool last_match = (is_retract == DO_RETRACT) && !has_next_key(q);
 	stash_frame(q, &r->cl, last_match);
-	db_log(q, r, LOG_ERASE);
 	return true;
 }
 
@@ -252,17 +247,8 @@ static bool bif_iso_retract_1(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 
-	if (p1->val_off == g_colon_s) {
-		p1 = p1 + 1;
-		cell *cm = deref(q, p1, p1_ctx);
-		module *m = find_module(q->pl, C_STR(q, cm));
-
-		if (!m) {
-			return throw_error(q, cm, p1_ctx, "existence_error", "module");
-		}
-
-		p1 += p1->nbr_cells;
-	}
+	if (!module_context(q, &p1, p1_ctx))
+		return false;
 
 	prolog_lock(q->pl);
 	bool ok = do_retract(q, p1, p1_ctx, DO_RETRACT);
@@ -274,17 +260,8 @@ static bool bif_iso_retractall_1(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 
-	if (p1->val_off == g_colon_s) {
-		p1 = p1 + 1;
-		cell *cm = deref(q, p1, p1_ctx);
-		module *m = find_module(q->pl, C_STR(q, cm));
-
-		if (!m) {
-			return throw_error(q, cm, p1_ctx, "existence_error", "module");
-		}
-
-		p1 += p1->nbr_cells;
-	}
+	if (!module_context(q, &p1, p1_ctx))
+		return false;
 
 	cell *head = deref(q, get_head(p1), p1_ctx);
 	predicate *pr = search_predicate(q->st.m, head, NULL);
@@ -811,7 +788,7 @@ void save_db(FILE *fp, query *q, int logging)
 				continue;
 
 			if (logging)
-				fprintf(fp, "z_(");
+				fprintf(fp, "'$z_'(");
 
 			for (unsigned i = 0; i < MAX_IGNORES; i++)
 				q->ignores[i] = false;
@@ -990,11 +967,13 @@ builtins g_database_bifs[] =
 	{"abolish", 2, bif_abolish_2, "+term,+list", false, false, BLAH},
 	{"instance", 2, bif_instance_2, "+string,?term", false, false, BLAH},
 
-	{"$asserta", 2, bif_sys_asserta_2, "+term,+atom", true, false, BLAH},
-	{"$assertz", 2, bif_sys_assertz_2, "+term,+atom", true, false, BLAH},
 	{"$clause", 2, bif_sys_clause_2, "?term,?term", false, false, BLAH},
 	{"$clause", 3, bif_sys_clause_3, "?term,?term,-string", false, false, BLAH},
 	{"$retract_on_backtrack", 1, bif_sys_retract_on_backtrack_1, "+string", false, false, BLAH},
+
+	{"$a_", 2, bif_sys_asserta_2, "+term,+atom", true, false, BLAH},
+	{"$z_", 2, bif_sys_assertz_2, "+term,+atom", true, false, BLAH},
+	{"$e_", 1, bif_erase_1, "+atom", true, false, BLAH},
 
 	{0}
 };

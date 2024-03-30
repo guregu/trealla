@@ -19,6 +19,12 @@ bool bif_iso_fail_0(query *q)
 	return false;
 }
 
+bool bif_iso_cut_0(query *q)
+{
+	cut(q);
+	return true;
+}
+
 bool bif_sys_drop_barrier_1(query *q)
 {
 	GET_FIRST_ARG(p1,integer)
@@ -35,7 +41,7 @@ bool bif_sys_drop_barrier_1(query *q)
 
 void do_cleanup(query *q, cell *c, pl_idx c_ctx)
 {
-	cell *tmp = prepare_call(q, true, c, c_ctx, 4);
+	cell *tmp = prepare_call(q, PREFIX_LEN, c, c_ctx, 4);
 	ensure(tmp);
 	pl_idx nbr_cells = PREFIX_LEN + c->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_cut_s, bif_iso_cut_0, 0, 0);
@@ -78,9 +84,9 @@ bool bif_call_0(query *q, cell *p1, pl_idx p1_ctx)
 	if (!is_callable(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "callable");
 
-	cell *tmp = prepare_call(q, false, p1, p1_ctx, 3);
+	cell *tmp = prepare_call(q, NOPREFIX_LEN, p1, p1_ctx, 3);
 	check_heap_error(tmp);
-	pl_idx nbr_cells = NOPREFIX_LEN + p1->nbr_cells;
+	pl_idx nbr_cells = p1->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+nbr_cells++, q->cp);
 	make_call(q, tmp+nbr_cells);
@@ -127,7 +133,7 @@ static bool call_check(query *q, cell *tmp2, bool *status, bool calln)
 	return true;
 }
 
-bool bif_iso_call_n(query *q)
+static bool bif_iso_call_n(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 
@@ -173,7 +179,7 @@ bool bif_iso_call_n(query *q)
 	if (!call_check(q, tmp2, &status, true))
 		return status;
 
-	cell *tmp = prepare_call(q, true, tmp2, q->st.curr_frame, 1);
+	cell *tmp = prepare_call(q, PREFIX_LEN, tmp2, q->st.curr_frame, 1);
 	check_heap_error(tmp);
 	pl_idx nbr_cells = PREFIX_LEN + tmp2->nbr_cells;
 	make_call(q, tmp+nbr_cells);
@@ -200,7 +206,7 @@ bool bif_iso_call_1(query *q)
 			return status;
 	}
 
-	cell *tmp = prepare_call(q, true, p1, p1_ctx, 3);
+	cell *tmp = prepare_call(q, PREFIX_LEN, p1, p1_ctx, 3);
 	check_heap_error(tmp);
 	tmp[1].flags &= ~FLAG_TAIL_CALL;
 	pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
@@ -220,7 +226,7 @@ bool bif_iso_call_1(query *q)
 
 // goal, !
 
-bool bif_iso_once_1(query *q)
+static bool bif_iso_once_1(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 
@@ -235,7 +241,7 @@ bool bif_iso_once_1(query *q)
 			return status;
 	}
 
-	cell *tmp = prepare_call(q, true, p1, p1_ctx, 4);
+	cell *tmp = prepare_call(q, PREFIX_LEN, p1, p1_ctx, 4);
 	check_heap_error(tmp);
 	tmp[1].flags &= ~FLAG_TAIL_CALL;
 	pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
@@ -252,7 +258,7 @@ bool bif_iso_once_1(query *q)
 
 // if -> ! ; true
 
-bool bif_ignore_1(query *q)
+static bool bif_ignore_1(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 	check_heap_error(init_tmp_heap(q));
@@ -263,7 +269,7 @@ bool bif_ignore_1(query *q)
 	if (!call_check(q, tmp2, &status, false))
 		return status;
 
-	cell *tmp = prepare_call(q, true, tmp2, q->st.curr_frame, 4);
+	cell *tmp = prepare_call(q, PREFIX_LEN, tmp2, q->st.curr_frame, 4);
 	check_heap_error(tmp);
 	tmp[1].flags &= ~FLAG_TAIL_CALL;
 	pl_idx nbr_cells = PREFIX_LEN + tmp2->nbr_cells;
@@ -280,11 +286,11 @@ bool bif_ignore_1(query *q)
 
 // if -> then
 
-bool bif_iso_if_then_2(query *q)
+static bool bif_iso_if_then_2(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 	GET_NEXT_ARG(p2,callable);
-	cell *tmp = prepare_call(q, true, p1, p1_ctx, 3+p2->nbr_cells+1);
+	cell *tmp = prepare_call(q, PREFIX_LEN, p1, p1_ctx, 3+p2->nbr_cells+1);
 	check_heap_error(tmp);
 	pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_cut_s, bif_iso_cut_0, 0, 0);
@@ -301,11 +307,11 @@ bool bif_iso_if_then_2(query *q)
 
 // if *-> then
 
-bool bif_if_2(query *q)
+static bool bif_if_2(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 	GET_NEXT_ARG(p2,callable);
-	cell *tmp = prepare_call(q, true, p1, p1_ctx, 2+p2->nbr_cells+1);
+	cell *tmp = prepare_call(q, PREFIX_LEN, p1, p1_ctx, 2+p2->nbr_cells+1);
 	check_heap_error(tmp);
 	pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
@@ -329,7 +335,7 @@ static bool do_if_then_else(query *q, cell *p1, cell *p2, cell *p3)
 		return true;
 	}
 
-	cell *tmp = prepare_call(q, true, p1, q->st.curr_frame, 3+p2->nbr_cells+1);
+	cell *tmp = prepare_call(q, PREFIX_LEN, p1, q->st.curr_frame, 3+p2->nbr_cells+1);
 	check_heap_error(tmp);
 	pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_cut_s, bif_iso_cut_0, 0, 0);
@@ -352,7 +358,7 @@ static bool soft_do_if_then_else(query *q, cell *p1, cell *p2, cell *p3)
 		return true;
 	}
 
-	cell *tmp = prepare_call(q, true, p1, q->st.curr_frame, 2+p2->nbr_cells+1);
+	cell *tmp = prepare_call(q, PREFIX_LEN, p1, q->st.curr_frame, 2+p2->nbr_cells+1);
 	check_heap_error(tmp);
 	pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
@@ -366,7 +372,7 @@ static bool soft_do_if_then_else(query *q, cell *p1, cell *p2, cell *p3)
 
 // if_(if,then,else)
 
-bool bif_if_3(query *q)
+static bool bif_if_3(query *q)
 {
 	cell *p1 = q->st.curr_instr + 1;
 	cell *p2 = p1 + p1->nbr_cells;
@@ -386,7 +392,7 @@ bool bif_iso_conjunction_2(query *q)
 
 // goal ; goal
 
-bool bif_iso_disjunction_2(query *q)
+static bool bif_iso_disjunction_2(query *q)
 {
 	cell *c = q->st.curr_instr+1;
 
@@ -421,7 +427,7 @@ bool bif_iso_disjunction_2(query *q)
 	// Do this to skip the next arg on success.
 
 	check_heap_error(push_choice(q));
-	cell *tmp = prepare_call(q, true, p1, p1_ctx, 1);
+	cell *tmp = prepare_call(q, PREFIX_LEN, p1, p1_ctx, 1);
 	check_heap_error(tmp);
 	pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
 	make_call(q, tmp+nbr_cells);
@@ -431,10 +437,10 @@ bool bif_iso_disjunction_2(query *q)
 
 // if -> !, fail ; true
 
-bool bif_iso_negation_1(query *q)
+static bool bif_iso_negation_1(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
-	cell *tmp = prepare_call(q, true, p1, p1_ctx, 5);
+	cell *tmp = prepare_call(q, PREFIX_LEN, p1, p1_ctx, 5);
 	check_heap_error(tmp);
 	pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_cut_s, bif_iso_cut_0, 0, 0);
@@ -451,13 +457,7 @@ bool bif_iso_negation_1(query *q)
 	return true;
 }
 
-bool bif_iso_cut_0(query *q)
-{
-	cut(q);
-	return true;
-}
-
-bool bif_sys_block_catcher_1(query *q)
+static bool bif_sys_block_catcher_1(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
 	pl_idx cp = get_smalluint(p1);
@@ -479,7 +479,7 @@ bool bif_sys_block_catcher_1(query *q)
 	return true;
 }
 
-bool bif_iso_catch_3(query *q)
+static bool bif_iso_catch_3(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 
@@ -496,7 +496,7 @@ bool bif_iso_catch_3(query *q)
 		GET_NEXT_ARG(p2,any);
 		GET_NEXT_ARG(p3,callable);
 		q->retry = QUERY_OK;
-		cell *tmp = prepare_call(q, true, p3, p3_ctx, 3);
+		cell *tmp = prepare_call(q, PREFIX_LEN, p3, p3_ctx, 3);
 		check_heap_error(tmp);
 		pl_idx nbr_cells = PREFIX_LEN + p3->nbr_cells;
 		make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
@@ -512,7 +512,7 @@ bool bif_iso_catch_3(query *q)
 
 	// First time through? Try the primary goal...
 
-	cell *tmp = prepare_call(q, true, p1, p1_ctx, 3);
+	cell *tmp = prepare_call(q, PREFIX_LEN, p1, p1_ctx, 3);
 	check_heap_error(tmp);
 	pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_sys_block_catcher_s, bif_sys_block_catcher_1, 1, 1);
@@ -523,13 +523,24 @@ bool bif_iso_catch_3(query *q)
 	return true;
 }
 
-bool bif_reset_3(query *q)
+bool bif_sys_set_if_var_2(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,any);
+
+	if (!is_var(p1))
+		return true;
+
+	return unify(q, p1, p1_ctx, p2, p2_ctx);
+}
+
+static bool bif_reset_3(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 	GET_NEXT_ARG(p2,any);
 	GET_NEXT_ARG(p3,any);
 
-	cell *tmp = prepare_call(q, true, p1, p1_ctx, 2+(1+p3->nbr_cells+1)+1);
+	cell *tmp = prepare_call(q, PREFIX_LEN, p1, p1_ctx, 2+(1+p3->nbr_cells+1)+1);
 	check_heap_error(tmp);
 	pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
@@ -586,7 +597,7 @@ static bool find_reset_handler(query *q)
 	return false;
 }
 
-bool bif_shift_1(query *q)
+static bool bif_shift_1(query *q)
 {
 	GET_FIRST_ARG(p1,nonvar);
 	q->ball = p1;
@@ -621,7 +632,7 @@ bool bif_sys_call_cleanup_3(query *q)
 		GET_NEXT_ARG(p2,any);
 		GET_NEXT_ARG(p3,callable);
 		q->retry = QUERY_OK;
-		cell *tmp = prepare_call(q, true, p3, p3_ctx, 3);
+		cell *tmp = prepare_call(q, PREFIX_LEN, p3, p3_ctx, 3);
 		check_heap_error(tmp);
 		pl_idx nbr_cells = PREFIX_LEN + p3->nbr_cells;
 		make_struct(tmp+nbr_cells++, g_sys_cleanup_if_det_s, bif_sys_cleanup_if_det_1, 1, 1);
@@ -637,7 +648,7 @@ bool bif_sys_call_cleanup_3(query *q)
 
 	// First time through? Try the primary goal...
 
-	cell *tmp = prepare_call(q, true, p1, p1_ctx, 3);
+	cell *tmp = prepare_call(q, PREFIX_LEN, p1, p1_ctx, 3);
 	check_heap_error(tmp);
 	pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_sys_cleanup_if_det_s, bif_sys_cleanup_if_det_1, 1, 1);
@@ -648,7 +659,22 @@ bool bif_sys_call_cleanup_3(query *q)
 	return true;
 }
 
-bool bif_sys_countall_2(query *q)
+static bool bif_sys_counter_1(query *q)
+{
+	GET_FIRST_ARG(p1,integer_or_var);
+	pl_uint n = 0;
+
+	if (is_smallint(p1))
+		n = get_smalluint(p1);
+
+	cell tmp;
+	make_uint(&tmp, n+1);
+	GET_RAW_ARG(1, p1_raw);
+	reset_var(q, p1_raw, p1_raw_ctx, &tmp, q->st.curr_frame);
+	return true;
+}
+
+static bool bif_sys_countall_2(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 	GET_NEXT_ARG(p2,var);
@@ -664,7 +690,7 @@ bool bif_sys_countall_2(query *q)
 	cell n;
 	make_uint(&n, 0);
 	reset_var(q, p2, p2_ctx, &n, q->st.curr_frame);
-	cell *tmp = prepare_call(q, true, tmp2, q->st.curr_frame, 4);
+	cell *tmp = prepare_call(q, PREFIX_LEN, tmp2, q->st.curr_frame, 4);
 	check_heap_error(tmp);
 	pl_idx nbr_cells = PREFIX_LEN + tmp2->nbr_cells;
 	make_struct(tmp+nbr_cells++, g_sys_counter_s, bif_sys_counter_1, 1, 1);
@@ -676,6 +702,55 @@ bool bif_sys_countall_2(query *q)
 	ch->succeed_on_retry = true;
 	q->st.curr_instr = tmp;
 	return true;
+}
+
+static bool bif_between_3(query *q)
+{
+	GET_FIRST_ARG(p1,integer);
+	GET_NEXT_ARG(p2,integer);
+	GET_NEXT_ARG(p3,integer_or_var);
+
+	if (is_bigint(p1))
+		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
+
+	if (is_bigint(p2))
+		return throw_error(q, p2, p1_ctx, "domain_error", "small_integer_range");
+
+	if (is_bigint(p3))
+		return throw_error(q, p3, p3_ctx, "domain_error", "small_integer_range");
+
+	if (!q->retry) {
+		if (get_smallint(p1) > get_smallint(p2))
+			return false;
+
+		if (!is_var(p3)) {
+			if (get_smallint(p3) > get_smallint(p2))
+				return false;
+
+			if (get_smallint(p3) < get_smallint(p1))
+				return false;
+
+			return true;
+		}
+
+		if (get_smallint(p1) != get_smallint(p2)) {
+			q->st.cnt = get_smallint(p1);
+			check_heap_error(push_choice(q));
+		}
+
+		return unify(q, p3, p3_ctx, p1, p1_ctx);
+	}
+
+	int64_t cnt = q->st.cnt;
+	cell tmp;
+	make_int(&tmp, ++cnt);
+
+	if (cnt != get_smallint(p2)) {
+		q->st.cnt = cnt;
+		check_heap_error(push_choice(q));
+	}
+
+	return unify(q, p3, p3_ctx, &tmp, q->st.curr_frame);
 }
 
 static cell *parse_to_heap(query *q, const char *src)
@@ -786,7 +861,7 @@ static bool find_exception_handler(query *q, char *ball)
 	return false;
 }
 
-bool bif_iso_throw_1(query *q)
+static bool bif_iso_throw_1(query *q)
 {
 	GET_FIRST_ARG(p1,nonvar);
 	q->parens = q->numbervars = true;
@@ -1080,3 +1155,39 @@ bool throw_error(query *q, cell *c, pl_idx c_ctx, const char *err_type, const ch
 	return throw_error3(q, c, c_ctx, err_type, expected, q->st.curr_instr);
 }
 
+builtins g_control_bifs[] =
+{
+	{"true", 0, bif_iso_true_0, NULL, true, false, BLAH},
+	{"fail", 0, bif_iso_fail_0, NULL, true, false, BLAH},
+	{"false", 0, bif_iso_fail_0, NULL, true, false, BLAH},
+	{"!", 0, bif_iso_cut_0, NULL, true, false, BLAH},
+	{",", 2, bif_iso_conjunction_2, ":callable,:callable", true, false, BLAH},
+	{";", 2, bif_iso_disjunction_2, ":callable,:callable", true, false, BLAH},
+	{"\\+", 1, bif_iso_negation_1, ":callable", true, false, BLAH},
+	{"->", 2, bif_iso_if_then_2, ":callable,:callable", true, false, BLAH},
+	{"call", 1, bif_iso_call_1, ":callable", true, false, BLAH},
+	{"call", 2, bif_iso_call_n, ":callable,?term", true, false, BLAH},
+	{"call", 3, bif_iso_call_n, ":callable,?term,term", true, false, BLAH},
+	{"call", 4, bif_iso_call_n, ":callable,?term,?term,?term", true, false, BLAH},
+	{"call", 5, bif_iso_call_n, ":callable,?term,?term,?term,?term", true, false, BLAH},
+	{"call", 6, bif_iso_call_n, ":callable,?term,?term,?term,?term,?term", true, false, BLAH},
+	{"call", 7, bif_iso_call_n, ":callable,?term,?term,?term,?term,?term,?term", true, false, BLAH},
+	{"call", 8, bif_iso_call_n, ":callable,?term,?term,?term,?term,?term,?term,?term", true, false, BLAH},
+	{"throw", 1, bif_iso_throw_1, "+term", true, false, BLAH},
+	{"once", 1, bif_iso_once_1, ":callable", true, false, BLAH},
+	{"$catch", 3, bif_iso_catch_3, ":callable,?term,:callable", true, false, BLAH},
+
+	{"*->", 2, bif_if_2, ":callable,:callable", false, false, BLAH},
+	{"if", 3, bif_if_3, ":callable,:callable,:callable", false, false, BLAH},
+	{"ignore", 1, bif_ignore_1, ":callable", false, false, BLAH},
+	{"reset", 3, bif_reset_3, ":callable,?term,-term", false, false, BLAH},
+	{"shift", 1, bif_shift_1, "+term", false, false, BLAH},
+	{"between", 3, bif_between_3, "+integer,+integer,-integer", false, false, BLAH},
+
+	{"$counter", 1, bif_sys_counter_1, NULL, false, false, BLAH},
+	{"$countall", 2, bif_sys_countall_2, "@callable,-integer", false, false, BLAH},
+	{"$block_catcher", 1, bif_sys_block_catcher_1, NULL, false, false, BLAH},
+	{"$set_if_var", 2, bif_sys_set_if_var_2, "?term,+term", false, false, BLAH},
+
+	{0}
+};
