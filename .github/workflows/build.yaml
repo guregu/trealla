@@ -107,10 +107,9 @@
       name: WebAssembly
       runs-on: ubuntu-latest
       env:
-        WASI_VERSION: 20
-        BINARYEN_VERSION: 112
+        WASI_VERSION: 21
         WAPM_REGISTRY_TOKEN: ${{ secrets.WAPM_REGISTRY_TOKEN }}
-        WIZER_VERSION: "v1.6.0"
+        WIZER_VERSION: "v5.0.0"
       steps:
         - uses: actions/checkout@v3
           with:
