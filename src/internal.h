@@ -41,12 +41,6 @@ typedef uint32_t pl_idx;
 #define pl_atomic volatile
 #endif
 
-#ifdef _WIN32
-#define NEWLINE_MODE "dos"
-#else
-#define NEWLINE_MODE "posix"
-#endif
-
 #include "cdebug.h"
 #include "list.h"
 #include "skiplist.h"
@@ -172,6 +166,7 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define is_quoted(c) ((c)->flags & FLAG_CSTR_QUOTED)
 #define is_fresh(c) ((c)->flags & FLAG_VAR_FRESH)
 #define is_anon(c) ((c)->flags & FLAG_VAR_ANON)
+#define is_ground(c) ((c)->flags & FLAG_GROUND)
 #define is_builtin(c) ((c)->flags & FLAG_BUILTIN)
 #define is_evaluable(c) ((c)->flags & FLAG_EVALUABLE)
 #define is_tail_call(c) ((c)->flags & FLAG_TAIL_CALL)
@@ -300,11 +295,13 @@ enum {
 
 	FLAG_BLOB_SREGEX=1<<0,				// used with TAG_BLOB
 
-	FLAG_TAIL_CALL=1<<7,
-	FLAG_FFI=1<<8,
-	FLAG_BUILTIN=1<<9,
-	FLAG_MANAGED=1<<10,					// any ref-counted object
-	FLAG_EVALUABLE=1<<11,
+	FLAG_SPARE1=1<<6,
+	FLAG_GROUND=1<<7,
+	FLAG_TAIL_CALL=1<<8,
+	FLAG_FFI=1<<9,
+	FLAG_BUILTIN=1<<10,
+	FLAG_MANAGED=1<<11,					// any ref-counted object
+	FLAG_EVALUABLE=1<<12,
 
 	FLAG_END=1<<13
 };
@@ -338,7 +335,7 @@ enum {
 #define SET_OP(c,op) (CLR_OP(c), (c)->flags |= (((uint16_t)(op)) << 13))
 #define CLR_OP(c) ((c)->flags &= ~((uint16_t)(0xF) << 13))
 #define GET_OP(c) (((c)->flags >> 13) & 0xF)
-#define IS_OP(c) (GET_OP(c) != 0 ? true : false)
+#define IS_OP(c) (GET_OP(c) != 0)
 
 typedef struct module_ module;
 typedef struct query_ query;
@@ -446,11 +443,11 @@ struct clause_ {
 	bool is_unique:1;
 	bool is_fact:1;
 	bool is_deleted:1;
-	cell cells[];		// 'nbr_allocated_cells' bytes
+	cell cells[];						// 'nbr_allocated_cells'
 };
 
 struct rule_ {
-	lnode hdr;						// must be first
+	lnode hdr;							// must be first
 	predicate *owner;
 	rule *prev, *next;
 	const char *filename;
@@ -461,7 +458,7 @@ struct rule_ {
 };
 
 struct predicate_ {
-	lnode hdr;						// must be first
+	lnode hdr;							// must be first
 	predicate *alias;
 	rule *head, *tail;
 	module *m;
@@ -541,7 +538,7 @@ struct slot_ {
 struct frame_ {
 	cell *curr_instr;
 	uint64_t dbgen, chgen;
-	pl_idx prev_offset, heap_nbr, cache_nbr, hp, cap;
+	pl_idx prev_offset, heap_nbr, hp;
 	pl_idx base, overflow;
 	unsigned initial_slots, actual_slots;
 	uint32_t mid;
@@ -563,7 +560,7 @@ struct prolog_state_ {
 	};
 
 	uint64_t timer_started;
-	pl_idx curr_frame, fp, hp, cap, cp, tp, sp, heap_nbr, cache_nbr, key_ctx;
+	pl_idx curr_frame, fp, hp, cp, tp, sp, heap_nbr, key_ctx;
 	float prob;
 	uint8_t qnbr;
 };
@@ -679,7 +676,7 @@ struct prolog_flags_ {
 };
 
 struct query_ {
-	lnode hdr;						// must be first
+	lnode hdr;							// must be first
 	query *prev, *next, *parent;
 	module *current_m;
 	prolog *pl;
@@ -690,7 +687,7 @@ struct query_ {
 	trail *trails;
 	cell *tmp_heap, *last_arg, *variable_names, *ball, *cont, *suspect;
 	cell *queue[MAX_QUEUES], *tmpq[MAX_QUEUES];
-	page *heap_pages, *cache_pages;
+	page *heap_pages;
 	slot *save_e;
 	query *tasks;
 	skiplist *vars;
@@ -712,9 +709,9 @@ struct query_ {
 	unsigned s_cnt;
 	pl_idx tmphp, latest_ctx, popp, variable_names_ctx;
 	pl_idx frames_size, slots_size, trails_size, choices_size;
-	pl_idx hw_choices, hw_frames, hw_slots, hw_trails, hw_heap_nbr, hw_cache_nbr;
+	pl_idx hw_choices, hw_frames, hw_slots, hw_trails, hw_heap_nbr;
 	pl_idx cp, before_hook_tp, qcnt[MAX_QUEUES], ball_ctx, cont_ctx;
-	pl_idx heap_size, cache_size, tmph_size, tot_heaps, tot_heapsize;
+	pl_idx heap_size, tmph_size, tot_heaps, tot_heapsize;
 	pl_idx undo_lo_tp, undo_hi_tp;
 	pl_idx q_size[MAX_QUEUES], tmpq_size[MAX_QUEUES], qp[MAX_QUEUES];
 	prolog_flags flags;
@@ -829,13 +826,13 @@ typedef struct loaded_file_ loaded_file;
 // Goal expansion...
 
 typedef struct gex_ {
-	lnode hdr;						// must be first
+	lnode hdr;							// must be first
 	struct gex_ *prev, *next, *alias;
 	cell key;
 } gex;
 
 struct module_ {
-	lnode hdr;						// must be first
+	lnode hdr;							// must be first
 	module *used[MAX_MODULES];
 	module *orig;
 	prolog *pl;

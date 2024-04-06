@@ -42,25 +42,6 @@ static void msleep(int ms)
 }
 #endif
 
-void make_call(query *q, cell *tmp)
-{
-	make_end(tmp);
-	const frame *f = GET_CURR_FRAME();
-	cell *c = q->st.curr_instr;
-	tmp->save_ret = c + c->nbr_cells;	// save next as the return instruction
-	tmp->chgen = f->chgen;				// ... choice-generation
-	tmp->mid = q->st.m->id;				// ... current-module
-}
-
-void make_call_redo(query *q, cell *tmp)
-{
-	make_end(tmp);
-	const frame *f = GET_CURR_FRAME();
-	tmp->save_ret = q->st.curr_instr;		// save the return instruction
-	tmp->chgen = f->chgen;				// ... choice-generation
-	tmp->mid = q->st.m->id;				// ... current-module
-}
-
 #if 0
 static void init_queue(query *q)
 {
@@ -3438,20 +3419,20 @@ static bool bif_statistics_0(query *q)
 		"choices %u, "
 		"trails %u, "
 		"slots %u, "
-		"heap/cache %u/%u.\n"
+		"heap %u.\n"
 		"Active frames %u, "
 		"choices %u, "
 		"trails %u, "
 		"slots %u, "
-		"heap/cache %u/%u.\n"
+		"heap %u.\n"
 		"Backtracks %"PRIu64", "
 		"TCOs:%"PRIu64", "
 		"Queue: %u\n",
 		q->tot_inferences, q->tot_matches,
 		q->hw_frames, q->hw_choices, q->hw_trails, q->hw_slots,
-		q->hw_heap_nbr, q->hw_cache_nbr,
+		q->hw_heap_nbr,
 		q->st.fp, q->cp, q->st.tp, q->st.sp,
-		q->st.heap_nbr, q->st.cache_nbr,
+		q->st.heap_nbr,
 		q->tot_retries, q->tot_tcos,
 		(unsigned)q->qcnt[q->st.qnbr]
 		);
@@ -5988,6 +5969,7 @@ static bool bif_sys_dump_term_2(query *q)
 		printf("\n");
 	}
 
+	printf("Ground=%d, no_tco=%d\n", is_ground(p1)?1:0, q->no_tco?1:0);
 	return true;
 }
 

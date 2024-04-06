@@ -31,11 +31,11 @@ static void msleep(int ms)
 
 static const unsigned INITIAL_NBR_QUEUE_CELLS = 1000;
 static const unsigned INITIAL_NBR_HEAP_CELLS = 8000;
-static const unsigned INITIAL_NBR_FRAMES = 8000;
-static const unsigned INITIAL_NBR_SLOTS = 32000;
-static const unsigned INITIAL_NBR_TRAILS = 32000;
-static const unsigned INITIAL_NBR_CHOICES = 8000;
-static const unsigned INITIAL_NBR_CELLS = 1000;
+static const unsigned INITIAL_NBR_FRAMES = 1000;
+static const unsigned INITIAL_NBR_SLOTS = 1000;
+static const unsigned INITIAL_NBR_TRAILS = 1000;
+static const unsigned INITIAL_NBR_CHOICES = 1000;
+static const unsigned INITIAL_NBR_CELLS = 100;
 
 int g_tpl_interrupt = 0;
 
@@ -77,6 +77,12 @@ static void trace_call(query *q, cell *c, pl_idx c_ctx, box_t box)
 #ifndef DEBUG
 	if (c->val_off == g_sys_drop_barrier_s)
 		return;
+
+	if (c->val_off == g_conjunction_s)
+		return;
+
+	if (c->val_off == g_disjunction_s)
+		return;
 #endif
 
 	if (box == CALL)
@@ -84,27 +90,15 @@ static void trace_call(query *q, cell *c, pl_idx c_ctx, box_t box)
 
 	const char *src = C_STR(q, c);
 
-	if (!strcmp(src, ","))
-		return;
-
 	q->step++;
 	SB(pr);
 
-#ifdef DEBUG
-	SB_sprintf(pr, "[%u:%s:%"PRIu64":f%u:fp%u:cp%u:sp%u:hp%u:cap%u:tp%u] ",
+	SB_sprintf(pr, "[%u:%s:%"PRIu64":f%u:fp%u:cp%u:sp%u:hp%u:tp%u] ",
 		q->my_chan,
 		q->st.m->name,
 		q->step,
-		q->st.curr_frame, q->st.fp, q->cp, q->st.sp, q->st.hp, q->st.cap, q->st.tp
+		q->st.curr_frame, q->st.fp, q->cp, q->st.sp, q->st.hp, q->st.tp
 		);
-#else
-	SB_sprintf(pr, "[%u:%s:%"PRIu64":cp%u] ",
-		q->my_chan,
-		q->st.m->name,
-		q->step,
-		q->cp
-		);
-#endif
 
 	SB_sprintf(pr, "%s ",
 		box == CALL ? "CALL" :
@@ -251,6 +245,25 @@ bool check_slot(query *q, unsigned cnt)
 	return true;
 }
 
+void make_call(query *q, cell *tmp)
+{
+	make_end(tmp);
+	const frame *f = GET_CURR_FRAME();
+	cell *c = q->st.curr_instr;
+	tmp->save_ret = c + c->nbr_cells;	// save next as the return instruction
+	tmp->chgen = f->chgen;				// ... choice-generation
+	tmp->mid = q->st.m->id;				// ... current-module
+}
+
+void make_call_redo(query *q, cell *tmp)
+{
+	make_end(tmp);
+	const frame *f = GET_CURR_FRAME();
+	tmp->save_ret = q->st.curr_instr;		// save the return instruction
+	tmp->chgen = f->chgen;				// ... choice-generation
+	tmp->mid = q->st.m->id;				// ... current-module
+}
+
 void add_trail(query *q, pl_idx c_ctx, unsigned c_var_nbr, cell *attrs, pl_idx attrs_ctx)
 {
 	if (!check_trail(q)) {
@@ -383,7 +396,7 @@ static void leave_predicate(query *q, predicate *pr)
 {
 	q->st.recursive = false;
 
-	if (!pr->is_dynamic || !pr->refcnt)
+	if (!pr || !pr->is_dynamic || !pr->refcnt)
 		return;
 
 	module_lock(pr->m);
@@ -541,7 +554,6 @@ int retry_choice(query *q)
 		if (ch->register_cleanup && q->noretry)
 			q->noretry = false;
 
-		trim_cache(q);
 		trim_heap(q);
 
 		if (ch->succeed_on_retry) {
@@ -552,7 +564,6 @@ int retry_choice(query *q)
 		return 1;
 	}
 
-	trim_cache(q);
 	trim_heap(q);
 	return 0;
 }
@@ -577,9 +588,7 @@ static frame *push_frame(query *q, const clause *cl)
 	f->initial_slots = f->actual_slots = cl->nbr_vars;
 	f->chgen = ++q->chgen;
 	f->heap_nbr = q->st.heap_nbr;
-	f->cache_nbr = q->st.cache_nbr;
 	f->hp = q->st.hp;
-	f->cap = q->st.cap;
 	f->overflow = 0;
 	f->no_tco = false;
 
@@ -638,12 +647,9 @@ static void reuse_frame(query *q, const clause *cl)
 
 	q->st.sp = f->base + cl->nbr_vars;
 	q->st.heap_nbr = f->heap_nbr;
-	q->st.cache_nbr = f->cache_nbr;
 	q->st.hp = f->hp;
-	q->st.cap = f->cap;
 	q->st.curr_rule->tcos++;
 	q->tot_tcos++;
-	trim_cache(q);
 	trim_heap(q);
 }
 
@@ -908,12 +914,14 @@ inline static void proceed(query *q)
 	// Loop here to avoild chains of last calls...
 
 	while (is_end(q->st.curr_instr)) {
-		if (q->st.curr_instr->save_ret) {
-			f->chgen = q->st.curr_instr->chgen;
-			//q->st.m = q->pl->modmap[q->st.curr_instr->mid];
+		cell *tmp = q->st.curr_instr;
+
+		if (tmp->save_ret) {
+			f->chgen = tmp->chgen;
+			//q->st.m = q->pl->modmap[tmp->mid];
 		}
 
-		if (!(q->st.curr_instr = q->st.curr_instr->save_ret))
+		if (!(q->st.curr_instr = tmp->save_ret))
 			break;
 	}
 }
@@ -1078,13 +1086,17 @@ static bool expand_meta_predicate(query *q, predicate *pr)
 	for (cell *k = q->st.key+1, *m = pr->meta_args+1; arity--; k += k->nbr_cells, m += m->nbr_cells) {
 		if ((k->arity == 2) && (k->val_off == g_colon_s) && is_atom(FIRST_ARG(k)))
 			;
-		else if (!is_interned(k))
+		else if (!is_interned(k) || is_iso_list(k))
 			;
 		else if (is_interned(m) && (m->val_off == g_colon_s)) {
 			make_struct(tmp, g_colon_s, bif_iso_invoke_2, 2, 1+k->nbr_cells);
 			SET_OP(tmp, OP_XFY); tmp++;
 			make_atom(tmp++, new_atom(q->pl, q->st.m->name));
-		} else if (is_positive(m) && (get_smallint(m) <= 9)) {
+		} else if (is_smallint(m) && is_positive(m) && (get_smallint(m) == 0)) {
+			make_struct(tmp, g_colon_s, bif_iso_invoke_2, 2, 1+k->nbr_cells);
+			SET_OP(tmp, OP_XFY); tmp++;
+			make_atom(tmp++, new_atom(q->pl, q->st.m->name));
+		} else if (is_smallint(m) && is_positive(m) && (get_smallint(m) <= 9) && is_atom(FIRST_ARG(k))) {
 			make_struct(tmp, g_colon_s, bif_iso_invoke_2, 2, 1+k->nbr_cells);
 			SET_OP(tmp, OP_XFY); tmp++;
 			make_atom(tmp++, new_atom(q->pl, q->st.m->name));
@@ -1860,18 +1872,6 @@ void query_destroy(query *q)
 
 	q->done = true;
 
-	for (page *a = q->cache_pages; a;) {
-		cell *c = a->cells;
-
-		for (pl_idx i = 0; i < a->max_idx_used; i++, c++)
-			unshare_cell(c);
-
-		page *save = a;
-		a = a->next;
-		free(save->cells);
-		free(save);
-	}
-
 	for (page *a = q->heap_pages; a;) {
 		cell *c = a->cells;
 
@@ -2002,7 +2002,6 @@ query *query_create(module *m, bool is_task)
 
 	// Allocate these later as needed...
 
-	q->cache_size = INITIAL_NBR_HEAP_CELLS;
 	q->heap_size = INITIAL_NBR_HEAP_CELLS;
 	q->tmph_size = INITIAL_NBR_CELLS;
 

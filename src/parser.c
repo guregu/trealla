@@ -836,6 +836,17 @@ static bool directives(parser *p, cell *d)
 			arg += 4;
 		}
 
+		cell *f = arg;
+
+		if (!is_compound(f))
+			return true;
+
+		if (f->val_off != g_slash_s)
+			return true;
+
+		char *name = C_STR(p->m, f+1);
+		unsigned arity = get_smallint(f+2);
+		module_duplicate(p->m->pl, p->m, name, arity);
 		return true;
 	}
 
@@ -1319,7 +1330,17 @@ static bool get_in_head(parser *p, const char *var_name)
 	return false;
 }
 
-// Temporary variables are assigned last
+static void check_term_ground(cell *c)
+{
+	c->flags |= FLAG_GROUND;
+
+	for (unsigned i = 0; i < c->nbr_cells; i++) {
+		if (is_var(c+i)) {
+			c->flags &= ~ FLAG_GROUND;
+			break;
+		}
+	}
+}
 
 void clause_assign_vars(parser *p, unsigned start, bool rebase)
 {
@@ -1342,6 +1363,9 @@ void clause_assign_vars(parser *p, unsigned start, bool rebase)
 
 	for (unsigned i = 0; i < cl->cidx; i++) {
 		cell *c = cl->cells + i;
+
+		if (c->arity)
+			check_term_ground(c);
 
 		if (c == body)
 			in_body = true;
@@ -1990,7 +2014,7 @@ static cell *goal_expansion(parser *p, cell *goal)
 	return goal;
 }
 
-static bool is_meta_arg(predicate *pr, cell *c, unsigned arg)
+static bool is_meta_arg(predicate *pr, cell *c, unsigned arg, int *extra)
 {
 	if (!pr->meta_args)
 		return false;
@@ -2001,8 +2025,10 @@ static bool is_meta_arg(predicate *pr, cell *c, unsigned arg)
 		if (!is_integer(m) || (i != arg))
 			continue;
 
-		if (get_smalluint(m) == 0)
-			return true;
+		if (extra)
+			*extra = get_smallint(m);
+
+		return true;
 	}
 
 	return false;
@@ -2043,26 +2069,37 @@ static cell *term_to_body_conversion(parser *p, cell *c)
 			|| (c->val_off == g_if_then_s)
 			|| (c->val_off == g_soft_cut_s)
 			|| (c->val_off == g_neck_s)) {
+			//module *m = find_module(p->pl, "dcgs");
+			//predicate *pr = find_predicate(m?m:p->m, c);
 			cell *lhs = c + 1;
+			int extra = 0;
+			//bool meta = pr ? is_meta_arg(pr, c, 0, &extra) : false;
 
 			if (is_var(lhs)) {
 				c = insert_call_here(p, c, lhs);
 				lhs = c + 1;
 			} else {
+				lhs->arity += extra;
+
 				if ((c->val_off != g_neck_s))
 					lhs = goal_expansion(p, lhs);
 
 				lhs = term_to_body_conversion(p, lhs);
+				lhs->arity -= extra;
 			}
 
 			cell *rhs = lhs + lhs->nbr_cells;
+			extra = 0;
+			//meta = pr ? is_meta_arg(pr, c, 1, &extra) : false;
 			c = p->cl->cells + c_idx;
 
 			if (is_var(rhs))
 				c = insert_call_here(p, c, rhs);
 			else {
+				rhs->arity += extra;
 				rhs = goal_expansion(p, rhs);
 				rhs = term_to_body_conversion(p, rhs);
+				rhs->arity -= extra;
 			}
 
 			c->nbr_cells = 1 + lhs->nbr_cells + rhs->nbr_cells;
@@ -2089,8 +2126,8 @@ static cell *term_to_body_conversion(parser *p, cell *c)
 			}
 		}
 	} else if (!is_head && c->arity) {
-		predicate *pr = find_predicate(p->m, c);
 		bool is_goal_expansion = find_goal_expansion(p->m, c);
+		predicate *pr = find_predicate(p->m, c);
 		bool meta = !pr || pr->is_meta_predicate || is_goal_expansion || p->m->wild_goal_expansion;
 		bool control = false;
 
@@ -2108,15 +2145,21 @@ static cell *term_to_body_conversion(parser *p, cell *c)
 		unsigned arity = c->arity, i = 0;
 
 		while (arity--) {
-			bool meta = pr ? is_meta_arg(pr, c, i) : false;
+			int extra = 0;
+			bool meta = pr ? is_meta_arg(pr, c, i, &extra) : false;
+
+			//printf("*** *** arg=%d, meta=%d/%d, %s/%u\n", i, meta, extra, C_STR(q, arg), arg->arity);
+
 			c->nbr_cells -= arg->nbr_cells;
+			arg->arity += extra;
 
 			if (meta)
 				arg = goal_expansion(p, arg);
 
-			if (control)
+			if (control || meta)
 				arg = term_to_body_conversion(p, arg);
 
+			arg->arity -= extra;
 			c->nbr_cells += arg->nbr_cells;
 			arg += arg->nbr_cells;
 			i++;
