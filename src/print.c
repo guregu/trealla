@@ -450,7 +450,7 @@ static const char *get_slot_name(query *q, pl_idx slot_nbr)
 	return varformat(q->tmpbuf, i);
 }
 
-void print_variable(query *q, const cell *c, pl_idx c_ctx, bool running)
+static void print_variable(query *q, cell *c, pl_idx c_ctx, bool running)
 {
 	const frame *f = GET_FRAME(running ? c_ctx : 0);
 	pl_idx slot_nbr = running ?
@@ -466,7 +466,7 @@ void print_variable(query *q, const cell *c, pl_idx c_ctx, bool running)
 	} else if (q->portray_vars || (q->is_dump_vars && q->cycle_error)) {
 		SB_sprintf(q->sb, "%s", get_slot_name(q, slot_nbr));
 	} else if (q->is_dump_vars) {
-		if ((c_ctx == 0) && !is_fresh(c) && !is_anon(c) && (c->var_nbr < q->p->nbr_vars)) {
+		if ((c_ctx == 0) && (c->var_nbr < q->p->nbr_vars)) {
 			SB_sprintf(q->sb, "%s", q->p->vartab.var_name[c->var_nbr]);
 		} else {
 			SB_sprintf(q->sb, "_%s", get_slot_name(q, slot_nbr));

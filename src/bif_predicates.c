@@ -112,7 +112,7 @@ static bool bif_iso_findall_3(query *q)
 			return throw_error(q, p3, p3_ctx, "type_error", "list");
 
 		if (is_compound(p1) && (!is_iso_list(p1))) {	// Why?
-			create_vars(q, 16);
+			create_vars(q, 16, true);
 		}
 
 		grab_queuen(q);
@@ -2051,7 +2051,7 @@ static bool bif_iso_functor_3(query *q)
 		} else {
 			int var_nbr = 0;
 
-			if ((var_nbr = create_vars(q, arity)) < 0)
+			if ((var_nbr = create_vars(q, arity, true)) < 0)
 				return throw_error(q, p3, p3_ctx, "resource_error", "stack");
 
 			cell *tmp = alloc_on_heap(q, 1+arity);
@@ -2209,7 +2209,7 @@ static bool bif_iso_current_predicate_1(query *q)
 		unsigned var_nbr = f->actual_slots;
 		make_ref(&tmp1, var_nbr++, q->st.curr_frame);
 		make_ref(&tmp2, var_nbr++, q->st.curr_frame);
-		create_vars(q, 2);
+		create_vars(q, 2, true);
 		bool ok = search_functor(q, p1, p1_ctx, p2, p2_ctx) ? true : false;
 		cell *tmp = alloc_on_heap(q, 3);
 		make_struct(tmp, g_slash_s, NULL, 2, 2);
@@ -3410,7 +3410,7 @@ static bool do_profile(query *q)
 	return true;
 }
 
-static bool bif_statistics_0(query *q)
+bool bif_statistics_0(query *q)
 {
 	fprintf(stdout,
 		"Goals %"PRIu64", "
@@ -5856,23 +5856,21 @@ static bool bif_sys_det_length_rundown_2(query *q)
 	int var_nbr;
 	unsigned n = get_smalluint(p2);
 
-	if ((var_nbr = create_vars(q, n)) < 0)
+	if ((var_nbr = create_vars(q, n, true)) < 0)
 		return throw_error(q, p2, p2_ctx, "resource_error", "stack");
 
-	cell *l;
-	check_heap_error(l = alloc_on_heap(q, n*2+1));
+	cell *l = alloc_on_heap(q, n*2+1);
+	check_heap_error(l);
 	cell *save_l = l;
 
 	while (n) {
 		l->tag = TAG_INTERNED;
 		l->val_off = g_dot_s;
-		l->nbr_cells = n*2+1;
+		l->nbr_cells = n-- * 2 + 1;
 		l->arity = 2;
+		l->flags = 0;
 		l++;
-		make_ref(l, var_nbr++, q->st.curr_frame);
-		l->flags = FLAG_VAR_ANON;
-		l++;
-		n--;
+		make_ref(l++, var_nbr++, q->st.curr_frame);
 	}
 
 	make_atom(l, g_nil_s);
@@ -6477,7 +6475,7 @@ static void load_flags(query *q)
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "integer_rounding_function", "toward_zero");
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, [max_depth(%u),quoted(%s),double_quotes(%s)]).\n", "answer_write_options", (unsigned)q->pl->def_max_depth, q->pl->def_quoted?"true":"false", q->pl->def_double_quotes?"true":"false");
 
-	parser *p = parser_create(m);
+	parser *p = parser_create(m->pl->user_m);
 	p->srcptr = SB_cstr(pr);
 	p->consulting = true;
 	tokenize(p, false, false);
@@ -6558,7 +6556,7 @@ static void load_ops(query *q)
 		free(dst2);
 	}
 
-	parser *p = parser_create(q->st.m);
+	parser *p = parser_create(q->pl->user_m);
 	p->srcptr = SB_cstr(pr);
 	p->consulting = true;
 	tokenize(p, false, false);
@@ -6698,9 +6696,14 @@ builtins g_other_bifs[] =
 	{"sleep", 1, bif_sleep_1, "+number", false, false, BLAH},
 
 	{"$must_be", 4, bif_must_be_4, "+term,+atom,+term,?any", false, false, BLAH},
-	{"$can_be", 4, bif_can_be_4, "+term,+atom,+term,?any", false, false, BLAH},
 	{"$must_be", 2, bif_must_be_2, "+atom,+term", false, false, BLAH},
+	{"$can_be", 4, bif_can_be_4, "+term,+atom,+term,?any", false, false, BLAH},
 	{"$can_be", 2, bif_can_be_2, "+atom,+term,", false, false, BLAH},
+
+	{"must_be", 4, bif_must_be_4, "+term,+atom,+term,?any", false, false, BLAH},
+	{"can_be", 4, bif_can_be_4, "+term,+atom,+term,?any", false, false, BLAH},
+	{"must_be", 2, bif_must_be_2, "+atom,+term", false, false, BLAH},
+	{"can_be", 2, bif_can_be_2, "+atom,+term,", false, false, BLAH},
 
 	{"$det_length_rundown", 2, bif_sys_det_length_rundown_2, "?list,+integer", false, false, BLAH},
 	{"$memberchk", 3, bif_sys_memberchk_3, "?term,?list,-term", false, false, BLAH},

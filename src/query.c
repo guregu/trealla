@@ -27,14 +27,14 @@ static void msleep(int ms)
 }
 #endif
 
-#define Trace if (!(q->trace /*&& !consulting*/)) q->step++; else  trace_call
+#define Trace if (!(q->trace /*&& !consulting*/)) q->step++; else trace_call
 
 static const unsigned INITIAL_NBR_QUEUE_CELLS = 1000;
 static const unsigned INITIAL_NBR_HEAP_CELLS = 8000;
-static const unsigned INITIAL_NBR_FRAMES = 1000;
-static const unsigned INITIAL_NBR_SLOTS = 1000;
-static const unsigned INITIAL_NBR_TRAILS = 1000;
-static const unsigned INITIAL_NBR_CHOICES = 1000;
+static const unsigned INITIAL_NBR_FRAMES = 4000;
+static const unsigned INITIAL_NBR_SLOTS = 4000;
+static const unsigned INITIAL_NBR_TRAILS = 4000;
+static const unsigned INITIAL_NBR_CHOICES = 4000;
 static const unsigned INITIAL_NBR_CELLS = 100;
 
 int g_tpl_interrupt = 0;
@@ -226,6 +226,8 @@ static bool check_frame(query *q)
 
 bool check_slot(query *q, unsigned cnt)
 {
+	cnt += 1024;	// Why??
+
 	pl_idx nbr = q->st.sp + cnt;
 
 	if (q->st.sp > q->hw_slots)
@@ -928,7 +930,7 @@ inline static void proceed(query *q)
 
 #define MAX_LOCAL_VARS (1L<<30)
 
-int create_vars(query *q, unsigned cnt)
+int create_vars(query *q, unsigned cnt, bool zeroit)
 {
 	frame *f = GET_CURR_FRAME();
 
@@ -962,13 +964,15 @@ int create_vars(query *q, unsigned cnt)
 	}
 
 	if (!check_slot(q, cnt)) {
-		printf("*** OOPS %s %d\n", __FILE__, __LINE__);
+		//printf("*** OOPS %s %d\n", __FILE__, __LINE__);
 		return -1;
 	}
 
-	for (unsigned i = 0; i < cnt; i++) {
-		slot *e = GET_SLOT(f, f->actual_slots + i);
-		memset(e, 0, sizeof(slot));
+	if (zeroit) {
+		for (unsigned i = 0; i < cnt; i++) {
+			slot *e = GET_SLOT(f, f->actual_slots + i);
+			memset(e, 0, sizeof(slot));
+		}
 	}
 
 	q->st.sp += cnt;

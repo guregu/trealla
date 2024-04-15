@@ -1,26 +1,11 @@
 #include <ctype.h>
-#include <errno.h>
 #include <stdlib.h>
-#include <stdio.h>
 #include <string.h>
-#include <sys/time.h>
-#include <sys/stat.h>
 
 #include "sort_r.h"
 
-#include "base64.h"
 #include "heap.h"
-#include "history.h"
-#include "module.h"
-#include "parser.h"
-#include "prolog.h"
 #include "query.h"
-
-#include "bif_atts.h"
-
-#if USE_OPENSSL
-#include "openssl/sha.h"
-#endif
 
 typedef struct { query *q; cell *c; pl_idx c_ctx; int8_t arg; bool ascending:1; } basepair;
 
@@ -96,7 +81,7 @@ static cell *nodesort(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool keysor
 		p1_ctx = q->latest_ctx;
 	}
 
-	sort_r_simple(base, cnt, sizeof(basepair), (void*)nodecmp, NULL);
+	sort_r(base, cnt, sizeof(basepair), (void*)nodecmp, NULL);
 
 	for (size_t i = 0; i < cnt; i++) {
 		if (i > 0) {
@@ -109,7 +94,7 @@ static cell *nodesort(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool keysor
 		cell tmp;
 
 		if (is_compound(c) && !is_iso_list(c)) {
-			make_ref(&tmp, create_vars(q, 1), q->st.curr_frame);
+			make_ref(&tmp, create_vars(q, 1, true), q->st.curr_frame);
 			unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 			c = &tmp;
 		}
@@ -284,7 +269,7 @@ static cell *nodesort4(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool ascen
 		p1_ctx = q->latest_ctx;
 	}
 
-	sort_r_simple(base, cnt, sizeof(basepair), (void*)nodecmp, NULL);
+	sort_r(base, cnt, sizeof(basepair), (void*)nodecmp, NULL);
 
 	for (size_t i = 0; i < cnt; i++) {
 		if (i > 0) {
@@ -297,7 +282,7 @@ static cell *nodesort4(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool ascen
 		cell tmp;
 
 		if (is_var(c) || is_compound(c)) {
-			make_ref(&tmp, create_vars(q, 1), q->st.curr_frame);
+			make_ref(&tmp, create_vars(q, 1, true), q->st.curr_frame);
 			unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 			c = &tmp;
 		}
