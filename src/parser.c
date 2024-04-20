@@ -1344,6 +1344,7 @@ void clause_assign_vars(parser *p, unsigned start, bool rebase)
 	clause *cl = p->cl;
 	cl->is_first_cut = false;
 	cl->is_cut_only = false;
+	cl->has_local_vars = false;
 	p->start_term = true;
 
 	if (!p->reuse) {
@@ -1436,8 +1437,13 @@ void clause_assign_vars(parser *p, unsigned start, bool rebase)
 		}
 	}
 
+	in_body = p->in_body;
+
 	for (unsigned i = 0; i < cl->cidx; i++) {
 		cell *c = cl->cells + i;
+
+		if (c == body)
+			in_body = true;
 
 		if (!is_var(c))
 			continue;
@@ -1445,10 +1451,16 @@ void clause_assign_vars(parser *p, unsigned start, bool rebase)
 		// A temporary variable is one that occurs only in the
 		// head of a clause. A local is one only in the body.
 
-		if (!get_in_body(p, C_STR(p, c)))
-			c->flags |= FLAG_VAR_TEMPORARY;
-		else if (!get_in_head(p, C_STR(p, c)))
+		bool var_in_head = get_in_head(p, C_STR(p, c));
+		bool var_in_body = get_in_body(p, C_STR(p, c));
+
+		if (!var_in_head && in_body) {
+			cl->has_local_vars = true;
 			c->flags |= FLAG_VAR_LOCAL;
+		}
+
+		if (!var_in_body && !in_body)
+			c->flags |= FLAG_VAR_TEMPORARY;
 	}
 
 	for (unsigned i = 0; i < cl->nbr_vars; i++) {
@@ -1766,7 +1778,7 @@ static bool dcg_expansion(parser *p)
 		return false;
 	}
 
-	xref_clause(p2->m, p2->cl);
+	xref_clause(p2->m, p2->cl, NULL);
 	free(src);
 
 	clear_clause(p->cl);
@@ -1839,7 +1851,7 @@ static bool term_expansion(parser *p)
 	check_error(p2);
 	p2->srcptr = src;
 	tokenize(p2, false, false);
-	xref_clause(p2->m, p2->cl);
+	xref_clause(p2->m, p2->cl, NULL);
 	free(src);
 
 	clear_clause(p->cl);
@@ -1914,7 +1926,7 @@ static cell *goal_expansion(parser *p, cell *goal)
 	p2->skip = true;
 	p2->srcptr = SB_cstr(s);
 	tokenize(p2, false, false);
-	xref_clause(p2->m, p2->cl);
+	xref_clause(p2->m, p2->cl, NULL);
 	execute(q, p2->cl->cells, p2->cl->nbr_vars);
 	SB_free(s);
 	p->pl->in_goal_expansion = false;
@@ -1967,7 +1979,7 @@ static cell *goal_expansion(parser *p, cell *goal)
 	p2->reuse = true;
 	p2->srcptr = src;
 	tokenize(p2, false, false);
-	xref_clause(p2->m, p2->cl);
+	xref_clause(p2->m, p2->cl, NULL);
 	free(src);
 
 	// Push the updated vatab back...
@@ -3268,6 +3280,7 @@ static bool process_term(parser *p, cell *p1)
 
 	check_first_cut(&r->cl);
 	r->cl.is_fact = !get_logical_body(r->cl.cells);
+	r->cl.has_local_vars = p->cl->has_local_vars;
 	r->line_nbr_start = p->line_nbr_start;
 	r->line_nbr_end = p->line_nbr;
 	p->line_nbr_start = 0;
@@ -3343,7 +3356,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 					return 0;
 				}
 
-				xref_clause(p->m, p->cl);
+				xref_clause(p->m, p->cl, NULL);
 				term_to_body(p);
 
 				if (p->consulting && !p->skip) {
