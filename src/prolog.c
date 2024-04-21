@@ -14,6 +14,10 @@
 #include <sys/resource.h>
 #endif
 
+#ifndef isatty
+#define isatty(fd) (0)
+#endif
+
 void convert_path(char *filename);
 
 static lock g_symtab_guard;

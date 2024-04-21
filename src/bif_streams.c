@@ -87,8 +87,6 @@ static size_t slash_len(const char *s)
 	return s-s0;
 }
 
-
-
 char *realpath(const char *restrict filename, char *restrict resolved)
 {
 	char stack[PATH_MAX+1];
@@ -238,6 +236,11 @@ toolong:
 	return 0;
 }
 /* end of code borrowed from musl */
+
+#ifndef isatty
+#define isatty(fd) (0)
+#endif
+
 #endif
 
 #ifdef _WIN32
