@@ -34,7 +34,6 @@ bool check_slot(query *q, unsigned cnt);
 void cut(query *q);
 bool execute(query *q, cell *cells, unsigned nbr_vars);
 void undo_me(query *q);
-void drop_choice(query *q);
 int retry_choice(query *q);
 void clause_assign_vars(parser *p, unsigned start, bool rebase);
 bool start(query *q);
@@ -194,12 +193,9 @@ inline static cell *get_body(cell *c)
 	return NULL;
 }
 
-#define init_cell(c) { 				\
-	(c)->tag = TAG_EMPTY;			\
-	(c)->flags = 0;					\
-	(c)->nbr_cells = 0;				\
-	(c)->arity = 0;					\
-	(c)->attrs = NULL;				\
+inline static void drop_choice(query *q)
+{
+	--q->cp;
 }
 
 #ifdef _WIN32

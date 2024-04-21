@@ -418,7 +418,7 @@ static void leave_predicate(query *q, predicate *pr)
 	if (pr->is_abolished) {
 		rule *r;
 
-		while ((r = (rule*)list_pop_front(&pr->dirty)) != NULL) {
+		while ((r = list_pop_front(&pr->dirty)) != NULL) {
 			list_delink(pr, r);
 			clear_clause(&r->cl);
 			free(r);
@@ -436,7 +436,7 @@ static void leave_predicate(query *q, predicate *pr)
 
 	rule *r;
 
-	while ((r = (rule*)list_pop_front(&pr->dirty)) != NULL) {
+	while ((r = list_pop_front(&pr->dirty)) != NULL) {
 		list_delink(pr, r);
 
 		if (pr->idx && pr->cnt) {
@@ -453,6 +453,9 @@ static void leave_predicate(query *q, predicate *pr)
 				clear_clause(&r->cl);
 				free(r);
 			}
+		} else {
+			r->cl.is_deleted = true;
+			list_push_back(&q->dirty, r);
 		}
 	}
 
@@ -507,22 +510,6 @@ void try_me(query *q, unsigned nbr_vars)
 	q->has_vars = false;
 	q->no_tco = false;
 	q->tot_matches++;
-}
-
-void drop_choice(query *q)
-{
-	if (!q->cp)
-		return;
-
-	choice *ch = GET_CURR_CHOICE();
-
-	if (ch->st.iter) {
-		sl_done(ch->st.iter);
-		ch->st.iter = NULL;
-	}
-
-	//q->st.pr = NULL;
-	--q->cp;
 }
 
 int retry_choice(query *q)
@@ -903,20 +890,18 @@ static bool resume_frame(query *q)
 	if (!f->prev_offset)
 		return false;
 
+	if (q->in_call)
+		q->in_call--;
+
 	if (q->pl->opt
-		&& !f->has_local_vars
+		&& (!f->has_local_vars || !q->in_call)
 		&& !f->no_tco
 		&& (q->st.fp == (q->st.curr_frame + 1))
 		&& !my_any_choices(q, f)
 		) {
-		//fprintf(stderr, "*** RECLAIM slots %u\n", f->actual_slots);
 		q->st.sp -= f->actual_slots;
-		//fprintf(stderr, "*** RECLAIM frame\n");
 		q->st.fp--;
 	}
-
-	if (q->in_call)
-		q->in_call--;
 
 	q->st.curr_instr = f->curr_instr;
 	q->st.curr_frame = q->st.curr_frame - f->prev_offset;
@@ -940,19 +925,6 @@ static void proceed(query *q)
 		if (tmp->save_ret) {
 			f->chgen = tmp->chgen;
 			//q->st.m = q->pl->modmap[tmp->mid];
-		} else {
-#if 0
-			if (!f->has_local_vars
-				&& !f->no_tco
-				&& !q->st.m->no_tco		// CLPZ
-				&& (f->actual_slots == f->initial_slots)
-				&& (q->st.fp == (q->st.curr_frame + 1))
-				&& !my_any_choices(q, f)
-				) {
-				q->st.sp -= f->initial_slots;
-				q->st.fp--;
-			}
-#endif
 		}
 
 		if (!(q->st.curr_instr = tmp->save_ret))
@@ -1514,6 +1486,7 @@ static bool match_head(query *q)
 
 		clause *cl = &q->st.curr_rule->cl;
 		cell *head = get_head(cl->cells);
+		cell *body = get_body(cl->cells);
 		try_me(q, cl->nbr_vars);
 		q->st.curr_rule->attempted++;
 
@@ -1523,20 +1496,15 @@ static bool match_head(query *q)
 			if (q->error)
 				break;
 
-			commit_frame(q, get_body(cl->cells));
+			commit_frame(q, body);
 			return true;
 		}
 
 		undo_me(q);
 	}
 
-	if (q->cp) {
-		choice *ch = GET_CURR_CHOICE();
-		ch->st.iter = NULL;
-		drop_choice(q);
-	}
-
 	leave_predicate(q, q->st.pr);
+	drop_choice(q);
 	return false;
 }
 
@@ -1891,7 +1859,7 @@ static void query_purge_dirty_list(query *q)
 	unsigned cnt = 0;
 	rule *r;
 
-	while ((r = (rule *)list_pop_front(&q->dirty)) != NULL) {
+	while ((r = list_pop_front(&q->dirty)) != NULL) {
 		clear_clause(&r->cl);
 		free(r);
 		cnt++;
@@ -1959,7 +1927,7 @@ void query_destroy(query *q)
 	}
 #endif
 
-	module *m = (module*)list_front(&q->pl->modules);
+	module *m = list_front(&q->pl->modules);
 
 	while (m) {
 		module_lock(m);
@@ -1987,7 +1955,7 @@ void query_destroy(query *q)
 		}
 
 		module_unlock(m);
-		m = (module*)list_next(m);
+		m = list_next(m);
 	}
 
 	mp_int_clear(&q->tmp_ival);
