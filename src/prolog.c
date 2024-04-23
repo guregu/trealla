@@ -12,10 +12,13 @@
 
 #if !defined(_WIN32) && !defined(__wasi__) && !defined(__ANDROID__)
 #include <sys/resource.h>
+#include <unistd.h>
 #endif
 
+#ifdef __wasi__
 #ifndef isatty
 #define isatty(fd) (0)
+#endif
 #endif
 
 void convert_path(char *filename);
