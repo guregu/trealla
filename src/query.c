@@ -419,7 +419,7 @@ static void leave_predicate(query *q, predicate *pr)
 		rule *r;
 
 		while ((r = list_pop_front(&pr->dirty)) != NULL) {
-			list_delink(pr, r);
+			predicate_delink(pr, r);
 			clear_clause(&r->cl);
 			free(r);
 		}
@@ -434,10 +434,11 @@ static void leave_predicate(query *q, predicate *pr)
 	// query dirty-list. They will be freed up at end of the query.
 	// FIXME: this is a memory drain.
 
+	const frame *f = GET_CURR_FRAME();
 	rule *r;
 
 	while ((r = list_pop_front(&pr->dirty)) != NULL) {
-		list_delink(pr, r);
+		predicate_delink(pr, r);
 
 		if (pr->idx && pr->cnt) {
 			cell *c = get_head(r->cl.cells);
@@ -446,7 +447,7 @@ static void leave_predicate(query *q, predicate *pr)
 			sl_rem(pr->idx2, arg2, r);
 			sl_rem(pr->idx, c, r);
 
-			if (q->no_tco) {
+			if (q->no_tco || true) {	// FIXME: issue #592
 				r->cl.is_deleted = true;
 				list_push_back(&q->dirty, r);
 			} else {
@@ -470,14 +471,9 @@ static void leave_predicate(query *q, predicate *pr)
 
 static void unwind_trail(query *q)
 {
-	pl_idx tp = 0;
+	const choice *ch = GET_CURR_CHOICE();
 
-	if (q->cp) {
-		const choice *ch = GET_CURR_CHOICE();
-		tp = ch->st.tp;
-	}
-
-	while (q->st.tp > tp) {
+	while (q->st.tp > ch->st.tp) {
 		const trail *tr = q->trails + --q->st.tp;
 		const frame *f = GET_FRAME(tr->var_ctx);
 		slot *e = GET_SLOT(f, tr->var_nbr);
@@ -1624,7 +1620,6 @@ bool start(query *q)
 		pl_idx save_ctx = q->st.curr_frame;
 		q->cycle_error = false;
 		q->did_throw = false;
-		q->max_eval_depth = 0;
 		q->tot_goals++;
 
 		if (is_builtin(q->st.curr_instr)) {
@@ -1944,7 +1939,7 @@ void query_destroy(query *q)
 
 				if (!CMP_STRING_TO_CSTR(m, arg3, "b")) {
 					pr->cnt--;
-					list_delink(pr, r);
+					predicate_delink(pr, r);
 					rule *save = r;
 					r = r->next;
 					clear_clause(&save->cl);

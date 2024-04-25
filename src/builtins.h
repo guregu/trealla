@@ -57,7 +57,6 @@ bool wrap_ffi_predicate(query *q, builtins *bif_ptr);
 #define is_iso_list_or_var(c) (is_iso_list(c) || is_var(c))
 #define is_iso_atom_or_var(c) (is_iso_atom(c) || is_var(c))
 #define is_iso_atomic_or_var(c) (is_iso_atom(c) || is_number(c) || is_var(c))
-
 #define is_memory_stream(str) ((str)->is_memory)
 #define is_map_stream(str) ((str)->is_map)
 #define is_engine_stream(str) ((str)->is_engine)
@@ -65,6 +64,20 @@ bool wrap_ffi_predicate(query *q, builtins *bif_ptr);
 #define is_mutex_stream(str) ((str)->is_mutex)
 #define is_virtual_stream(str) (is_memory_stream(str) || is_map_stream(str) || is_engine_stream(str) || is_thread_stream(str) || is_mutex_stream(str))
 #define is_live_stream(str) ((str)->fp || is_virtual_stream(str))
+
+bool call_builtin(query *q, cell *c, pl_idx c_ctx);
+bool call_userfun(query *q, cell *c, pl_idx c_ctx);
+
+#define eval(q,c)														\
+	is_evaluable(c) || is_builtin(c) ? (call_builtin(q,c,c##_ctx), q->accum) : \
+	is_callable(c) ? (call_userfun(q, c, c##_ctx), q->accum) : *c;		\
+	q->accum.flags = 0;													\
+	if (q->did_throw)													\
+		return true; 												\
+	if (is_var(c))													\
+		return throw_error(q, c, q->st.curr_frame, "instantiation_error", "number"); \
+	if (is_builtin(c) && c->bif_ptr && (c->bif_ptr->fn != bif_iso_float_1) && (c->bif_ptr->fn != bif_iso_integer_1)) \
+		return throw_error(q, c, q->st.curr_frame, "type_error", "evaluable");
 
 #if USE_FFI
 bool bif_sys_dlopen_3(query *q);
@@ -241,17 +254,6 @@ inline static cell *get_raw_arg(const query *q, int n)
 
 	return c;
 }
-
-#define eval(q,c)														\
-	is_evaluable(c) || is_builtin(c) ? (call_builtin(q,c,c##_ctx), q->accum) : \
-	is_callable(c) ? (call_userfun(q, c, c##_ctx), q->accum) : *c;		\
-	q->accum.flags = 0;													\
-	if (q->did_throw)													\
-		return true; 												\
-	if (is_var(c))													\
-		return throw_error(q, c, q->st.curr_frame, "instantiation_error", "number"); \
-	if (is_builtin(c) && c->bif_ptr && (c->bif_ptr->fn != bif_iso_float_1) && (c->bif_ptr->fn != bif_iso_integer_1)) \
-		return throw_error(q, c, q->st.curr_frame, "type_error", "evaluable");
 
 #define check_heap_error(expr, ...) \
 	CHECK_SENTINEL(expr, 0, __VA_ARGS__; \

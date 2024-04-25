@@ -694,7 +694,7 @@ struct query_ {
 	uint64_t tot_tcos, step, qid, tmo_msecs, chgen, cycle_error;
 	uint64_t get_started, autofail_n, yield_at;
 	uint64_t cpu_started, time_cpu_last_started, future;
-	unsigned max_depth, max_eval_depth, print_idx, tab_idx, dump_var_nbr;
+	unsigned max_depth, print_idx, tab_idx, dump_var_nbr;
 	unsigned varno, tab0_varno, curr_engine, curr_chan, my_chan, oom;
 	unsigned s_cnt;
 	pl_idx tmphp, latest_ctx, popp, variable_names_ctx;
@@ -1065,11 +1065,12 @@ inline static void init_cell(cell *c)
 	c->attrs = NULL;
 }
 
-#define list_delink(l, e) {						\
-	if (e->prev) e->prev->next = e->next;		\
-	if (e->next) e->next->prev = e->prev;		\
-	if (l->head == e) l->head = e->next;		\
-	if (l->tail == e) l->tail = e->prev;		\
+inline static void predicate_delink(predicate *pr, rule *r)
+{
+	if (r->prev) r->prev->next = r->next;
+	if (r->next) r->next->prev = r->prev;
+	if (pr->head == r) pr->head = r->next;
+	if (pr->tail == r) pr->tail = r->prev;
 }
 
 #define dup_string(str, p)													\
