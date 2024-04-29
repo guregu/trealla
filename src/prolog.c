@@ -4,6 +4,10 @@
 #include <string.h>
 #include <stdint.h>
 
+#ifndef _WIN32
+#include <unistd.h>
+#endif
+
 #include "library.h"
 #include "module.h"
 #include "parser.h"
