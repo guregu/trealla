@@ -1717,33 +1717,33 @@ static bool bif_iso_univ_2(query *q)
 		if (is_var(p22))
 			return throw_error(q, p2, p2_ctx, "instantiation_error", "not_sufficiently_instantiated");
 
-		cell *tmp = deep_clone_to_heap(q, p2, p2_ctx);
-		check_heap_error(tmp);
-		p2 = tmp;
-		p2_ctx = q->st.curr_frame;
-		unsigned arity = 0, save_hp = q->st.hp;
+		cell *tmp;
 		check_heap_error(init_tmp_heap(q));
+		unsigned arity = 0;
 		cell *save_p2 = p2;
-		LIST_HANDLER(p2);
+		cell *l = p2;
+		pl_idx l_ctx = p2_ctx;
+		LIST_HANDLER(l);
 
-		while (is_list(p2)) {
-			cell *h = LIST_HEAD(p2);
+		while (is_list(l)) {
+			cell *h = LIST_HEAD(l);
+			h = deref(q, h, l_ctx);
+			pl_idx h_ctx = q->latest_ctx;
 
 			if (is_cstring(h) && is_string(save_p2))
 				convert_to_literal(q->st.m, h);
 
-			cell *tmp2 = alloc_on_tmp(q, h->nbr_cells);
-			check_heap_error(tmp2);
-			copy_cells(tmp2, h, h->nbr_cells);
-
-			p2 = LIST_TAIL(p2);
+			deep_clone_to_tmp(q, h, h_ctx);
+			l = LIST_TAIL(l);
+			l = deref(q, l, l_ctx);
+			l_ctx = q->latest_ctx;
 			arity++;
 		}
 
-		if (is_var(p2))
+		if (is_var(l))
 			return throw_error(q, p2, p2_ctx, "instantiation_error", "list");
 
-		if (!is_nil(p2))
+		if (!is_nil(l))
 			return throw_error(q, save_p2, p2_ctx, "type_error", "list");
 
 		arity--;
@@ -1767,7 +1767,6 @@ static bool bif_iso_univ_2(query *q)
 		if (arity > MAX_ARITY)
 			return throw_error(q, tmp2, q->st.curr_frame, "representation_error", "max_arity");
 
-		q->st.hp = save_hp;
 		check_heap_error(tmp = alloc_on_heap(q, nbr_cells));
 		dup_cells(tmp, tmp2, nbr_cells);
 		tmp->nbr_cells = nbr_cells;
@@ -1775,9 +1774,7 @@ static bool bif_iso_univ_2(query *q)
 		bool found = false;
 
 		if (is_callable(tmp)) {
-			if ((tmp->match = search_predicate(q->st.m, tmp, NULL)) != NULL) {
-				tmp->flags &= ~FLAG_BUILTIN;
-			} else if ((tmp->bif_ptr = get_builtin_term(q->st.m, tmp, &found, NULL)), found) {
+			if ((tmp->bif_ptr = get_builtin_term(q->st.m, tmp, &found, NULL)), found) {
 				if (tmp->bif_ptr->evaluable)
 					tmp->flags |= FLAG_EVALUABLE;
 				else
