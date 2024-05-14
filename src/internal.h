@@ -789,7 +789,7 @@ struct parser_ {
 	bool did_getline:1;
 	bool already_loaded_error:1;
 	bool do_read_term:1;
-	bool string:1;
+	bool is_string:1;
 	bool run_init:1;
 	bool directive:1;
 	bool consulting:1;
@@ -1081,7 +1081,7 @@ inline static void predicate_delink(predicate *pr, rule *r)
 		str = DUP_STRING(q, p);												\
 		str##_len = C_STRLEN(q, p);											\
 	} else if ((str##_len = scan_is_chars_list(q, p, p##_ctx, true)) > 0) {	\
-		str = chars_list_to_string(q, p, p##_ctx, str##_len);				\
+		str = chars_list_to_string(q, p, p##_ctx);							\
 	} else if (is_nil(p)) {													\
 		str = NULL;															\
 	} else																	\

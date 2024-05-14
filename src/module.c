@@ -1123,6 +1123,9 @@ bool set_op(module *m, const char *name, unsigned specifier, unsigned priority)
 		if (IS_INFIX(ptr->specifier) != IS_INFIX(specifier))
 			continue;
 
+		if (!ptr->priority)
+			continue;
+
 		if (!priority) {
 			ptr->specifier = 0;
 			ptr->priority = 0;
@@ -1141,6 +1144,9 @@ bool set_op(module *m, const char *name, unsigned specifier, unsigned priority)
 
 	while (sl_next_key(iter, (void**)&ptr)) {
 		if (IS_INFIX(ptr->specifier) != IS_INFIX(specifier))
+			continue;
+
+		if (!ptr->priority)
 			continue;
 
 		if (!priority) {

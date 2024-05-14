@@ -2314,7 +2314,7 @@ static int get_escape(parser *p, const char **_src, bool *error, bool number)
 	int ch = *src++;
 	const char *ptr = strchr(g_anti_escapes, ch);
 
-	if (ptr)
+	if (ptr && ((ch != 's') || !p->flags.strict_iso))
 		ch = g_escapes[ptr-g_anti_escapes];
 	else if ((isdigit(ch) || (ch == 'x')
 		|| (((ch == 'u') || (ch == 'U')) && (p->flags.json || !p->flags.strict_iso))
@@ -2838,7 +2838,7 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 	p->v.flags = 0;
 	p->v.nbr_cells = 1;
 	p->quote_char = 0;
-	p->was_string = p->string = p->is_quoted = p->is_var = p->is_op = p->symbol = false;
+	p->was_string = p->is_string = p->is_quoted = p->is_var = p->is_op = p->symbol = false;
 
 	if (p->dq_consing && (*src == '"') && (src[1] == '"')) {
 		src++;
@@ -2993,7 +2993,7 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 			p->srcptr = (char*)src;
 			return true;
 		} else if ((p->quote_char == '"') && p->flags.double_quote_chars)
-			p->string = true;
+			p->is_string = true;
 
 		for (;;) {
 			for (int ch; (ch = get_char_utf8(&src));) {
@@ -3063,15 +3063,15 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 				continue;
 			}
 
-			if (p->string && !p->flags.json && !SB_strlen(p->token)) {
+			if (p->is_string && !p->flags.json && !SB_strlen(p->token)) {
 				SB_strcpy(p->token, "[]");
 				p->was_string = true;
-				p->string = false;
+				p->is_string = false;
 				p->srcptr = (char*)src;
 				return true;
 			}
 
-			if (!p->string
+			if (!p->is_string
 				&& SB_strcmp(p->token, "[")
 				&& SB_strcmp(p->token, "(")
 				&& SB_strcmp(p->token, "{")
@@ -3327,7 +3327,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 		int ch = peek_char_utf8(SB_cstr(p->token));
 		fprintf(stderr,
 			"Debug: '%s' (%d) line_nbr=%d, symbol=%d, quoted=%d, tag=%u, op=%d, lastop=%d, string=%d\n",
-			SB_cstr(p->token), ch, p->line_nbr, p->symbol, p->quote_char, p->v.tag, p->is_op, last_op, p->string);
+			SB_cstr(p->token), ch, p->line_nbr, p->symbol, p->quote_char, p->v.tag, p->is_op, last_op, p->is_string);
 #endif
 
 		if (!p->quote_char
@@ -3820,7 +3820,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 			int nextch = *s;
 			bool noneg = (!SB_strcmp(p->token, "-") || !SB_strcmp(p->token, "+")) && (nextch == '='); // Hack
 
-			if (noneg) {
+			if (noneg && !p->is_string) {
 				if (DUMP_ERRS || !p->do_read_term)
 					fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, incomplete, needs parenthesis, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
 
@@ -3900,7 +3900,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 			break;
 		}
 
-		if ((p->was_string || p->string) && is_func) {
+		if ((p->was_string || p->is_string) && is_func) {
 			if (DUMP_ERRS || !p->do_read_term)
 				fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, near \"%s\", expected atom, %s:%d\n", SB_cstr(p->token), get_loaded(p->m, p->m->filename), p->line_nbr);
 
@@ -3954,7 +3954,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 			set_smallint(c, get_smallint(&p->v));
 		} else if (p->v.tag == TAG_DOUBLE) {
 			set_float(c, get_float(&p->v));
-		} else if (!p->string && (!p->is_quoted || is_func || p->is_op || p->is_var
+		} else if (!p->is_string && (!p->is_quoted || is_func || p->is_op || p->is_var
 			|| (get_builtin(p->m->pl, SB_cstr(p->token), SB_strlen(p->token), 0, &found, NULL), found)
 			|| (p->is_quoted && !SB_strcmp(p->token, "[]"))
 			)) {
@@ -3974,12 +3974,12 @@ unsigned tokenize(parser *p, bool args, bool consing)
 			c->tag = TAG_CSTR;
 			size_t toklen =SB_strlen(p->token);
 
-			if ((toklen < MAX_SMALL_STRING) && !p->string) {
+			if ((toklen < MAX_SMALL_STRING) && !p->is_string) {
 				memcpy(c->val_chr, SB_cstr(p->token), toklen);
 				c->val_chr[toklen] = '\0';
 				c->chr_len = toklen;
 			} else {
-				if (p->string) {
+				if (p->is_string) {
 					c->flags |= FLAG_CSTR_STRING;
 					c->arity = 2;
 				}

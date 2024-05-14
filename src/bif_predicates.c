@@ -2801,6 +2801,7 @@ static bool bif_iso_op_3(query *q)
 	GET_FIRST_ARG(p1,integer);
 	GET_NEXT_ARG(p2,atom);
 	GET_NEXT_ARG(p3,list_or_atom);
+
 	if (is_negative(p1) || is_gt(p1,1200))
 		return throw_error(q, p1, p1_ctx, "domain_error", "operator_priority");
 
@@ -4274,8 +4275,8 @@ static bool bif_crypto_data_hash_3(query *q)
 				} else
 					return throw_error(q, arg, arg_ctx, "domain_error", "algorithm");
 			} else if (!CMP_STRING_TO_CSTR(q, h, "hmac") && is_iso_list(arg)
-				&& (keylen = scan_is_chars_list(q, arg, 0, true)) > 0) {
-				key = chars_list_to_string(q, arg, 0, keylen);
+				&& (scan_is_chars_list(q, arg, 0, true)) > 0) {
+				key = chars_list_to_string(q, arg, 0);
 			} else
 				return throw_error(q, h, h_ctx, "domain_error", "hash_option");
 		} else
@@ -6016,7 +6017,7 @@ static bool fn_sys_host_call_2(query *q) {
 		len = C_STRLEN(q, p1);
 		status = host_call((int32_t)q, src, len, &reply, &reply_len);
 	} else if ((len = scan_is_chars_list(q, p1, p1_ctx, true)) > 0) {
-		char *src = chars_list_to_string(q, p1, p1_ctx, len);
+		char *src = chars_list_to_string(q, p1, p1_ctx);
 		status = host_call((int32_t)q, src, len, &reply, &reply_len);
 		free(src);
 	} else if (is_nil(p1)) {
