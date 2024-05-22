@@ -143,6 +143,7 @@ LIBOBJECTS +=  \
 	library/format.o \
 	library/freeze.o \
 	library/gensym.o \
+	library/heaps.o \
 	library/http.o \
 	library/iso_ext.o \
 	library/json.o \
@@ -155,6 +156,7 @@ LIBOBJECTS +=  \
 	library/pseudojson.o \
 	library/random.o \
 	library/raylib.o \
+	library/rbtrees.o \
 	library/reif.o \
 	library/si.o \
 	library/sqlite3.o \

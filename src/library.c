@@ -6,6 +6,8 @@ extern unsigned char library_lists_pl[];
 extern unsigned int library_lists_pl_len;
 extern unsigned char library_apply_pl[];
 extern unsigned int library_apply_pl_len;
+extern unsigned char library_heaps_pl[];
+extern unsigned int library_heaps_pl_len;
 extern unsigned char library_http_pl[];
 extern unsigned int library_http_pl_len;
 extern unsigned char library_atts_pl[];
@@ -68,6 +70,8 @@ extern unsigned char library_uuid_pl[];
 extern unsigned int library_uuid_pl_len;
 extern unsigned char library_linda_pl[];
 extern unsigned int library_linda_pl_len;
+extern unsigned char library_rbtrees_pl[];
+extern unsigned int library_rbtrees_pl_len;
 extern unsigned char library_reif_pl[];
 extern unsigned int library_reif_pl_len;
 extern unsigned char library_debug_pl[];
@@ -104,6 +108,7 @@ library g_libs[] = {
 	 {"format", library_format_pl, &library_format_pl_len},
 	 {"freeze", library_freeze_pl, &library_freeze_pl_len},
 	 {"gensym", library_gensym_pl, &library_gensym_pl_len},
+	 {"heaps", library_heaps_pl, &library_heaps_pl_len},
 	 {"http", library_http_pl, &library_http_pl_len},
 	 {"iso_ext", library_iso_ext_pl, &library_iso_ext_pl_len},
 	 {"json", library_json_pl, &library_json_pl_len},
@@ -116,6 +121,7 @@ library g_libs[] = {
 	 {"pseudojson", library_pseudojson_pl, &library_pseudojson_pl_len},
 	 {"random", library_random_pl, &library_random_pl_len},
 	 {"raylib", library_raylib_pl, &library_raylib_pl_len},
+	 {"rbtrees", library_rbtrees_pl, &library_rbtrees_pl_len},
 	 {"reif", library_reif_pl, &library_reif_pl_len},
 	 {"si", library_si_pl, &library_si_pl_len},
 #ifdef WASI_TARGET_SPIN
