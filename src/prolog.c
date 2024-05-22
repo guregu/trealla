@@ -268,6 +268,14 @@ void pl_capture_free(prolog *pl) {
 	SB_free(stderr_stream->sb);
 }
 
+void pl_capture_reset(prolog *pl) {
+	stream* stdout_stream = &pl->streams[1];
+	stream* stderr_stream = &pl->streams[2];
+
+	SB_init(stdout_stream->sb);
+	SB_init(stderr_stream->sb);
+}
+
 bool pl_consult_fp(prolog *pl, FILE *fp, const char *filename)
 {
 	return load_fp(pl->user_m, fp, filename, false) != NULL;

@@ -45,10 +45,12 @@ extern bool pl_done(pl_sub_query *q);	// only call if redo still active
 // These are for Wasm runtimes without output capturing support
 EXPORT(pl_capture)
 extern void pl_capture(prolog *pl);
-EXPORT(pl_capture_free)
-extern void pl_capture_free(prolog *pl);
 EXPORT(pl_capture_read)
 extern void pl_capture_read(prolog *pl, char **stdout_str, int32_t *stdout_len, char **stderr_str, int32_t *stderr_len);
+EXPORT(pl_capture_free)
+extern void pl_capture_free(prolog *pl);
+EXPORT(pl_capture_reset)
+extern void pl_capture_reset(prolog *pl);
 
 // TODO: delete
 EXPORT(query_did_yield)
