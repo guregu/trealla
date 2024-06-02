@@ -90,9 +90,7 @@ bool bif_call_0(query *q, cell *p1, pl_idx p1_ctx)
 	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+nbr_cells++, q->cp);
 	make_call(q, tmp+nbr_cells);
-	check_heap_error(push_barrier(q));
-	choice *ch = GET_CURR_CHOICE();
-	ch->fail_on_retry = true;
+	check_heap_error(push_fail_on_retry(q));
 	q->st.curr_instr = tmp;
 	return true;
 }
@@ -155,12 +153,12 @@ static bool bif_iso_call_n(query *q)
 	}
 
 	check_heap_error(init_tmp_heap(q));
-	check_heap_error(clone_to_tmp(q, p1, p1_ctx));
+	check_heap_error(deep_clone_to_tmp(q, p1, p1_ctx));
 	unsigned arity = p1->arity, args = 1;
 
 	while (args++ < q->st.curr_instr->arity) {
 		GET_NEXT_ARG(p2,any);
-		check_heap_error(clone_to_tmp(q, p2, p2_ctx));
+		check_heap_error(deep_clone_to_tmp(q, p2, p2_ctx));
 		arity++;
 	}
 
@@ -213,9 +211,7 @@ bool bif_iso_call_1(query *q)
 	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+nbr_cells++, q->cp);
 	make_call(q, tmp+nbr_cells);
-	check_heap_error(push_barrier(q));
-	choice *ch = GET_CURR_CHOICE();
-	ch->fail_on_retry = true;
+	check_heap_error(push_fail_on_retry(q));
 
 	if (is_tail_call(q->st.curr_instr))
 		tmp[1].flags |= FLAG_TAIL_CALL;
@@ -249,9 +245,7 @@ static bool bif_iso_once_1(query *q)
 	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+nbr_cells++, q->cp);
 	make_call(q, tmp+nbr_cells);
-	check_heap_error(push_barrier(q));
-	choice *ch = GET_CURR_CHOICE();
-	ch->fail_on_retry = true;
+	check_heap_error(push_fail_on_retry(q));
 	q->st.curr_instr = tmp;
 	return true;
 }
@@ -277,9 +271,7 @@ static bool bif_ignore_1(query *q)
 	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+nbr_cells++, q->cp);
 	make_call(q, tmp+nbr_cells);
-	check_heap_error(push_barrier(q));
-	choice *ch = GET_CURR_CHOICE();
-	ch->succeed_on_retry = true;
+	check_heap_error(push_succeed_on_retry(q));
 	q->st.curr_instr = tmp;
 	return true;
 }
@@ -298,9 +290,7 @@ static bool bif_iso_if_then_2(query *q)
 	make_uint(tmp+nbr_cells++, q->cp);
 	nbr_cells += dup_cells_by_ref(tmp+nbr_cells, p2, p2_ctx, p2->nbr_cells);
 	make_call(q, tmp+nbr_cells);
-	check_heap_error(push_barrier(q));
-	choice *ch = GET_CURR_CHOICE();
-	ch->fail_on_retry = true;
+	check_heap_error(push_fail_on_retry(q));
 	q->st.curr_instr = tmp;
 	return true;
 }
@@ -318,9 +308,7 @@ static bool bif_if_2(query *q)
 	make_uint(tmp+nbr_cells++, q->cp);
 	nbr_cells += dup_cells_by_ref(tmp+nbr_cells, p2, p2_ctx, p2->nbr_cells);
 	make_call(q, tmp+nbr_cells);
-	check_heap_error(push_barrier(q));
-	choice *ch = GET_CURR_CHOICE();
-	ch->fail_on_retry = true;
+	check_heap_error(push_fail_on_retry(q));
 	q->st.curr_instr = tmp;
 	return true;
 }
@@ -330,8 +318,7 @@ static bool bif_if_2(query *q)
 static bool do_if_then_else(query *q, cell *p1, cell *p2, cell *p3)
 {
 	if (q->retry) {
-		q->retry = QUERY_NOSKIPARG;
-		q->st.curr_instr = p3;
+		q->st.curr_instr = p2;
 		return true;
 	}
 
@@ -353,8 +340,7 @@ static bool do_if_then_else(query *q, cell *p1, cell *p2, cell *p3)
 static bool soft_do_if_then_else(query *q, cell *p1, cell *p2, cell *p3)
 {
 	if (q->retry) {
-		q->retry = QUERY_NOSKIPARG;
-		q->st.curr_instr = p3;
+		q->st.curr_instr = p2;
 		return true;
 	}
 
@@ -385,7 +371,7 @@ static bool bif_if_3(query *q)
 bool bif_iso_conjunction_2(query *q)
 {
 	q->tot_inferences--;
-	q->retry = QUERY_NOSKIPARG;
+	q->retry = QUERY_NOOP;
 	q->st.curr_instr++;
 	return true;
 }
@@ -394,6 +380,11 @@ bool bif_iso_conjunction_2(query *q)
 
 static bool bif_iso_disjunction_2(query *q)
 {
+	if (q->retry) {
+		q->st.curr_instr++;
+		return true;
+	}
+
 	cell *c = q->st.curr_instr+1;
 
 	if (is_callable(c)) {
@@ -416,21 +407,11 @@ static bool bif_iso_disjunction_2(query *q)
 	}
 
 	GET_FIRST_ARG(p1,callable);
-
-	if (q->retry) {
-		GET_NEXT_ARG(p2,callable);
-		q->retry = QUERY_NOSKIPARG;
-		q->st.curr_instr = p2;
-		return true;
-	}
-
-	// Do this to skip the next arg on success.
-
-	check_heap_error(push_choice(q));
 	cell *tmp = prepare_call(q, PREFIX_LEN, p1, p1_ctx, 1);
 	check_heap_error(tmp);
 	pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
 	make_call(q, tmp+nbr_cells);
+	check_heap_error(push_choice(q));
 	q->st.curr_instr = tmp;
 	return true;
 }
@@ -448,12 +429,8 @@ static bool bif_iso_negation_1(query *q)
 	make_uint(tmp+nbr_cells++, q->cp);
 	make_struct(tmp+nbr_cells++, g_fail_s, bif_iso_fail_0, 0, 0);
 	make_call(q, tmp+nbr_cells);
-	check_heap_error(push_barrier(q));
-	choice *ch = GET_CURR_CHOICE();
-	ch->succeed_on_retry = true;
+	check_heap_error(push_succeed_on_retry(q));
 	q->st.curr_instr = tmp;
-	//frame *f = GET_CURR_FRAME();
-	//f->no_tco = true;				// Why?
 	return true;
 }
 
@@ -680,7 +657,7 @@ static bool bif_sys_countall_2(query *q)
 	GET_NEXT_ARG(p2,var);
 
 	check_heap_error(init_tmp_heap(q));
-	cell *tmp2 = clone_to_tmp(q, p1, p1_ctx);
+	cell *tmp2 = deep_clone_to_tmp(q, p1, p1_ctx);
 	check_heap_error(tmp2);
 	bool status;
 
@@ -697,9 +674,7 @@ static bool bif_sys_countall_2(query *q)
 	make_ref(tmp+nbr_cells++, p2->var_nbr, p2_ctx);
 	make_struct(tmp+nbr_cells++, g_fail_s, bif_iso_fail_0, 0, 0);
 	make_call(q, tmp+nbr_cells);
-	check_heap_error(push_barrier(q));
-	choice *ch = GET_CURR_CHOICE();
-	ch->succeed_on_retry = true;
+	check_heap_error(push_succeed_on_retry(q));
 	q->st.curr_instr = tmp;
 	return true;
 }

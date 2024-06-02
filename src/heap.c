@@ -191,6 +191,9 @@ void trim_heap(query *q)
 #define deep_copy(c) \
 	(!q->noderef || (is_ref(c) && (c->var_ctx <= q->st.curr_frame) && !is_anon(c)))
 
+// Note: convert vars to refs
+// Note: doesn't increment ref counts
+
 static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx p1_ctx, unsigned depth)
 {
 	if (depth >= g_max_depth) {
@@ -203,8 +206,6 @@ static cell *deep_clone2_to_tmp(query *q, cell *p1, pl_idx p1_ctx, unsigned dept
 	cell *tmp = alloc_on_tmp(q, 1);
 	if (!tmp) return NULL;
 	copy_cells(tmp, p1, 1);
-
-	// Convert vars to refs...
 
 	if (is_var(tmp) && !is_ref(tmp)) {
 		tmp->flags |= FLAG_VAR_REF;
@@ -304,7 +305,7 @@ cell *clone_to_heap(query *q, cell *p1, pl_idx p1_ctx)
 	if (!init_tmp_heap(q))
 		return NULL;
 
-	p1 = clone_to_tmp(q, p1, p1_ctx);
+	p1 = deep_clone_to_tmp(q, p1, p1_ctx);
 	if (!p1) return p1;
 	cell *tmp = alloc_on_heap(q, p1->nbr_cells);
 	if (!tmp) return NULL;
@@ -342,11 +343,6 @@ cell *append_to_tmp(query *q, cell *p1, pl_idx p1_ctx)
 	}
 
 	return tmp;
-}
-
-cell *clone_to_tmp(query *q, cell *p1, pl_idx p1_ctx)
-{
-	return append_to_tmp(q, p1, p1_ctx);
 }
 
 cell *prepare_call(query *q, bool prefix, cell *p1, pl_idx p1_ctx, unsigned extras)
@@ -410,35 +406,24 @@ static bool copy_vars(query *q, cell *c, bool copy_attrs, const cell *from, pl_i
 			c->var_ctx = q->st.curr_frame;
 
 			if (copy_attrs && e->c.attrs) {
-				cell *tmp = deep_clone_to_tmp(q, e->c.attrs, e->c.attrs_ctx);
+				cell *tmp = deep_copy_to_tmp(q, e->c.attrs, e->c.attrs_ctx, false);
+				check_heap_error(tmp);
 				c->tmp_attrs = malloc(sizeof(cell)*tmp->nbr_cells);
 				dup_cells(c->tmp_attrs, tmp, tmp->nbr_cells);
-
-#if 0
-				const frame *f1 = GET_FRAME(c->var_ctx);
-				slot *e1 = GET_SLOT(f1, c->var_nbr);
-				unsigned slot_nbr = e1 - q->slots;
-				printf("*** copy attrs1 var_nbr=%u, ctx=%u, slot=%u, atts=%p\n", c->var_nbr, c->var_ctx, slot_nbr, (void*)c->tmp_attrs);
-				DUMP_TERM("blah1", c->tmp_attrs, q->st.curr_frame, 1);
-#endif
-
 				const frame *f2 = GET_FRAME(c->var_ctx);
 				slot *e2 = GET_SLOT(f2, c->var_nbr);
 				e2->c.attrs = c->tmp_attrs;
 				e2->c.attrs_ctx = q->st.curr_frame;
 			} else if (copy_attrs && c->tmp_attrs) {
-#if 0
-				const frame *f1 = GET_FRAME(c->var_ctx);
-				slot *e1 = GET_SLOT(f1, c->var_nbr);
-				unsigned slot_nbr = e1 - q->slots;
-				printf("*** copy attrs2 var_nbr=%u, ctx=%u, slot=%u, atts=%p\n", c->var_nbr, c->var_ctx, slot_nbr, (void*)c->tmp_attrs);
-				DUMP_TERM("blah2", c->tmp_attrs, q->st.curr_frame, 1);
-#endif
-
+				cell *tmp = deep_copy_to_tmp(q, c->tmp_attrs, q->st.fp, false);
+				check_heap_error(tmp);
+				cell *tmp_attrs = malloc(sizeof(cell)*tmp->nbr_cells);
+				dup_cells(tmp_attrs, tmp, tmp->nbr_cells);
 				const frame *f2 = GET_FRAME(c->var_ctx);
 				slot *e2 = GET_SLOT(f2, c->var_nbr);
-				e2->c.attrs = c->tmp_attrs;
+				e2->c.attrs = tmp_attrs;
 				e2->c.attrs_ctx = q->st.curr_frame;
+				c->tmp_attrs = NULL;
 			}
 		}
 
@@ -462,7 +447,7 @@ unsigned rebase_term(query *q, cell *c, unsigned start_nbr)
 	sl_destroy(q->vars);
 	q->vars = NULL;
 
-	// Turn refs back into vars to decontextualize
+	// Turn refs back into vars to recontextualize
 
 	cell *tmp = c;
 
@@ -479,9 +464,14 @@ unsigned rebase_term(query *q, cell *c, unsigned start_nbr)
 static cell *deep_copy_to_tmp_with_replacement(query *q, cell *p1, pl_idx p1_ctx, bool copy_attrs, cell *from, pl_idx from_ctx, cell *to, pl_idx to_ctx)
 {
 	const frame *f = GET_CURR_FRAME();
-	q->vars = sl_create(NULL, NULL, NULL);
-	q->varno = f->actual_slots;
-	q->tab_idx = 0;
+	bool created = false;
+
+	if (!q->vars) {
+		q->vars = sl_create(NULL, NULL, NULL);
+		created = true;
+		q->varno = f->actual_slots;
+		q->tab_idx = 0;
+	}
 
 	cell *c = deref(q, p1, p1_ctx);
 	pl_idx c_ctx = q->latest_ctx;
@@ -489,26 +479,26 @@ static cell *deep_copy_to_tmp_with_replacement(query *q, cell *p1, pl_idx p1_ctx
 	cell *tmp = deep_clone_to_tmp(q, c, c_ctx);
 
 	if (!tmp) {
-		sl_destroy(q->vars);
-		q->vars = NULL;
+		if (created) {
+			sl_destroy(q->vars);
+			q->vars = NULL;
+		}
+
 		return NULL;
 	}
 
 	if (!copy_vars(q, tmp, copy_attrs, from, from_ctx, to, to_ctx)) {
-		sl_destroy(q->vars);
-		q->vars = NULL;
+		if (created) {
+			sl_destroy(q->vars);
+			q->vars = NULL;
+		}
+
 		return NULL;
 	}
 
-	sl_destroy(q->vars);
-	q->vars = NULL;
-	int cnt = q->varno - f->actual_slots;
-
-	if (cnt) {
-		if (create_vars(q, cnt) < 0) {
-			throw_error(q, c, c_ctx, "resource_error", "stack");
-			return NULL;
-		}
+	if (created) {
+		sl_destroy(q->vars);
+		q->vars = NULL;
 	}
 
 	if (!copy_attrs)

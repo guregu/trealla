@@ -688,7 +688,6 @@ static void commit_frame(query *q, cell *body)
 		q->no_tco = false;
 
 	if (!q->no_tco
-		//&& !f->no_tco
 		&& !q->st.m->no_tco	// For CLPZ
 		&& last_match
 		&& (q->st.fp == (q->st.curr_frame + 1))
@@ -796,6 +795,22 @@ bool push_barrier(query *q)
 	choice *ch = GET_CURR_CHOICE();
 	ch->chgen = f->chgen = ++q->chgen;
 	ch->barrier = true;
+	return true;
+}
+
+bool push_succeed_on_retry(query *q)
+{
+	check_heap_error(push_barrier(q));
+	choice *ch = GET_CURR_CHOICE();
+	ch->succeed_on_retry = true;
+	return true;
+}
+
+bool push_fail_on_retry(query *q)
+{
+	check_heap_error(push_barrier(q));
+	choice *ch = GET_CURR_CHOICE();
+	ch->fail_on_retry = true;
 	return true;
 }
 
@@ -1656,7 +1671,7 @@ bool start(query *q)
 #endif
 				status = q->st.curr_instr->bif_ptr->fn(q);
 
-			if (q->retry == QUERY_NOSKIPARG) {
+			if (q->retry == QUERY_NOOP) {
 				q->retry = QUERY_OK;
 				continue;
 			}

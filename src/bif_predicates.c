@@ -243,9 +243,7 @@ static bool bif_iso_notunify_2(query *q)
 	make_uint(tmp+nbr_cells++, q->cp);
 	make_struct(tmp+nbr_cells++, g_fail_s, bif_iso_fail_0, 0, 0);
 	make_call(q, tmp+nbr_cells);
-	check_heap_error(push_barrier(q));
-	choice *ch = GET_CURR_CHOICE();
-	ch->succeed_on_retry = true;
+	check_heap_error(push_succeed_on_retry(q));
 	q->st.curr_instr = tmp;
 	return true;
 }
@@ -1957,21 +1955,6 @@ static bool do_duplicate_term(query *q, bool copy_attrs)
 	GET_FIRST_ARG(p1,any);
 	GET_NEXT_ARG(p2,any);
 
-	if (is_var(p1) && is_var(p2)) {
-		const frame *f1 = GET_FRAME(p1_ctx);
-		const frame *f2 = GET_FRAME(p2_ctx);
-		slot *e1 = GET_SLOT(f1, p1->var_nbr);
-		slot *e2 = GET_SLOT(f2, p2->var_nbr);
-
-		if (e1->c.attrs && copy_attrs) {
-			e2->c.attrs = deep_copy_to_heap_with_replacement(q, e1->c.attrs, e1->c.attrs_ctx, false, p1, p1_ctx, p2, p2_ctx);
-			check_heap_error(e2->c.attrs);
-			e2->c.attrs_ctx = q->st.curr_frame;
-		}
-
-		return true;
-	}
-
 	if (is_atomic(p1) && is_var(p2))
 		return unify(q, p1, p1_ctx, p2, p2_ctx);
 
@@ -1997,25 +1980,25 @@ static bool do_duplicate_term(query *q, bool copy_attrs)
 	return unify(q, p2, p2_ctx, tmpp1, q->st.curr_frame);
 }
 
-// Do copy attributes
-
-static bool bif_duplicate_term_2(query *q)
-{
-	return do_duplicate_term(q, true);
-}
-
-// Don't copy attributes (Note: SICStus & YAP don't, Scryer & SWI do)
-
-static bool bif_iso_copy_term_2(query *q)
-{
-	return do_duplicate_term(q, false);
-}
-
 // Don't copy attributes
 
 static bool bif_copy_term_nat_2(query *q)
 {
 	return do_duplicate_term(q, false);
+}
+
+// Do copy attributes (Note: SICStus & YAP don't, Scryer & SWI do)
+
+static bool bif_iso_copy_term_2(query *q)
+{
+	return do_duplicate_term(q, true);
+}
+
+// Do copy attributes
+
+static bool bif_duplicate_term_2(query *q)
+{
+	return do_duplicate_term(q, true);
 }
 
 static bool bif_iso_functor_3(query *q)
@@ -2298,9 +2281,7 @@ static bool bif_call_residue_vars_2(query *q)
 	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+nbr_cells++, q->cp);
 	make_call(q, tmp+nbr_cells);
-	check_heap_error(push_barrier(q));
-	choice *ch = GET_CURR_CHOICE();
-	ch->fail_on_retry = true;
+	check_heap_error(push_fail_on_retry(q));
 	q->st.curr_instr = tmp;
 	return true;
 }
@@ -5396,9 +5377,7 @@ static bool bif_call_nth_2(query *q)
 		tmp[nbr_cells++].nbr_cells = 1;
 		make_int(tmp+nbr_cells++, 0);
 		make_call(q, tmp+nbr_cells);
-		check_heap_error(push_barrier(q));
-		choice *ch = GET_CURR_CHOICE();
-		ch->fail_on_retry = true;
+		check_heap_error(push_fail_on_retry(q));
 		q->st.curr_instr = tmp;
 		return true;
 	}
@@ -5412,9 +5391,7 @@ static bool bif_call_nth_2(query *q)
 	make_struct(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+nbr_cells++, q->cp);
 	make_call(q, tmp+nbr_cells);
-	check_heap_error(push_barrier(q));
-	choice *ch = GET_CURR_CHOICE();
-	ch->fail_on_retry = true;
+	check_heap_error(push_fail_on_retry(q));
 	q->st.curr_instr = tmp;
 	return true;
 }
@@ -5916,16 +5893,21 @@ static bool bif_sys_get_level_1(query *q)
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 }
 
-static bool bif_sys_dump_term_2(query *q)
+static bool do_dump_term(query *q, cell *p1, pl_idx p1_ctx, bool deref, int depth)
 {
-	GET_FIRST_ARG(p1,any);
-	GET_NEXT_ARG(p2,atom);
-	GET_FIRST_RAW_ARG(p1x,any);
-	bool deref = p2->val_off == g_true_s;
-	p1 = deref ? p1 : p1x;
+	if (!depth) {
+		const frame *f = GET_CURR_FRAME();
+		printf("f=%u, f->initial_slots=%u, f->actual_slots=%u\n", q->st.curr_frame, f->initial_slots, f->actual_slots);
+	}
+
 	cell *tmp = p1;
 
-	for (unsigned i = 0; i <p1->nbr_cells; i++, tmp++) {
+	if (depth > 1)
+		return true;
+
+	for (unsigned i = 0; i < p1->nbr_cells; i++, tmp++) {
+		if (depth) printf("  ");
+
 		printf("[%02u] tag=%10s, nbr_cells=%u, arity=%u",
 			i,
 			(
@@ -5958,11 +5940,63 @@ static bool bif_sys_dump_term_2(query *q)
 		else if (is_var(tmp))
 			printf(", slot=%u, %s", tmp->var_nbr, C_STR(q, tmp));
 
+		if (is_var(tmp) && deref) {
+			const frame *f = GET_FRAME(is_ref(tmp)?tmp->var_ctx:p1_ctx);
+			slot *e = GET_SLOT(f, tmp->var_nbr);
+
+			if (e->c.attrs) {
+				printf("\n");
+				do_dump_term(q, e->c.attrs, e->c.attrs_ctx, deref, depth+1);
+				continue;
+			}
+		}
+
 		printf("\n");
 	}
 
-	printf("Ground=%d, no_tco=%d\n", is_ground(p1)?1:0, q->no_tco?1:0);
+	if (!depth) printf("Ground=%d, no_tco=%d\n", is_ground(p1)?1:0, q->no_tco?1:0);
 	return true;
+}
+
+static bool bif_sys_dump_term_2(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,atom);
+	GET_FIRST_RAW_ARG(p1x,any);
+	bool deref = p2->val_off == g_true_s;
+	p1 = deref ? p1 : p1x;
+	return do_dump_term(q, p1, p1_ctx, deref, 0);
+}
+
+static bool bif_sys_integer_in_radix_3(query *q)
+{
+	GET_FIRST_ARG(p1,integer);
+	GET_NEXT_ARG(p2,smallint);
+	GET_NEXT_ARG(p3,var);
+
+	if (!is_positive(p1) && !is_zero(p1))
+		return throw_error(q, p1, p1_ctx, "domain_error", "integer");
+
+	if (!is_positive(p2) || (get_smallint(p2) == 1))
+		return throw_error(q, p2, p2_ctx, "domain_error", "integer");
+
+	int radix = get_smallint(p2);
+
+	cell tmp;
+
+	if (is_bigint(p1)) {
+		size_t len = mp_int_string_len(&p1->val_bigint->ival, radix) - 1;
+		char *dst = malloc(len+1);
+		mp_int_to_string(&p1->val_bigint->ival, radix, dst, len+1);
+		make_string(&tmp, dst);
+		free(dst);
+	} else {
+		char tmpbuf[256];
+		sprint_int(tmpbuf, sizeof(tmpbuf), get_smallint(p1), radix);
+		make_string(&tmp, tmpbuf);
+	}
+
+	return unify(q, p3, p3_ctx, &tmp, q->st.curr_frame);
 }
 
 static bool bif_abort_0(query *q)
@@ -5972,9 +6006,7 @@ static bool bif_abort_0(query *q)
 
 static bool bif_sys_choice_0(query *q)
 {
-	check_heap_error(push_choice(q));
-	choice *ch = GET_CURR_CHOICE();
-	ch->fail_on_retry = true;
+	check_heap_error(push_fail_on_retry(q));
 	return true;
 }
 
@@ -6715,6 +6747,7 @@ builtins g_other_bifs[] =
 	{"$first_non_octet", 2, bif_sys_first_non_octet_2, "+chars,-integer", false, false, BLAH},
 	{"$skip_max_list", 4, bif_sys_skip_max_list_4, "?integer,?integer?,?term,?term", false, false, BLAH},
 	{"$dump_term", 2, bif_sys_dump_term_2, "+term, +bool", false, false, BLAH},
+	{"$integer_in_radix", 3, bif_sys_integer_in_radix_3, "+integer,+integer,-string", false, false, BLAH},
 
 #ifdef __wasi__
 	{"$host_call", 2, fn_sys_host_call_2, "+string,-string", false, false, BLAH},

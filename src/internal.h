@@ -272,8 +272,8 @@ enum {
 	FLAG_VAR_ANON=1<<0,					// used with TAG_VAR
 	FLAG_VAR_FRESH=1<<1,				// used with TAG_VAR
 	FLAG_VAR_REF=1<<2,					// used with TAG_VAR
-	FLAG_VAR_TEMPORARY=1<<3,			// used with TAG_VAR
-	FLAG_VAR_LOCAL=1<<4,				// used with TAG_VAR
+	FLAG_VAR_TEMPORARY=1<<3,			// used with TAG_VAR (occurs in head only)
+	FLAG_VAR_LOCAL=1<<4,				// used with TAG_VAR (occurs in body only)
 	FLAG_VAR_CYCLIC=1<<5,				// used with TAG_VAR
 
 	FLAG_HANDLE_DLL=1<<0,				// used with FLAG_INT_HANDLE
@@ -647,7 +647,7 @@ struct page_ {
 	unsigned nbr;
 };
 
-enum q_retry { QUERY_OK=0, QUERY_NOSKIPARG=1, QUERY_RETRY=2, QUERY_EXCEPTION=3 };
+enum q_retry { QUERY_OK=0, QUERY_NOOP=1, QUERY_RETRY=2, QUERY_EXCEPTION=3 };
 enum unknowns { UNK_FAIL=0, UNK_ERROR=1, UNK_WARNING=2, UNK_CHANGEABLE=3 };
 enum occurs { OCCURS_CHECK_FALSE=0, OCCURS_CHECK_TRUE=1, OCCURS_CHECK_ERROR = 2 };
 
