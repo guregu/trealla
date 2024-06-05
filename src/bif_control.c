@@ -142,8 +142,11 @@ static bool bif_iso_call_n(query *q)
 		if (!is_atom(cm) && !is_var(cm))
 			return throw_error(q, cm, p1_ctx, "type_error", "callable");
 
-		module *m = find_module(q->pl, C_STR(q, cm));
-		if (m) q->st.m = m;
+		if (!is_var(cm)) {
+			module *m = find_module(q->pl, C_STR(q, cm));
+			if (m) q->st.m = m;
+		}
+
 		p1 += 2;
 		p1 = deref(q, p1, p1_ctx);
 		p1_ctx = q->latest_ctx;
@@ -153,10 +156,20 @@ static bool bif_iso_call_n(query *q)
 	}
 
 	check_heap_error(init_tmp_heap(q));
-	check_heap_error(deep_clone_to_tmp(q, p1, p1_ctx));
-	unsigned arity = p1->arity, args = 1;
+	unsigned arity = p1->arity, args = 1, xarity = q->st.curr_instr->arity;
 
-	while (args++ < q->st.curr_instr->arity) {
+	// Replace call(call, ...) with call(...)
+
+	if ((p1->val_off != g_call_s) || p1->arity)
+		check_heap_error(deep_clone_to_tmp(q, p1, p1_ctx));
+	else {
+		GET_NEXT_ARG(p2,any);
+		check_heap_error(deep_clone_to_tmp(q, p2, p2_ctx));
+		arity = p2->arity;
+		xarity--;
+	}
+
+	while (args++ < xarity) {
 		GET_NEXT_ARG(p2,any);
 		check_heap_error(deep_clone_to_tmp(q, p2, p2_ctx));
 		arity++;

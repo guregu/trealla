@@ -50,16 +50,18 @@ static bool do_put_atts(query *q, cell *attr, pl_idx attr_ctx, bool is_minus)
 	if (!c->attrs && is_minus)
 		return true;
 
-	add_trail(q, p1_ctx, p1->var_nbr, c->attrs, c->attrs_ctx);
-
 	if ((attr->val_off == g_minus_s) || (attr->val_off == g_plus_s))
 		attr++;
 
 	if (is_nil(attr)) {
-		e->c.flags = 0;
+		if (e->c.attrs)
+			add_trail(q, p1_ctx, p1->var_nbr, c->attrs, c->attrs_ctx);
+
 		e->c.attrs = NULL;
 		return true;
 	}
+
+	add_trail(q, p1_ctx, p1->var_nbr, c->attrs, c->attrs_ctx);
 
 	unsigned a_arity = attr->arity;
 	bool found;
@@ -488,7 +490,7 @@ bool bif_sys_redo_trail_1(query * q)
 	GET_FIRST_ARG(p1,any);
 
 	if (!is_blob(p1))
-		return true;
+		return false;
 
 	const bind_state *save = (bind_state*)p1->val_blob;
 
@@ -506,7 +508,7 @@ bool bif_sys_redo_trail_1(query * q)
 	return true;
 }
 
-bool do_post_unification_hook(query *q, bool is_builtin)
+bool do_post_unification_hook(query *q)
 {
 	q->run_hook = false;
 	q->undo_lo_tp = q->before_hook_tp;
@@ -545,11 +547,7 @@ bool do_post_unification_hook(query *q, bool is_builtin)
 	if (!tmp[1].match)
 		return throw_error(q, tmp+1, q->st.curr_frame, "existence_error", "procedure");
 
-	if (is_builtin)
-		make_call(q, tmp+2);
-	else
-		make_call_redo(q, tmp+2);
-
+	make_call(q, tmp+2);
 	q->st.curr_instr = tmp;
 	return true;
 }

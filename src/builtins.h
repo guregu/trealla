@@ -143,7 +143,7 @@ inline static cell *take_queuen(query *q)
 	return save;
 }
 
-inline static cell *get_var(query *q, cell *c, pl_idx c_ctx)
+inline static cell *deref_var(query *q, cell *c, pl_idx c_ctx)
 {
 	if (is_ref(c))
 		c_ctx = c->var_ctx;
@@ -154,6 +154,10 @@ inline static cell *get_var(query *q, cell *c, pl_idx c_ctx)
 	while (is_var(&e->c)) {
 		c_ctx = e->c.var_ctx;
 		c = &e->c;
+
+		if (is_ref(c))
+			c_ctx = c->var_ctx;
+
 		f = GET_FRAME(c_ctx);
 		e = GET_SLOT(f, c->var_nbr);
 	}
@@ -172,9 +176,9 @@ inline static cell *get_var(query *q, cell *c, pl_idx c_ctx)
 }
 
 #define deref(q,c,c_ctx) \
+	is_var(c) ? deref_var(q, c, c_ctx) : \
 	is_indirect(c) ? (q->latest_ctx = (c)->var_ctx, (c)->val_ptr) : \
-	!is_var(c) ? (q->latest_ctx = (c_ctx), (c)) : \
-	get_var(q, c, c_ctx)
+	(q->latest_ctx = (c_ctx), (c))
 
 #define GET_RAW_ARG(n,p) \
 	cell *p = get_raw_arg(q,n); \
