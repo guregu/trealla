@@ -353,17 +353,7 @@ cell *prepare_call(query *q, bool prefix, cell *p1, pl_idx p1_ctx, unsigned extr
 
 	if (prefix) {
 		// Needed for follow() to work
-		tmp->tag = TAG_INTERNED;
-		tmp->arity = 0;
-		tmp->nbr_cells = 1;
-		tmp->flags = FLAG_BUILTIN;
-		tmp->val_off = g_true_s;
-		static builtins *s_fn_ptr = NULL;
-
-		if (!s_fn_ptr)
-			s_fn_ptr = get_fn_ptr(bif_iso_true_0);
-
-		tmp->bif_ptr = s_fn_ptr;
+		make_struct(tmp, g_true_s, bif_iso_true_0, 0, 0);
 	}
 
 	q->in_call++;
@@ -406,14 +396,13 @@ static bool copy_vars(query *q, cell *c, bool copy_attrs, const cell *from, pl_i
 			c->var_ctx = q->st.curr_frame;
 
 			if (copy_attrs && e->c.attrs) {
-				cell *tmp = deep_copy_to_tmp(q, e->c.attrs, e->c.attrs_ctx, false);
+				cell *tmp = deep_copy_to_tmp(q, e->c.attrs, q->st.curr_frame, false);
 				check_heap_error(tmp);
 				c->tmp_attrs = malloc(sizeof(cell)*tmp->nbr_cells);
 				dup_cells(c->tmp_attrs, tmp, tmp->nbr_cells);
 				const frame *f2 = GET_FRAME(c->var_ctx);
 				slot *e2 = GET_SLOT(f2, c->var_nbr);
 				e2->c.attrs = c->tmp_attrs;
-				e2->c.attrs_ctx = q->st.curr_frame;
 			} else if (copy_attrs && c->tmp_attrs) {
 				cell *tmp = deep_copy_to_tmp(q, c->tmp_attrs, q->st.fp, false);
 				check_heap_error(tmp);
@@ -422,7 +411,6 @@ static bool copy_vars(query *q, cell *c, bool copy_attrs, const cell *from, pl_i
 				const frame *f2 = GET_FRAME(c->var_ctx);
 				slot *e2 = GET_SLOT(f2, c->var_nbr);
 				e2->c.attrs = tmp_attrs;
-				e2->c.attrs_ctx = q->st.curr_frame;
 				c->tmp_attrs = NULL;
 			}
 		}
@@ -511,7 +499,6 @@ static cell *deep_copy_to_tmp_with_replacement(query *q, cell *p1, pl_idx p1_ctx
 			const frame *f = GET_FRAME(c->var_ctx);
 			slot *e = GET_SLOT(f, c->var_nbr);
 			e->c.attrs = c->tmp_attrs;
-			e->c.attrs_ctx = q->st.curr_frame;
 		}
 	}
 
