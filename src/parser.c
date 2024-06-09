@@ -2080,11 +2080,8 @@ static cell *term_to_body_conversion(parser *p, cell *c)
 			|| (c->val_off == g_if_then_s)
 			|| (c->val_off == g_soft_cut_s)
 			|| (c->val_off == g_neck_s)) {
-			//module *m = find_module(p->pl, "dcgs");
-			//predicate *pr = find_predicate(m?m:p->m, c);
 			cell *lhs = c + 1;
 			int extra = 0;
-			//bool meta = pr ? is_meta_arg(pr, c, 0, &extra) : false;
 
 			if (is_var(lhs)) {
 				c = insert_call_here(p, c, lhs);
@@ -2101,7 +2098,6 @@ static cell *term_to_body_conversion(parser *p, cell *c)
 
 			cell *rhs = lhs + lhs->nbr_cells;
 			extra = 0;
-			//meta = pr ? is_meta_arg(pr, c, 1, &extra) : false;
 			c = p->cl->cells + c_idx;
 
 			if (is_var(rhs))
@@ -2147,8 +2143,6 @@ static cell *term_to_body_conversion(parser *p, cell *c)
 		else if ((c->val_off == g_catch_s) && (c->arity == 3))
 			control = true;
 
-		//printf("*** %s/%u, meta=%d\n", C_STR(p, c), c->arity, meta);
-
 		if (meta)
 			c = goal_expansion(p, c);
 
@@ -2158,9 +2152,6 @@ static cell *term_to_body_conversion(parser *p, cell *c)
 		while (arity--) {
 			int extra = 0;
 			bool meta = pr ? is_meta_arg(pr, c, i, &extra) : false;
-
-			//printf("*** *** arg=%d, meta=%d/%d, %s/%u\n", i, meta, extra, C_STR(q, arg), arg->arity);
-
 			c->nbr_cells -= arg->nbr_cells;
 			arg->arity += extra;
 
@@ -2361,13 +2352,13 @@ void read_integer(parser *p, mp_int v2, int base, const char **srcptr)
 	int spaces = 0;
 
 	while (*src) {
-		if ((base == 2) && ((*src < '0') || (*src > '1')))
+		if ((base == 2) && !isbdigit(*src))
 			break;
 
-		if ((base == 8) && ((*src < '0') || (*src > '7')))
+		if ((base == 8) && !isodigit(*src))
 			break;
 
-		if ((base == 10) && ((*src < '0') || (*src > '9')))
+		if ((base == 10) && !isdigit(*src))
 			break;
 
 		if ((base == 16) && !isxdigit(*src))
