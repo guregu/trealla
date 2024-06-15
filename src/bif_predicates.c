@@ -112,7 +112,8 @@ static bool bif_iso_findall_3(query *q)
 			return throw_error(q, p3, p3_ctx, "type_error", "list");
 
 		if (is_compound(p1) && (!is_iso_list(p1))) {	// Why?
-			create_vars(q, 16);
+			if (create_vars(q, 16) < 0)
+				return throw_error(q, p3, p3_ctx, "resource_error", "stack");
 		}
 
 		grab_queuen(q);
@@ -2029,11 +2030,8 @@ static bool bif_iso_functor_3(query *q)
 		if (!arity) {
 			unify(q, p1, p1_ctx, p2, p2_ctx);
 		} else {
-			int var_nbr = 0;
-
-			if ((var_nbr = create_vars(q, arity)) < 0)
-				return throw_error(q, p3, p3_ctx, "resource_error", "stack");
-
+			int var_nbr = create_vars(q, arity);
+			check_heap_error(var_nbr != -1);
 			cell *tmp = alloc_on_heap(q, 1+arity);
 			check_heap_error(tmp);
 			*tmp = (cell){0};
@@ -2189,7 +2187,8 @@ static bool bif_iso_current_predicate_1(query *q)
 		unsigned var_nbr = f->actual_slots;
 		make_ref(&tmp1, var_nbr++, q->st.curr_frame);
 		make_ref(&tmp2, var_nbr++, q->st.curr_frame);
-		create_vars(q, 2);
+		if (create_vars(q, 2) < 0)
+			return throw_error(q, p1, p1_ctx, "resource_error", "stack");
 		bool ok = search_functor(q, p1, p1_ctx, p2, p2_ctx) ? true : false;
 		cell *tmp = alloc_on_heap(q, 3);
 		make_struct(tmp, g_slash_s, NULL, 2, 2);
@@ -5560,14 +5559,13 @@ bool bif_iso_invoke_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_var);
 	GET_NEXT_ARG(p2,callable);
+	module *m = q->st.m;
 
 	if (is_atom(p1)) {
-		module *m = find_module(q->pl, C_STR(q, p1));
+		m = find_module(q->pl, C_STR(q, p1));
 
 		if (!m)
 			m = module_create(q->pl, C_STR(q, p1));
-
-		q->st.m = m;
 	}
 
 	cell *tmp = prepare_call(q, PREFIX_LEN, p2, p2_ctx, 1);
@@ -5579,6 +5577,7 @@ bool bif_iso_invoke_2(query *q)
 
 	nbr_cells += p2->nbr_cells;
 	make_call(q, tmp+nbr_cells);
+	q->st.m = m;
 	q->st.curr_instr = tmp;
 	q->st.curr_frame = p2_ctx;
 	return true;
@@ -5822,12 +5821,9 @@ static bool bif_sys_det_length_rundown_2(query *q)
 {
 	GET_FIRST_ARG(p1,list_or_var);
 	GET_NEXT_ARG(p2,integer);
-	int var_nbr;
 	unsigned n = get_smalluint(p2);
-
-	if ((var_nbr = create_vars(q, n)) < 0)
-		return throw_error(q, p2, p2_ctx, "resource_error", "stack");
-
+	int var_nbr = create_vars(q, n);
+	check_heap_error(var_nbr != -1);
 	cell *l = alloc_on_heap(q, n*2+1);
 	check_heap_error(l);
 	cell *save_l = l;
@@ -6227,7 +6223,7 @@ static void load_properties(module *m)
 	format_property(m, tmpbuf, sizeof(tmpbuf), "task", 1, "meta_predicate(task(0))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "findall", 3, "meta_predicate(findall(?,0,-))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "engine_create", 4, "meta_predicate(engine_create(?,0,?,+))", false); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "|", 2, "meta_predicate((:|+))", false); SB_strcat(pr, tmpbuf);
+	format_property(m, tmpbuf, sizeof(tmpbuf), "|", 2, "meta_predicate(((:)|(+)))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "time", 1, "meta_predicate(time(0))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "call_nth", 2, "meta_predicate(call_nth(0,?))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "asserta", 1, "meta_predicate(asserta(:))", false); SB_strcat(pr, tmpbuf);

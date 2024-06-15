@@ -214,16 +214,6 @@ void make_var(cell *tmp, pl_idx off, unsigned var_nbr)
 		tmp->flags |= FLAG_VAR_ANON;
 }
 
-void make_ref(cell *tmp, unsigned var_nbr, pl_idx ctx)
-{
-	*tmp = (cell){0};
-	tmp->tag = TAG_VAR;
-	tmp->nbr_cells = 1;
-	tmp->flags = FLAG_VAR_REF;
-	tmp->var_nbr = var_nbr;
-	tmp->var_ctx = ctx;
-}
-
 void make_float(cell *tmp, pl_flt v)
 {
 	*tmp = (cell){0};
@@ -783,10 +773,11 @@ static bool directives(parser *p, cell *d)
 			//	fprintf_to_stream(p->pl, ERROR_FP, "Error: module already loaded: %s, %s:%d\n", name, get_loaded(p->m, p->m->filename), p->line_nbr);
 			//
 			p->already_loaded_error = true;
-			p->m = tmp_m;
 
 			if (tmp_m != p->m)
 				p->m->used[p->m->idx_used++] = tmp_m;
+
+			p->m = tmp_m;
 
 			return true;
 		}
@@ -893,8 +884,10 @@ static bool directives(parser *p, cell *d)
 				return true;
 			}
 
+			if (tmp_m != p->m)
+				p->m->used[p->m->idx_used++] = tmp_m;
+
 			p->m = tmp_m;
-			p->pl->user_m->used[p->pl->user_m->idx_used++] = tmp_m;
 
 			if (!strcmp(name, "clpz"))
 				p->m->no_tco = true;
@@ -1347,7 +1340,7 @@ static void check_term_ground(cell *c)
 	}
 }
 
-void clause_assign_vars(parser *p, unsigned start, bool rebase)
+void assign_vars(parser *p, unsigned start, bool rebase)
 {
 	if (!p || p->error)
 		return;
@@ -1492,10 +1485,12 @@ void clause_assign_vars(parser *p, unsigned start, bool rebase)
 	c->nbr_cells = 1;
 }
 
-static bool reduce(parser *p, pl_idx start_idx, bool last_op)
+static bool apply_operators(parser *p, pl_idx start_idx, bool last_op)
 {
 	pl_idx lowest = IDX_MAX, work_idx, end_idx = p->cl->cidx - 1;
 	bool do_work = false, bind_le = false;
+
+	// Two passes: first find the lowest priority un-applied operator...
 
 	for (pl_idx i = start_idx; i < p->cl->cidx;) {
 		cell *c = p->cl->cells + i;
@@ -1528,6 +1523,8 @@ static bool reduce(parser *p, pl_idx start_idx, bool last_op)
 
 	if (!do_work)
 		return false;
+
+	// Then apply args to that operator...
 
 	pl_idx last_idx = (unsigned)-1;
 
@@ -1726,7 +1723,7 @@ static bool reduce(parser *p, pl_idx start_idx, bool last_op)
 
 static bool analyze(parser *p, pl_idx start_idx, bool last_op)
 {
-	while (reduce(p, start_idx, last_op))
+	while (apply_operators(p, start_idx, last_op))
 		;
 
 	return !p->error;
@@ -3218,13 +3215,6 @@ static bool process_term(parser *p, cell *p1)
 	// Note: we actually assert directives after processing
 	// so that they can be examined.
 
-#if 0
-	query *q = query_create(p->m, false);
-	check_error(q);
-	DUMP_TERM("***", p1, 0, 0);
-	query_destroy(q);
-#endif
-
 	directives(p, p1);
 
 	if (p->error)
@@ -3341,7 +3331,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 					return 0;
 				}
 
-				clause_assign_vars(p, p->read_term_slots, false);
+				assign_vars(p, p->read_term_slots, false);
 
 				if (p->consulting && check_body_callable(p->cl->cells)) {
 					if (DUMP_ERRS || !p->do_read_term)
@@ -3839,8 +3829,10 @@ unsigned tokenize(parser *p, bool args, bool consing)
 				|| (nextch == ']')
 				|| (nextch == '}')
 			) {
-				specifier = 0;
-				priority = 0;
+				if ((SB_strcmp(p->token, "-") && SB_strcmp(p->token, "+")) || consing) {
+					specifier = 0;
+					priority = 0;
+				}
 			}
 		}
 

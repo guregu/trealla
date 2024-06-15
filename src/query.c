@@ -30,11 +30,11 @@ static void msleep(int ms)
 #define Trace if (!(q->trace /*&& !consulting*/)) q->step++; else trace_call
 
 static const unsigned INITIAL_NBR_QUEUE_CELLS = 1000;
-static const unsigned INITIAL_NBR_HEAP_CELLS = 8000;
-static const unsigned INITIAL_NBR_FRAMES = 4000;
-static const unsigned INITIAL_NBR_SLOTS = 4000;
-static const unsigned INITIAL_NBR_TRAILS = 4000;
-static const unsigned INITIAL_NBR_CHOICES = 4000;
+static const unsigned INITIAL_NBR_HEAP_CELLS = 1000;
+static const unsigned INITIAL_NBR_FRAMES = 1000;
+static const unsigned INITIAL_NBR_SLOTS = 1000;
+static const unsigned INITIAL_NBR_TRAILS = 1000;
+static const unsigned INITIAL_NBR_CHOICES = 1000;
 static const unsigned INITIAL_NBR_CELLS = 100;
 
 int g_tpl_interrupt = 0;
@@ -946,7 +946,7 @@ static void proceed(query *q)
 
 		if (tmp->save_ret) {
 			f->chgen = tmp->chgen;
-			//q->st.m = q->pl->modmap[tmp->mid];
+			q->st.m = q->pl->modmap[tmp->mid];
 		}
 
 		if (!(q->st.curr_instr = tmp->save_ret))
@@ -1120,11 +1120,7 @@ static bool expand_meta_predicate(query *q, predicate *pr)
 			make_struct(tmp, g_colon_s, bif_iso_invoke_2, 2, 1+k->nbr_cells);
 			SET_OP(tmp, OP_XFY); tmp++;
 			make_atom(tmp++, new_atom(q->pl, q->st.m->name));
-		} else if (is_smallint(m) && is_positive(m) && (get_smallint(m) == 0)) {
-			make_struct(tmp, g_colon_s, bif_iso_invoke_2, 2, 1+k->nbr_cells);
-			SET_OP(tmp, OP_XFY); tmp++;
-			make_atom(tmp++, new_atom(q->pl, q->st.m->name));
-		} else if (is_smallint(m) && is_positive(m) && (get_smallint(m) <= 9) && is_atom(FIRST_ARG(k))) {
+		} else if (is_smallint(m) && is_positive(m) && (get_smallint(m) <= 9)) {
 			make_struct(tmp, g_colon_s, bif_iso_invoke_2, 2, 1+k->nbr_cells);
 			SET_OP(tmp, OP_XFY); tmp++;
 			make_atom(tmp++, new_atom(q->pl, q->st.m->name));
