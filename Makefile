@@ -76,6 +76,11 @@ endif
 ifndef NOTHREADS
 CFLAGS += -DUSE_THREADS=1 -pthread
 LDFLAGS += -pthread
+ifeq ($(shell uname),Darwin)
+LDFLAGS +=
+else
+LDFLAGS += -latomic
+endif
 endif
 
 ifdef LTO
