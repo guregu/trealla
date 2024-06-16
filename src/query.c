@@ -803,19 +803,13 @@ bool push_fail_on_retry(query *q)
 	return true;
 }
 
-// A reset adds the ability to do locate
-// delimited continuations
-
 bool push_reset_handler(query *q)
 {
-	check_heap_error(push_barrier(q));
+	check_heap_error(push_fail_on_retry(q));
 	choice *ch = GET_CURR_CHOICE();
 	ch->reset = true;
-	ch->fail_on_retry = true;
 	return true;
 }
-
-// A catcher adds the ability to trap exceptions.
 
 bool push_catcher(query *q, enum q_retry retry)
 {
@@ -852,9 +846,10 @@ bool drop_barrier(query *q, pl_idx cp)
 void cut(query *q)
 {
 	const frame *f = GET_CURR_FRAME();
-	choice *ch = GET_CURR_CHOICE();
 
 	while (q->cp) {
+		choice *ch = GET_CURR_CHOICE();
+
 		// A normal cut can't break out of a barrier...
 
 		if (ch->barrier) {
@@ -863,14 +858,6 @@ void cut(query *q)
 		} else {
 			if (ch->chgen < f->chgen)
 				break;
-		}
-
-		const frame *f2 = GET_FRAME(ch->st.curr_frame);
-
-		if ((ch->st.fp == (q->st.curr_frame + 1))
-			&& (f2->actual_slots == 0)
-			) {
-				q->st.fp = ch->st.fp;
 		}
 
 		leave_predicate(q, ch->st.pr);
@@ -888,16 +875,10 @@ void cut(query *q)
 
 		ch--;
 	}
-
-	//if (!q->cp && !q->undo_hi_tp)
-	//	q->st.tp = 0;
 }
 
-static bool resume_any_choices(const query *q, const frame *f)
+inline static bool resume_any_choices(const query *q, const frame *f)
 {
-	if (!q->cp)
-		return false;
-
 	const choice *ch = GET_CURR_CHOICE();
 	return ch->chgen > f->chgen;
 }
@@ -918,10 +899,10 @@ static bool resume_frame(query *q)
 		&& (!f->has_local_vars || !q->in_call)
 		&& !f->no_tco
 		&& (q->st.fp == (q->st.curr_frame + 1))
-		&& !resume_any_choices(q, f)
+		&& (!q->cp || !resume_any_choices(q, f))
 		) {
-		q->st.sp -= f->actual_slots;
 		q->st.fp--;
+		q->st.sp -= f->actual_slots;
 		trim_slots(q);
 	}
 
@@ -1931,37 +1912,6 @@ void query_destroy(query *q)
 		module_unlock(m);
 	}
 #endif
-
-	module *m = list_front(&q->pl->modules);
-
-	while (m) {
-		module_lock(m);
-		predicate *pr = find_functor(m, "$bb_key", 3);
-
-		if (pr) {
-			rule *r = pr->head;
-
-			while (r) {
-				cell *c = r->cl.cells;
-				cell *arg1 = c + 1;
-				cell *arg2 = arg1 + arg1->nbr_cells;
-				cell *arg3 = arg2 + arg2->nbr_cells;
-
-				if (!CMP_STRING_TO_CSTR(m, arg3, "b")) {
-					pr->cnt--;
-					predicate_delink(pr, r);
-					rule *save = r;
-					r = r->next;
-					clear_clause(&save->cl);
-					free(save);
-				} else
-					r = r->next;
-			}
-		}
-
-		module_unlock(m);
-		m = list_next(m);
-	}
 
 	mp_int_clear(&q->tmp_ival);
 	mp_rat_clear(&q->tmp_irat);

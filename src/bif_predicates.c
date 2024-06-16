@@ -5572,14 +5572,13 @@ bool bif_iso_invoke_2(query *q)
 	check_heap_error(tmp);
 	pl_idx nbr_cells = PREFIX_LEN;
 
-	if (!is_builtin(p2) /*&& !tmp[nbr_cells].match*/)
+	if (!is_builtin(p2))
 		tmp[nbr_cells].match = find_predicate(q->st.m, p2);
 
 	nbr_cells += p2->nbr_cells;
 	make_call(q, tmp+nbr_cells);
 	q->st.m = m;
 	q->st.curr_instr = tmp;
-	q->st.curr_frame = p2_ctx;
 	return true;
 }
 

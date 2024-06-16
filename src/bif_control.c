@@ -27,7 +27,7 @@ bool bif_iso_cut_0(query *q)
 
 bool bif_sys_drop_barrier_1(query *q)
 {
-	GET_FIRST_ARG(p1,integer)
+	GET_FIRST_RAW_ARG(p1,integer)
 	q->tot_inferences--;
 	drop_barrier(q, get_smalluint(p1));
 
@@ -54,7 +54,7 @@ void do_cleanup(query *q, cell *c, pl_idx c_ctx)
 bool bif_sys_cleanup_if_det_1(query *q)
 {
 	q->tot_inferences--;
-	GET_FIRST_ARG(p1,integer);
+	GET_FIRST_RAW_ARG(p1,integer)
 	choice *ch = GET_CURR_CHOICE();
 
 	if ((q->cp-1) != get_smalluint(p1))
@@ -237,7 +237,7 @@ bool bif_iso_call_1(query *q)
 
 static bool bif_iso_once_1(query *q)
 {
-	GET_FIRST_ARG(p1,callable);
+	GET_FIRST_ARG(p1,any);
 
 	if ((is_builtin(p1) && !is_evaluable(p1)) || !p1->arity) {
 		check_heap_error(init_tmp_heap(q));
@@ -267,7 +267,7 @@ static bool bif_iso_once_1(query *q)
 
 static bool bif_ignore_1(query *q)
 {
-	GET_FIRST_ARG(p1,callable);
+	GET_FIRST_ARG(p1,any);
 	check_heap_error(init_tmp_heap(q));
 	cell *tmp2 = deep_clone_to_tmp(q, p1, p1_ctx);
 	check_heap_error(tmp2);
@@ -433,7 +433,7 @@ static bool bif_iso_disjunction_2(query *q)
 
 static bool bif_iso_negation_1(query *q)
 {
-	GET_FIRST_ARG(p1,callable);
+	GET_FIRST_ARG(p1,any);
 	cell *tmp = prepare_call(q, PREFIX_LEN, p1, p1_ctx, 5);
 	check_heap_error(tmp);
 	pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
@@ -449,7 +449,7 @@ static bool bif_iso_negation_1(query *q)
 
 static bool bif_sys_block_catcher_1(query *q)
 {
-	GET_FIRST_ARG(p1,integer);
+	GET_FIRST_RAW_ARG(p1,integer)
 	pl_idx cp = get_smalluint(p1);
 	choice *ch = GET_CHOICE(cp);
 
