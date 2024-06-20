@@ -23,7 +23,7 @@ static bool bif_bb_b_put_2(query *q)
 	GET_NEXT_ARG(p2,any);
 
 	if (is_compound(p1) &&
-		((p1->val_off != g_colon_s)  ||  (p1->arity != 2)))
+		((p1->val_off != g_colon_s) || (p1->arity != 2)))
 		return throw_error(q, p1, p1_ctx, "type_error", "callable");
 
 	module *m;
@@ -86,7 +86,7 @@ static bool bif_bb_put_2(query *q)
 	GET_NEXT_ARG(p2,any);
 
 	if (is_compound(p1) &&
-		((p1->val_off != g_colon_s)  ||  (p1->arity != 2)))
+		((p1->val_off != g_colon_s) || (p1->arity != 2)))
 		return throw_error(q, p1, p1_ctx, "type_error", "callable");
 
 	module *m;
@@ -144,7 +144,7 @@ static bool bif_bb_get_2(query *q)
 	GET_NEXT_ARG(p2,any);
 
 	if (is_compound(p1) &&
-		((p1->val_off != g_colon_s)  ||  (p1->arity != 2)))
+		((p1->val_off != g_colon_s) || (p1->arity != 2)))
 		return throw_error(q, p1, p1_ctx, "type_error", "callable");
 
 	module *m;
@@ -190,7 +190,9 @@ static bool bif_bb_get_2(query *q)
 
 	prolog_unlock(q->pl);
 
+	q->noderef = true;
 	cell *tmp = deep_copy_to_heap(q, (cell*)val, q->st.curr_frame, true);
+	q->noderef = false;
 	check_heap_error(tmp);
 
 	if (DO_DUMP) DUMP_TERM2("bb_get", tmpbuf, tmp, q->st.curr_frame, 1);
@@ -213,7 +215,7 @@ static bool bif_bb_delete_2(query *q)
 	GET_NEXT_ARG(p2,any);
 
 	if (is_compound(p1) &&
-		((p1->val_off != g_colon_s)  ||  (p1->arity != 2)))
+		((p1->val_off != g_colon_s) || (p1->arity != 2)))
 		return throw_error(q, p1, p1_ctx, "type_error", "callable");
 
 	module *m;
@@ -248,7 +250,9 @@ static bool bif_bb_delete_2(query *q)
 		return false;
 	}
 
+	q->noderef = true;
 	cell *tmp = deep_copy_to_heap(q, (cell*)val, q->st.fp, true);
+	q->noderef = false;
 	check_heap_error(tmp, prolog_unlock(q->pl));
 
 	if (DO_DUMP) DUMP_TERM2("bb_delete", tmpbuf, tmp, q->st.curr_frame, 1);
@@ -281,7 +285,7 @@ static bool bif_bb_update_3(query *q)
 	GET_NEXT_ARG(p3,any);
 
 	if (is_compound(p1) &&
-		((p1->val_off != g_colon_s)  ||  (p1->arity != 2)))
+		((p1->val_off != g_colon_s) || (p1->arity != 2)))
 		return throw_error(q, p1, p1_ctx, "type_error", "callable");
 
 	module *m;
@@ -316,7 +320,9 @@ static bool bif_bb_update_3(query *q)
 		return false;
 	}
 
+	q->noderef = true;
 	cell *tmp = deep_copy_to_heap(q, (cell*)val, q->st.fp, true);
+	q->noderef = false;
 	check_heap_error(tmp, prolog_unlock(q->pl));
 
 	if (DO_DUMP) DUMP_TERM2("bb_update", tmpbuf, p2, p2_ctx, 1);
