@@ -41,6 +41,7 @@
 
 :- use_module(library(pseudojson)).
 :- use_module(library(error)).
+:- use_module(library(dcgs)).
 
 :- dynamic(current_http_uri/1).
 :- dynamic(current_http_method/1).

@@ -15,9 +15,9 @@
 
 :- use_module(library(lists)).
 :- use_module(library(pseudojson)).
+:- use_module(library(dcgs)). % TODO: required for clpz?
 
 % Host (WASM) → Guest (Trealla)
-
 
 js_toplevel :-
 	getline(Line),

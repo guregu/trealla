@@ -6,6 +6,7 @@
 :- use_module(library(error)).
 :- use_module(library(format)).
 :- use_module(library(pseudojson)).
+:- use_module(library(dcgs)).
 
 :- dynamic('$task'/1).
 

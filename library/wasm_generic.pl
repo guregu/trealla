@@ -3,6 +3,7 @@
 :- use_module(library(pseudojson)).
 :- use_module(library(lists)).
 :- use_module(library(charsio)).
+:- use_module(library(dcgs)).
 
 host_call(Expr, Cs) :-
 	'$host_call'(Expr, Cs), !

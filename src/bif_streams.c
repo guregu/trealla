@@ -173,6 +173,9 @@ restart:
 			if (!check_dir) goto skip_readlink;
 		}
 		ssize_t k = readlink(output, stack, p);
+		// WASI hack: some runtimes don't support symlinks,
+		// so we fudge that into a "not a symlink" error instead
+		if (errno == ENOTSUP || errno == ENOSYS) errno = EINVAL;
 		if (k==(ssize_t)p) goto toolong;
 		if (!k) {
 			errno = ENOENT;
