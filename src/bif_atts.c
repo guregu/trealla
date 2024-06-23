@@ -44,6 +44,7 @@ static bool do_put_atts(query *q, cell *attr, pl_idx attr_ctx, bool is_minus)
 	const frame *f = GET_FRAME(p1_ctx);
 	slot *e = GET_SLOT(f, p1->var_nbr);
 	cell *c = deref(q, &e->c, e->c.var_ctx);
+	pl_idx c_ctx = q->latest_ctx;
 	frame *fcurr = GET_CURR_FRAME();
 	fcurr->no_tco = true;
 
@@ -52,14 +53,6 @@ static bool do_put_atts(query *q, cell *attr, pl_idx attr_ctx, bool is_minus)
 
 	if (((attr->val_off == g_minus_s) || (attr->val_off == g_plus_s)) && (attr->arity == 1))
 		attr++;
-
-	if (is_nil(attr)) {
-		if (e->c.attrs)
-			add_trail(q, p1_ctx, p1->var_nbr, c->attrs);
-
-		e->c.attrs = NULL;
-		return true;
-	}
 
 	add_trail(q, p1_ctx, p1->var_nbr, c->attrs);
 
@@ -91,7 +84,7 @@ static bool do_put_atts(query *q, cell *attr, pl_idx attr_ctx, bool is_minus)
 
 	if (c->attrs) {
 		cell *l = c->attrs;
-		pl_idx l_ctx = q->st.curr_frame;
+		pl_idx l_ctx = c_ctx;
 		LIST_HANDLER(l);
 
 		while (is_iso_list(l)) {
@@ -166,14 +159,15 @@ bool bif_get_atts_2(query *q)
 	const frame *f = GET_FRAME(p1_ctx);
 	slot *e = GET_SLOT(f, p1->var_nbr);
 	cell *c = deref(q, &e->c, e->c.var_ctx);
+	pl_idx c_ctx = q->latest_ctx;
 	bool is_minus = !is_var(p2) && (p2->val_off == g_minus_s) && (p2->arity == 1);
 
-	if (!c->attrs || is_nil(c->attrs))
+	if (!c->attrs)
 		return is_minus ? true : false;
 
 	if (is_var(p2)) {
 		cell *l = c->attrs;
-		pl_idx l_ctx = q->st.curr_frame;
+		pl_idx l_ctx = c_ctx;
 		init_tmp_heap(q);
 		LIST_HANDLER(l);
 
@@ -209,8 +203,8 @@ bool bif_get_atts_2(query *q)
 	bool found;
 	const char *m_name = do_attribute(q, attr, a_arity, &found);
 	if (!found) return false;
-	cell *l = e->c.attrs;
-	pl_idx l_ctx = q->st.curr_frame;
+	cell *l = c->attrs;
+	pl_idx l_ctx = c_ctx;
 	LIST_HANDLER(l);
 
 	while (is_iso_list(l)) {
@@ -271,10 +265,8 @@ bool any_attributed(query *q)
 		cell *c = deref(q, &e->c, e->c.var_ctx);
 		pl_idx c_ctx = q->latest_ctx;
 
-		if (!is_empty(c) || !c->attrs || is_nil(c->attrs))
+		if (!is_empty(c) || !c->attrs)
 			continue;
-
-		//DUMP_TERM("atts", c->attrs, q->st.curr_frame, 1);
 
 		cell *v = c->attrs;
 		bool any = false;
@@ -310,7 +302,7 @@ bool bif_sys_list_attributed_1(query *q)
 		cell *c = deref(q, &e->c, e->c.var_ctx);
 		pl_idx c_ctx = q->latest_ctx;
 
-		if (!is_empty(c) || !c->attrs || is_nil(c->attrs))
+		if (!is_empty(c) || !c->attrs)
 			continue;
 
 		cell tmp;
@@ -323,22 +315,20 @@ bool bif_sys_list_attributed_1(query *q)
 		cell *c = deref(q, &e->c, e->c.var_ctx);
 		pl_idx c_ctx = q->latest_ctx;
 
-		if (!is_empty(c) || !c->attrs || is_nil(c->attrs))
+		if (!is_empty(c) || !c->attrs)
 			continue;
 
 		if (!is_compound(c->attrs))
 			continue;
 
-		//DUMP_TERM("here", c->attrs, q->st.curr_frame, 0);
-
-		collect_vars(q, c->attrs, q->st.curr_frame);
+		collect_vars(q, c->attrs, c_ctx);
 
 		for (unsigned i = 0; i < q->tab_idx; i++) {
 			const frame *f = GET_FRAME(q->pl->tabs[i].ctx);
 			slot *e = GET_SLOT(f, q->pl->tabs[i].var_nbr);
 			cell *v = deref(q, &e->c, e->c.var_ctx);
 
-			if (!is_empty(v) || !v->attrs || is_nil(v->attrs))
+			if (!is_empty(v) || !v->attrs)
 				continue;
 
 			if (!q->pl->tabs[i].ctx)
@@ -361,12 +351,13 @@ bool bif_sys_attributed_var_1(query *q)
 	const frame *f = GET_FRAME(p1_ctx);
 	slot *e = GET_SLOT(f, p1->var_nbr);
 	cell *c = deref(q, &e->c, e->c.var_ctx);
+	pl_idx c_ctx = q->latest_ctx;
 
-	if (!c->attrs || is_nil(c->attrs))
+	if (!c->attrs)
 		return false;
 
 	cell *l = c->attrs;
-	pl_idx l_ctx = q->st.curr_frame;
+	pl_idx l_ctx = c_ctx;
 	init_tmp_heap(q);
 	LIST_HANDLER(l);
 
@@ -429,30 +420,28 @@ bool bif_sys_undo_trail_2(query *q)
 {
 	GET_FIRST_ARG(p1,var);
 	GET_NEXT_ARG(p2,var);
-	q->run_hook = false;
 
-	if (q->undo_hi_tp <= q->undo_lo_tp)
-		return unify(q, p1, p1_ctx, make_nil(), q->st.curr_frame);
+	if (q->undo_hi_tp == q->undo_lo_tp) {
+		unify(q, p1, p1_ctx, make_nil(), q->st.curr_frame);
+		return true;
+	}
 
 	pl_idx slots = q->undo_hi_tp - q->undo_lo_tp;
 	bind_state *save = malloc(sizeof(bind_state)+(sizeof(slot)*slots));
-	check_error(save);
+	check_heap_error(save);
 	save->b.ptr = save->b.ptr2 = NULL;
 	save->lo_tp = q->undo_lo_tp;
 	save->hi_tp = q->undo_hi_tp;
-	init_tmp_heap(q);
-
-	// Unbind & save our vars
+	check_heap_error(init_tmp_heap(q), free(save));
 
 	for (pl_idx i = q->undo_lo_tp, j = 0; i < q->undo_hi_tp; i++, j++) {
 		const trail *tr = q->trails + i;
 		const frame *f = GET_FRAME(tr->var_ctx);
 		slot *e = GET_SLOT(f, tr->var_nbr);
 		save->e[j] = *e;
-		cell *c = &e->c;
-		pl_idx c_ctx = e->c.var_ctx;
+		cell *c = deref(q, &e->c, e->c.var_ctx);
+		pl_idx c_ctx = q->latest_ctx;
 		set_occurs(tr->var_nbr, tr->var_ctx, c, c_ctx);
-		//printf("*** unbind [%u:%u] hi_tp=%u, tag=%u, tr->var_ctx=%u, tr->var_nbr=%u\n", j, i, q->undo_hi_tp, e->c.tag, tr->var_ctx, tr->var_nbr);
 		cell lhs, rhs;
 		make_ref(&lhs, tr->var_nbr, tr->var_ctx);
 
@@ -461,70 +450,50 @@ bool bif_sys_undo_trail_2(query *q)
 		else
 			rhs = *c;
 
-		//DUMP_TERM("$undo1 rhs", &e->c, e->c.var_ctx, 0);
-
 		cell tmp[3];
 		make_struct(tmp, g_minus_s, NULL, 2, 2);
-		SET_OP(&tmp[0], OP_YFX);
+		SET_OP(tmp, OP_YFX);
 		tmp[1] = lhs;
 		tmp[2] = rhs;
 		append_list(q, tmp);
 		init_cell(&e->c);
 		e->c.attrs = tr->attrs;
-		//if (tr->attrs) DUMP_TERM("$undo2 trail", tr->attrs, q->st.curr_frame, 0);
 	}
 
 	cell *tmp = end_list(q);
 	check_heap_error(tmp, free(save));
-	//DUMP_TERM("undolist tmp", tmp, q->st.curr_frame, 0);
-
-	if (!unify(q, p1, p1_ctx, tmp, q->st.curr_frame))
-		return false;
-
+	unify(q, p1, p1_ctx, tmp, q->st.curr_frame);
 	cell tmp2;
 	make_blob(&tmp2, &save->b);
-	return unify(q, p2, p2_ctx, &tmp2, q->st.curr_frame);
+	unify(q, p2, p2_ctx, &tmp2, q->st.curr_frame);
+	return true;
 }
 
 bool bif_sys_redo_trail_1(query * q)
 {
-	GET_FIRST_ARG(p1,any);
-
-	if (!is_blob(p1))
-		return false;
-
+	GET_FIRST_ARG(p1,blob);
 	const bind_state *save = (bind_state*)p1->val_blob;
 
 	for (pl_idx i = save->lo_tp, j = 0; i < save->hi_tp; i++, j++) {
-		//if (is_empty(&save->e[j].c))
-		//	continue;
 		const trail *tr = q->trails + i;
 		const frame *f = GET_FRAME(tr->var_ctx);
 		slot *e = GET_SLOT(f, tr->var_nbr);
 		*e = save->e[j];
-		//printf("*** rebind [%u:%u] hi_tp=%u, tag=%u, ctx=%u, var=%u\n", j, i, q->undo_hi_tp, e->c.tag, tr->var_ctx, tr->var_nbr);
-		//DUMP_TERM("$redo1 rhs", &e->c, e->c.var_ctx, 0);
 	}
 
 	return true;
 }
 
-bool do_post_unification_hook(query *q, bool is_builtin)
+bool do_post_unify_hook(query *q, bool is_builtin)
 {
 	q->run_hook = false;
 	q->undo_lo_tp = q->before_hook_tp;
 	q->undo_hi_tp = q->st.tp;
-	q->before_hook_tp = 0;
 	cell *tmp = alloc_on_heap(q, 3);
 	check_heap_error(tmp);
 	make_struct(tmp+0, g_true_s, bif_iso_true_0, 0, 0);
 	make_struct(tmp+1, g_post_unify_hook_s, NULL, 0, 0);
-
-	if (is_builtin)
-		make_call(q, tmp+2);
-	else
-		make_call_redo(q, tmp+2);
-
+	is_builtin ? make_call(q, tmp+2) : make_call_redo(q, tmp+2);
 	q->st.curr_instr = tmp;
 	return true;
 }

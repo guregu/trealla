@@ -252,7 +252,7 @@ void make_call(query *q, cell *tmp)
 	make_end(tmp);
 	const frame *f = GET_CURR_FRAME();
 	cell *c = q->st.curr_instr;
-	tmp->save_ret = c + c->nbr_cells;	// save next as the return instruction
+	tmp->ret_instr = c + c->nbr_cells;	// save next as the return instruction
 	tmp->chgen = f->chgen;				// ... choice-generation
 	tmp->mid = q->st.m->id;				// ... current-module
 }
@@ -261,7 +261,7 @@ void make_call_redo(query *q, cell *tmp)
 {
 	make_end(tmp);
 	const frame *f = GET_CURR_FRAME();
-	tmp->save_ret = q->st.curr_instr;	// save the return instruction
+	tmp->ret_instr = q->st.curr_instr;	// save the return instruction
 	tmp->chgen = f->chgen;				// ... choice-generation
 	tmp->mid = q->st.m->id;				// ... current-module
 }
@@ -567,7 +567,7 @@ static frame *push_frame(query *q, const clause *cl)
 
 	// Avoid long chains of useless returns...
 
-	if (is_end(next_cell) && !next_cell->save_ret && curr_f->curr_instr) {
+	if (is_end(next_cell) && !next_cell->ret_instr && curr_f->curr_instr) {
 		f->prev_offset = (new_frame - q->st.curr_frame) + curr_f->prev_offset;
 		f->curr_instr = curr_f->curr_instr;
 	} else {
@@ -846,7 +846,7 @@ bool drop_barrier(query *q, pl_idx cp)
 	if (q->cp) {
 		const choice *ch = GET_CURR_CHOICE();
 		frame *f = GET_CURR_FRAME();
-		f->chgen = ch->chgen;
+		f->chgen = ch->frame_chgen;
 	}
 
 	return true;
@@ -873,7 +873,6 @@ void cut(query *q)
 		drop_choice(q);
 
 		if (ch->register_cleanup && !ch->fail_on_retry) {
-			ch->fail_on_retry = true;
 			cell *c = ch->st.curr_instr;
 			pl_idx c_ctx = ch->st.curr_frame;
 			c = deref(q, FIRST_ARG(c), c_ctx);
@@ -881,8 +880,6 @@ void cut(query *q)
 			do_cleanup(q, c, c_ctx);
 			break;
 		}
-
-		ch--;
 	}
 }
 
@@ -934,12 +931,12 @@ static void proceed(query *q)
 	while (is_end(q->st.curr_instr)) {
 		cell *tmp = q->st.curr_instr;
 
-		if (tmp->save_ret) {
+		if (tmp->ret_instr) {
 			f->chgen = tmp->chgen;
 			q->st.m = q->pl->modmap[tmp->mid];
 		}
 
-		if (!(q->st.curr_instr = tmp->save_ret))
+		if (!(q->st.curr_instr = tmp->ret_instr))
 			break;
 	}
 }
@@ -1669,7 +1666,7 @@ bool start(query *q)
 			}
 
 			if (q->run_hook)
-				do_post_unification_hook(q, true);
+				do_post_unify_hook(q, true);
 
 			Trace(q, save_cell, save_ctx, EXIT);
 			proceed(q);
@@ -1694,7 +1691,7 @@ bool start(query *q)
 			}
 
 			if (q->run_hook)
-				do_post_unification_hook(q, false);
+				do_post_unify_hook(q, false);
 		}
 
 		MORE:
@@ -1708,7 +1705,7 @@ bool start(query *q)
 			}
 
 			while (q->cp) {
-				choice *ch = GET_CURR_CHOICE();
+				const choice *ch = GET_CURR_CHOICE();
 
 				if (!ch->barrier)
 					break;
