@@ -224,7 +224,7 @@ cells([~,w|Fs], [Arg|Args], Tab, Es, VNs) --> !,
         { G = write_term_to_chars(Arg, [numbervars(true),variable_names(VNs)], Chars) },
         cells(Fs, Args, Tab, [chars(Chars),goal(G)|Es], VNs).
 cells([~,q|Fs], [Arg|Args], Tab, Es, VNs) --> !,
-        { G = write_term_to_chars(Arg, [quoted(true),numbervars(true),variable_names(VNs)], Chars) },
+        { G = write_term_to_chars(Arg, [quoted(true),double_quotes(true),numbervars(true),variable_names(VNs)], Chars) },
         cells(Fs, Args, Tab, [chars(Chars),goal(G)|Es], VNs).
 cells([~,a|Fs], [Arg|Args], Tab, Es, VNs) --> !,
         { G = atom_chars(Arg, Chars) },

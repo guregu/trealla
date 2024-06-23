@@ -92,7 +92,8 @@ http_fetch(URL, Result, Opts) :- js_fetch(URL, Result, Opts).
 fetch_expr(URL, As, Method, Body, Hdr, Expr) :-
 	fetch_then(As, Then),
 	fetch_obj(Method, Body, Hdr, Obj),
-	once(phrase(format_("return fetch(~q,~w).then(x => x.~a());", [URL, Obj, Then]), Expr)).
+	json_chars(Obj, ObjCs),
+	once(phrase(format_("return fetch(~q,~s).then(x => x.~a());", [URL, ObjCs, Then]), Expr)).
 
 fetch_obj(Method, Body, L0, Obj) :-
 	atom_string(Method, Ms0),
