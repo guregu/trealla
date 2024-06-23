@@ -51,7 +51,7 @@ static bool fn_sys_wasi_kv_open_2(query *q)
 
 	cell tmp;
 	make_int(&tmp, ret.val.ok);
-	tmp.flags |= FLAG_INT_HANDLE | FLAG_INT_OCTAL;
+	tmp.flags |= FLAG_INT_HANDLE | FLAG_INT_HEX;
 	return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 }
 
@@ -743,7 +743,7 @@ static bool fn_sys_sqlite_open_2(query *q)
 
 	cell tmp;
 	make_int(&tmp, ret.val.ok);
-	tmp.flags |= FLAG_INT_HANDLE | FLAG_INT_OCTAL;
+	tmp.flags |= FLAG_INT_HANDLE | FLAG_INT_HEX;
 	return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 }
 
