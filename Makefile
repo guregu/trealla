@@ -247,6 +247,11 @@ libtpl-js: libtpl-js.wasm
 	$(WASMOPT) --enable-bulk-memory libtpl-wizened.wasm -o libtpl-js.wasm -O4
 	rm libtpl-wizened.wasm
 
+libtpl-js-slim: libtpl-js.wasm
+	cp libtpl-js.wasm libtpl-wizened.wasm
+	$(WASMOPT) --enable-bulk-memory libtpl-wizened.wasm -o libtpl-js.wasm -O4
+	rm libtpl-wizened.wasm
+
 libtpl-spin: libtpl-spin.wasm
 	$(WIZER) --wasm-bulk-memory true --allow-wasi --dir . -o libtpl-wizened.wasm libtpl-spin.wasm
 	$(WASMOPT) --enable-bulk-memory libtpl-wizened.wasm -o libtpl-spin.wasm -O4
