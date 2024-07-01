@@ -603,6 +603,8 @@ static void add_stream_properties(query *q, int n)
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, queue(true)).\n", n);
 	else if (is_thread_stream(str))
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, thread(true)).\n", n);
+	else if (str->is_alias)
+		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, alias(true)).\n", n);
 
 	parser *p = parser_create(q->st.m);
 	p->srcptr = tmpbuf;
@@ -1762,15 +1764,14 @@ static bool stream_close(query *q, int n)
 
 	bool ok = true;
 
-	if (is_map_stream(str)) {
+	if (str->is_alias) {
+	} else if (is_map_stream(str)) {
 		sl_destroy(str->keyval);
-		str->keyval = NULL;
 	} else if (is_memory_stream(str)) {
 		SB_free(str->sb);
 		str->is_memory = false;
 	} else if (is_engine_stream(str)) {
 		query_destroy(str->engine);
-		str->engine = NULL;
 	} else if (str->is_thread || str->is_queue || str->is_mutex) {
 	} else
 		ok = !net_close(str);
@@ -7238,7 +7239,45 @@ static bool bif_portray_clause_2(query *q)
 static bool bif_is_stream_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
-	return is_stream(p1);
+	return is_stream(p1) && !(p1->flags & FLAG_INT_ALIAS);
+}
+
+static bool bif_alias_2(query *q)
+{
+	GET_FIRST_ARG(p1,integer_or_var);
+
+	if (is_integer(p1)) {
+		GET_NEXT_ARG(p2,atom);
+		int n = new_stream(q->pl);
+		char *src = NULL;
+
+		if (n < 0)
+			return throw_error(q, p1, p1_ctx, "resource_error", "too_many_streams");
+
+		stream *str = &q->pl->streams[n];
+		if (!str->alias) str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL);
+		sl_set(str->alias, DUP_STRING(q, p2), NULL);
+		str->is_alias = true;
+		str->handle = (void*)get_smalluint(p1);
+		return true;
+	}
+
+	GET_NEXT_ARG(p2,stream);
+	int n = get_stream(q, p2);
+	stream *str = &q->pl->streams[n];
+	cell tmp;
+	make_uint(&tmp, (size_t)str->handle);
+
+	if (str->is_map)
+		tmp.flags |= FLAG_INT_STREAM | FLAG_INT_MAP | FLAG_INT_HEX;
+	else if (str->is_thread)
+		tmp.flags |= FLAG_INT_THREAD | FLAG_INT_HEX;
+	else if (str->is_alias)
+		tmp.flags |= FLAG_INT_ALIAS | FLAG_INT_HEX;
+	else
+		tmp.flags |= FLAG_INT_STREAM | FLAG_INT_HEX;
+
+	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 }
 
 builtins g_streams_bifs[] =
@@ -7365,6 +7404,8 @@ builtins g_streams_bifs[] =
 	{"accept", 2, bif_accept_2, "+stream,--stream", false, false, BLAH},
 	{"bread", 3, bif_bread_3, "+stream,+integer,-string", false, false, BLAH},
 	{"bwrite", 2, bif_bwrite_2, "+stream,-string", false, false, BLAH},
+
+	{"alias", 2, bif_alias_2, "+blob,+atom", false, false, BLAH},
 
 	{"$capture_output", 0, bif_sys_capture_output_0, NULL, false, false, BLAH},
 	{"$capture_output_to_chars", 1, bif_sys_capture_output_to_chars_1, "-string", false, false, BLAH},
