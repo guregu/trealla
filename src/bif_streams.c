@@ -7160,6 +7160,178 @@ static bool fn_sys_memory_stream_to_chars_2(query *q)
 	return ok;
 }
 
+typedef struct {
+	size_t size1, stride;
+	double *data;
+	void *gsl_block;
+	int owner;
+} gsl_vector;
+
+static bool bif_sys_gsl_vector_write_2(query *q)
+{
+	GET_FIRST_ARG(p1,integer);
+	gsl_vector *v = (void*)(size_t)get_smalluint(p1);
+	GET_NEXT_ARG(p2,stream);
+	int n = q->pl->current_output;
+	stream *str = &q->pl->streams[n];
+
+	fprintf(str->fp, "#%llu,%ux1,%.1f\n",
+		(unsigned long long)v->size1,
+		(unsigned)v->size1,
+		0.0);
+
+	for (unsigned i = 0; i < v->size1; i++) {
+		double val = v->data[i * v->stride];
+
+		if (i != 0)
+			fprintf(str->fp, ",");
+
+		fprintf(str->fp, "%g", val);
+	}
+
+	fprintf(str->fp, "\n");
+	return true;
+}
+
+static bool bif_sys_gsl_vector_alloc_2(query *q)
+{
+	GET_FIRST_ARG(p1,stream);
+	int n = get_stream(q, p1);
+	stream *str = &q->pl->streams[n];
+	GET_NEXT_ARG(p2,var);
+
+	unsigned long long tot = 0;
+	unsigned rows = 0, cols = 0;
+	double def_value = 0.0;
+	bool sparse = false;
+	char tmpbuf[128];
+	tmpbuf[0] = '\0';
+
+	if ((n = fscanf(str->fp, "%*c%llu,%u%*c%u,%lg,%127s\n", &tot, &rows, &cols, &def_value, tmpbuf)) < 3)
+		return throw_error(q, p1, p1_ctx, "domain_error", "header_error");
+
+	tmpbuf[sizeof(tmpbuf)-1] = '\0';
+	cell tmp;
+	make_uint(&tmp, rows);
+	unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
+	return true;
+}
+
+static bool bif_sys_gsl_vector_read_2(query *q)
+{
+	GET_FIRST_ARG(p0,integer);
+	gsl_vector *m = (void*)(size_t)get_smalluint(p0);
+	GET_NEXT_ARG(p1,stream);
+	int n = get_stream(q, p1);
+	stream *str = &q->pl->streams[n];
+
+	for (unsigned i = 0; i < m->size1; i++) {
+		double val;
+
+		if (fscanf(str->fp, "%lg", &val) <= 0)
+			return false;
+
+		m->data[i * m->stride] = val;
+
+		int ch = fgetc(str->fp);
+
+		if (ch == '\r')
+			fgetc(str->fp);
+	}
+
+	return true;
+}
+
+typedef struct {
+	size_t size1, size2, tda;
+	double *data;
+	void *gsl_block;
+	int owner;
+} gsl_matrix;
+
+static bool bif_sys_gsl_matrix_write_2(query *q)
+{
+	GET_FIRST_ARG(p1,integer);
+	gsl_matrix *m = (void*)(size_t)get_smalluint(p1);
+	GET_NEXT_ARG(p2,stream);
+	int n = q->pl->current_output;
+	stream *str = &q->pl->streams[n];
+
+	fprintf(str->fp, "#%llu,%ux%u,%.1f\n",
+		(unsigned long long)m->size1*m->size2,
+		(unsigned)m->size1,
+		(unsigned)m->size2,
+		0.0);
+
+	for (unsigned i = 0; i < m->size1; i++) {
+		for (unsigned j = 0; j < m->size2; j++) {
+			if (j != 0)
+				fprintf(str->fp, ",");
+
+			double val = m->data[i * m->tda + j];
+			fprintf(str->fp, "%g", val);
+		}
+
+		fprintf(str->fp, "\n");
+	}
+
+	return true;
+}
+
+static bool bif_sys_gsl_matrix_alloc_3(query *q)
+{
+	GET_FIRST_ARG(p1,stream);
+	int n = get_stream(q, p1);
+	stream *str = &q->pl->streams[n];
+	GET_NEXT_ARG(p2,var);
+	GET_NEXT_ARG(p3,var);
+
+	unsigned long long tot = 0;
+	unsigned rows = 0, cols = 0;
+	double def_value = 0.0;
+	bool sparse = false;
+	char tmpbuf[128];
+	tmpbuf[0] = '\0';
+
+	if ((n = fscanf(str->fp, "%*c%llu,%u%*c%u,%lg,%127s\n", &tot, &rows, &cols, &def_value, tmpbuf)) < 3)
+		return throw_error(q, p1, p1_ctx, "domain_error", "header_error");
+
+	tmpbuf[sizeof(tmpbuf)-1] = '\0';
+	cell tmp;
+	make_uint(&tmp, rows);
+	unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
+	make_uint(&tmp, cols);
+	unify(q, p3, p3_ctx, &tmp, q->st.curr_frame);
+	return true;
+}
+
+static bool bif_sys_gsl_matrix_read_2(query *q)
+{
+	GET_FIRST_ARG(p0,integer);
+	gsl_matrix *m = (void*)(size_t)get_smalluint(p0);
+	GET_NEXT_ARG(p1,stream);
+	int n = get_stream(q, p1);
+	stream *str = &q->pl->streams[n];
+
+	for (unsigned i = 0; i < m->size1; i++) {
+		for (unsigned j = 0; j < m->size2; j++) {
+			double val;
+
+			if (fscanf(str->fp, "%lg", &val) <= 0)
+				return false;
+
+			m->data[i * m->tda + j] = val;
+
+			int ch = fgetc(str->fp);
+
+			if (ch == '\r')
+				fgetc(str->fp);
+		}
+	}
+
+	return true;
+}
+
 static bool bif_set_stream_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
@@ -7417,6 +7589,13 @@ builtins g_streams_bifs[] =
 
 	{"$memory_stream_create", 2, fn_sys_memory_stream_create_2, "-stream,+options", false, false, BLAH},
 	{"$memory_stream_to_chars", 2, fn_sys_memory_stream_to_chars_2, "+stream,-string", false, false, BLAH},
+	
+	{"$gsl_vector_write", 2, bif_sys_gsl_vector_write_2, "+integer,+stream", false, false, BLAH},
+	{"$gsl_vector_alloc", 2, bif_sys_gsl_vector_alloc_2, "+stream,-integer", false, false, BLAH},
+	{"$gsl_vector_read", 2, bif_sys_gsl_vector_read_2, "+integer,+stream", false, false, BLAH},
+	{"$gsl_matrix_write", 2, bif_sys_gsl_matrix_write_2, "+integer,+stream", false, false, BLAH},
+	{"$gsl_matrix_alloc", 3, bif_sys_gsl_matrix_alloc_3, "+stream,-integer,-integer", false, false, BLAH},
+	{"$gsl_matrix_read", 2, bif_sys_gsl_matrix_read_2, "+integer,+stream", false, false, BLAH},
 
 #if !defined(_WIN32) && !defined(__wasi__) && !defined(__ANDROID__)
 	{"process_create", 3, bif_process_create_3, "+atom,+list,+list", false, false, BLAH},

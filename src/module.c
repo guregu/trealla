@@ -852,7 +852,7 @@ bool do_use_module_1(module *curr_m, cell *c)
 			if (m != curr_m)
 				curr_m->used[curr_m->idx_used++] = m;
 
-			return true;
+			return !m->error;
 		}
 	}
 
@@ -883,7 +883,7 @@ bool do_use_module_1(module *curr_m, cell *c)
 			if (m != curr_m)
 				curr_m->used[curr_m->idx_used++] = m;
 
-			return true;
+			return !m->error;
 		}
 	}
 
@@ -901,7 +901,7 @@ bool do_use_module_1(module *curr_m, cell *c)
 	if (m != curr_m)
 		curr_m->used[curr_m->idx_used++] = m;
 
-	return true;
+	return !m->error;
 }
 
 bool do_use_module_2(module *curr_m, cell *c)
@@ -1046,8 +1046,11 @@ bool do_use_foreign_module(module *m, cell *p)
 	const char *name = C_STR(m, p1);
 	void *handle = do_dlopen(name, 0);
 
-	if (!handle)
+	if (!handle) {
+		fprintf(stdout, "Error: foreign module creation failed: %s, %s\n", name, get_loaded(m, m->filename));
+		m->error = true;
 		return false;
+	}
 
 	while (is_iso_list(p2)) {
 		cell *h = LIST_HEAD(p2);
