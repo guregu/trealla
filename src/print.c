@@ -1221,13 +1221,13 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		bool space = (c->val_off == g_minus_s) && (is_number(rhs) || is_op_rhs);
 		if ((c->val_off == g_plus_s) && is_op_rhs) space = true;
 		if (isalpha(*src)) space = true;
-		if (is_op_rhs || is_negative(rhs) || is_float(rhs)) space = true;
-		if (is_interned(rhs) && !iswalpha(peek_char_utf8(rhs_src))) space = true;
+		if (/*is_op_rhs ||*/ is_negative(rhs) || is_float(rhs)) space = true;
+		if (is_interned(rhs) && !iswalpha(peek_char_utf8(rhs_src)) && !is_op(rhs)) space = true;
 
 		bool parens = false;
 		if (!strcmp(src, "+") && (is_infix(rhs) || is_postfix(rhs))) parens = true;
 		if (rhs_pri > my_priority) parens = true;
-		if (my_priority && (rhs_pri == my_priority) && strcmp(src, "-") && strcmp(src, "+")) parens = true;
+		//if (my_priority && (rhs_pri == my_priority) && strcmp(src, "-") && strcmp(src, "+")) parens = true;
 		if (!strcmp(src, "-") && (rhs_pri == my_priority) && (rhs->arity > 1)) parens = true;
 		if ((c->val_off == g_minus_s) && is_number(rhs) && !is_negative(rhs)) parens = true;
 		if ((c->val_off == g_minus_s) && search_op(q->st.m, C_STR(q, rhs), NULL, true) && !rhs->arity) parens = true;
@@ -1288,6 +1288,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 	cell *rhs = lhs + lhs->nbr_cells;
 	cell *save_rhs = rhs;
 	pl_idx rhs_ctx = c_ctx;
+	const char *lhs_src = C_STR(q, lhs);
 	const char *rhs_src = C_STR(q, rhs);
 	if (running) lhs = deref(q, lhs, lhs_ctx);
 	if (running) lhs_ctx = q->latest_ctx;
@@ -1377,6 +1378,9 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 
 	//q->last_thing_was_symbol += is_symbol;
 	space = iswalpha(peek_char_utf8(src)) || (q->last_thing == WAS_SYMBOL);
+
+	if (!strcmp(lhs_src, "!"))
+		space = false;
 
 	if (q->listing && !depth && !strcmp(src, ":-"))
 		space = true;

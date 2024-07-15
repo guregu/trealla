@@ -14,8 +14,6 @@
 #include "prolog.h"
 #include "query.h"
 
-#include "bif_atts.h"
-
 #if USE_OPENSSL
 #include "openssl/sha.h"
 #include "openssl/hmac.h"
@@ -5030,6 +5028,26 @@ static bool bif_sys_predicate_property_2(query *q)
 	cell tmp;
 	bool found = false, evaluable = false;
 
+	if ((p1->val_off == g_colon_s) && (p1->arity == 2)) {
+		cell *cm = p1 + 1;
+		cm = deref(q, cm, p1_ctx);
+
+		if (!is_atom(cm) && !is_var(cm))
+			return throw_error(q, cm, p1_ctx, "type_error", "callable");
+
+		if (!is_var(cm)) {
+			module *m = find_module(q->pl, C_STR(q, cm));
+			if (m) q->st.m = m;
+		}
+
+		p1 += 2;
+		p1 = deref(q, p1, p1_ctx);
+		p1_ctx = q->latest_ctx;
+
+		if (!is_callable(p1))
+			return throw_error(q, p1, p1_ctx, "type_error", "callable");
+	}
+
 	if (get_builtin_term(q->st.m, p1, &found, &evaluable), found) {
 		if (evaluable)
 			return false;
@@ -5581,6 +5599,8 @@ bool bif_iso_invoke_2(query *q)
 
 		if (!m)
 			m = module_create(q->pl, C_STR(q, p1));
+
+		q->st.m = m;
 	}
 
 	cell *tmp = prepare_call(q, PREFIX_LEN, p2, p2_ctx, 1);
@@ -5592,7 +5612,6 @@ bool bif_iso_invoke_2(query *q)
 
 	nbr_cells += p2->nbr_cells;
 	make_call(q, tmp+nbr_cells);
-	q->st.m = m;
 	q->st.curr_instr = tmp;
 	return true;
 }
@@ -6742,8 +6761,6 @@ builtins g_other_bifs[] =
 	{"$register_cleanup", 1, bif_sys_register_cleanup_1, NULL, false, false, BLAH},
 	{"$get_level", 1, bif_sys_get_level_1, "?integer", false, false, BLAH},
 	{"$is_partial_string", 1, bif_sys_is_partial_string_1, "+string", false, false, BLAH},
-	{"$undo_trail", 2, bif_sys_undo_trail_2, "-list,-blob", false, false, BLAH},
-	{"$redo_trail", 1, bif_sys_redo_trail_1, "+blob", false, false, BLAH},
 	{"$load_properties", 0, bif_sys_load_properties_0, NULL, false, false, BLAH},
 	{"$load_flags", 0, bif_sys_load_flags_0, NULL, false, false, BLAH},
 	{"$load_ops", 0, bif_sys_load_ops_0, NULL, false, false, BLAH},

@@ -184,7 +184,11 @@ mat_random(M, Rows, Cols) :-
 		fail; true
 	).
 
-mat_lup_det(M0, Det) :-
+check_error_(Goal, Check, Action) :-
+	Goal, (Check; (Action, Goal =.. [Pred|_], throw(domain_error(Pred, Check)))),
+	!.
+
+mat_lup_det(M0, Det0) :-
 	'$gsl_matrix_size'(M0, Rows, Cols),
 	(Rows =:= Cols -> true; throw(error(domain_error(matrix_not_square, (Rows * Cols)), mat_lup_det/2))),
 	Size is Rows,
@@ -192,7 +196,11 @@ mat_lup_det(M0, Det) :-
 	gsl_matrix_alloc(Size, Size, M),
 	gsl_matrix_memcpy(M, M0, _),
 	gsl_permutation_alloc(Size, P),
-	gsl_linalg_LU_decomp(M, P, Signum, _),
+	check_error_(
+		gsl_linalg_LU_decomp(M, P, Signum, Status1),
+		Status1 =:= 0,
+		gsl_matrix_free(M)
+		),
 	gsl_vector_alloc(Size, B),
 	( cfor(0, Size-1, I),
 		V is float(I+1),
@@ -200,12 +208,17 @@ mat_lup_det(M0, Det) :-
 		fail; true
 	),
 	gsl_vector_alloc(Size, X),
-	gsl_linalg_LU_solve(M, P, B, X, _),
+	check_error_(
+		gsl_linalg_LU_solve(M, P, B, X, Status2),
+		Status2 =< 1,
+		(gsl_vector_free(X),gsl_vector_free(B),gsl_permutation_free(P))
+		),
 	gsl_vector_free(X),
 	gsl_vector_free(B),
 	gsl_permutation_free(P),
 	gsl_linalg_LU_det(M, Signum, Det),
-	gsl_matrix_free(M).
+	gsl_matrix_free(M),
+	Det0 is Det.			% checks for NAN
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

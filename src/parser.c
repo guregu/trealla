@@ -839,6 +839,7 @@ static bool directives(parser *p, cell *d)
 	}
 
 	if (!strcmp(dirname, "module") && (c->arity >= 1)) {
+		module *save_m = p->m;
 		const char *name = "";
 		char tmpbuf[1024];
 
@@ -927,9 +928,16 @@ static bool directives(parser *p, cell *d)
 						return true;
 					}
 
-					push_property(p->m, C_STR(p, &tmp), tmp.arity, "static");
-					push_property(p->m, C_STR(p, &tmp), tmp.arity, "visible");
-					push_property(p->m, C_STR(p, &tmp), tmp.arity, "interpreted");
+					//push_property(p->m, C_STR(p, &tmp), tmp.arity, "static");
+					//push_property(p->m, C_STR(p, &tmp), tmp.arity, "visible");
+					//push_property(p->m, C_STR(p, &tmp), tmp.arity, "interpreted");
+
+					char tmpbuf[1024];
+					snprintf(tmpbuf, sizeof(tmpbuf), "imported_from(%s)", p->m->name);
+					push_property(save_m, C_STR(p, &tmp), tmp.arity, tmpbuf);
+					//push_property(save_m, C_STR(p, &tmp), tmp.arity, "static");
+					//push_property(save_m, C_STR(p, &tmp), tmp.arity, "visible");
+					//push_property(save_m, C_STR(p, &tmp), tmp.arity, "interpreted");
 					pr->is_public = true;
 				} else if (!strcmp(C_STR(p, head), "op") && (head->arity == 3)) {
 					do_op(p, head, true);
@@ -1210,6 +1218,9 @@ static bool directives(parser *p, cell *d)
 		} else if (!strcmp(dirname, "encoding")) {
 			p1 += 1;
 		} else if (!strcmp(dirname, "meta_predicate")) {
+			if (p1->val_off == g_conjunction_s)
+				p1 += 1;
+
 			set_meta_predicate_in_db(m, p1);
 			p1 += p1->nbr_cells;
 		} else if (!strcmp(C_STR(p, p1), ",") && (p1->arity == 2))
