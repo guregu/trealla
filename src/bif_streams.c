@@ -1926,6 +1926,9 @@ static bool bif_iso_flush_output_1(query *q)
 
 static bool bif_iso_nl_0(query *q)
 {
+	if (q->retry)
+		return true;
+
 	int n = q->pl->current_output;
 	stream *str = &q->pl->streams[n];
 	
@@ -1945,6 +1948,9 @@ static bool bif_iso_nl_0(query *q)
 
 static bool bif_iso_nl_1(query *q)
 {
+	if (q->retry)
+		return true;
+
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
 	stream *str = &q->pl->streams[n];
