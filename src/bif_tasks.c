@@ -43,6 +43,28 @@ bool do_yield(query *q, int msecs)
 	return false;
 }
 
+bool do_yield_then(query *q, bool status)
+{
+#ifdef __wasi__
+	if (!q->is_task && !q->pl->is_query)
+#else
+	if (!q->is_task)
+#endif
+		return true;
+
+	q->yield_at = 0;
+	q->yielded = true;
+	q->tmo_msecs = get_time_in_usec() / 1000;
+	q->tmo_msecs += 1;
+	check_heap_error(push_choice(q));
+	choice *ch = GET_CURR_CHOICE();
+	if (status)
+		ch->succeed_on_retry = true;
+	else
+		ch->fail_on_retry = true;
+	return false;
+}
+
 void do_yield_at(query *q, unsigned int time_in_ms)
 {
 	q->yield_at = get_time_in_usec() / 1000;

@@ -87,6 +87,7 @@ bool bif_iso_float_1(query *q);
 bool bif_iso_integer_1(query *q);
 
 bool do_yield(query *q, int msecs);
+bool do_yield_then(query *q, bool status);
 void do_yield_at(query *q, unsigned int time_in_ms);
 
 inline static void init_queuen(query *q)
