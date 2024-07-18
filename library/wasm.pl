@@ -85,7 +85,8 @@ sub_json(Stream, Vars, Var0=Value0) :-
 	atom_chars(Var0, Var),
 	write_json_term(Stream, Var),
 	write(Stream, ':'),
-	once(term_json_top(Stream, Vars, Value0)).
+	term_json_top(Stream, Vars, Value0),
+	!.
 
 term_json(Stream, _, Value) :-
 	Value == [],
