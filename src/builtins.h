@@ -347,4 +347,3 @@ inline static bool START_FUNCTION(query *q)
 
 	return false;
 }
-

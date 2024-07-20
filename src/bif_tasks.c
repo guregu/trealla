@@ -54,8 +54,9 @@ bool do_yield_then(query *q, bool status)
 
 	q->yield_at = 0;
 	q->yielded = true;
-	q->tmo_msecs = get_time_in_usec() / 1000;
-	q->tmo_msecs += 1;
+	q->tmo_msecs = get_time_in_usec() / 1000 + 1;
+	// Push a choice point with the same result as the goal we hijacked
+	// With that we can continue as if the yield didn't happen
 	check_heap_error(push_choice(q));
 	choice *ch = GET_CURR_CHOICE();
 	if (status)
