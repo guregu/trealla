@@ -385,7 +385,6 @@ size_t scan_is_chars_list(query *q, cell *l, pl_idx l_ctx, bool allow_codes)
 static void enter_predicate(query *q, predicate *pr)
 {
 	//printf("*** ENTER %s\n", C_STR(q, &pr->key));
-	q->st.recursive = q->st.pr == pr;
 	q->st.pr = pr;
 
 	if (pr->is_dynamic)
@@ -396,26 +395,21 @@ static void leave_predicate(query *q, predicate *pr)
 {
 	//printf("*** LEAVE %s\n", C_STR(q, &pr->key));
 
-	q->st.recursive = false;
-
 	if (!pr || !pr->is_dynamic || !pr->refcnt)
 		return;
 
 	sl_done(q->st.iter);
 	q->st.iter = NULL;
-	module_lock(pr->m);
 
-	if (--pr->refcnt != 0) {
-		module_unlock(pr->m);
+	if (--pr->refcnt != 0)
 		return;
-	}
 
 	// Predicate is no longer being used
 
-	if (!list_count(&pr->dirty)) {
-		module_unlock(pr->m);
+	if (!list_count(&pr->dirty))
 		return;
-	}
+
+	module_lock(pr->m);
 
 	if (pr->is_abolished) {
 		rule *r;
@@ -692,15 +686,10 @@ static void commit_frame(query *q, cell *body)
 		&& (q->st.fp == (q->st.curr_frame + 1))
 		) {
 		bool tail_call = is_tail_call(q->st.curr_instr);
-		bool tail_recursive = tail_call
-			//&& is_recursive_call(q->st.curr_instr)
-			&& q->st.recursive
-			;
-		bool slots_ok =
-			tail_recursive ? f->initial_slots <= cl->nbr_vars :
-			false;
+		bool tail_recursive = tail_call && is_recursive_call(q->st.curr_instr);
+		bool slots_ok = f->initial_slots <= cl->nbr_vars;
 		bool choices = commit_any_choices(q, f);
-		tco = slots_ok && !choices;
+		tco = slots_ok && tail_recursive && !choices;
 
 #if 0
 		const cell *head = get_head((cell*)cl->cells);

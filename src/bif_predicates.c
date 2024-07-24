@@ -6753,6 +6753,10 @@ builtins g_other_bifs[] =
 	{"can_be", 4, bif_can_be_4, "+term,+atom,+term,?any", false, false, BLAH},
 	{"can_be", 2, bif_can_be_2, "+atom,+term,", false, false, BLAH},
 
+#if USE_OPENSSL
+	{"crypto_data_hash", 3, bif_crypto_data_hash_3, "?string,?string,?list", false, false, BLAH},
+#endif
+
 	{"$legacy_current_prolog_flag", 2, bif_sys_current_prolog_flag_2, "+atom,?term", true, false, BLAH},
 	{"$legacy_predicate_property", 2, bif_sys_predicate_property_2, "+callable,?string", false, false, BLAH},
 	{"$legacy_evaluable_property", 2, bif_sys_evaluable_property_2, "+callable,?string", false, false, BLAH},
@@ -6778,10 +6782,6 @@ builtins g_other_bifs[] =
 #ifdef __wasi__
 	{"$host_call", 2, fn_sys_host_call_2, "+string,-string", false, false, BLAH},
 	{"$host_resume", 1, fn_sys_host_resume_1, "-string", false, false, BLAH},
-#endif
-
-#if USE_OPENSSL
-	{"crypto_data_hash", 3, bif_crypto_data_hash_3, "?string,?string,?list", false, false, BLAH},
 #endif
 
 	{"$call_cleanup", 3, bif_sys_call_cleanup_3, NULL, false, false, BLAH},

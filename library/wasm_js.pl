@@ -92,8 +92,9 @@ http_fetch(URL, Result, Opts) :- js_fetch(URL, Result, Opts).
 fetch_expr(URL, As, Method, Body, Hdr, Expr) :-
 	fetch_then(As, Then),
 	fetch_obj(Method, Body, Hdr, Obj),
+	json_chars(URL, URLCs),
 	json_chars(Obj, ObjCs),
-	once(phrase(format_("return fetch(~q,~s).then(x => x.~a());", [URL, ObjCs, Then]), Expr)).
+	once(phrase(format_("return fetch(~s,~s).then(x => x.~a());", [URLCs, ObjCs, Then]), Expr)).
 
 fetch_obj(Method, Body, L0, Obj) :-
 	atom_string(Method, Ms0),
@@ -120,20 +121,23 @@ body_js(JS, Cs) :- json_chars(JS, Cs).
 no_body("GET").
 no_body("HEAD").
 
-http_consult(URL) :-
+http_consult(URLExpr) :-
+	consulted_url_module(URLExpr, URL, Module),
 	(  js_fetch(URL, Cs, [as(string)])
 	-> true
 	;  throw(error(js_error(fetch_failed, URL), http_consult/1))
 	),
-	consulted_url_module(URL, Module),
 	Module:'$load_chars'(Cs),
-	!,
-	ignore(use_module(Module)).
+	ignore(user:use_module(Module)).
 
-consulted_url_module(URL, Module) :-
+consulted_url_module(Module:URL, URL, Module) :-
+	atom(Module).
+consulted_url_module(URL, URL, Module) :-
+	URL \= _:_,
 	append(File, ".pl", URL),
 	atom_chars(Module, File).
-consulted_url_module(URL, Module) :-
+consulted_url_module(URL, URL, Module) :-
+	URL \= _:_,
 	atom_chars(Module, URL).
 
 crypto_data_hash(Data, Hash, Options) :-
@@ -156,6 +160,7 @@ js_subtle_hash(Data, Hash, Algo) :-
 	js_eval(Expr, Hash).
 
 subtle_digest_expr(Data, Algo, Expr) :-
+	json_chars(Data, DataCs),
 	once(phrase(format_(
-		"return crypto.subtle.digest(~q, new TextEncoder().encode(~q)).then(sum => [...new Uint8Array(sum)].map(c => c.toString(16).padStart(2, '0')).join(''));",
-		[Algo, Data]), Expr)).
+		"return crypto.subtle.digest('~s', new TextEncoder().encode(~q)).then(sum => [...new Uint8Array(sum)].map(c => c.toString(16).padStart(2, '0')).join(''));",
+		[Algo, DataCs]), Expr)).
