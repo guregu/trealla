@@ -329,13 +329,14 @@ static void set_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx
 	if (is_var(v)) {
 		make_ref(&e->c, v->var_nbr, v_ctx);
 
-		if (c_ctx == q->st.fp)
-			if (!is_local(c) && !is_temporary(c))
+		if (c_ctx == q->st.fp) {
+			if (!is_local(c))
 				q->no_tco = true;
+		}
 	} else if (is_compound(v)) {
 		make_indirect(&e->c, v, v_ctx);
 
-		if ((c_ctx == q->st.fp) && (v_ctx == q->st.curr_frame)) {
+		if ((c_ctx != q->st.curr_frame) && (v_ctx == q->st.curr_frame)) {
 			if (!is_ground(v))
 				q->no_tco = true;
 		} else if (v_ctx == q->st.fp) {
