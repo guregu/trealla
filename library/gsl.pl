@@ -70,9 +70,12 @@
 	gsl_matrix_subdiagonal/3,
 	gsl_matrix_superdiagonal/3,
 
+	gsl_permutation_calloc/2,
 	gsl_permutation_alloc/2,
+	gsl_permutation_init/1,
 	gsl_permutation_free/1,
 
+	gsl_eigen_symmv_calloc/2,
 	gsl_eigen_symmv_alloc/2,
 	gsl_eigen_symmv/4,
 	gsl_eigen_symmv_free/1,
@@ -96,9 +99,9 @@
 	mat_random/3
 	]).
 
-% GNU Scientific Library (GSL) v2.8
+% GNU Scientific Library (GSL)
 %
-% UBUNTU: sudo apt install libgsl-dev libgslcblas0
+% UBUNTU: sudo apt install libgsl-dev
 %
 % REF: https://www.gnu.org/software/gsl/doc/html/index.html
 %
@@ -182,10 +185,13 @@
 	gsl_matrix_subdiagonal([ptr,ulong], gsl_vector_view),
 	gsl_matrix_superdiagonal([ptr,ulong], gsl_vector_view),
 
-	gsl_permutation_alloc([sint], ptr),
+	gsl_permutation_calloc([ulong], ptr),
+	gsl_permutation_alloc([ulong], ptr),
+	gsl_permutation_init([ptr], void),
 	gsl_permutation_free([ptr], void),
 
-	gsl_eigen_symmv_alloc([sint], ptr),
+	gsl_eigen_symmv_calloc([ulong], ptr),
+	gsl_eigen_symmv_alloc([ulong], ptr),
 	gsl_eigen_symmv([ptr,ptr,ptr,ptr], void),
 	gsl_eigen_symmv_free([ptr], void),
 	gsl_eigen_symmv_sort([ptr,ptr,sint], void),
@@ -242,7 +248,7 @@ mat_lup_det(M0, Det0) :-
 	check_error_(
 		gsl_linalg_LU_decomp(M, P, Signum, Status1),
 		Status1 =:= 0,
-		gsl_matrix_free(M)
+		(gsl_permutation_free(P), gsl_matrix_free(M))
 		),
 	gsl_vector_alloc(Size, B),
 	( cfor(0, Size-1, I),
@@ -254,7 +260,7 @@ mat_lup_det(M0, Det0) :-
 	check_error_(
 		gsl_linalg_LU_solve(M, P, B, X, Status2),
 		Status2 =< 1,
-		(gsl_vector_free(X),gsl_vector_free(B),gsl_permutation_free(P))
+		(gsl_vector_free(X), gsl_vector_free(B), gsl_permutation_free(P))
 		),
 	gsl_vector_free(X),
 	gsl_vector_free(B),
@@ -269,29 +275,29 @@ mat_eigen(M, Vals, Vecs) :-
 	'$gsl_matrix_size'(M, Rows, Cols),
 	(Rows =:= Cols -> true; throw(error(domain_error(matrix_not_square, (Rows * Cols)), mat_eigen/3))),
 	Size is Rows,
-	gsl_vector_calloc(Size,Eval),
-	gsl_matrix_calloc(Size,Size,Evec),
-	gsl_eigen_symmv_alloc(Size,W),
-	gsl_eigen_symmv(M,Eval,Evec,W),
+	gsl_vector_calloc(Size, Eval),
+	gsl_matrix_calloc(Size, Size, Evec),
+	gsl_eigen_symmv_alloc(Size, W),
+	gsl_eigen_symmv(M, Eval, Evec, W),
 	gsl_eigen_symmv_free(W),
 	gslConst(gslGSL_EIGEN_SORT_ABS_ASC,Val),
-	gsl_eigen_symmv_sort(Eval,Evec,Val),
+	gsl_eigen_symmv_sort(Eval, Evec, Val),
 	Size1 is Size - 1,
 
 	findall(
 		Eval_i,
-		(between(0,Size1,I),
-			gsl_vector_get(Eval,I,Eval_i)
+		(between(0, Size1, I),
+			gsl_vector_get(Eval, I, Eval_i)
 		),
 		Vals
 	),
 
 	findall(
 		L,
-		(between(0,Size1,I),
-			gsl_matrix_column(Evec,I,Evec_i),
-			'$struct_to_pointer'(Evec_i,V),
-			vec_to_list(V,L)
+		(between(0, Size1, I),
+			gsl_matrix_column(Evec, I, Evec_i),
+			'$struct_to_pointer'(Evec_i, V),
+			vec_to_list(V, L)
 		),
 		Vecs
 	),
