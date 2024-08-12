@@ -522,7 +522,6 @@ static void print_string_canonical(query *q, cell *c, pl_idx c_ctx, int running,
 
 	while (is_list(c)) {
 		cell *h = LIST_HEAD(c);
-
 		const char *src = C_STR(q, h);
 
 		if (needs_quoting(q->st.m, src, strlen(src))) {
@@ -555,7 +554,6 @@ static void print_string_list(query *q, cell *c, pl_idx c_ctx, int running, bool
 
 	while (is_list(c)) {
 		cell *h = LIST_HEAD(c);
-
 		const char *src = C_STR(q, h);
 
 		if (needs_quoting(q->st.m, src, strlen(src)) && q->quoted) {
@@ -860,7 +858,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		mp_int_to_string(&c->val_bigint->irat.num, radix, dst2, len+1);
 		SB_sprintf(q->sb, "%s", dst2);
 		free(dst2);
-		SB_sprintf(q->sb, "%s", " div ");
+		SB_sprintf(q->sb, "%s", " rdiv ");
 		len = mp_int_string_len(&c->val_bigint->irat.den, radix) - 1;
 		dst2 = malloc(len+1);
 		mp_int_to_string(&c->val_bigint->irat.den, radix, dst2, len+1);
