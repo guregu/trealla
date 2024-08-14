@@ -674,6 +674,8 @@ static void commit_frame(query *q, cell *body)
 	bool next_key = has_next_key(q);
 	bool last_match = is_det || cl->is_first_cut || !next_key;
 	bool tco = false;
+	cell *head = get_head(q->st.curr_rule->cl.cells);
+	bool is_complex = is_complex(head);
 
 	// Use the help directive with [iso(true)]
 
@@ -687,7 +689,7 @@ static void commit_frame(query *q, cell *body)
 		) {
 		bool tail_call = is_tail_call(q->st.curr_instr);
 		bool tail_recursive = tail_call && is_recursive_call(q->st.curr_instr);
-		bool slots_ok = !f->initial_slots || (f->initial_slots <= cl->nbr_vars);
+		bool slots_ok = f->initial_slots <= cl->nbr_vars;
 		tco = slots_ok && tail_recursive && !commit_any_choices(q, f);
 
 #if 0
