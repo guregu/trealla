@@ -495,13 +495,9 @@ void try_me(query *q, unsigned nbr_vars)
 	frame *f = GET_NEW_FRAME();
 	f->initial_slots = f->actual_slots = nbr_vars;
 	f->base = q->st.sp;
-	f->no_tco = false;
-
-	for (unsigned i = 0; i < nbr_vars; i++) {
-		slot *e = GET_SLOT(f, i);
-		memset(e, 0, sizeof(slot));
-	}
-
+	//f->no_tco = false;
+	slot *e = GET_SLOT(f, 0);
+	memset(e, 0, sizeof(slot)*nbr_vars);
 	q->tot_matches++;
 }
 
@@ -569,8 +565,8 @@ static frame *push_frame(query *q, const clause *cl)
 	}
 
 	f->initial_slots = f->actual_slots = cl->nbr_vars;
-	f->has_local_vars = cl->has_local_vars;
-	f->no_tco = q->no_tco;
+	//f->has_local_vars = cl->has_local_vars;
+	//f->no_tco = q->no_tco;
 	f->chgen = ++q->chgen;
 	f->heap_nbr = q->st.heap_nbr;
 	f->hp = q->st.hp;
@@ -626,8 +622,8 @@ static void reuse_frame(query *q, const clause *cl)
 
 	frame *f = GET_CURR_FRAME();
 	f->initial_slots = f->actual_slots = cl->nbr_vars;
-	f->has_local_vars = cl->has_local_vars;
-	f->no_tco = q->no_tco;
+	//f->has_local_vars = cl->has_local_vars;
+	//f->no_tco = q->no_tco;
 	f->chgen = ++q->chgen;
 	f->heap_nbr = q->st.heap_nbr;
 	f->hp = q->st.hp;
@@ -882,8 +878,11 @@ void cut(query *q)
 	}
 }
 
-inline static bool resume_any_choices(const query *q, const frame *f)
+static bool resume_any_choices(const query *q, const frame *f)
 {
+	if (q->cp == 0)
+		return false;
+
 	const choice *ch = GET_CURR_CHOICE();
 	return ch->chgen > f->chgen;
 }
@@ -897,19 +896,21 @@ static bool resume_frame(query *q)
 	if (!f->prev_offset)
 		return false;
 
+#if 0
 	if (q->in_call)
 		q->in_call--;
 
 	if (q->pl->opt
+		&& !f->no_tco
 		&& (!f->has_local_vars || !q->in_call)
-		&& !f->no_tco && 0
 		&& (q->st.fp == (q->st.curr_frame + 1))
-		&& (!q->cp || !resume_any_choices(q, f))
+		&& !resume_any_choices(q, f)
 		) {
 		q->st.fp--;
 		q->st.sp -= f->actual_slots;
 		trim_slots(q);
 	}
+#endif
 
 	q->st.curr_instr = f->curr_instr;
 	q->st.curr_frame = q->st.curr_frame - f->prev_offset;
