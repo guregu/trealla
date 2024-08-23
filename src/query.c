@@ -626,7 +626,11 @@ static void reuse_frame(query *q, const clause *cl)
 
 	frame *f = GET_CURR_FRAME();
 	f->initial_slots = f->actual_slots = cl->nbr_vars;
+	f->has_local_vars = cl->has_local_vars;
+	f->no_tco = q->no_tco;
 	f->chgen = ++q->chgen;
+	f->heap_nbr = q->st.heap_nbr;
+	f->hp = q->st.hp;
 	f->overflow = 0;
 
 	const frame *newf = GET_FRAME(q->st.fp);
@@ -690,7 +694,8 @@ static void commit_frame(query *q, cell *body)
 		bool tail_call = is_tail_call(q->st.curr_instr);
 		bool tail_recursive = tail_call && is_recursive_call(q->st.curr_instr);
 		bool slots_ok = f->initial_slots <= cl->nbr_vars;
-		tco = slots_ok && tail_recursive && !commit_any_choices(q, f);
+		bool choices = !commit_any_choices(q, f);
+		tco = slots_ok && tail_recursive && choices;
 
 #if 0
 		const cell *head = get_head((cell*)cl->cells);
@@ -897,7 +902,7 @@ static bool resume_frame(query *q)
 
 	if (q->pl->opt
 		&& (!f->has_local_vars || !q->in_call)
-		&& !f->no_tco
+		&& !f->no_tco && 0
 		&& (q->st.fp == (q->st.curr_frame + 1))
 		&& (!q->cp || !resume_any_choices(q, f))
 		) {
