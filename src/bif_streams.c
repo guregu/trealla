@@ -940,7 +940,7 @@ void convert_path(char *filename)
 	char *src = filename;
 
 	while (*src) {
-		if ((*src == '/') || (*src == '\\'))
+		if (*src == '\\')
 			*src = '/';
 
 		src++;

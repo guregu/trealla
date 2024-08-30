@@ -5599,10 +5599,11 @@ bool bif_iso_invoke_2(query *q)
 	if (is_atom(p1)) {
 		m = find_module(q->pl, C_STR(q, p1));
 
-		if (!m)
-			m = module_create(q->pl, C_STR(q, p1));
+		if (!m && strcmp(C_STR(q, p1), "loader"))
+			return throw_error(q, p1, q->st.curr_frame, "existence_error", "module");
 
-		q->st.m = m;
+		if (m)
+			q->st.m = m;
 	}
 
 	cell *tmp = prepare_call(q, PREFIX_LEN, p2, p2_ctx, 1);

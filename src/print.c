@@ -798,6 +798,8 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		return false;
 	}
 
+	// THREAD OBJECTS
+
 	if ((c->tag == TAG_INTEGER) && (c->flags & FLAG_INT_THREAD)) {
 		int n = get_smallint(c);
 		stream *str = &q->pl->streams[n];
@@ -815,11 +817,15 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		return true;
 	}
 
+	// ALIAS
+
 	if ((c->tag == TAG_INTEGER) && (c->flags & FLAG_INT_ALIAS)) {
 		SB_sprintf(q->sb, "'<$alias>'(%d)", (int)get_smallint(c));
 		q->last_thing = WAS_OTHER;
 		return true;
 	}
+
+	// MAP
 
 	if ((c->tag == TAG_INTEGER) && (c->flags & FLAG_INT_MAP)) {
 		SB_sprintf(q->sb, "'<$map>'(%d)", (int)get_smallint(c));
@@ -827,11 +833,15 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		return true;
 	}
 
+	// STREAM
+
 	if ((c->tag == TAG_INTEGER) && (c->flags & FLAG_INT_STREAM)) {
 		SB_sprintf(q->sb, "'<$stream>'(%d)", (int)get_smallint(c));
 		q->last_thing = WAS_OTHER;
 		return true;
 	}
+
+	// BLOB
 
 	if (is_blob(c)) {
 		SB_sprintf(q->sb, "'<$blob>'(%p)", c->val_ptr);
@@ -839,10 +849,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		return true;
 	}
 
-	if (is_indirect(c)) {
-		c = c->val_ptr;
-		c_ctx = c->var_ctx;
-	}
+	// NEGATIVE
 
 	if (is_number(c) && is_negative(c)) {
 		if (is_negative(c) && (q->last_thing == WAS_SYMBOL)) {
@@ -850,6 +857,8 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 			q->last_thing = WAS_SPACE;
 		}
 	}
+
+	// RATIONAL
 
 	if (is_rational(c)) {
 		int radix = 10;
@@ -868,6 +877,8 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		return true;
 	}
 
+	// BIG INTEGER
+
 	if (is_bigint(c)) {
 		int radix = 10;
 		size_t len = mp_int_string_len(&c->val_bigint->ival, radix) - 1;
@@ -879,6 +890,8 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		return true;
 	}
 
+	// SMALL INTEGER
+
 	if (is_smallint(c)) {
 		//if (dstlen) printf("*** int %d,  was=%d, is=%d\n", (int)c->val_int, q->last_thing_was_symbol, false);
 		char tmpbuf[256];
@@ -888,19 +901,21 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		return true;
 	}
 
-	if (is_float(c) && (get_float(c) == M_PI)) {
-		SB_sprintf(q->sb, "%s", "3.141592653589793");
-		q->last_thing = WAS_OTHER;
-		return true;
-	}
-
-	if (is_float(c) && (get_float(c) == M_E)) {
-		SB_sprintf(q->sb, "%s", "2.718281828459045");
-		q->last_thing = WAS_OTHER;
-		return true;
-	}
+	// FLOAT
 
 	if (is_float(c)) {
+		if (get_float(c) == M_PI) {
+			SB_sprintf(q->sb, "%s", "3.141592653589793");
+			q->last_thing = WAS_OTHER;
+			return true;
+		}
+
+		if (get_float(c) == M_E) {
+			SB_sprintf(q->sb, "%s", "2.718281828459045");
+			q->last_thing = WAS_OTHER;
+			return true;
+		}
+
 		if (c->val_float == 0.0)
 			c->val_float = fabs(c->val_float);
 
@@ -912,13 +927,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		return true;
 	}
 
-	if (is_string(c) && !q->ignore_ops && q->double_quotes && 0) {
-		SB_sprintf(q->sb, "%s", "\"");
-		SB_strcat_and_free(q->sb, formatted(C_STR(q, c), C_STRLEN(q, c), true, q->json));
-		SB_sprintf(q->sb, "%s", "\"");
-		q->last_thing = WAS_OTHER;
-		return true;
-	}
+	// STRING
 
 	if (is_string(c) && q->ignore_ops) {
 		print_string_canonical(q, c, c_ctx, running, cons > 0, depth+1);
@@ -926,11 +935,15 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		return true;
 	}
 
+	// STRING
+
 	if (is_string(c) && !q->double_quotes) {
-			print_string_list(q, c, c_ctx, running, cons > 0, depth+1);
+		print_string_list(q, c, c_ctx, running, cons > 0, depth+1);
 		q->last_thing = WAS_OTHER;
 		return true;
 	}
+
+	// STRING / CHARS
 
 	int is_chars_list = is_string(c) && q->double_quotes;
 	bool possible_chars = false;
@@ -969,11 +982,15 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		return true;
 	}
 
+	// LIST
+
 	if (is_iso_list(c) && !q->ignore_ops) {
 		print_iso_list(q, c, c_ctx, running, cons > 0, print_depth+1, depth+1, visited);
 		q->last_thing = WAS_OTHER;
 		return true;
 	}
+
+	// VAR / ATOM / COMPOUND
 
 	const char *src = !is_ref(c) ? C_STR(q, c) : "_";
 	size_t src_len = !is_ref(c) ? C_STRLEN(q, c) : 1;
@@ -999,11 +1016,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		}
 	}
 
-	bool is_op_infix = is_op && IS_INFIX(my_specifier);
-	bool is_op_prefix = is_op && IS_PREFIX(my_specifier);
-	bool is_op_postfix = is_op && IS_POSTFIX(my_specifier);
-	bool is_op_yfx = is_op_infix && (my_specifier == OP_YFX);
-	bool is_op_xfy = is_op_infix && (my_specifier == OP_XFY);
+	// CANONICAL
 
 	if (q->ignore_ops || !is_op || !c->arity) {
 		bool is_needs_quoting = needs_quoting(q->st.m, src, src_len);
@@ -1142,6 +1155,14 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		return true;
 	}
 
+	// OP
+
+	bool is_op_infix = is_op && IS_INFIX(my_specifier);
+	bool is_op_prefix = is_op && IS_PREFIX(my_specifier);
+	bool is_op_postfix = is_op && IS_POSTFIX(my_specifier);
+	bool is_op_yfx = is_op_infix && (my_specifier == OP_YFX);
+	bool is_op_xfy = is_op_infix && (my_specifier == OP_XFY);
+
 	size_t srclen = src_len;
 
 	if (is_op_postfix) {
@@ -1278,7 +1299,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		return true;
 	}
 
-	// Infix..
+	// Is infix
 
 	cell *lhs = c + 1;
 	cell *save_lhs = lhs;
@@ -1292,13 +1313,6 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 	if (running) lhs_ctx = q->latest_ctx;
 	if (running) rhs = deref(q, rhs, rhs_ctx);
 	if (running) rhs_ctx = q->latest_ctx;
-
-#if 0
-	unsigned lhs_pri = is_interned(lhs) ? match_op(q->st.m, C_STR(q, lhs), NULL, lhs->arity) : 0;
-	bool is_op_lhs = lhs_pri;
-	unsigned rhs_pri = is_interned(rhs) ? match_op(q->st.m, C_STR(q, rhs), NULL, rhs->arity) : 0;
-	bool is_op_rhs = rhs_pri;
-#endif
 
 	bool any = false;
 
