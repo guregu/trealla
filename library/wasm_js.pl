@@ -127,6 +127,7 @@ http_consult(URLExpr) :-
 	-> true
 	;  throw(error(js_error(fetch_failed, URL), http_consult/1))
 	),
+	load_text(Cs, [module(Module)]),
 	Module:'$load_chars'(Cs),
 	ignore(user:use_module(Module)).
 

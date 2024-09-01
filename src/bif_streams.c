@@ -6980,28 +6980,6 @@ static bool bif_sys_put_chars_2(query *q)
 	return !ferror(str->fp);
 }
 
-static bool fn_sys_load_chars_1(query *q)
-{
-	GET_FIRST_ARG(p1,any);
-	size_t len;
-	module *m = NULL;
-
-	if (is_cstring(p1)) {
-		const char *src = C_STR(q, p1);
-		m = load_text(q->st.m, src, q->st.m->filename);
-	} else if (scan_is_chars_list(q, p1, p1_ctx, true) > 0) {
-		char *src = chars_list_to_string(q, p1, p1_ctx);
-		m = load_text(q->st.m, src, q->st.m->filename);
-		free(src);
-	} else if (is_nil(p1)) {
-		return false;
-	} else
-		return throw_error(q, p1, p1_ctx, "type_error", "chars");
-
-	check_heap_error(m);
-	return true;
-}
-
 static bool bif_sys_capture_output_0(query *q)
 {
 	int n = q->pl->current_output;
@@ -7618,7 +7596,6 @@ builtins g_streams_bifs[] =
 	{"chdir", 1, bif_chdir_1, "+atom", false, false, BLAH},
 	{"$put_chars", 1, bif_sys_put_chars_1, "+string", false, false, BLAH},
 	{"$put_chars", 2, bif_sys_put_chars_2, "+stream,+string", false, false, BLAH},
-	{"$load_chars", 1, fn_sys_load_chars_1, "+chars", false, false, BLAH},
 	{"read_term_from_atom", 3, bif_read_term_from_atom_3, "+atom,?term,+list", false, false, BLAH},
 	{"read_term_from_chars", 3, bif_read_term_from_chars_3, "+string,?term,+list", false, false, BLAH},
 	{"$read_term_from_chars", 4, bif_sys_read_term_from_chars_4, "?term,+list,+string,-string", false, false, BLAH},
