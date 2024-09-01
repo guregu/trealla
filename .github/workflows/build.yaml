@@ -149,13 +149,13 @@
           run: |
             rm -rf ./build
             mkdir -p ./build
-            make clean wasm
+            make clean && make -j2 wasm
             mv tpl.wasm ./build
-            make clean libtpl
+            make clean && make -j2 libtpl
             mv libtpl.wasm ./build
-            make clean libtpl-js
+            make clean && make -j2 libtpl-js
             mv libtpl-js.wasm ./build
-            make clean libtpl-spin
+            make clean && make -j2 libtpl-spin
             mv ./build/*.wasm .
         - name: Test
           run: |
