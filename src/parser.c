@@ -1553,7 +1553,7 @@ static bool apply_operators(parser *p, pl_idx start_idx, bool last_op)
 
 	// Then apply args to that operator...
 
-	pl_idx last_idx = (unsigned)-1;
+	pl_idx last_idx = IDX_MAX;
 
 	for (pl_idx i = start_idx; i <= end_idx;) {
 		cell *c = p->cl->cells + i;
@@ -1583,7 +1583,7 @@ static bool apply_operators(parser *p, pl_idx start_idx, bool last_op)
 		if (is_fx(c)) {
 			const cell *rhs = c + 1;
 
-			if (is_fx(rhs) && !rhs->arity && (rhs->priority == c->priority) && !is_quoted(rhs)) {
+			if (is_fx(rhs) && !rhs->arity && (rhs->priority == c->priority)) {
 				if (DUMP_ERRS || !p->do_read_term)
 					fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, operator clash, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
 
@@ -1608,7 +1608,7 @@ static bool apply_operators(parser *p, pl_idx start_idx, bool last_op)
 		if (is_prefix(c)) {
 			const cell *rhs = c + 1;
 
-			if (is_infix(rhs) && !rhs->arity && (rhs->priority > c->priority) && !is_quoted(rhs)) {
+			if (is_infix(rhs) && !rhs->arity && (rhs->priority > c->priority)) {
 				if (DUMP_ERRS || !p->do_read_term)
 					fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, operator clash, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
 
@@ -1617,7 +1617,7 @@ static bool apply_operators(parser *p, pl_idx start_idx, bool last_op)
 				return false;
 			}
 
-			if (is_prefix(rhs) && !rhs->arity && (rhs->priority > c->priority) && !is_quoted(rhs)) {
+			if (is_prefix(rhs) && !rhs->arity && (rhs->priority > c->priority)) {
 				if (DUMP_ERRS || !p->do_read_term)
 					fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, operator clash, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
 
@@ -1649,7 +1649,7 @@ static bool apply_operators(parser *p, pl_idx start_idx, bool last_op)
 		const cell *rhs = c + 1;
 		cell save = *c;
 
-		if (is_xf(rhs) && (rhs->priority == c->priority) && !is_quoted(rhs)) {
+		if (is_xf(rhs) && (rhs->priority == c->priority)) {
 			if (DUMP_ERRS || !p->do_read_term)
 				fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, operator clash, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
 
@@ -1682,7 +1682,7 @@ static bool apply_operators(parser *p, pl_idx start_idx, bool last_op)
 
 		// Infix...
 
-		if (is_infix(rhs) && !rhs->arity && !is_quoted(rhs)) {
+		if (is_infix(rhs) && !rhs->arity) {
 			if (DUMP_ERRS || !p->do_read_term)
 				fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, operator clash, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
 
@@ -1692,7 +1692,7 @@ static bool apply_operators(parser *p, pl_idx start_idx, bool last_op)
 		}
 
 		pl_idx off = (pl_idx)(rhs - p->cl->cells);
-		bool nolhs = (last_idx == (unsigned)-1);
+		bool nolhs = last_idx == IDX_MAX;
 		if (i == start_idx) nolhs = true;
 
 		if (nolhs || (off > end_idx)) {
@@ -1706,7 +1706,7 @@ static bool apply_operators(parser *p, pl_idx start_idx, bool last_op)
 
 		const cell *lhs = p->cl->cells + last_idx;
 
-		if (is_infix(lhs) && !lhs->arity && !is_quoted(lhs)) {
+		if (is_infix(lhs) && !lhs->arity) {
 			if (DUMP_ERRS || !p->do_read_term)
 				fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, operator clash, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
 
@@ -3299,7 +3299,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 {
 	pl_idx arg_idx = p->cl->cidx, save_idx = 0;
 	bool last_op = true, is_func = false, last_num = false;
-	bool last_bar = false, last_quoted = false;
+	bool last_bar = false;
 	bool last_prefix = false, last_postfix = false;
 	int entered = p->entered;
 	unsigned arity = 1;
@@ -3865,7 +3865,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 			priority = 0;
 		}
 
-		if (priority && IS_INFIX(specifier) && last_op && !last_postfix && !last_quoted) {
+		if (priority && IS_INFIX(specifier) && last_op && !last_postfix) {
 			specifier = 0;
 			priority = 0;
 		}
@@ -3923,7 +3923,6 @@ unsigned tokenize(parser *p, bool args, bool consing)
 			break;
 		}
 
-		last_quoted = p->is_quoted;
 		last_op = SB_strcmp(p->token, ")") && priority;
 		last_postfix = last_op && IS_POSTFIX(specifier);
 		last_prefix = last_op && IS_PREFIX(specifier);
@@ -3946,7 +3945,7 @@ unsigned tokenize(parser *p, bool args, bool consing)
 			set_float(c, get_float(&p->v));
 		} else if (!p->is_string && (!p->is_quoted || is_func || p->is_op || p->is_var
 			|| (get_builtin(p->m->pl, SB_cstr(p->token), SB_strlen(p->token), 0, &found, NULL), found)
-			|| (p->is_quoted && !SB_strcmp(p->token, "[]"))
+			|| !SB_strcmp(p->token, "[]")
 			)) {
 
 			if (is_func && !SB_strcmp(p->token, "."))
@@ -3954,9 +3953,6 @@ unsigned tokenize(parser *p, bool args, bool consing)
 
 			if (p->is_var)
 				c->tag = TAG_VAR;
-
-			if (p->is_quoted)
-				c->flags |= FLAG_CSTR_QUOTED;
 
 			c->val_off = new_atom(p->m->pl, SB_cstr(p->token));
 			ensure(c->val_off != ERR_IDX);

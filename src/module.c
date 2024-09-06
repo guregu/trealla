@@ -362,7 +362,7 @@ predicate *create_predicate(module *m, cell *c, bool *created)
 	if (created) *created = false;
 	bool found, evaluable;
 
-	if (c->val_off == g_neck_s)
+	if ((c->val_off == g_neck_s) || is_var(c))
 		return NULL;
 
 	builtins *b;
@@ -1516,13 +1516,13 @@ void xref_clause(module *m, clause *cl, predicate *parent)
 
 		// Don't want to match on module qualified predicates
 
-		if (c->val_off == g_colon_s) {
-			xref_cell(m, cl, c, parent, 0, is_directive);
-			last_was_colon = 3;
-		} else {
-			last_was_colon--;
+		//if (c->val_off == g_colon_s) {
+		//	xref_cell(m, cl, c, parent, 0, is_directive);
+		//	last_was_colon = 3;
+		//} else {
+		//	last_was_colon--;
 			xref_cell(m, cl, c, parent, last_was_colon, is_directive);
-		}
+		//}
 	}
 }
 
@@ -1647,6 +1647,9 @@ static rule *assert_begin(module *m, unsigned nbr_vars, cell *p1, bool consultin
 
 	if (!c || !m)
 		return NULL;
+
+	if (is_cstring(c))
+		convert_to_literal(m, c);
 
 	predicate *pr = find_predicate(m, c);
 
