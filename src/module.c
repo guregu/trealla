@@ -1068,6 +1068,9 @@ bool do_use_foreign_module(module *m, cell *p)
 
 void convert_to_literal(module *m, cell *c)
 {
+	if (is_string(c))
+		c->arity = 0;
+
 	char *src = DUP_STRING(m, c);
 	pl_idx off = new_atom(m->pl, src);
 	unshare_cell(c);
@@ -1616,6 +1619,10 @@ static rule *assert_begin(module *m, unsigned nbr_vars, cell *p1, bool consultin
 			module *tmp_m = find_module(m->pl, name), *save_m = m;
 
 			if (!tmp_m) {
+				if (consulting)
+					fprintf(stdout, "Error: existence error module %s:(%s)/%u\n", name, C_STR(m, c), c->arity);
+
+				return NULL;
 				//m = module_create(m->pl, name);
 			} else
 				m = tmp_m;
@@ -1636,17 +1643,27 @@ static rule *assert_begin(module *m, unsigned nbr_vars, cell *p1, bool consultin
 			module *tmp_m = find_module(m->pl, name);
 
 			if (!tmp_m) {
+				if (consulting)
+					fprintf(stdout, "Error: extistence error module %s:(%s)/%u\n", name, C_STR(m, c), c->arity);
+
+				return NULL;
 				//m = module_create(m->pl, name);
 			} else
 				m = tmp_m;
 
-			move_cells(p1, p1+2, p1->nbr_cells-2);
-			c = get_head(p1);
+			c = get_head(p1) + 2;
 		}
 	}
 
 	if (!c || !m)
 		return NULL;
+
+	if (is_string(c)) {
+		if (consulting)
+			fprintf(stdout, "Error: not callable %s:(%s)/%u\n", m->name, C_STR(m, c), c->arity);
+
+		return NULL;
+	}
 
 	if (is_cstring(c))
 		convert_to_literal(m, c);
