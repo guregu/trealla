@@ -5642,11 +5642,14 @@ static bool bif_get_unbuffered_char_1(query *q)
 
 // module:goal
 
-bool bif_iso_invoke_2(query *q)
+bool bif_iso_qualify_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_var);
 	GET_NEXT_ARG(p2,callable);
 	module *m = q->st.m;
+
+	if (is_cstring(p2))
+		convert_to_literal(m, p2);
 
 	if (is_atom(p1)) {
 		m = find_module(q->pl, C_STR(q, p1));
@@ -6676,7 +6679,7 @@ static void load_ops(query *q)
 
 builtins g_iso_bifs[] =
 {
-	{":", 2, bif_iso_invoke_2, "+atom,:callable", true, false, BLAH},
+	{":", 2, bif_iso_qualify_2, "+atom,:callable", true, false, BLAH},
 	{"=..", 2, bif_iso_univ_2, "+term,?list", true, false, BLAH},
 	{"=", 2, bif_iso_unify_2, "+term,+term", true, false, BLAH},
 	{"\\=", 2, bif_iso_notunify_2, "+term,+term", true, false, BLAH},

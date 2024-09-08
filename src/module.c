@@ -1623,7 +1623,6 @@ static rule *assert_begin(module *m, unsigned nbr_vars, cell *p1, bool consultin
 					fprintf(stdout, "Error: existence error module %s:(%s)/%u\n", name, C_STR(m, c), c->arity);
 
 				return NULL;
-				//m = module_create(m->pl, name);
 			} else
 				m = tmp_m;
 
@@ -1632,12 +1631,20 @@ static rule *assert_begin(module *m, unsigned nbr_vars, cell *p1, bool consultin
 			cell *body = head + head_nbr_cells;
 			move_cells(p1+1, head, head_nbr_cells);
 			cell *new_body = p1 + 1 + head_nbr_cells;
-			make_struct(new_body, g_colon_s, bif_iso_invoke_2, 2, 1+body->nbr_cells);
+			make_struct(new_body, g_colon_s, bif_iso_qualify_2, 2, 1+body->nbr_cells);
 			SET_OP(new_body, OP_XFY);
 			make_atom(new_body+1, new_atom(m->pl, save_m->name));
 			is_dirty = true;
 			//module_dump_term(save_m, p1);
 			c = get_head(p1);
+
+			if (is_string(c)) {
+				if (consulting)
+					fprintf(stdout, "Error: not callable %s:(%s)/%u\n", m->name, C_STR(m, c), c->arity);
+
+				return NULL;
+			}
+
 		} else if ((c->val_off == g_colon_s) && (c->arity == 2) && is_atom(FIRST_ARG(c))) {
 			const char *name = C_STR(m, FIRST_ARG(c));
 			module *tmp_m = find_module(m->pl, name);
@@ -1647,23 +1654,24 @@ static rule *assert_begin(module *m, unsigned nbr_vars, cell *p1, bool consultin
 					fprintf(stdout, "Error: extistence error module %s:(%s)/%u\n", name, C_STR(m, c), c->arity);
 
 				return NULL;
-				//m = module_create(m->pl, name);
 			} else
 				m = tmp_m;
 
-			c = get_head(p1) + 2;
+			if (is_string(p1+2)) {
+				if (consulting)
+					fprintf(stdout, "Error: not callable %s:(%s)/%u\n", m->name, C_STR(m, c), c->arity);
+
+				return NULL;
+			}
+
+
+			move_cells(p1, p1+2, p1->nbr_cells-2);
+			c = get_head(p1);
 		}
 	}
 
 	if (!c || !m)
 		return NULL;
-
-	if (is_string(c)) {
-		if (consulting)
-			fprintf(stdout, "Error: not callable %s:(%s)/%u\n", m->name, C_STR(m, c), c->arity);
-
-		return NULL;
-	}
 
 	if (is_cstring(c))
 		convert_to_literal(m, c);
