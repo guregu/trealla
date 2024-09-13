@@ -501,7 +501,7 @@ static bool goal_run(parser *p, cell *goal)
 	if (goal->val_off == g_cut_s)
 		return false;
 
-	query *q = query_create(p->m, false);
+	query *q = query_create(p->m);
 	execute(q, goal, MAX_ARITY);
 
 	if (q->retry != QUERY_OK) {
@@ -1771,7 +1771,7 @@ void reset(parser *p)
 
 static bool dcg_expansion(parser *p)
 {
-	query *q = query_create(p->m, false);
+	query *q = query_create(p->m);
 	check_error(q);
 
 	q->trace = false;
@@ -1853,7 +1853,7 @@ static bool term_expansion(parser *p)
 	if (h->val_off == g_colon_s)
 		return false;
 
-	query *q = query_create(m, true);
+	query *q = query_create(m);
 	check_error(q);
 	q->trace = false;
 	cell *c = p->cl->cells;
@@ -1930,7 +1930,7 @@ static cell *goal_expansion(parser *p, cell *goal)
 		return goal;
 	}
 
-	query *q = query_create(p->m, true);
+	query *q = query_create(p->m);
 	check_error(q);
 	q->trace = false;
 	q->varnames = true;
@@ -4038,7 +4038,7 @@ bool run(parser *p, const char *pSrc, bool dump, query **subq, unsigned int yiel
 			return true;
 		}
 
-		query *q = query_create(p->m, false);
+		query *q = query_create(p->m);
 
 		if (!q) {
 			p->srcptr = NULL;
