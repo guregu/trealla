@@ -560,8 +560,8 @@ static void print_string_list(query *q, cell *c, pl_idx c_ctx, int running, bool
 			SB_sprintf(q->sb, "%s", "'");
 			SB_strcat_and_free(q->sb, formatted(C_STR(q, h), C_STRLEN(q, h), false, false));
 			SB_sprintf(q->sb, "%s", "'");
-		} else {
-			SB_sprintf(q->sb, "%s", C_STR(q, h));
+		} else{
+			SB_strcat_and_free(q->sb, formatted(C_STR(q, h), C_STRLEN(q, h), false, false));
 		}
 
 		c = LIST_TAIL(c);
@@ -1370,9 +1370,12 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 			space = true;
 	}
 
+	bool extra_space = false;
+
 	if ((q->last_thing != WAS_SPACE) && space) {
 		SB_sprintf(q->sb, "%s", " ");
 		q->last_thing = WAS_SPACE;
+		extra_space = true;
 	}
 
 	int ch = peek_char_utf8(src);
@@ -1416,6 +1419,9 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 	if (q->listing && !depth && !strcmp(src, ":-")) {
 		SB_sprintf(q->sb, "%s", "\n  ");
 	}
+
+	if (extra_space)
+		space = true;
 
 	if ((q->last_thing != WAS_SPACE) && space) {
 		SB_sprintf(q->sb, "%s", " ");
