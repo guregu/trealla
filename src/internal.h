@@ -150,7 +150,7 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 
 #define is_smallint(c) (is_integer(c) && !((c)->flags & FLAG_MANAGED))
 #define is_bigint(c) (is_integer(c) && ((c)->flags & FLAG_MANAGED))
-#define is_boolean(c) ((is_interned(c) && !(c)->arity && ((c->val_off == g_true_s) || (c->val_off == g_false_s))))
+#define is_boolean(c) ((is_interned(c) && !(c)->arity && (((c)->val_off == g_true_s) || ((c)->val_off == g_false_s))))
 #define is_atom(c) ((is_interned(c) && !(c)->arity) || is_cstring(c))
 #define is_string(c) (is_cstring(c) && ((c)->flags & FLAG_CSTR_STRING))
 #define is_managed(c) ((c)->flags & FLAG_MANAGED)
@@ -170,7 +170,7 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define is_local(c) (is_var(c) && ((c)->flags & FLAG_VAR_LOCAL))
 #define is_complex(c) ((c)->flags & FLAG_COMPLEX)
 #define is_ref(c) (is_var(c) && ((c)->flags & FLAG_VAR_REF))
-#define is_op(c) (c->flags & 0xE000) ? true : false
+#define is_op(c) ((c)->flags & 0xE000) ? true : false
 #define is_callable(c) (is_interned(c) || (is_cstring(c) && !is_string(c)))
 #define is_compound(c) (is_interned(c) && (c)->arity)
 #define is_structure(c) (is_compound(c) || is_string(c))
@@ -454,9 +454,10 @@ struct predicate_ {
 	cell key;
 	pl_refcnt refcnt, cnt, db_id;
 	bool is_reload:1;
-	bool is_prebuilt:1;
+	bool is_builtin:1;
 	bool is_public:1;
 	bool is_dynamic:1;
+	bool is_tabled:1;
 	bool is_meta_predicate:1;
 	bool is_multifile:1;
 	bool is_discontiguous:1;
@@ -528,10 +529,6 @@ struct frame_ {
 	pl_idx base, overflow;
 	unsigned initial_slots, actual_slots;
 	uint32_t mid;
-#if 0
-	bool has_local_vars:1;
-	bool no_tco:1;
-#endif
 };
 
 struct run_state_ {
@@ -612,7 +609,6 @@ struct stream_ {
 	bool is_map:1;
 	bool is_memory:1;
 	bool is_engine:1;
-	bool is_thread:1;
 	bool is_queue:1;
 	bool is_mutex:1;
 	bool is_alias:1;
@@ -695,7 +691,7 @@ struct query_ {
 	uint64_t tot_tcos, step, qid, tmo_msecs, chgen, cycle_error;
 	uint64_t get_started, autofail_n, yield_at;
 	uint64_t cpu_started, time_cpu_last_started, future;
-	unsigned max_depth, print_idx, tab_idx, dump_var_nbr;
+	unsigned max_depth, max_eval_depth, print_idx, tab_idx, dump_var_nbr;
 	unsigned varno, tab0_varno, curr_engine, curr_chan, my_chan, oom;
 	unsigned s_cnt;
 	pl_idx tmphp, latest_ctx, popp, variable_names_ctx;
@@ -727,6 +723,7 @@ struct query_ {
 	bool status:1;
 	bool no_tco:1;
 	bool has_vars:1;
+	bool has_indirects:1;
 	bool error:1;
 	bool did_throw:1;
 	bool trace:1;

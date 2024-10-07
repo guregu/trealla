@@ -601,8 +601,6 @@ static void add_stream_properties(query *q, int n)
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, mutex(true)).\n", n);
 	else if (str->is_queue)
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, queue(true)).\n", n);
-	else if (is_thread_stream(str))
-		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, thread(true)).\n", n);
 	else if (str->is_alias)
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, alias(true)).\n", n);
 
@@ -720,14 +718,6 @@ static bool do_stream_property(query *q)
 	if (!CMP_STRING_TO_CSTR(q, p1, "queue")) {
 		cell tmp;
 		make_cstring(&tmp, str->is_queue?"true":"false");
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
-		unshare_cell(&tmp);
-		return ok;
-	}
-
-	if (!CMP_STRING_TO_CSTR(q, p1, "thread")) {
-		cell tmp;
-		make_cstring(&tmp, str->is_thread?"true":"false");
 		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 		unshare_cell(&tmp);
 		return ok;
@@ -1759,7 +1749,7 @@ static bool stream_close(query *q, int n)
 		sl_set(str2->alias, strdup("user_error"), NULL);
 	}
 
-	if (!str->socket && !str->is_mutex && !str->is_queue && !str->is_thread)
+	if (!str->socket && !str->is_mutex && !str->is_queue)
 		del_stream_properties(q, n);
 
 	bool ok = true;
@@ -1772,7 +1762,7 @@ static bool stream_close(query *q, int n)
 		str->is_memory = false;
 	} else if (is_engine_stream(str)) {
 		query_destroy(str->engine);
-	} else if (str->is_thread || str->is_queue || str->is_mutex) {
+	} else if (str->is_queue || str->is_mutex) {
 	} else
 		ok = !net_close(str);
 
@@ -1928,7 +1918,10 @@ static bool bif_iso_nl_0(query *q)
 {
 	int n = q->pl->current_output;
 	stream *str = &q->pl->streams[n];
-	
+
+	if (str->binary)
+		return throw_error(q, q->st.curr_instr, q->st.curr_frame, "permission_error", "output,binary_stream");
+
 	if (!net_write("\n", 1, str))
 		return false;
 
@@ -1951,6 +1944,9 @@ static bool bif_iso_nl_1(query *q)
 
 	if (!strcmp(str->mode, "read"))
 		return throw_error(q, pstr, q->st.curr_frame, "permission_error", "output,stream");
+
+	if (str->binary)
+		return throw_error(q, pstr, q->st.curr_frame, "permission_error", "output,binary_stream");
 
 	if (!net_write("\n", 1, str))
 		return false;
@@ -6687,7 +6683,7 @@ static bool bif_client_5(query *q)
 
 				if (is_atom(c)) {
 					ssl = !CMP_STRING_TO_CSTR(q, c, "https") ? 1 : 0;
-					port = 443;
+					if (ssl) port = 443;
 				}
 			} else if (!CMP_STRING_TO_CSTR(q, c, "port")) {
 				c = c + 1;
@@ -7457,7 +7453,7 @@ static bool bif_alias_2(query *q)
 		if (!str->alias) str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL);
 		sl_set(str->alias, DUP_STRING(q, p2), NULL);
 		str->is_alias = true;
-		str->handle = (void*)get_smalluint(p1);
+		str->handle = (void*)(size_t)get_smalluint(p1);
 		return true;
 	}
 
@@ -7469,8 +7465,6 @@ static bool bif_alias_2(query *q)
 
 	if (str->is_map)
 		tmp.flags |= FLAG_INT_STREAM | FLAG_INT_MAP | FLAG_INT_HEX;
-	else if (str->is_thread)
-		tmp.flags |= FLAG_INT_THREAD | FLAG_INT_HEX;
 	else if (str->is_alias)
 		tmp.flags |= FLAG_INT_ALIAS | FLAG_INT_HEX;
 	else

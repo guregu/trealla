@@ -25,7 +25,7 @@ static void msleep(int ms)
 }
 #endif
 
-#define Trace if (!(q->trace /*&& !consulting*/)) q->step++; else trace_call
+#define Trace(p1,p2,p3,p4) { q->step++; if (q->trace /*&& !consulting*/) trace_call(p1,p2,p3,p4); }
 
 static const unsigned INITIAL_NBR_QUEUE_CELLS = 1000;
 static const unsigned INITIAL_NBR_HEAP_CELLS = 1000;
@@ -175,7 +175,7 @@ static bool check_trail(query *q)
 	if (q->st.tp < q->trails_size)
 		return true;
 
-	pl_idx new_trailssize = alloc_grow(q, (void**)&q->trails, sizeof(trail), q->st.tp, q->trails_size*4/3, false);
+	pl_idx new_trailssize = alloc_grow(q, (void**)&q->trails, sizeof(trail), q->st.tp, q->trails_size*2, false);
 	if (!new_trailssize) {
 		q->oom = q->error = true;
 		return false;
@@ -193,7 +193,7 @@ static bool check_choice(query *q)
 	if (q->cp < q->choices_size)
 		return true;
 
-	pl_idx new_choicessize = alloc_grow(q, (void**)&q->choices, sizeof(choice), q->cp, q->choices_size*4/3, false);
+	pl_idx new_choicessize = alloc_grow(q, (void**)&q->choices, sizeof(choice), q->cp, q->choices_size*2, false);
 	if (!new_choicessize) {
 		q->oom = q->error = true;
 		return false;
@@ -211,7 +211,7 @@ static bool check_frame(query *q)
 	if (q->st.fp < q->frames_size)
 		return true;
 
-	pl_idx new_framessize = alloc_grow(q, (void**)&q->frames, sizeof(frame), q->st.fp, q->frames_size*4/3, false);
+	pl_idx new_framessize = alloc_grow(q, (void**)&q->frames, sizeof(frame), q->st.fp, q->frames_size*2, false);
 
 	if (!new_framessize) {
 		q->oom = q->error = true;
@@ -234,7 +234,7 @@ bool check_slot(query *q, unsigned cnt)
 	if (nbr < q->slots_size)
 		return true;
 
-	pl_idx new_slotssize = alloc_grow(q, (void**)&q->slots, sizeof(slot), nbr, nbr*4/3, false);
+	pl_idx new_slotssize = alloc_grow(q, (void**)&q->slots, sizeof(slot), nbr, nbr*2, false);
 
 	if (!new_slotssize) {
 		q->oom = q->error = true;
@@ -430,7 +430,6 @@ static void leave_predicate(query *q, predicate *pr)
 	// query dirty-list. They will be freed up at end of the query.
 	// FIXME: this is a memory drain.
 
-	const frame *f = GET_CURR_FRAME();
 	rule *r;
 
 	while ((r = list_pop_front(&pr->dirty)) != NULL) {
@@ -469,8 +468,9 @@ static void leave_predicate(query *q, predicate *pr)
 	module_unlock(pr->m);
 }
 
-static void unwind_trail(query *q)
+void undo_me(query *q)
 {
+	q->tot_retries++;
 	const choice *ch = GET_CURR_CHOICE();
 
 	while (q->st.tp > ch->st.tp) {
@@ -484,18 +484,11 @@ static void unwind_trail(query *q)
 	}
 }
 
-void undo_me(query *q)
-{
-	q->tot_retries++;
-	unwind_trail(q);
-}
-
 void try_me(query *q, unsigned nbr_vars)
 {
 	frame *f = GET_NEW_FRAME();
 	f->initial_slots = f->actual_slots = nbr_vars;
 	f->base = q->st.sp;
-	//f->no_tco = false;
 	slot *e = GET_SLOT(f, 0);
 	memset(e, 0, sizeof(slot)*nbr_vars);
 	q->tot_matches++;
@@ -504,7 +497,7 @@ void try_me(query *q, unsigned nbr_vars)
 int retry_choice(query *q)
 {
 	while (q->cp) {
-		unwind_trail(q);
+		undo_me(q);
 		pl_idx curr_choice = --q->cp;
 		const choice *ch = GET_CHOICE(curr_choice);
 		q->st = ch->st;
@@ -565,8 +558,6 @@ static frame *push_frame(query *q, const clause *cl)
 	}
 
 	f->initial_slots = f->actual_slots = cl->nbr_vars;
-	//f->has_local_vars = cl->has_local_vars;
-	//f->no_tco = q->no_tco;
 	f->chgen = ++q->chgen;
 	f->heap_nbr = q->st.heap_nbr;
 	f->hp = q->st.hp;
@@ -622,26 +613,19 @@ static void reuse_frame(query *q, const clause *cl)
 
 	frame *f = GET_CURR_FRAME();
 	f->initial_slots = f->actual_slots = cl->nbr_vars;
-	//f->has_local_vars = cl->has_local_vars;
-	//f->no_tco = q->no_tco;
 	f->chgen = ++q->chgen;
 	f->heap_nbr = q->st.heap_nbr;
 	f->hp = q->st.hp;
 	f->overflow = 0;
 
 	const frame *newf = GET_FRAME(q->st.fp);
+	const slot *from = GET_SLOT(newf, 0);
+	slot *to = GET_SLOT(f, 0);
 
-	for (pl_idx i = 0; i < cl->nbr_vars; i++) {
-		const slot *from = GET_SLOT(newf, i);
-		slot *to = GET_SLOT(f, i);
+	for (pl_idx i = 0; i < cl->nbr_vars; i++, from++, to++) {
 		cell *c = &to->c;
 		unshare_cell(c);
 		to->c = from->c;
-
-		if (is_ref(&to->c)) {
-			if (to->c.var_ctx == q->st.fp)
-				to->c.var_ctx = q->st.curr_frame;
-		}
 	}
 
 	q->st.sp = f->base + cl->nbr_vars;
@@ -661,26 +645,28 @@ static bool commit_any_choices(const query *q, const frame *f)
 	return ch->chgen > f->chgen;
 }
 
-static void commit_frame(query *q, cell *body)
+static void commit_frame(query *q)
 {
-	const clause *cl = &q->st.curr_rule->cl;
+	clause *cl = &q->st.curr_rule->cl;
+	cell *head = get_head(cl->cells);
+	cell *body = get_body(cl->cells);
 	frame *f = GET_CURR_FRAME();
 	f->mid = q->st.m->id;
 
-	if (!q->st.curr_rule->owner->is_prebuilt)
+	if (!q->st.curr_rule->owner->is_builtin)
 		q->st.m = q->st.curr_rule->owner->m;
 
 	bool is_det = !q->has_vars && cl->is_unique;
 	bool next_key = has_next_key(q);
 	bool last_match = is_det || cl->is_first_cut || !next_key;
 	bool tco = false;
-	cell *head = get_head(q->st.curr_rule->cl.cells);
-	bool is_complex = is_complex(head);
 
-	// Use the help directive with [iso(true)]
+	// Use with the help directive [tco(true)]
 
+#if 0
 	if (q->st.curr_rule->owner->is_tco)
 		q->no_tco = false;
+#endif
 
 	if (!q->no_tco
 		&& last_match
@@ -694,7 +680,6 @@ static void commit_frame(query *q, cell *body)
 		tco = slots_ok && tail_recursive && choices;
 
 #if 0
-		const cell *head = get_head((cell*)cl->cells);
 		fprintf(stderr,
 			"*** %s/%u tco=%d,q->no_tco=%d,last_match=%d,is_det=%d,"
 			"next_key=%d,tail_call=%d/r%d,slots_ok=%d,choices=%d,"
@@ -706,6 +691,18 @@ static void commit_frame(query *q, cell *body)
 #endif
 	}
 
+	// Matching a fact (see disjunction in bif_control.c)...
+
+	if (q->pl->opt && last_match && !body && !q->has_indirects) {
+		leave_predicate(q, q->st.pr);
+		drop_choice(q);
+		trim_trail(q);
+		Trace(q, head, q->st.curr_frame, EXIT);
+		q->st.curr_instr += q->st.curr_instr->nbr_cells;
+		q->st.iter = NULL;
+		return;
+	}
+
 	if (q->pl->opt && tco) {
 		reuse_frame(q, cl);
 	} else {
@@ -715,7 +712,6 @@ static void commit_frame(query *q, cell *body)
 	if (last_match) {
 		leave_predicate(q, q->st.pr);
 		drop_choice(q);
-		cut(q); // ???
 		trim_trail(q);
 	} else {
 		choice *ch = GET_CURR_CHOICE();
@@ -723,8 +719,7 @@ static void commit_frame(query *q, cell *body)
 		ch->chgen = f->chgen;
 	}
 
-	Trace(q, get_head(q->st.curr_rule->cl.cells), q->st.curr_frame, EXIT);
-
+	Trace(q, head, q->st.curr_frame, EXIT);
 	q->st.curr_instr = body;
 	q->st.iter = NULL;
 }
@@ -761,8 +756,7 @@ bool push_choice(query *q)
 {
 	check_heap_error(check_choice(q));
 	const frame *f = GET_CURR_FRAME();
-	pl_idx curr_choice = q->cp++;
-	choice *ch = GET_CHOICE(curr_choice);
+	choice *ch = GET_CHOICE(q->cp++);
 	ch->st = q->st;
 	ch->dbgen = f->dbgen;
 	ch->frame_chgen = ch->chgen = f->chgen;
@@ -895,22 +889,6 @@ static bool resume_frame(query *q)
 
 	if (!f->prev_offset)
 		return false;
-
-#if 0
-	if (q->in_call)
-		q->in_call--;
-
-	if (q->pl->opt
-		&& !f->no_tco
-		&& (!f->has_local_vars || !q->in_call)
-		&& (q->st.fp == (q->st.curr_frame + 1))
-		&& !resume_any_choices(q, f)
-		) {
-		q->st.fp--;
-		q->st.sp -= f->actual_slots;
-		trim_slots(q);
-	}
-#endif
 
 	q->st.curr_instr = f->curr_instr;
 	q->st.curr_frame = q->st.curr_frame - f->prev_offset;
@@ -1126,10 +1104,8 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 {
 	q->st.iter = NULL;
 
-	q->st.karg1_is_ground = false;
-	q->st.karg2_is_ground = false;
-	q->st.karg1_is_atomic = false;
-	q->st.karg2_is_atomic = false;
+	q->st.karg1_is_ground = q->st.karg2_is_ground = false;
+	q->st.karg1_is_atomic = q->st.karg2_is_atomic = false;
 	q->st.key = key;
 	q->st.key_ctx = key_ctx;
 
@@ -1460,7 +1436,7 @@ static bool match_head(query *q)
 
 		find_key(q, pr, c, c_ctx);
 		enter_predicate(q, pr);
-		frame *f = GET_FRAME(q->st.curr_frame);
+		frame *f = GET_CURR_FRAME();
 		f->dbgen = q->pl->dbgen;
 	} else
 		next_key(q);
@@ -1473,7 +1449,7 @@ static bool match_head(query *q)
 	check_heap_error(check_slot(q, MAX_ARITY));
 	check_heap_error(check_frame(q));
 	check_heap_error(push_choice(q));
-	const frame *f = GET_FRAME(q->st.curr_frame);
+	const frame *f = GET_CURR_FRAME();
 
 	for (; q->st.curr_rule; next_key(q)) {
 		if (!can_view(q, f->dbgen, q->st.curr_rule))
@@ -1481,7 +1457,6 @@ static bool match_head(query *q)
 
 		clause *cl = &q->st.curr_rule->cl;
 		cell *head = get_head(cl->cells);
-		cell *body = get_body(cl->cells);
 		try_me(q, cl->nbr_vars);
 		q->st.curr_rule->attempted++;
 
@@ -1491,7 +1466,7 @@ static bool match_head(query *q)
 			if (q->error)
 				break;
 
-			commit_frame(q, body);
+			commit_frame(q);
 			return true;
 		}
 
@@ -1617,8 +1592,7 @@ bool start(query *q)
 		Trace(q, q->st.curr_instr, q->st.curr_frame, CALL);
 		cell *save_cell = q->st.curr_instr;
 		pl_idx save_ctx = q->st.curr_frame;
-		q->cycle_error = false;
-		q->did_throw = false;
+		q->cycle_error = q->did_throw = false;
 		q->tot_goals++;
 
 		if (is_builtin(q->st.curr_instr) && q->st.curr_instr->bif_ptr) {
@@ -1640,7 +1614,7 @@ bool start(query *q)
 				continue;
 			}
 
-			if (q->tot_goals % YIELD_INTERVAL == 0) {
+			if (!(q->tot_goals % YIELD_INTERVAL)) {
 				q->s_cnt = 0;
 
 				if (!(q->s_cnt++ % 100))
@@ -1706,15 +1680,6 @@ bool start(query *q)
 				continue;
 			}
 
-			while (q->cp) {
-				const choice *ch = GET_CURR_CHOICE();
-
-				if (!ch->barrier)
-					break;
-
-				drop_choice(q);
-			}
-
 			if (q->p && !q->run_init && any_outstanding_choices(q)) {
 				if (!check_redo(q))
 					break;
@@ -1728,7 +1693,7 @@ bool start(query *q)
 
 		if (q->oom) {
 			q->error = true;
-			printf("\nsystem_error(out_of_memory). %%terminated\n");
+			printf("\nresource_error(memory). %%query terminated\n");
 			break;
 		}
 	}

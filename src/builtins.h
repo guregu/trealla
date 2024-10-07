@@ -61,12 +61,11 @@ bool wrap_ffi_predicate(query *q, builtins *bif_ptr);
 #define is_memory_stream(str) ((str)->is_memory)
 #define is_map_stream(str) ((str)->is_map)
 #define is_engine_stream(str) ((str)->is_engine)
-#define is_thread_stream(str) ((str)->is_thread)
 #define is_queue_stream(str) ((str)->is_queue)
 #define is_mutex_stream(str) ((str)->is_mutex)
 #define is_alias_stream(str) ((str)->is_alias)
-#define is_virtual_stream(str) (is_memory_stream(str) || is_map_stream(str) || is_engine_stream(str) || is_thread_stream(str) || is_mutex_stream(str) || is_queue_stream(str) || is_alias_stream(str))
-#define is_live_stream(str) ((str)->fp || is_virtual_stream(str))
+#define is_virtual_stream(str) (is_memory_stream(str) || is_map_stream(str) || is_engine_stream(str) || is_mutex_stream(str) || is_queue_stream(str) || is_alias_stream(str))
+#define is_live_stream(str) ((str)->fp || (str)->socket || is_virtual_stream(str))
 
 bool call_builtin(query *q, cell *c, pl_idx c_ctx);
 bool call_userfun(query *q, cell *c, pl_idx c_ctx);

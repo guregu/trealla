@@ -26,9 +26,10 @@ read_chunks(S, Tmp, Data) :-
 	getline(S, Line),
 	hex_chars(Len, Line),
 	Len > 0,
+	!,
 	bread(S, Len, Tmp2),
 	getline(S, _),
-	append(Tmp, Tmp2, Tmp3),
+	string_concat(Tmp, Tmp2, Tmp3),
 	read_chunks(S, Tmp3, Data).
 read_chunks(_, Data, Data).
 
@@ -55,7 +56,7 @@ http_open(UrlList, S, Opts) :-
 	format(S, '~s /~s HTTP/~d.~d\r~nHost: ~s\r~nConnection: keep-alive\r~n\r~n', [UMethod,Path,Major,Minor,Host]),
 	read_response(S, Code),
 	findall(Hdr, read_header(S, Hdr), Hdrs),
-	d_get(Hdrs, "location", Location),
+	ignore(d_get(Hdrs, "location", Location)),
 	ignore(memberchk(status_code(Code), OptList)),
 	ignore(memberchk(headers(Hdrs), OptList)),
 	ignore(memberchk(final_url(Location), OptList)).
@@ -90,7 +91,7 @@ http_get(Url, Data, Opts) :-
 	Opts3=[status_code2(Code)|Opts2],
 	process(Url, S, Opts3),
 	d_get(Hdrs, "transfer-encoding", TE, ''),
-	(	TE == "chunked" -> read_chunks(S, '', Body)
+	(	TE == "chunked" -> read_chunks(S, "", Body)
 	; read_body(S, Hdrs, Body)
 	),
 	close(S),

@@ -324,7 +324,7 @@ predicate *search_predicate(module *m, cell *c, bool *prebuilt)
 	predicate *pr = find_predicate(m, c);
 
 	if (pr) {
-		if (pr->is_prebuilt && prebuilt)
+		if (pr->is_builtin && prebuilt)
 			*prebuilt = true;
 
 		return pr;
@@ -336,7 +336,7 @@ predicate *search_predicate(module *m, cell *c, bool *prebuilt)
 		pr = find_predicate(tmp_m, c);
 
 		if (pr) {
-			if (pr->is_prebuilt && prebuilt)
+			if (pr->is_builtin && prebuilt)
 				*prebuilt = true;
 
 			return pr;
@@ -347,7 +347,7 @@ predicate *search_predicate(module *m, cell *c, bool *prebuilt)
 		pr = find_predicate(m->pl->user_m, c);
 
 		if (pr) {
-			if (pr->is_prebuilt && prebuilt)
+			if (pr->is_builtin && prebuilt)
 				*prebuilt = true;
 
 			return pr;
@@ -1112,6 +1112,9 @@ bool set_op(module *m, const char *name, unsigned specifier, unsigned priority)
 		if (IS_INFIX(ptr->specifier) != IS_INFIX(specifier))
 			continue;
 
+		if (IS_POSTFIX(ptr->specifier) != IS_POSTFIX(specifier))
+			continue;
+
 		if (!ptr->priority)
 			continue;
 
@@ -1133,6 +1136,9 @@ bool set_op(module *m, const char *name, unsigned specifier, unsigned priority)
 
 	while (sl_next_key(iter, (void**)&ptr)) {
 		if (IS_INFIX(ptr->specifier) != IS_INFIX(specifier))
+			continue;
+
+		if (IS_POSTFIX(ptr->specifier) != IS_POSTFIX(specifier))
 			continue;
 
 		if (!ptr->priority)
@@ -1162,7 +1168,7 @@ bool set_op(module *m, const char *name, unsigned specifier, unsigned priority)
 	return true;
 }
 
-static unsigned search_op_internal(const module *m, const char *name, unsigned *specifier, bool hint_prefix)
+static unsigned search_op_internal(const module *m, const char *name, unsigned *specifier, bool prefer_unifix)
 {
 	const op_table *ptr;
 	sliter *iter = sl_find_key(m->defops, name);
@@ -1174,7 +1180,7 @@ static unsigned search_op_internal(const module *m, const char *name, unsigned *
 		if (!IS_INFIX(ptr->specifier))
 			continue;
 
-		if (hint_prefix)
+		if (prefer_unifix)
 			continue;
 
 		if (specifier) *specifier = ptr->specifier;
@@ -1193,7 +1199,7 @@ static unsigned search_op_internal(const module *m, const char *name, unsigned *
 		if (!IS_INFIX(ptr->specifier))
 			continue;
 
-		if (hint_prefix)
+		if (prefer_unifix)
 			continue;
 
 		if (specifier) *specifier = ptr->specifier;
@@ -1212,7 +1218,7 @@ static unsigned search_op_internal(const module *m, const char *name, unsigned *
 		if (IS_INFIX(ptr->specifier))
 			continue;
 
-		if (hint_prefix && !IS_PREFIX(ptr->specifier))
+		if (prefer_unifix && !IS_PREFIX(ptr->specifier) && !IS_POSTFIX(ptr->specifier))
 			continue;
 
 		if (specifier) *specifier = ptr->specifier;
@@ -1231,7 +1237,7 @@ static unsigned search_op_internal(const module *m, const char *name, unsigned *
 		if (IS_INFIX(ptr->specifier))
 			continue;
 
-		if (hint_prefix && !IS_PREFIX(ptr->specifier))
+		if (prefer_unifix && !IS_PREFIX(ptr->specifier) && !IS_POSTFIX(ptr->specifier))
 			continue;
 
 		if (specifier) *specifier = ptr->specifier;
@@ -1242,18 +1248,22 @@ static unsigned search_op_internal(const module *m, const char *name, unsigned *
 
 	sl_done(iter);
 
-	if (hint_prefix)
+	if (prefer_unifix)
 		return search_op_internal(m, name, specifier, false);
 
 	return 0;
 }
 
-unsigned search_op(module *m, const char *name, unsigned *specifier, bool hint_prefix)
+unsigned search_op(module *m, const char *name, unsigned *specifier, bool prefer_unifix)
 {
-	unsigned priority = search_op_internal(m, name, specifier, hint_prefix);
+	unsigned priority = search_op_internal(m, name, specifier, prefer_unifix);
 
-	if (priority)
+	if (priority) {
+		//printf(", priority=%u, spec=%u\n", priority, specifier?specifier:0);
 		return priority;
+	}
+
+	//printf("\n");
 
 	for (unsigned i = 0; i < m->idx_used; i++) {
 		module *tmp_m = m->used[i];
@@ -1261,7 +1271,7 @@ unsigned search_op(module *m, const char *name, unsigned *specifier, bool hint_p
 		if ((m == tmp_m) || !tmp_m->user_ops)
 			continue;
 
-		priority = search_op_internal(tmp_m, name, specifier, hint_prefix);
+		priority = search_op_internal(tmp_m, name, specifier, prefer_unifix);
 
 		if (priority)
 			return priority;
@@ -1366,6 +1376,64 @@ unsigned match_op(module *m, const char *name, unsigned *specifier, unsigned ari
 			continue;
 
 		priority = match_op_internal(tmp_m, name, specifier, arity);
+
+		if (priority)
+			return priority;
+	}
+
+	return 0;
+}
+
+static unsigned get_op_internal(const module *m, const char *name, unsigned specifier)
+{
+	const op_table *ptr;
+	sliter *iter = sl_find_key(m->defops, name);
+
+	while (sl_next_key(iter, (void**)&ptr)) {
+		if (!ptr->priority)
+			continue;
+
+		if (specifier != ptr->specifier)
+			continue;
+
+		unsigned n = ptr->priority;
+		sl_done(iter);
+		return n;
+	}
+
+	sl_done(iter);
+	iter = sl_find_key(m->ops, name);
+
+	while (sl_next_key(iter, (void**)&ptr)) {
+		if (!ptr->priority)
+			continue;
+
+		if (specifier != ptr->specifier)
+			continue;
+
+		unsigned n = ptr->priority;
+		sl_done(iter);
+		return n;
+	}
+
+	sl_done(iter);
+	return 0;
+}
+
+unsigned get_op(module *m, const char *name, unsigned specifier)
+{
+	unsigned priority = get_op_internal(m, name, specifier);
+
+	if (priority)
+		return priority;
+
+	for (unsigned i = 0; i < m->idx_used; i++) {
+		module *tmp_m = m->used[i];
+
+		if ((m == tmp_m) || !tmp_m->user_ops)
+			continue;
+
+		priority = get_op_internal(tmp_m, name, specifier);
 
 		if (priority)
 			return priority;
@@ -1524,7 +1592,7 @@ void xref_clause(module *m, clause *cl, predicate *parent)
 		//	last_was_colon = 3;
 		//} else {
 		//	last_was_colon--;
-			xref_cell(m, cl, c, parent, last_was_colon, is_directive);
+		xref_cell(m, cl, c, parent, last_was_colon, is_directive);
 		//}
 	}
 }
@@ -1704,7 +1772,6 @@ static rule *assert_begin(module *m, unsigned nbr_vars, cell *p1, bool consultin
 					push_property(m, C_STR(m, c), c->arity, "built_in");
 
 				push_property(m, C_STR(m, c), c->arity, "static");
-				push_property(m, C_STR(m, c), c->arity, "interpreted");
 			}
 
 			if (consulting && m->make_public) {
@@ -1718,7 +1785,7 @@ static rule *assert_begin(module *m, unsigned nbr_vars, cell *p1, bool consultin
 		pr->is_dirty = true;
 
 	if (m->prebuilt)
-		pr->is_prebuilt = true;
+		pr->is_builtin = true;
 
 	size_t dbe_size = sizeof(rule) + (sizeof(cell) * (p1->nbr_cells+1));
 	rule *r = calloc(1, dbe_size);
@@ -1990,6 +2057,8 @@ static bool unload_realfile(module *m, const char *filename)
 				pr->is_abolished = true;
 		} else
 			xref_db(m);
+
+		list_remove(&m->predicates, pr);
 	}
 
 	set_unloaded(m, filename);
@@ -2148,8 +2217,7 @@ module *load_file(module *m, const char *filename, bool including)
 			if (!sl_get(str->alias, "user_input", NULL))
 				continue;
 
-			for (predicate *pr = list_front(&m->predicates);
-				pr; pr = list_next(pr)) {
+			for (predicate *pr = list_front(&m->predicates); pr; pr = list_next(pr)) {
 				pr->is_reload = true;
 			}
 
@@ -2166,6 +2234,12 @@ module *load_file(module *m, const char *filename, bool including)
 				if (!tokenize(p, false, false)) {
 					if (p->end_of_file) {
 						m->pl->p->srcptr = p->srcptr;
+						parser_destroy(p);
+						return m;
+					}
+
+					if (p->error) {
+						m->pl->p->srcptr = NULL;
 						parser_destroy(p);
 						return m;
 					}
@@ -2292,7 +2366,7 @@ static void module_save_fp(module *m, FILE *fp, int canonical, int dq)
 
 	for (predicate *pr = list_front(&m->predicates);
 		pr; pr = list_next(pr)) {
-		if (pr->is_prebuilt)
+		if (pr->is_builtin)
 			continue;
 
 		for (rule *r = pr->head; r; r = r->next) {

@@ -2,6 +2,7 @@
 #include <float.h>
 #include <inttypes.h>
 #include <math.h>
+#include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -123,6 +124,9 @@ bool needs_quoting(module *m, const char *src, int srclen)
 			|| (ch == 0x2007) || (ch == 0x202f)
 			)
 			return true;
+
+		if (!iswalnum(ch) && (ch != '_') && !(iswgraph(ch) && (ch <= 255)))
+			return true;
 	}
 
 	int cnt = 0, alphas = 0, graphs = 0;
@@ -160,6 +164,9 @@ static bool op_needs_quoting(module *m, const char *src, int srclen)
 {
 	if (!strcmp(src, "{}") || !strcmp(src, "[]") || !strcmp(src, "!"))
 		return false;
+
+	if (!srclen)
+		return true;
 
 	int ch = peek_char_utf8(src);
 
@@ -592,7 +599,7 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 
 		if (q->max_depth && (print_list >= q->max_depth)) {
 			SB_ungetchar(q->sb);
-			SB_sprintf(q->sb, "%s", "]");
+			SB_sprintf(q->sb, "%s", "|...]");
 			q->last_thing = WAS_OTHER;
 			q->cycle_error = true;
 			break;
@@ -659,7 +666,8 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 
 		if (has_visited(visited, tail, tail_ctx)
 			|| ((tail == save_c) && (tail_ctx == save_c_ctx))
-			|| (q->max_depth && (print_depth >= q->max_depth))) {
+			//|| (q->max_depth && (print_depth >= q->max_depth))
+			) {
 			SB_sprintf(q->sb, "%s", "|");
 
 #if 0
@@ -1207,7 +1215,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 			q->last_thing = WAS_SPACE;
 		}
 
-		int quote = q->quoted && has_spaces(src, src_len);
+		int quote = q->quoted && needs_quoting(q->st.m, src, src_len);
 		if (quote) { SB_sprintf(q->sb, "%s", quote?" '":""); }
 
 		SB_strcatn(q->sb, src, srclen);
@@ -1230,6 +1238,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		if (running) rhs = deref(q, rhs, rhs_ctx);
 		if (running) rhs_ctx = q->latest_ctx;
 		unsigned rhs_pri = is_interned(rhs) ? match_op(q->st.m, C_STR(q, rhs), NULL, rhs->arity) : 0;
+		unsigned rhs_pri_2 = is_interned(rhs) && !rhs->arity ? search_op(q->st.m, C_STR(q, rhs), NULL, true) : 0;
 		bool any = false, is_op_rhs = rhs_pri;
 
 		if ((q->last_thing == WAS_SYMBOL) && !strcmp(src, "\\+")) {
@@ -1246,13 +1255,14 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		bool parens = false;
 		if (!strcmp(src, "+") && (is_infix(rhs) || is_postfix(rhs))) parens = true;
 		if (rhs_pri > my_priority) parens = true;
+		if ((rhs_pri > 0) && !rhs->arity) parens = true;
 		//if (my_priority && (rhs_pri == my_priority) && strcmp(src, "-") && strcmp(src, "+")) parens = true;
 		if (!strcmp(src, "-") && (rhs_pri == my_priority) && (rhs->arity > 1)) parens = true;
 		if ((c->val_off == g_minus_s) && is_number(rhs) && !is_negative(rhs)) parens = true;
 		if ((c->val_off == g_minus_s) && search_op(q->st.m, C_STR(q, rhs), NULL, true) && !rhs->arity) parens = true;
 		if ((c->val_off == g_plus_s) && search_op(q->st.m, C_STR(q, rhs), NULL, true) && !rhs->arity) parens = true;
 
-		bool quote = q->quoted && (has_spaces(src, src_len) || q->json);
+		bool quote = q->quoted && (needs_quoting(q->st.m, src, src_len) || q->json);
 
 		if (is_interned(rhs) && !rhs->arity && !parens) {
 			if (!iswalnum(peek_char_utf8(rhs_src)) && strcmp(rhs_src, "[]") && strcmp(rhs_src, "{}"))
@@ -1261,9 +1271,9 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 
 		if (quote) { SB_sprintf(q->sb, "%s", quote?"'":""); }
 		SB_strcatn(q->sb, src, srclen);
-		if (quote) { SB_sprintf(q->sb, "%s", quote?"' ":""); }
-
-		if (!iswalpha(peek_char_utf8(src)))
+		if (quote)
+			{ SB_sprintf(q->sb, "%s", quote?"' ":""); q->last_thing = WAS_SPACE; }
+		else if (!iswalpha(peek_char_utf8(src)))
 			q->last_thing = WAS_SYMBOL;
 		else
 			q->last_thing = WAS_OTHER;
@@ -1278,7 +1288,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 			return true;
 		}
 
-		if (space || parens) {
+		if ((q->last_thing != WAS_SPACE) && (space || parens)) {
 			SB_sprintf(q->sb, "%s", " ");
 			q->last_thing = WAS_SPACE;
 		}
@@ -1319,6 +1329,8 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 	if (running) rhs_ctx = q->latest_ctx;
 
 	bool any = false;
+	int quote = q->quoted && has_spaces(src, src_len);
+	if (op_needs_quoting(q->st.m, src, src_len)) quote = 1;
 
 	// Print LHS..
 
@@ -1372,7 +1384,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 
 	bool extra_space = false;
 
-	if ((q->last_thing != WAS_SPACE) && space) {
+	if ((q->last_thing != WAS_SPACE) && space && !quote) {
 		SB_sprintf(q->sb, "%s", " ");
 		q->last_thing = WAS_SPACE;
 		extra_space = true;
@@ -1388,7 +1400,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 	if (!*src || ((q->last_thing == WAS_SYMBOL) && is_symbol && !lhs_parens && !q->parens))
 		space = true;
 
-	if ((q->last_thing != WAS_SPACE) && !is_symbol && space) {
+	if ((q->last_thing != WAS_SPACE) && !is_symbol && space && !quote) {
 		SB_sprintf(q->sb, "%s", " ");
 		q->last_thing = WAS_SPACE;
 	}
@@ -1404,16 +1416,14 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 	if (q->listing && !depth && !strcmp(src, ":-"))
 		space = true;
 
-	if ((q->last_thing != WAS_SPACE) && space) {
+	if ((q->last_thing != WAS_SPACE) && space && !quote) {
 		SB_sprintf(q->sb, "%s", " ");
 		q->last_thing = WAS_SPACE;
 	}
 
-	int quote = q->quoted && has_spaces(src, src_len);
-	if (op_needs_quoting(q->st.m, src, src_len)) quote = 1;
-	if (quote) { SB_sprintf(q->sb, "%s", quote?" '":""); }
+	if (quote) { SB_sprintf(q->sb, "%s", quote?"'":""); }
 	SB_strcatn(q->sb, src, srclen);
-	if (quote) { SB_sprintf(q->sb, "%s", quote?"' ":""); }
+	if (quote) { SB_sprintf(q->sb, "%s", quote?"'":""); }
 	q->last_thing = strcmp(src, "|") ? WAS_SYMBOL : WAS_OTHER;
 
 	if (q->listing && !depth && !strcmp(src, ":-")) {
@@ -1423,7 +1433,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 	if (extra_space)
 		space = true;
 
-	if ((q->last_thing != WAS_SPACE) && space) {
+	if ((q->last_thing != WAS_SPACE) && space && !quote) {
 		SB_sprintf(q->sb, "%s", " ");
 		q->last_thing = WAS_SPACE;
 	}
@@ -1453,7 +1463,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 	if (rhs_pri_2 > 0)
 		rhs_parens = true;
 
-	if ((q->last_thing != WAS_SPACE) && space && !rhs_parens) {
+	if ((q->last_thing != WAS_SPACE) && space && !rhs_parens && !quote) {
 		SB_sprintf(q->sb, "%s", " ");
 		q->last_thing = WAS_SPACE;
 	}

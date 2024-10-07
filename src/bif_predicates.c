@@ -2149,7 +2149,7 @@ static bool search_functor(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p
 		if (src[0] == '$')
 			continue;
 
-		if (pr->is_abolished || pr->is_prebuilt)
+		if (pr->is_abolished || pr->is_builtin)
 			continue;
 
 		try_me(q, MAX_VARS);
@@ -2769,17 +2769,23 @@ static bool do_op(query *q, cell *p3, pl_idx p3_ctx)
 	unsigned tmp_optype = 0;
 	unsigned tmp_pri = match_op(q->st.m, C_STR(q, p3), &tmp_optype, p3->arity);
 
+#if 0
 	if (IS_INFIX(specifier) && IS_POSTFIX(tmp_optype))
 		return throw_error(q, p3, p3_ctx, "permission_error", "create,operator");
+#endif
 
 	if (!tmp_pri && !pri)
 		return true;
 
+#if 0
 	if (IS_POSTFIX(specifier) && (IS_INFIX(tmp_optype)/* || tmp_pri*/))
-		return throw_error(q, p3, p3_ctx, "permission_error", "create,operator");
+		return throw_error(q, p3, p3_ctx, "permission_error", "create,operator2");
+#endif
 
-	if (IS_POSTFIX(specifier) && (IS_INFIX(tmp_optype) || (tmp_optype == OP_FY)))
-		return throw_error(q, p3, p3_ctx, "permission_error", "create,operator");
+#if 0
+	if (IS_POSTFIX(specifier) && IS_INFIX(tmp_optype))
+		return throw_error(q, p3, p3_ctx, "permission_error", "create,operator3");
+#endif
 
 	if (!set_op(q->st.m, C_STR(q, p3), specifier, pri))
 		return throw_error(q, p3, p3_ctx, "resource_error", "too_many_ops");
@@ -2839,7 +2845,7 @@ static void save_name(FILE *fp, query *q, pl_idx name, unsigned arity)
 
 	for (predicate *pr = list_front(&m->predicates);
 		pr; pr = list_next(pr)) {
-		if (pr->is_prebuilt && (arity == -1U))
+		if (pr->is_builtin && (arity == -1U))
 			continue;
 
 		if (name != pr->key.val_off)
@@ -4741,9 +4747,9 @@ static bool bif_hex_chars_2(query *q)
 	const char *s = src;
 	mpz_t v2;
 	mp_int_init(&v2);
-	mp_small val;
-	read_integer(q->p, &v2, 16, &s);
+	mp_int_read_cstring(&v2, 16, (char*)src, NULL);
 	free(src);
+	mp_small val;
 	cell tmp = {0};
 
 	if (mp_int_to_int(&v2, &val) == MP_RANGE) {
@@ -4754,7 +4760,7 @@ static bool bif_hex_chars_2(query *q)
 		mp_int_init_copy(&tmp.val_bigint->ival, &v2);
 		tmp.flags |= FLAG_MANAGED;
 	} else {
-		make_int(&tmp, val);
+		make_uint(&tmp, (unsigned long long)val);
 	}
 
 	mp_int_clear(&v2);
@@ -4796,9 +4802,9 @@ static bool bif_octal_chars_2(query *q)
 	const char *s = src;
 	mpz_t v2;
 	mp_int_init(&v2);
-	mp_small val;
-	read_integer(q->p, &v2, 16, &s);
+	mp_int_read_cstring(&v2, 8, (char*)src, NULL);
 	free(src);
+	mp_small val;
 	cell tmp = {0};
 
 	if (mp_int_to_int(&v2, &val) == MP_RANGE) {
@@ -4809,7 +4815,7 @@ static bool bif_octal_chars_2(query *q)
 		mp_int_init_copy(&tmp.val_bigint->ival, &v2);
 		tmp.flags |= FLAG_MANAGED;
 	} else {
-		make_int(&tmp, val);
+		make_uint(&tmp, (unsigned long long)val);
 	}
 
 	mp_int_clear(&v2);
@@ -5129,7 +5135,7 @@ static bool bif_sys_predicate_property_2(query *q)
 	if (!pr)
 		return false;
 
-	if (!pr->is_dynamic && !is_var(p2)) {
+	if (pr->is_builtin) {
 		make_atom(&tmp, new_atom(q->pl, "built_in"));
 
 		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame))
@@ -5145,6 +5151,13 @@ static bool bif_sys_predicate_property_2(query *q)
 
 	if (pr->is_dynamic) {
 		make_atom(&tmp, new_atom(q->pl, "dynamic"));
+
+		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame))
+			return true;
+	}
+
+	if (pr->is_tabled) {
+		make_atom(&tmp, new_atom(q->pl, "tabled"));
 
 		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame))
 			return true;
@@ -5170,11 +5183,6 @@ static bool bif_sys_predicate_property_2(query *q)
 		if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame))
 			return true;
 	}
-
-	make_atom(&tmp, new_atom(q->pl, "static"));
-
-	if (unify(q, p2, p2_ctx, &tmp, q->st.curr_frame))
-		return true;
 
 	make_atom(&tmp, new_atom(q->pl, "meta_predicate"));
 
@@ -5480,6 +5488,23 @@ static bool bif_call_nth_2(query *q)
 	check_heap_error(push_fail_on_retry(q));
 	q->st.curr_instr = tmp;
 	return true;
+}
+
+static bool bif_string_concat_3(query *q)
+{
+	GET_FIRST_ARG(p1,atom);
+	GET_NEXT_ARG(p2,atom);
+	GET_NEXT_ARG(p3,atom_or_var);
+	SB(pr);
+	SB_strcpy(pr, C_STR(q, p1));
+	SB_strcat(pr, C_STR(q, p2));
+	const char *src = SB_cstr(pr);
+	cell tmp;
+	make_string(&tmp, src);
+	SB_free(pr);
+	int ok  = unify(q, p3, p3_ctx, &tmp, q->st.curr_frame);
+	unshare_cell(&tmp);
+	return ok;
 }
 
 static bool bif_string_length_2(query *q)
@@ -6430,6 +6455,7 @@ static void load_properties(module *m)
 	for (const builtins *ptr = g_ffi_bifs; ptr->name; ptr++) {
 		sl_set(m->pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
+		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "foreign", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
 		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
 		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
 		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
@@ -6800,6 +6826,7 @@ builtins g_other_bifs[] =
 	{"limit", 2, bif_limit_2, "+integer,:callable", false, false, BLAH},
 	{"offset", 2, bif_offset_2, "+integer,+callable", false, false, BLAH},
 	{"unifiable", 3, bif_sys_unifiable_3, "+term,+term,-list", false, false, BLAH},
+	{"string_concat", 3, bif_string_concat_3, "+string,+string,?string", false, false, BLAH},
 	{"string_length", 2, bif_string_length_2, "+string,?integer", false, false, BLAH},
 	{"crypto_n_random_bytes", 2, bif_crypto_n_random_bytes_2, "+integer,-codes", false, false, BLAH},
 	{"cyclic_term", 1, bif_cyclic_term_1, "+term", false, false, BLAH},
