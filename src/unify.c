@@ -336,7 +336,6 @@ static void set_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx
 		}
 	} else if (is_compound(v)) {
 		make_indirect(&e->c, v, v_ctx);
-		q->has_indirects = true;
 
 		if ((c_ctx != q->st.curr_frame) && (v_ctx == q->st.curr_frame)) {
 			if (!is_ground(v))
