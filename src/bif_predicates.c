@@ -2140,7 +2140,6 @@ static bool search_functor(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p
 		q->st.f_iter = sl_first(q->st.m->index);
 
 	check_heap_error(push_choice(q));
-	check_heap_error(check_slot(q, MAX_VARS));
 	predicate *pr = NULL;
 
 	while (sl_next(q->st.f_iter, (void*)&pr)) {
@@ -2152,17 +2151,14 @@ static bool search_functor(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p
 		if (pr->is_abolished || pr->is_builtin)
 			continue;
 
-		try_me(q, MAX_VARS);
 		cell tmpn, tmpa;
 		make_atom(&tmpn, pr->key.val_off);
 		make_int(&tmpa, pr->key.arity);
 
-		if (unify(q, p1, p1_ctx, &tmpn, q->st.fp)
-			&& unify(q, p2, p2_ctx, &tmpa, q->st.fp)) {
+		if (unify(q, p1, p1_ctx, &tmpn, q->st.curr_frame)
+			&& unify(q, p2, p2_ctx, &tmpa, q->st.curr_frame)) {
 			return true;
 		}
-
-		undo_me(q);
 	}
 
 	sl_done(q->st.f_iter);
@@ -2205,25 +2201,22 @@ static bool bif_iso_current_predicate_1(query *q)
 	if (CMP_STRING_TO_CSTR(q, p_pi, "/"))
 		return throw_error(q, p_pi, p_pi_ctx, "type_error", "predicate_indicator");
 
-	cell *p1, *p2;
-	pl_idx p1_ctx, p2_ctx;
-
-	p1 = p_pi + 1;
+	cell *p1 = p_pi + 1;
 	p1 = deref(q, p1, p_pi_ctx);
-	p1_ctx = q->latest_ctx;
+	pl_idx p1_ctx = q->latest_ctx;
 
 	if (!is_atom(p1) && !is_var(p1))
 		return throw_error(q, p_pi, p_pi_ctx, "type_error", "predicate_indicator");
 
-	p2 = p_pi + 2;
+	cell *p2 = p_pi + 2;
 	p2 = deref(q, p2, p_pi_ctx);
-	p2_ctx = q->latest_ctx;
+	pl_idx p2_ctx = q->latest_ctx;
 
 	if ((!is_integer(p2) || is_negative(p2)) && !is_var(p2))
 		return throw_error(q, p_pi, p_pi_ctx, "type_error", "predicate_indicator");
 
 	if (is_var(p1) || is_var(p2))
-		return search_functor(q, p1, p1_ctx, p2, p2_ctx) ? true : false;
+		return search_functor(q, p1, p1_ctx, p2, p2_ctx);
 
 	cell tmp = (cell){0};
 	tmp.tag = TAG_INTERNED;
