@@ -632,11 +632,12 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 			bool special_op = false;
 
 			if (is_interned(head)) {
-				special_op = (
+				special_op = (						// TODO: Change to use priority >
 					!strcmp(C_STR(q, head), ",")
 					|| !strcmp(C_STR(q, head), "|")
 					|| !strcmp(C_STR(q, head), ";")
 					|| !strcmp(C_STR(q, head), ":-")
+					|| !strcmp(C_STR(q, head), "?-")
 					|| !strcmp(C_STR(q, head), "->")
 					|| !strcmp(C_STR(q, head), "*->")
 					|| !strcmp(C_STR(q, head), "-->"));
@@ -776,7 +777,7 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 				visited = me;
 				unsigned specifier = 0;
 				unsigned priority = match_op(q->st.m, C_STR(q, tail), &specifier, tail->arity);
-				bool parens = is_infix(tail) && (priority >= 1000);
+				bool parens = (is_infix(tail) || is_prefix(tail)) && (priority >= 1000);
 				if (parens) { SB_sprintf(q->sb, "%s", "("); q->last_thing = WAS_OTHER; }
 				print_term_to_buf_(q, tail, tail_ctx, running, true, depth+1, depth+1, visited);
 				if (parens) { SB_sprintf(q->sb, "%s", ")"); }
@@ -1253,6 +1254,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		if (is_interned(rhs) && !iswalpha(peek_char_utf8(rhs_src)) && !is_op(rhs)) space = true;
 
 		bool parens = false;
+		if ((!strcmp(src, ":-") || !strcmp(src, "?-")) && (rhs_pri >= my_priority)) parens = true;
 		if (!strcmp(src, "+") && (is_infix(rhs) || is_postfix(rhs))) parens = true;
 		if (rhs_pri > my_priority) parens = true;
 		if ((rhs_pri > 0) && !rhs->arity) parens = true;
@@ -1262,6 +1264,9 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		if ((c->val_off == g_minus_s) && search_op(q->st.m, C_STR(q, rhs), NULL, true) && !rhs->arity) parens = true;
 		if ((c->val_off == g_plus_s) && search_op(q->st.m, C_STR(q, rhs), NULL, true) && !rhs->arity) parens = true;
 
+		if (!strcmp(src, "?-") || !strcmp(src, ":-")) space = 1;
+
+		// TODO(guregu): need to upstream this json bit?
 		bool quote = q->quoted && (needs_quoting(q->st.m, src, src_len) || q->json);
 
 		if (is_interned(rhs) && !rhs->arity && !parens) {
