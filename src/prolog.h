@@ -15,6 +15,7 @@ void g_init_lib();
 void thread_initialize(prolog *pl);
 void thread_deinitialize(prolog *pl);
 void thread_cancel_all(prolog *pl);
+bool is_closed_stream(prolog *pl, cell *p1);
 
 inline static void prolog_lock(prolog *pl)
 {

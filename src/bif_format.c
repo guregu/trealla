@@ -549,16 +549,29 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 			break;
 
 		case 'p': {
-			cell p1[1+c->nbr_cells];
-			make_struct(p1, new_atom(q->pl, "portray"), NULL, 1, c->nbr_cells);
-			dup_cells_by_ref(p1+1, c, c_ctx, c->nbr_cells);
-			cell *tmp = prepare_call(q, NOPREFIX_LEN, p1, q->st.curr_frame, 1);
-			pl_idx nbr_cells = p1->nbr_cells;
+			cell *tmp;
+			pl_idx nbr_cells;
+
+			if (str) {
+				cell p1[1+1+c->nbr_cells];
+				make_struct(p1+0, new_atom(q->pl, "$portray"), NULL, 2, 1+c->nbr_cells);
+				p1[1] = *str;
+				dup_cells_by_ref(p1+2, c, c_ctx, c->nbr_cells);
+				tmp = prepare_call(q, NOPREFIX_LEN, p1, q->st.curr_frame, 1);
+				nbr_cells = p1->nbr_cells;
+			} else {
+				cell p1[1+c->nbr_cells];
+				make_struct(p1+0, new_atom(q->pl, "$portray"), NULL, 1, c->nbr_cells);
+				dup_cells_by_ref(p1+1, c, c_ctx, c->nbr_cells);
+				tmp = prepare_call(q, NOPREFIX_LEN, p1, q->st.curr_frame, 1);
+				nbr_cells = p1->nbr_cells;
+			}
+
 			make_end(tmp+nbr_cells);
 			query *q2 = query_create_subquery(q, tmp);
-			q->st.curr_instr = tmp;
 			start(q2);
 			query_destroy(q2);
+			clear_write_options(q);
 			break;
 		}
 
@@ -695,6 +708,15 @@ static bool bif_format_2(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_list);
 	GET_NEXT_ARG(p2,list_or_nil);
+	int n = q->pl->current_output;
+	stream *str = &q->pl->streams[n];
+
+	if (str->binary) {
+		cell tmp;
+		make_int(&tmp, n);
+		tmp.flags |= FLAG_INT_HEX;
+		return throw_error(q, &tmp, q->st.curr_frame, "permission_error", "output,binary_stream");
+	}
 
 	if (is_nil(p1)) {
 		if (is_nil(p2))
@@ -711,6 +733,26 @@ static bool bif_format_3(query *q)
 	GET_FIRST_ARG(pstr,any);
 	GET_NEXT_ARG(p1,atom_or_list);
 	GET_NEXT_ARG(p2,list_or_nil);
+
+	if (is_closed_stream(q->pl, pstr))
+		return throw_error(q, pstr, pstr_ctx, "existence_error", "stream");
+
+	int n = get_stream(q, pstr);
+
+	if (n < 0)
+		return throw_error(q, pstr, pstr_ctx, "domain_error", "stream_or_alias");
+
+	stream *str = &q->pl->streams[n];
+
+	if (!strcmp(str->mode, "read"))
+		return throw_error(q, pstr, pstr_ctx, "permission_error", "output,stream");
+
+	if (str->binary) {
+		cell tmp;
+		make_int(&tmp, n);
+		tmp.flags |= FLAG_INT_HEX;
+		return throw_error(q, &tmp, pstr_ctx, "permission_error", "output,binary_stream");
+	}
 
 	if (is_nil(p1)) {
 		if (is_nil(p2))

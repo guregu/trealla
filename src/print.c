@@ -797,9 +797,6 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 
 static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int cons, unsigned print_depth, unsigned depth, visit *visited)
 {
-	cell *save_c = c;
-	pl_idx save_c_ctx = c_ctx;
-
 	if (depth > g_max_depth) {
 		//printf("*** OOPS %s %d\n", __FILE__, __LINE__);
 		q->cycle_error = true;
@@ -815,11 +812,11 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		thread *t = &q->pl->threads[n];
 
 		if (t->is_queue_only) {
-			SB_sprintf(q->sb, "'<$queue>'(%d)", (int)get_smallint(c));
+			SB_sprintf(q->sb, "'$queue'(%d)", (int)get_smallint(c));
 		} else if (t->is_mutex_only) {
-			SB_sprintf(q->sb, "'<$mutex>'(%d)", (int)get_smallint(c));
+			SB_sprintf(q->sb, "'$mutex'(%d)", (int)get_smallint(c));
 		} else {
-			SB_sprintf(q->sb, "'<$thread>'(%d)", (int)get_smallint(c));
+			SB_sprintf(q->sb, "'$thread'(%d)", (int)get_smallint(c));
 		}
 
 		q->last_thing = WAS_OTHER;
@@ -829,7 +826,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 	// ALIAS
 
 	if ((c->tag == TAG_INTEGER) && (c->flags & FLAG_INT_ALIAS)) {
-		SB_sprintf(q->sb, "'<$alias>'(%d)", (int)get_smallint(c));
+		SB_sprintf(q->sb, "'$alias'(%d)", (int)get_smallint(c));
 		q->last_thing = WAS_OTHER;
 		return true;
 	}
@@ -837,7 +834,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 	// MAP
 
 	if ((c->tag == TAG_INTEGER) && (c->flags & FLAG_INT_MAP)) {
-		SB_sprintf(q->sb, "'<$map>'(%d)", (int)get_smallint(c));
+		SB_sprintf(q->sb, "'$map'(%d)", (int)get_smallint(c));
 		q->last_thing = WAS_OTHER;
 		return true;
 	}
@@ -845,7 +842,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 	// STREAM
 
 	if ((c->tag == TAG_INTEGER) && (c->flags & FLAG_INT_STREAM)) {
-		SB_sprintf(q->sb, "'<$stream>'(%d)", (int)get_smallint(c));
+		SB_sprintf(q->sb, "'$stream'(%d)", (int)get_smallint(c));
 		q->last_thing = WAS_OTHER;
 		return true;
 	}
@@ -853,7 +850,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 	// BLOB
 
 	if (is_blob(c)) {
-		SB_sprintf(q->sb, "'<$blob>'(%p)", c->val_ptr);
+		SB_sprintf(q->sb, "'$blob'(%p)", c->val_ptr);
 		q->last_thing = WAS_OTHER;
 		return true;
 	}
@@ -1116,7 +1113,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 				if (running) tmp = deref(q, tmp, tmp_ctx);
 				if (running) tmp_ctx = q->latest_ctx;
 
-				if (has_visited(visited, tmp, tmp_ctx)) {
+				if (q->is_dump_vars && has_visited(visited, tmp, tmp_ctx)) {
 					tmp = c;
 					tmp_ctx = c_ctx;
 					SB_sprintf(q->sb, "%s", !is_ref(tmp) ? C_STR(q, tmp) : "_");
@@ -1201,7 +1198,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		if ((c->val_off == g_plus_s) && is_op_lhs) space = true;
 		if (isalpha(*src)) space = true;
 
-		if (has_visited(visited, lhs, lhs_ctx)) {
+		if (q->is_dump_vars && has_visited(visited, lhs, lhs_ctx)) {
 			if (q->is_dump_vars) {
 				SB_sprintf(q->sb, "%s", !is_ref(save_lhs) ? C_STR(q, save_lhs) : "_");
 			} else
@@ -1283,7 +1280,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		else
 			q->last_thing = WAS_OTHER;
 
-		if (has_visited(visited, rhs, rhs_ctx)) {
+		if (q->is_dump_vars && has_visited(visited, rhs, rhs_ctx)) {
 			if (q->is_dump_vars) {
 				SB_sprintf(q->sb, "%s", !is_ref(save_rhs) ? C_STR(q, save_rhs) : "_");
 			} else
@@ -1357,7 +1354,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		if (q->last_thing != WAS_SPACE) SB_sprintf(q->sb, "%s", " ");
 		SB_sprintf(q->sb, "%s", "...");
 		q->last_thing = WAS_SYMBOL;
-	} else if (has_visited(visited, lhs, lhs_ctx)) {
+	} else if (q->is_dump_vars && has_visited(visited, lhs, lhs_ctx)) {
 		if (q->is_dump_vars) {
 			SB_sprintf(q->sb, "%s", !is_ref(save_lhs) ? C_STR(q, save_lhs) : "_");
 		} else
@@ -1477,7 +1474,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		if (q->last_thing != WAS_SPACE) SB_sprintf(q->sb, "%s", " ");
 		SB_sprintf(q->sb, "%s", "...");
 		q->last_thing = WAS_SYMBOL;
-	} else if (has_visited(visited, rhs, rhs_ctx)) {
+	} else if (q->is_dump_vars && has_visited(visited, rhs, rhs_ctx)) {
 		if (q->is_dump_vars) {
 			SB_sprintf(q->sb, "%s", !is_ref(save_rhs) ? C_STR(q, save_rhs) : "_");
 		} else
@@ -1662,6 +1659,7 @@ void clear_write_options(query *q)
 	q->quoted = 0;
 	q->nl = q->fullstop = q->varnames = q->ignore_ops = false;
 	q->parens = q->numbervars = q->json = q->double_quotes = false;
+	q->portrayed = false;
 	q->last_thing = WAS_OTHER;
 	q->variable_names = NULL;
 	q->cycle_error = false;
