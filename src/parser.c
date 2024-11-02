@@ -378,7 +378,7 @@ char *relative_to(const char *basefile, const char *relfile)
 	ensure(tmpbuf);
 	char *ptr = tmpbuf;
 
-	if (!strncmp(relfile, "../", 3)) {
+	if (!strncmp(relfile, "../", 3) || !strchr(relfile, '/')) {
 		strcpy(tmpbuf, basefile);
 		ptr = tmpbuf + strlen(tmpbuf) - 1;
 
@@ -601,6 +601,12 @@ static bool directives(parser *p, cell *d)
 	if (d->arity != 1)
 		return false;
 
+	if (is_list(c)) {
+		printf("WARNING: directive to load '%s' not allowed\n", C_STR(p, c+1));
+		p->error = true;
+		return false;
+	}
+
 	d->val_off = new_atom(p->pl, "$directive");
 	CLR_OP(d);
 
@@ -695,6 +701,7 @@ static bool directives(parser *p, cell *d)
 	}
 
 	if (!strcmp(dirname, "det") && (c->arity == 1)) {
+		printf("WARNING: %s\n", dirname);
 		return true;
 	}
 

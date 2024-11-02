@@ -856,39 +856,38 @@ bool do_use_module_1(module *curr_m, cell *c)
 		}
 	}
 
-	if (true) {
-		module *m;
+	module *m;
 
-		if ((m = find_module(curr_m->pl, name)) != NULL) {
-			if (m != curr_m)
-				curr_m->used[curr_m->idx_used++] = m;
+	if ((m = find_module(curr_m->pl, name)) != NULL) {
+		if (m != curr_m)
+			curr_m->used[curr_m->idx_used++] = m;
 
-			return true;
-		}
+		return true;
+	}
 
-		for (library *lib = g_libs; lib->name; lib++) {
-			if (strcmp(lib->name, name))
-				continue;
+	for (library *lib = g_libs; lib->name; lib++) {
+		if (strcmp(lib->name, name))
+			continue;
 
-			char *src = malloc(*lib->len+1);
-			ensure(src);
-			memcpy(src, lib->start, *lib->len);
-			src[*lib->len] = '\0';
-			SB(s1);
-			SB_sprintf(s1, "library/%s", lib->name);
-			m = load_text(curr_m, src, SB_cstr(s1));
-			SB_free(s1);
-			free(src);
+		char *src = malloc(*lib->len+1);
+		ensure(src);
+		memcpy(src, lib->start, *lib->len);
+		src[*lib->len] = '\0';
+		SB(s1);
+		SB_sprintf(s1, "library/%s", lib->name);
+		m = load_text(curr_m, src, SB_cstr(s1));
+		SB_free(s1);
+		free(src);
 
-			if (m != curr_m)
-				curr_m->used[curr_m->idx_used++] = m;
+		if (m != curr_m)
+			curr_m->used[curr_m->idx_used++] = m;
 
-			return !m->error;
-		}
+		return !m->error;
 	}
 
 	char *filename = relative_to(curr_m->filename, is_library?dstbuf:name);
-	module *m;
+
+	//printf("*** %s / %s / %s\n", curr_m->filename, is_library?dstbuf:name, filename);
 
 	if (!(m = load_file(curr_m, filename, false))) {
 		fprintf_to_stream(curr_m->pl, stdout, "Error: module file not found: %s\n", filename);
@@ -2303,6 +2302,22 @@ module *load_file(module *m, const char *filename, bool including)
 		if (!(realbuf = realpath(tmpbuf, NULL))) {
 			strcpy(tmpbuf, savebuf);
 			strcat(tmpbuf, ".prolog");
+			realbuf = realpath(tmpbuf, NULL);
+		}
+	}
+
+	if (!realbuf) {
+		if (!(realbuf = realpath(tmpbuf, NULL))) {
+			strcpy(tmpbuf, savebuf);
+			strcat(tmpbuf, ".p");
+			realbuf = realpath(tmpbuf, NULL);
+		}
+	}
+
+	if (!realbuf) {
+		if (!(realbuf = realpath(tmpbuf, NULL))) {
+			strcpy(tmpbuf, savebuf);
+			strcat(tmpbuf, ".P");
 			realbuf = realpath(tmpbuf, NULL);
 		}
 	}
