@@ -811,23 +811,23 @@ struct parser_ {
 
 typedef struct loaded_file_ loaded_file;
 
-// Goal expansion...
+// Predicate indicator...
 
-typedef struct gex_ {
+typedef struct pi_ {
 	lnode hdr;							// must be first
-	struct gex_ *prev, *next, *alias;
+	struct pi_ *prev, *next;			// ???
 	cell key;
-} gex;
+} pi;
 
 struct module_ {
 	lnode hdr;							// must be first
 	module *used[MAX_MODULES];
 	module *orig;
 	prolog *pl;
-	const char *filename, *name, *actual_filename;
-	gex *gex_head, *gex_tail;
+	pi *gex_head, *gex_tail;			// goal expansion ??? (see pi_ above, why not use list?)
 	parser *p;
 	FILE *fp;
+	const char *filename, *name, *actual_filename;
 	skiplist *index, *ops, *defops;
 	loaded_file *loaded_files;
 	lock guard;

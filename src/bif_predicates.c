@@ -5702,8 +5702,6 @@ bool bif_iso_qualify_2(query *q)
 		if (!m && strcmp(C_STR(q, p1), "loader"))
 			return throw_error(q, p1, q->st.curr_frame, "existence_error", "module");
 
-		if (m)
-			q->st.m = m;
 	}
 
 	cell *tmp = prepare_call(q, PREFIX_LEN, p2, p2_ctx, 1);
@@ -5716,6 +5714,7 @@ bool bif_iso_qualify_2(query *q)
 	nbr_cells += p2->nbr_cells;
 	make_call(q, tmp+nbr_cells);
 	q->st.curr_instr = tmp;
+	q->st.m = m;
 	return true;
 }
 
@@ -5838,7 +5837,7 @@ static bool bif_strip_module_3(query *q)
 	return unify(q, p3, p3_ctx, p1, p1_ctx);
 }
 
-static bool bif_module_1(query *q)
+static bool bif_sys_module_1(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_var);
 
@@ -5863,7 +5862,7 @@ static bool bif_module_1(query *q)
 	return true;
 }
 
-static bool bif_modules_1(query *q)
+static bool bif_sys_modules_1(query *q)
 {
 	GET_FIRST_ARG(p1,var);
 	check_heap_error(init_tmp_heap(q));
@@ -6785,8 +6784,8 @@ builtins g_other_bifs[] =
 	{"current_module", 1, bif_current_module_1, "-atom", false, false, BLAH},
 	{"prolog_load_context", 2, bif_prolog_load_context_2, "+atom,?term", false, false, BLAH},
 	{"strip_module", 3, bif_strip_module_3, "+callable,?atom,?callable", false, false, BLAH},
-	{"module", 1, bif_module_1, "?atom", false, false, BLAH},
-	{"modules", 1, bif_modules_1, "-list", false, false, BLAH},
+	{"$module", 1, bif_sys_module_1, "?atom", false, false, BLAH},
+	{"$modules", 1, bif_sys_modules_1, "-list", false, false, BLAH},
 	{"using", 0, bif_using_0, NULL, false, false, BLAH},
 	{"use_module", 1, bif_use_module_1, "+term", false, false, BLAH},
 	{"use_module", 2, bif_use_module_2, "+term,+list", false, false, BLAH},

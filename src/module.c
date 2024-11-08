@@ -46,7 +46,7 @@ static const op_table g_ops[] =
 	{"initialization", OP_FX, 1150},
 	//{"set_prolog_flag", OP_FX, 1150},
 	//{"module", OP_FX, 1150},
-	{"use_module", OP_FX, 1150},
+	//{"use_module", OP_FX, 1150},
 	{"ensure_loaded", OP_FX, 1150},
 	{"meta_predicate", OP_FX, 1150},
 
@@ -330,6 +330,8 @@ predicate *search_predicate(module *m, cell *c, bool *prebuilt)
 		return pr;
 	}
 
+	// TODO: only do this if not use_module(name [])
+
 	for (unsigned i = 0; i < m->idx_used; i++) {
 		module *tmp_m = m->used[i];
 
@@ -338,6 +340,11 @@ predicate *search_predicate(module *m, cell *c, bool *prebuilt)
 		if (pr) {
 			if (pr->is_builtin && prebuilt)
 				*prebuilt = true;
+
+			if (!pr->is_public
+				&& strcmp(tmp_m->name, "clpz")	// Hack for verify_attributes not qualifying goals
+				)
+				continue;
 
 			return pr;
 		}
@@ -424,7 +431,7 @@ bool find_goal_expansion(module *m, cell *c)
 	if (m->wild_goal_expansion)
 		return true;
 
-	for (gex *g = m->gex_head; g; g = g->next) {
+	for (pi *g = m->gex_head; g; g = g->next) {
 		if ((g->key.val_off == c->val_off) && (g->key.arity == c->arity))
 			return true;
 	}
@@ -467,7 +474,7 @@ void create_goal_expansion(module *m, cell *c)
 	if (find_goal_expansion(m, c))
 		return;
 
-	gex *g = calloc(1, sizeof(gex));
+	pi *g = calloc(1, sizeof(pi));
 	ensure(g);
 	g->prev = m->gex_tail;
 
@@ -781,8 +788,9 @@ static bool is_check_directive(const cell *c)
 	return false;
 }
 
-bool do_use_module_1(module *curr_m, cell *c)
+static bool do_use_module(module *curr_m, cell *c, module **mptr)
 {
+	*mptr = NULL;
 	cell *p1 = c + 1;
 	const char *name = C_STR(curr_m, p1);
 	char dstbuf[1024*4];
@@ -816,6 +824,7 @@ bool do_use_module_1(module *curr_m, cell *c)
 			if (m != curr_m)
 				curr_m->used[curr_m->idx_used++] = m;
 
+			*mptr = m;
 			return true;
 		}
 
@@ -852,6 +861,7 @@ bool do_use_module_1(module *curr_m, cell *c)
 			if (m != curr_m)
 				curr_m->used[curr_m->idx_used++] = m;
 
+			*mptr = m;
 			return !m->error;
 		}
 	}
@@ -862,6 +872,7 @@ bool do_use_module_1(module *curr_m, cell *c)
 		if (m != curr_m)
 			curr_m->used[curr_m->idx_used++] = m;
 
+		*mptr = m;
 		return true;
 	}
 
@@ -882,6 +893,7 @@ bool do_use_module_1(module *curr_m, cell *c)
 		if (m != curr_m)
 			curr_m->used[curr_m->idx_used++] = m;
 
+		*mptr = m;
 		return !m->error;
 	}
 
@@ -903,14 +915,26 @@ bool do_use_module_1(module *curr_m, cell *c)
 	return !m->error;
 }
 
+bool do_use_module_1(module *curr_m, cell *c)
+{
+	module *m;
+
+	if (!do_use_module(curr_m, c, &m))
+		return false;
+
+	return true;
+}
+
 bool do_use_module_2(module *curr_m, cell *c)
 {
+	module *m;
+
+	if (!do_use_module(curr_m, c, &m))
+		return false;
+
 	cell *p1 = c + 1;
 	cell *p2 = p1 + p1->nbr_cells;
 	LIST_HANDLER(p2);
-
-	if (!do_use_module_1(curr_m, c))
-		return false;
 
 	while (is_iso_list(p2)) {
 		cell *head = LIST_HEAD(p2);
@@ -938,6 +962,7 @@ bool do_use_module_2(module *curr_m, cell *c)
 				tmp.val_off = (rhs+1)->val_off;
 				predicate *pr2 = create_predicate(curr_m, &tmp, NULL);
 				pr2->alias = pr;
+#if 0
 			} else if (is_structure(lhs) && is_structure(rhs)) {
 				// assertz(goal_expansion(rhs, module:lhs))
 				query *q = query_create(curr_m);
@@ -961,14 +986,23 @@ bool do_use_module_2(module *curr_m, cell *c)
 				xref_clause(p2->m, p2->cl, NULL);
 				execute(q, p2->cl->cells, p2->cl->nbr_vars);
 				SB_free(s);
+#endif
 			}
-#if 0
 		} else {
 			cell *lhs = head;
 
+#if 0
 			if (is_structure(lhs) && (lhs->arity == 2) && (lhs->val_off == g_slash_s)) {
+				cell *c = lhs + 1;
+
+				if (c->val_off == g_maplist_s) {
+					p2 = LIST_TAIL(p2);
+					continue;
+				}
+
+				//printf("*** %s/%u\n", C_STR(q, lhs+1), (unsigned)get_smalluint(lhs+2));
 				// assertz(goal_expansion(rhs, module:lhs))
-				query *q = query_create(curr_m, false);
+				query *q = query_create(curr_m);
 				check_error(q);
 				q->varnames = true;
 				char *dst1 = print_canonical_to_strbuf(q, lhs+1, 0, 0);
@@ -1010,7 +1044,7 @@ bool do_use_module_2(module *curr_m, cell *c)
 				p2->skip = true;
 				p2->srcptr = SB_cstr(s);
 				tokenize(p2, false, false);
-				xref_clause(p2->m, p2->cl);
+				xref_clause(p2->m, p2->cl, NULL);
 				execute(q, p2->cl->cells, p2->cl->nbr_vars);
 				SB_free(s);
 			}
@@ -2434,14 +2468,14 @@ void module_destroy(module *m)
 	while ((pr = list_front(&m->predicates)) != NULL)
 		destroy_predicate(m, pr);
 
-	if (m->fp)
-		fclose(m->fp);
-
 	while (m->gex_head) {
-		gex *save = m->gex_head;
+		pi *save = m->gex_head;
 		m->gex_head = m->gex_head->next;
 		free(save);
 	}
+
+	if (m->fp)
+		fclose(m->fp);
 
 	sl_destroy(m->index);
 	parser_destroy(m->p);

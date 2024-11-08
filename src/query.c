@@ -1429,6 +1429,7 @@ static bool match_head(query *q)
 			}
 
 			if (pr->alias) {
+				printf("*** here\n");
 				c->val_off = pr->alias->key.val_off;
 				pr = pr->alias;
 			}

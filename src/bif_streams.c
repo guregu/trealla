@@ -4937,7 +4937,6 @@ static bool do_consult(query *q, cell *p1, pl_idx p1_ctx)
 
 	module *tmp_m = module_create(q->pl, C_STR(q, mod));
 	char *filename = C_STR(q, file);
-	tmp_m->make_public = 1;
 	filename = relative_to(q->st.m->filename, filename);
 	convert_path(filename);
 	unload_file(q->st.m, filename);
@@ -4978,7 +4977,6 @@ static bool do_deconsult(query *q, cell *p1, pl_idx p1_ctx)
 
 	module *tmp_m = module_create(q->pl, C_STR(q, mod));
 	char *filename = C_STR(q, file);
-	tmp_m->make_public = 1;
 	filename = relative_to(q->st.m->filename, filename);
 	convert_path(filename);
 	unload_file(q->st.m, filename);
