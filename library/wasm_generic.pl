@@ -19,7 +19,7 @@ host_rpc(Goal) :-
 	setup_call_cleanup(
 		'$memory_stream_create'(Stream, []),
 		(
-			once(term_json(Stream, Vars0, Goal)),
+			once(wasm:term_json(Stream, Vars0, Goal)),
 			'$memory_stream_to_chars'(Stream, Req)
 		),
 		close(Stream)
