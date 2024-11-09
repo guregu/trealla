@@ -922,6 +922,32 @@ bool do_use_module_1(module *curr_m, cell *c)
 	if (!do_use_module(curr_m, c, &m))
 		return false;
 
+	if (!m)
+		return true;
+
+	for (predicate *pr = list_front(&m->predicates);
+		pr; pr = list_next(pr)) {
+		if (!pr->is_public)
+			continue;
+
+		if (find_predicate(curr_m, &pr->key)
+			&& (curr_m != pr->m)
+			&& strcmp(pr->m->name, "format")			// Hack???
+			&& !pr->m->prebuilt
+			) {
+			fprintf(stdout, "Error: permission error import failed: %s/%u, %s\n", C_STR(curr_m, &pr->key), pr->key.arity, get_loaded(m, m->filename));
+			m->error = true;
+			return false;
+		}
+
+		predicate *pr2 = create_predicate(curr_m, &pr->key, NULL);
+		pr2->alias = pr;
+
+		char tmpbuf[1024];
+		snprintf(tmpbuf, sizeof(tmpbuf), "imported_from(%s)", m->name);
+		push_property(curr_m, C_STR(m, &pr->key), pr->key.arity, tmpbuf);
+	}
+
 	return true;
 }
 
