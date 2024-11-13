@@ -1261,11 +1261,11 @@ static bool do_sub_atom(query *q, cell *p1, cell *p2, pl_idx p2_ctx, cell *p3, p
 		check_heap_error(push_choice(q));
 
 	cell tmp;
-	make_int(&tmp, before);
+	make_int(&tmp, pos_at_offset(C_STR(q, p1), C_STRLEN(q, p1), before));
 	unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 	make_int(&tmp, len);
 	unify(q, p3, p3_ctx, &tmp, q->st.curr_frame);
-	make_int(&tmp, after);
+	make_int(&tmp, pos_at_offset(C_STR(q, p1), C_STRLEN(q, p1), after));
 	unify(q, p4, p4_ctx, &tmp, q->st.curr_frame);
 	return true;
 }
