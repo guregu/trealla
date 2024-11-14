@@ -962,7 +962,7 @@ static bool directives(parser *p, cell *d)
 					do_op(p, head, true);
 				} else {
 					if (DUMP_ERRS || !p->do_read_term)
-						fprintf(stdout, "Error: predicate export failed, '%s' in %s:%d\n", C_STR(p, head), get_loaded(p->m, p->m->filename), p->line_nbr);
+						fprintf_to_stream(p->pl, ERROR_FP, "Error: predicate export failed, '%s' in %s:%d\n", C_STR(p, head), get_loaded(p->m, p->m->filename), p->line_nbr);
 
 					p->error = true;
 					return true;
@@ -1479,7 +1479,7 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 		c->var_nbr += start;
 
 		if (c->var_nbr == MAX_VARS) {
-			fprintf(stdout, "Error: max vars reached, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
+			fprintf_to_stream(p->pl, ERROR_FP, "Error: max vars reached, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
 			p->error = true;
 			return;
 		}

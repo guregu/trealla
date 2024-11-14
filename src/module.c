@@ -922,7 +922,7 @@ static bool do_import_predicate(module *curr_m, module *m, predicate *pr, cell *
 		&& strcmp(pr->m->name, "format")			// Hack???
 		&& !pr->m->prebuilt
 		) {
-		fprintf(stdout, "Error: permission to import failed: %s:%s/%u, %s\n", pr->m->name, C_STR(curr_m, as), as->arity, get_loaded(m, m->filename));
+		fprintf_to_stream(curr_m->pl, ERROR_FP, "Error: permission to import failed: %s:%s/%u, %s\n", pr->m->name, C_STR(curr_m, as), as->arity, get_loaded(m, m->filename));
 		m->error = true;
 		return false;
 	}
@@ -1466,7 +1466,7 @@ static bool check_not_multifile(module *m, predicate *pr, rule *dbe_orig)
 		&& (C_STR(m, &pr->key)[0] != '$')
 		) {
 		if ((dbe_orig->filename != pr->head->filename) || pr->is_reload) {
-			fprintf(stderr, "Warning: overwriting '%s'/%u\n", C_STR(m, &pr->key), pr->key.arity);
+			fprintf_to_stream(m->pl, WARN_FP, "Warning: overwriting '%s'/%u\n", C_STR(m, &pr->key), pr->key.arity);
 
 			while (pr->head) {
 				rule *r = pr->head;
@@ -1492,7 +1492,7 @@ static bool check_not_multifile(module *m, predicate *pr, rule *dbe_orig)
 	}
 
 	if (pr->alias && (m == m->pl->user_m)) {
-		fprintf(stderr, "Warning: overwriting %s:'%s'/%u\n", pr->m->name, C_STR(m, &pr->key), pr->key.arity);
+		fprintf_to_stream(m->pl, WARN_FP, "Warning: overwriting %s:'%s'/%u\n", pr->m->name, C_STR(m, &pr->key), pr->key.arity);
 		pr->meta_args = NULL;
 		pr->alias = NULL;
 	}
@@ -1713,7 +1713,7 @@ static rule *assert_begin(module *m, unsigned nbr_vars, cell *p1, bool consultin
 
 			if (!tmp_m) {
 				if (consulting)
-					fprintf(stdout, "Error: existence error module %s:(%s)/%u\n", name, C_STR(m, c), c->arity);
+					fprintf_to_stream(m->pl, ERROR_FP, "Error: existence error module %s:(%s)/%u\n", name, C_STR(m, c), c->arity);
 
 				return NULL;
 			} else
@@ -1733,7 +1733,7 @@ static rule *assert_begin(module *m, unsigned nbr_vars, cell *p1, bool consultin
 
 			if (!is_callable(c) || is_iso_list(c)) {
 				if (consulting)
-					fprintf(stdout, "Error: not callable %s:(%s)/%u\n", m->name, C_STR(m, c), c->arity);
+					fprintf_to_stream(m->pl, ERROR_FP, "Error: not callable %s:(%s)/%u\n", m->name, C_STR(m, c), c->arity);
 
 				return NULL;
 			}
@@ -1744,7 +1744,7 @@ static rule *assert_begin(module *m, unsigned nbr_vars, cell *p1, bool consultin
 
 			if (!tmp_m) {
 				if (consulting)
-					fprintf(stdout, "Error: extistence error module %s:(%s)/%u\n", name, C_STR(m, c), c->arity);
+					fprintf_to_stream(m->pl, ERROR_FP, "Error: extistence error module %s:(%s)/%u\n", name, C_STR(m, c), c->arity);
 
 				return NULL;
 			} else
@@ -1752,7 +1752,7 @@ static rule *assert_begin(module *m, unsigned nbr_vars, cell *p1, bool consultin
 
 			if (!is_callable(p1+2) || is_iso_list(p1+2)) {
 				if (consulting)
-					fprintf(stdout, "Error: not callable %s:(%s)/%u\n", m->name, C_STR(m, c), c->arity);
+					fprintf_to_stream(m->pl, ERROR_FP, "Error: not callable %s:(%s)/%u\n", m->name, C_STR(m, c), c->arity);
 
 				return NULL;
 			}
