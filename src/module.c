@@ -920,9 +920,12 @@ static bool do_import_predicate(module *curr_m, module *m, predicate *pr, cell *
 	if (find_predicate(curr_m, as)
 		&& (curr_m != pr->m)
 		&& strcmp(pr->m->name, "format")			// Hack???
+		// wasm:ask_js/2 ends up becoming the curr_m too much
+		// TODO: need to improve this...
+		&& strcmp(curr_m->name, "wasm")				// Hack???
 		&& !pr->m->prebuilt
 		) {
-		fprintf_to_stream(curr_m->pl, ERROR_FP, "Error: permission to import failed: %s:%s/%u, %s\n", pr->m->name, C_STR(curr_m, as), as->arity, get_loaded(m, m->filename));
+		fprintf_to_stream(curr_m->pl, ERROR_FP, "Error: permission to import into '%s' failed: %s:%s/%u, %s\n", curr_m->name, pr->m->name, C_STR(curr_m, as), as->arity, get_loaded(m, m->filename));
 		m->error = true;
 		return false;
 	}
