@@ -338,13 +338,12 @@ predicate *search_predicate(module *m, cell *c, bool *prebuilt)
 		pr = find_predicate(tmp_m, c);
 
 		if (pr) {
-			if (pr->is_builtin && prebuilt)
-				*prebuilt = true;
-
-			if (!pr->is_public
-				&& strcmp(tmp_m->name, "clpz")	// Hack for verify_attributes not qualifying goals
+			if (strcmp(tmp_m->name, "clpz")	// Hack for verify_attributes not qualifying goals
 				)
 				continue;
+
+			if (pr->is_builtin && prebuilt)
+				*prebuilt = true;
 
 			return pr;
 		}
@@ -912,7 +911,52 @@ static bool do_use_module(module *curr_m, cell *c, module **mptr)
 	if (m != curr_m)
 		curr_m->used[curr_m->idx_used++] = m;
 
+	*mptr = m;
 	return !m->error;
+}
+
+static bool do_import_predicate(module *curr_m, module *m, predicate *pr, cell *as)
+{
+	if (find_predicate(curr_m, as)
+		&& (curr_m != pr->m)
+		&& strcmp(pr->m->name, "format")			// Hack???
+		&& !pr->m->prebuilt
+		) {
+		fprintf_to_stream(curr_m->pl, ERROR_FP, "Error: permission to import failed: %s:%s/%u, %s\n", pr->m->name, C_STR(curr_m, as), as->arity, get_loaded(m, m->filename));
+		m->error = true;
+		return false;
+	}
+
+	predicate *pr2 = create_predicate(curr_m, as, NULL);
+	pr2->alias = pr;
+	char tmpbuf[1024];
+	snprintf(tmpbuf, sizeof(tmpbuf), "imported_from(%s)", m->name);
+	push_property(curr_m, C_STR(m, &pr->key), pr->key.arity, tmpbuf);
+
+	if (pr->is_dynamic)
+		push_property(curr_m, C_STR(m, as), as->arity, "dynamic");
+
+	if (!pr->meta_args)
+		return true;
+
+	SB(pr);
+	SB_sprintf(pr, "meta_predicate(%s(", C_STR(m, as));
+	cell *key = pr->meta_args + 1;
+
+	for (unsigned i = 0; i < pr->key.arity; i++, key++) {
+		if (i != 0)
+			SB_strcat(pr, ",");
+
+		if (is_smallint(key)) {
+			SB_sprintf(pr, "%d", (int)get_smallint(key));
+		} else {
+			SB_strcat(pr, C_STR(curr_m, key));
+		}
+	}
+
+	SB_strcat(pr, "))");
+	push_property(curr_m, C_STR(m, as), as->arity, SB_cstr(pr));
+	return true;
 }
 
 bool do_use_module_1(module *curr_m, cell *c)
@@ -930,22 +974,8 @@ bool do_use_module_1(module *curr_m, cell *c)
 		if (!pr->is_public)
 			continue;
 
-		if (find_predicate(curr_m, &pr->key)
-			&& (curr_m != pr->m)
-			&& strcmp(pr->m->name, "format")			// Hack???
-			&& !pr->m->prebuilt
-			) {
-			fprintf(stdout, "Error: permission error import failed: %s/%u, %s\n", C_STR(curr_m, &pr->key), pr->key.arity, get_loaded(m, m->filename));
-			m->error = true;
+		if (!do_import_predicate(curr_m, m, pr, &pr->key))
 			return false;
-		}
-
-		predicate *pr2 = create_predicate(curr_m, &pr->key, NULL);
-		pr2->alias = pr;
-
-		char tmpbuf[1024];
-		snprintf(tmpbuf, sizeof(tmpbuf), "imported_from(%s)", m->name);
-		push_property(curr_m, C_STR(m, &pr->key), pr->key.arity, tmpbuf);
 	}
 
 	return true;
@@ -957,6 +987,9 @@ bool do_use_module_2(module *curr_m, cell *c)
 
 	if (!do_use_module(curr_m, c, &m))
 		return false;
+
+	if (!m)
+		return true;
 
 	cell *p1 = c + 1;
 	cell *p2 = p1 + p1->nbr_cells;
@@ -975,106 +1008,31 @@ bool do_use_module_2(module *curr_m, cell *c)
 				&& is_atom(rhs)) {
 				cell tmp = *(lhs+1);
 				tmp.arity = get_smalluint(lhs+2);
-				predicate *pr = find_predicate(curr_m->used[curr_m->idx_used-1], &tmp);
+				predicate *pr = find_predicate(m, &tmp);
+				if (!pr) return false;
 				tmp.val_off = rhs->val_off;
-				predicate *pr2 = create_predicate(curr_m, &tmp, NULL);
-				pr2->alias = pr;
+				do_import_predicate(curr_m, m, pr, &tmp);
 			} else if (is_structure(lhs) && (lhs->arity == 2)
 				&& (lhs->val_off == g_slash_s)
 				&& is_structure(lhs) && (lhs->arity == rhs->arity)) {
 				cell tmp = *(lhs+1);
 				tmp.arity = get_smalluint(lhs+2);
-				predicate *pr = find_predicate(curr_m->used[curr_m->idx_used-1], &tmp);
+				predicate *pr = find_predicate(m, &tmp);
+				if (!pr) return false;
 				tmp.val_off = (rhs+1)->val_off;
-				predicate *pr2 = create_predicate(curr_m, &tmp, NULL);
-				pr2->alias = pr;
-#if 0
-			} else if (is_structure(lhs) && is_structure(rhs)) {
-				// assertz(goal_expansion(rhs, module:lhs))
-				query *q = query_create(curr_m);
-				check_error(q);
-				q->varnames = true;
-				char *dst1 = print_canonical_to_strbuf(q, rhs, 0, 0);
-				char *dst2 = print_canonical_to_strbuf(q, lhs, 0, 0);
-				q->varnames = false;
-				SB(s);
-				module *mod = curr_m->used[curr_m->idx_used-1];
-				SB_sprintf(s, "assertz(goal_expansion(%s,%s:%s)).", dst1, mod->name, dst2);
-				free(dst2);
-				free(dst1);
-
-				parser *p2 = parser_create(curr_m);
-				check_error(p2, query_destroy(q));
-				q->p = p2;
-				p2->skip = true;
-				p2->srcptr = SB_cstr(s);
-				tokenize(p2, false, false);
-				xref_clause(p2->m, p2->cl, NULL);
-				execute(q, p2->cl->cells, p2->cl->nbr_vars);
-				SB_free(s);
-#endif
+				do_import_predicate(curr_m, m, pr, &tmp);
 			}
 		} else {
 			cell *lhs = head;
 
-#if 0
-			if (is_structure(lhs) && (lhs->arity == 2) && (lhs->val_off == g_slash_s)) {
-				cell *c = lhs + 1;
-
-				if (c->val_off == g_maplist_s) {
-					p2 = LIST_TAIL(p2);
-					continue;
-				}
-
-				//printf("*** %s/%u\n", C_STR(q, lhs+1), (unsigned)get_smalluint(lhs+2));
-				// assertz(goal_expansion(rhs, module:lhs))
-				query *q = query_create(curr_m);
-				check_error(q);
-				q->varnames = true;
-				char *dst1 = print_canonical_to_strbuf(q, lhs+1, 0, 0);
-				q->varnames = false;
-				SB(s);
-				module *mod = curr_m->used[curr_m->idx_used-1];
-				SB_sprintf(s, "assertz(goal_expansion(%s", dst1);
-				unsigned arity = get_smalluint(lhs+2);
-				unsigned i = 0;
-
-				while (arity--) {
-					if (i) { SB_sprintf(s, "%s", ","); }
-					else { SB_sprintf(s, "%s", "("); }
-					SB_sprintf(s, "_%u", i);
-					i++;
-				}
-
-				if (i) { SB_sprintf(s, "%s", ")"); }
-				SB_sprintf(s, ",%s:%s", mod->name, dst1);
-
-				arity = get_smalluint(lhs+2);
-				i = 0;
-
-				while (arity--) {
-					if (i) { SB_sprintf(s, "%s", ","); }
-					else { SB_sprintf(s, "%s", "("); }
-					SB_sprintf(s, "_%u", i);
-					i++;
-				}
-
-				if (i) { SB_sprintf(s, "%s", ")"); }
-
-				SB_sprintf(s, "%s", ")).");
-				free(dst1);
-
-				parser *p2 = parser_create(curr_m);
-				check_error(p2, query_destroy(q));
-				q->p = p2;
-				p2->skip = true;
-				p2->srcptr = SB_cstr(s);
-				tokenize(p2, false, false);
-				xref_clause(p2->m, p2->cl, NULL);
-				execute(q, p2->cl->cells, p2->cl->nbr_vars);
-				SB_free(s);
+			if (is_structure(lhs) && (lhs->arity == 2)
+				&& (lhs->val_off == g_slash_s)) {
+				cell tmp = *(lhs+1);
+				tmp.arity = get_smalluint(lhs+2);
+				predicate *pr = find_predicate(m, &tmp);
+				if (!pr) return false;
+				do_import_predicate(curr_m, m, pr, &pr->key);
 			}
-#endif
 		}
 
 		p2 = LIST_TAIL(p2);
@@ -1508,7 +1466,7 @@ static bool check_not_multifile(module *m, predicate *pr, rule *dbe_orig)
 		&& (C_STR(m, &pr->key)[0] != '$')
 		) {
 		if ((dbe_orig->filename != pr->head->filename) || pr->is_reload) {
-			fprintf(stderr, "Warning: overwriting '%s'/%u\n", C_STR(m, &pr->key), pr->key.arity);
+			fprintf_to_stream(m->pl, WARN_FP, "Warning: overwriting '%s'/%u\n", C_STR(m, &pr->key), pr->key.arity);
 
 			while (pr->head) {
 				rule *r = pr->head;
@@ -1526,9 +1484,17 @@ static bool check_not_multifile(module *m, predicate *pr, rule *dbe_orig)
 			pr->head = pr->tail = NULL;
 			pr->is_processed = false;
 			pr->is_reload = false;
+			pr->meta_args = NULL;
+			pr->alias = NULL;
 			pr->cnt = 0;
 			return false;
 		}
+	}
+
+	if (pr->alias && (m == m->pl->user_m)) {
+		fprintf_to_stream(m->pl, WARN_FP, "Warning: overwriting %s:'%s'/%u\n", pr->m->name, C_STR(m, &pr->key), pr->key.arity);
+		pr->meta_args = NULL;
+		pr->alias = NULL;
 	}
 
 	return true;
@@ -1747,7 +1713,7 @@ static rule *assert_begin(module *m, unsigned nbr_vars, cell *p1, bool consultin
 
 			if (!tmp_m) {
 				if (consulting)
-					fprintf(stdout, "Error: existence error module %s:(%s)/%u\n", name, C_STR(m, c), c->arity);
+					fprintf_to_stream(m->pl, ERROR_FP, "Error: existence error module %s:(%s)/%u\n", name, C_STR(m, c), c->arity);
 
 				return NULL;
 			} else
@@ -1767,7 +1733,7 @@ static rule *assert_begin(module *m, unsigned nbr_vars, cell *p1, bool consultin
 
 			if (!is_callable(c) || is_iso_list(c)) {
 				if (consulting)
-					fprintf(stdout, "Error: not callable %s:(%s)/%u\n", m->name, C_STR(m, c), c->arity);
+					fprintf_to_stream(m->pl, ERROR_FP, "Error: not callable %s:(%s)/%u\n", m->name, C_STR(m, c), c->arity);
 
 				return NULL;
 			}
@@ -1778,7 +1744,7 @@ static rule *assert_begin(module *m, unsigned nbr_vars, cell *p1, bool consultin
 
 			if (!tmp_m) {
 				if (consulting)
-					fprintf(stdout, "Error: extistence error module %s:(%s)/%u\n", name, C_STR(m, c), c->arity);
+					fprintf_to_stream(m->pl, ERROR_FP, "Error: extistence error module %s:(%s)/%u\n", name, C_STR(m, c), c->arity);
 
 				return NULL;
 			} else
@@ -1786,7 +1752,7 @@ static rule *assert_begin(module *m, unsigned nbr_vars, cell *p1, bool consultin
 
 			if (!is_callable(p1+2) || is_iso_list(p1+2)) {
 				if (consulting)
-					fprintf(stdout, "Error: not callable %s:(%s)/%u\n", m->name, C_STR(m, c), c->arity);
+					fprintf_to_stream(m->pl, ERROR_FP, "Error: not callable %s:(%s)/%u\n", m->name, C_STR(m, c), c->arity);
 
 				return NULL;
 			}

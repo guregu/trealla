@@ -957,15 +957,15 @@ static bool directives(parser *p, cell *d)
 						return true;
 					}
 
-					//char tmpbuf[1024];
-					//snprintf(tmpbuf, sizeof(tmpbuf), "imported_from(%s)", p->m->name);
-					//push_property(save_m, C_STR(p, &tmp), tmp.arity, tmpbuf);
-					//push_property(save_m, C_STR(p, &tmp), tmp.arity, "static");
-					//push_property(save_m, C_STR(p, &tmp), tmp.arity, "visible");
-					//push_property(save_m, C_STR(p, &tmp), tmp.arity, "interpreted");
 					pr->is_public = true;
 				} else if (!strcmp(C_STR(p, head), "op") && (head->arity == 3)) {
 					do_op(p, head, true);
+				} else {
+					if (DUMP_ERRS || !p->do_read_term)
+						fprintf_to_stream(p->pl, ERROR_FP, "Error: predicate export failed, '%s' in %s:%d\n", C_STR(p, head), get_loaded(p->m, p->m->filename), p->line_nbr);
+
+					p->error = true;
+					return true;
 				}
 			}
 
@@ -1479,7 +1479,7 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 		c->var_nbr += start;
 
 		if (c->var_nbr == MAX_VARS) {
-			fprintf(stdout, "Error: max vars reached, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
+			fprintf_to_stream(p->pl, ERROR_FP, "Error: max vars reached, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
 			p->error = true;
 			return;
 		}
