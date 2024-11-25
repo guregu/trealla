@@ -5,7 +5,6 @@
 #include <string.h>
 #include <time.h>
 
-#include "heap.h"
 #include "module.h"
 #include "network.h"
 #include "parser.h"
@@ -489,6 +488,7 @@ void try_me(query *q, unsigned nbr_vars)
 	frame *f = GET_NEW_FRAME();
 	f->initial_slots = f->actual_slots = nbr_vars;
 	f->base = q->st.sp;
+	f->no_tco = false;
 	slot *e = GET_SLOT(f, 0);
 	memset(e, 0, sizeof(slot)*nbr_vars);
 	q->tot_matches++;
@@ -546,39 +546,43 @@ static frame *push_frame(query *q, const clause *cl)
 	const cell *next_cell = q->st.curr_instr + q->st.curr_instr->nbr_cells;
 	pl_idx new_frame = q->st.fp++;
 	frame *f = GET_FRAME(new_frame);
-
-	// Avoid long chains of useless returns...
-
-	if (is_end(next_cell) && !next_cell->ret_instr && curr_f->curr_instr) {
-		f->prev_offset = (new_frame - q->st.curr_frame) + curr_f->prev_offset;
-		f->curr_instr = curr_f->curr_instr;
-	} else {
-		f->prev_offset = new_frame - q->st.curr_frame;
-		f->curr_instr = q->st.curr_instr;
-	}
-
+	f->prev = q->st.curr_frame;
+	f->curr_instr = q->st.curr_instr;
 	f->initial_slots = f->actual_slots = cl->nbr_vars;
 	f->chgen = ++q->chgen;
-	f->heap_nbr = q->st.heap_nbr;
-	f->hp = q->st.hp;
+	f->has_local_vars = cl->has_local_vars;
+	f->no_tco = q->no_tco;
 	f->overflow = 0;
-
 	q->st.sp += cl->nbr_vars;
 	q->st.curr_frame = new_frame;
 	return f;
 }
 
-static void trim_slots(query *q)
+static void reuse_frame(query *q, const clause *cl)
 {
-	const frame *f = GET_CURR_FRAME();
+	cell *c_next = q->st.curr_instr + q->st.curr_instr->nbr_cells;
 
-	for (unsigned i = 0; i < f->actual_slots; i++) {
-		slot *e = GET_SLOT(f, i);
-		cell *c = &e->c;
-		unshare_cell(c);
-		c->tag = TAG_EMPTY;
-		c->attrs = NULL;
+	if (c_next->val_off == g_sys_drop_barrier_s)
+		drop_choice(q);
+
+	frame *f = GET_CURR_FRAME();
+	f->initial_slots = f->actual_slots = cl->nbr_vars;
+	f->chgen = ++q->chgen;
+	f->overflow = 0;
+
+	const frame *newf = GET_FRAME(q->st.fp);
+	const slot *from = GET_SLOT(newf, 0);
+	slot *to = GET_SLOT(f, 0);
+
+	for (pl_idx i = 0; i < cl->nbr_vars; i++, from++, to++) {
+		unshare_cell(&to->c);
+		to->c = from->c;
 	}
+
+	q->st.sp = f->base + cl->nbr_vars;
+	q->st.curr_rule->tcos++;
+	q->tot_tcos++;
+	trim_heap(q);
 }
 
 static void trim_trail(query *q)
@@ -604,41 +608,9 @@ static void trim_trail(query *q)
 	}
 }
 
-static void reuse_frame(query *q, const clause *cl)
-{
-	cell *c_next = q->st.curr_instr + q->st.curr_instr->nbr_cells;
-
-	if (c_next->val_off == g_sys_drop_barrier_s)
-		drop_choice(q);
-
-	frame *f = GET_CURR_FRAME();
-	f->initial_slots = f->actual_slots = cl->nbr_vars;
-	f->chgen = ++q->chgen;
-	f->heap_nbr = q->st.heap_nbr;
-	f->hp = q->st.hp;
-	f->overflow = 0;
-
-	const frame *newf = GET_FRAME(q->st.fp);
-	const slot *from = GET_SLOT(newf, 0);
-	slot *to = GET_SLOT(f, 0);
-
-	for (pl_idx i = 0; i < cl->nbr_vars; i++, from++, to++) {
-		cell *c = &to->c;
-		unshare_cell(c);
-		to->c = from->c;
-	}
-
-	q->st.sp = f->base + cl->nbr_vars;
-	q->st.heap_nbr = f->heap_nbr;
-	q->st.hp = f->hp;
-	q->st.curr_rule->tcos++;
-	q->tot_tcos++;
-	trim_heap(q);
-}
-
 static bool commit_any_choices(const query *q, const frame *f)
 {
-	if (q->cp <= 1)
+	if (q->cp == 1)							// Skip in-progress choice
 		return false;
 
 	const choice *ch = GET_PREV_CHOICE();	// Skip in-progress choice
@@ -667,8 +639,8 @@ static void commit_frame(query *q)
 
 	if (!q->no_tco
 		&& last_match
-		&& (q->st.fp == (q->st.curr_frame + 1))
-		&& !q->st.m->no_tco	// For CLPZ
+		&& (q->st.fp == (q->st.curr_frame + 1))	// At top of frame stack
+		&& !q->st.m->no_tco						// For CLPZ
 		) {
 		bool tail_call = is_tail_call(q->st.curr_instr);
 		bool tail_recursive = tail_call && is_recursive_call(q->st.curr_instr);
@@ -686,20 +658,6 @@ static void commit_frame(query *q)
 			next_key, tail_call, tail_recursive, slots_ok, choices,
 			cl->nbr_vars, f->initial_slots, f->actual_slots);
 #endif
-	}
-
-	// Matching a ground fact (see disjunction in bif_control.c)...
-
-	if (q->pl->opt && last_match && !body
-		&& !q->no_fact && !cl->nbr_vars
-		) {
-		leave_predicate(q, q->st.pr);
-		drop_choice(q);
-		//trim_trail(q);
-		Trace(q, head, q->st.curr_frame, EXIT);
-		q->st.curr_instr += q->st.curr_instr->nbr_cells;
-		q->st.iter = NULL;
-		return;
 	}
 
 	if (!q->st.curr_rule->owner->is_builtin)
@@ -744,7 +702,7 @@ void stash_frame(query *q, const clause *cl, bool last_match)
 	if (nbr_vars) {
 		pl_idx new_frame = q->st.fp++;
 		frame *f = GET_FRAME(new_frame);
-		f->prev_offset = new_frame - q->st.curr_frame;
+		f->prev = q->st.curr_frame;
 		f->curr_instr = NULL;
 		f->chgen = chgen;
 		f->overflow = 0;
@@ -876,7 +834,7 @@ void cut(query *q)
 
 static bool resume_any_choices(const query *q, const frame *f)
 {
-	if (q->cp == 0)
+	if (!q->cp)
 		return false;
 
 	const choice *ch = GET_CURR_CHOICE();
@@ -889,11 +847,21 @@ static bool resume_frame(query *q)
 {
 	const frame *f = GET_CURR_FRAME();
 
-	if (!f->prev_offset)
+	if (f->prev == (pl_idx)-1)
 		return false;
 
+	if (q->pl->opt
+		&& !f->no_tco
+		&& !f->has_local_vars
+		&& (q->st.fp == (q->st.curr_frame + 1))
+		&& !resume_any_choices(q, f)
+		) {
+		q->st.sp -= f->actual_slots;
+		q->st.fp--;
+	}
+
 	q->st.curr_instr = f->curr_instr;
-	q->st.curr_frame = q->st.curr_frame - f->prev_offset;
+	q->st.curr_frame = f->prev;
 	f = GET_CURR_FRAME();
 	q->st.m = q->pl->modmap[f->mid];
 	return true;
@@ -904,21 +872,19 @@ static bool resume_frame(query *q)
 static void proceed(query *q)
 {
 	q->st.curr_instr += q->st.curr_instr->nbr_cells;
-	frame *f = GET_CURR_FRAME();
 
-	// Loop here to avoid chains of last calls...
+	if (!is_end(q->st.curr_instr))
+		return;
 
-	while (is_end(q->st.curr_instr)) {
-		cell *tmp = q->st.curr_instr;
+	cell *tmp = q->st.curr_instr;
 
-		if (tmp->ret_instr) {
-			f->chgen = tmp->chgen;
-			q->st.m = q->pl->modmap[tmp->mid];
-		}
-
-		if (!(q->st.curr_instr = tmp->ret_instr))
-			break;
+	if (tmp->ret_instr) {
+		frame *f = GET_CURR_FRAME();
+		f->chgen = tmp->chgen;
+		q->st.m = q->pl->modmap[tmp->mid];
 	}
+
+	q->st.curr_instr = tmp->ret_instr;
 }
 
 #define MAX_LOCAL_VARS (1L<<30)
@@ -1807,7 +1773,7 @@ bool execute(query *q, cell *cells, unsigned nbr_vars)
 
 	q->cp = 0;
 
-	frame *f = q->frames + q->st.curr_frame;
+	frame *f = q->frames;
 	f->initial_slots = f->actual_slots = nbr_vars;
 	f->dbgen = ++q->pl->dbgen;
 	return start(q);
@@ -1939,6 +1905,9 @@ query *query_create(module *m)
 
 	for (int i = 0; i < MAX_QUEUES; i++)
 		q->q_size[i] = INITIAL_NBR_QUEUE_CELLS;
+
+	frame *f = GET_CURR_FRAME();
+	f->prev = (pl_idx)-1;
 
 	clear_write_options(q);
 	return q;

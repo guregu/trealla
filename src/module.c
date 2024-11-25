@@ -503,7 +503,7 @@ static int predicate_cmpkey(const void *ptr1, const void *ptr2, const void *para
 	if (p1->val_off == p2->val_off)
 		return 0;
 
-	return strcmp(g_pool+p1->val_off, g_pool+p2->val_off);
+	return strcmp(g_global_atoms+p1->val_off, g_global_atoms+p2->val_off);
 }
 
 static int index_cmpkey_(const void *ptr1, const void *ptr2, const void *param, void *l)
@@ -917,7 +917,9 @@ static bool do_use_module(module *curr_m, cell *c, module **mptr)
 
 static bool do_import_predicate(module *curr_m, module *m, predicate *pr, cell *as)
 {
-	if (find_predicate(curr_m, as)
+	predicate *tmp_pr;
+
+	if (((tmp_pr = find_predicate(curr_m, as)) != NULL)
 		&& (curr_m != pr->m)
 		&& strcmp(pr->m->name, "format")			// Hack???
 		// wasm:ask_js/2 ends up becoming the curr_m too much
@@ -1067,7 +1069,7 @@ bool do_use_foreign_module(module *m, cell *p)
 	void *handle = do_dlopen(name, 0);
 
 	if (!handle) {
-		fprintf(stdout, "Error: foreign module creation failed: %s, %s\n", name, get_loaded(m, m->filename));
+		fprintf(stderr, "Error: foreign module creation failed: %s, %s\n", name, get_loaded(m, m->filename));
 		m->error = true;
 		return false;
 	}

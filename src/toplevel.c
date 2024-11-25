@@ -2,7 +2,6 @@
 #include <stdio.h>
 #include <signal.h>
 
-#include "heap.h"
 #include "history.h"
 #include "module.h"
 #include "prolog.h"
@@ -24,11 +23,11 @@ static void show_goals(query *q, int nbr)
 		q->quoted = false;
 		printf("\n");
 
-		if (!f->prev_offset)
+		if (f->prev == (pl_idx)-1)
 			break;
 
 		c = f->curr_instr;
-		c_ctx = q->st.curr_frame - f->prev_offset;
+		c_ctx = f->prev;
 		f = GET_FRAME(c_ctx);
 	}
 }
@@ -353,9 +352,9 @@ void dump_vars(query *q, bool partial)
 	for (unsigned i = 0; i < p->nbr_vars; i++) {
 		int j;
 
-		if ((p->vartab.var_name[i][0] == '_')
-			&& isalpha(p->vartab.var_name[i][1])
-			&& ((j = varunformat(p->vartab.var_name[i]+1)) != -1))
+		if ((p->vartab.name[i][0] == '_')
+			&& isalpha(p->vartab.name[i][1])
+			&& ((j = varunformat(p->vartab.name[i]+1)) != -1))
 			q->ignores[j] = true;
 	}
 
@@ -366,7 +365,7 @@ void dump_vars(query *q, bool partial)
 	for (unsigned i = 0; i < p->nbr_vars; i++) {
 		cell tmp[3];
 		make_struct(tmp, g_eq_s, NULL, 2, 2);
-		make_atom(tmp+1, new_atom(q->pl, p->vartab.var_name[i]));
+		make_atom(tmp+1, new_atom(q->pl, p->vartab.name[i]));
 		make_var(tmp+2, g_anon_s, i);
 		append_list(q, tmp);
 	}
@@ -379,13 +378,13 @@ void dump_vars(query *q, bool partial)
 	q->print_idx = 0;
 
 	for (unsigned i = 0; i < p->nbr_vars; i++) {
-		if (!strcmp(p->vartab.var_name[i], "__G_"))
+		if (!strcmp(p->vartab.name[i], "__G_"))
 			continue;
 
-		if (!strcmp(p->vartab.var_name[i], "_"))
+		if (!strcmp(p->vartab.name[i], "_"))
 			continue;
 
-		if (p->vartab.var_name[i][0] == '_')
+		if (p->vartab.name[i][0] == '_')
 			continue;
 
 		slot *e = GET_SLOT(f, i);
@@ -402,7 +401,7 @@ void dump_vars(query *q, bool partial)
 			continue;
 
 		if (is_ref(c)) {
-			if (p->vartab.var_name[c->var_nbr][0] == '_')
+			if (p->vartab.name[c->var_nbr][0] == '_')
 				continue;
 		}
 
@@ -416,14 +415,14 @@ void dump_vars(query *q, bool partial)
 			fprintf(stdout, " ");
 
 		if (is_rational(c))
-			fprintf(stdout, "%s is ", p->vartab.var_name[i]);
+			fprintf(stdout, "%s is ", p->vartab.name[i]);
 		else
-			fprintf(stdout, "%s = ", p->vartab.var_name[i]);
+			fprintf(stdout, "%s = ", p->vartab.name[i]);
 
 		int j = check_duplicate_result(q, i, c, c_ctx);
 
 		if ((j >= 0) && ((unsigned)j != i)) {
-			fprintf(stdout, "%s", p->vartab.var_name[j]);
+			fprintf(stdout, "%s", p->vartab.name[j]);
 			any = true;
 			continue;
 		}

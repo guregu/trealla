@@ -8,7 +8,6 @@
 #include <string.h>
 #include <time.h>
 
-#include "heap.h"
 #include "module.h"
 #include "network.h"
 #include "parser.h"
@@ -465,8 +464,8 @@ static void print_variable(query *q, cell *c, pl_idx c_ctx, bool running)
 		: (pl_idx)c->var_nbr;
 
 	if (q->varnames && !is_anon(c) && running && !q->cycle_error && (c_ctx == 0)) {
-		if (q->varnames && q->p->vartab.var_name[c->var_nbr] && !is_fresh(c)) {
-			SB_sprintf(q->sb, "%s", q->p->vartab.var_name[c->var_nbr]);
+		if (q->varnames && q->p->vartab.name[c->var_nbr] && !is_fresh(c)) {
+			SB_sprintf(q->sb, "%s", q->p->vartab.name[c->var_nbr]);
 		} else {
 			SB_sprintf(q->sb, "%s", get_slot_name(q, slot_nbr));
 		}
@@ -474,7 +473,7 @@ static void print_variable(query *q, cell *c, pl_idx c_ctx, bool running)
 		SB_sprintf(q->sb, "%s", get_slot_name(q, slot_nbr));
 	} else if (q->is_dump_vars) {
 		if ((c_ctx == 0) && (c->var_nbr < q->p->nbr_vars)) {
-			SB_sprintf(q->sb, "%s", q->p->vartab.var_name[c->var_nbr]);
+			SB_sprintf(q->sb, "%s", q->p->vartab.name[c->var_nbr]);
 		} else {
 			SB_sprintf(q->sb, "_%s", get_slot_name(q, slot_nbr));
 		}
@@ -624,7 +623,7 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 			pl_idx v_ctx = c_ctx;
 
 			if (q->portray_vars || q->do_dump_vars) {
-				SB_sprintf(q->sb, "%s", q->p->vartab.var_name[q->dump_var_nbr]);
+				SB_sprintf(q->sb, "%s", q->p->vartab.name[q->dump_var_nbr]);
 			} else {
 				SB_sprintf(q->sb, "%s", "...");
 			}
@@ -632,15 +631,9 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 			bool special_op = false;
 
 			if (is_interned(head)) {
-				special_op = (						// TODO: Change to use priority >
-					!strcmp(C_STR(q, head), ",")
-					|| !strcmp(C_STR(q, head), "|")
-					|| !strcmp(C_STR(q, head), ";")
-					|| !strcmp(C_STR(q, head), ":-")
-					|| !strcmp(C_STR(q, head), "?-")
-					|| !strcmp(C_STR(q, head), "->")
-					|| !strcmp(C_STR(q, head), "*->")
-					|| !strcmp(C_STR(q, head), "-->"));
+				unsigned specifier = 0;
+				unsigned priority = match_op(q->st.m, C_STR(q, head), &specifier, head->arity);
+				special_op = (priority >= 1000);
 			}
 
 			visit me = {.next = visited, .c = head, .c_ctx = head_ctx};
@@ -694,8 +687,8 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 			}
 
 			if (q->portray_vars || q->do_dump_vars) {
-				//SB_sprintf(q->sb, "%s", q->p->vartab.var_name[q->dump_var_nbr]);
-				SB_sprintf(q->sb, "%s", q->p->vartab.var_name[v.var_nbr]);
+				//SB_sprintf(q->sb, "%s", q->p->vartab.name[q->dump_var_nbr]);
+				SB_sprintf(q->sb, "%s", q->p->vartab.name[v.var_nbr]);
 				//print_variable(q, save_head, save_head_ctx, running);
 			} else {
 				SB_sprintf(q->sb, "%s", "...");
@@ -1196,7 +1189,8 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 
 		bool space = (c->val_off == g_minus_s) && (is_number(lhs) || is_op_lhs);
 		if ((c->val_off == g_plus_s) && is_op_lhs) space = true;
-		if (isalpha(*src)) space = true;
+		int ch = peek_char_utf8(src);
+		if (iswalpha(ch)) space = true;
 
 		if (q->is_dump_vars && has_visited(visited, lhs, lhs_ctx)) {
 			if (q->is_dump_vars) {
@@ -1246,7 +1240,8 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 
 		bool space = (c->val_off == g_minus_s) && (is_number(rhs) || is_op_rhs);
 		if ((c->val_off == g_plus_s) && is_op_rhs) space = true;
-		if (isalpha(*src)) space = true;
+		int ch = peek_char_utf8(src);
+		if (iswalpha(ch)) space = true;
 		if (/*is_op_rhs ||*/ is_negative(rhs) || is_float(rhs)) space = true;
 		if (is_interned(rhs) && !iswalpha(peek_char_utf8(rhs_src)) && !is_op(rhs)) space = true;
 

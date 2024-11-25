@@ -2,7 +2,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "heap.h"
 #include "network.h"
 #include "prolog.h"
 #include "query.h"
@@ -684,7 +683,7 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 			if (!tmpbuf_free && str->fp) {
 				if (feof(str->fp) || ferror(str->fp)) {
 					free(tmpbuf);
-					fprintf(stdout, "Error: end of file on write\n");
+					fprintf(stderr, "Error: end of file on write\n");
 					return false;
 				}
 				clearerr(str->fp);

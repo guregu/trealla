@@ -1,7 +1,5 @@
 #pragma once
 
-#include "internal.h"
-
 #define NOPREFIX_LEN 0
 #define PREFIX_LEN 1
 
@@ -21,7 +19,6 @@ cell *alloc_on_heap(query *q, unsigned nbr_cells);
 cell *alloc_on_tmp(query *q, unsigned nbr_cells);
 cell *alloc_on_queuen(query *q, unsigned qnbr, const cell *c);
 
-unsigned rebase_term(query *q, cell *c, unsigned start_nbr);
 void trim_heap(query *q);
 
 cell *init_tmp_heap(query *q);
@@ -35,6 +32,9 @@ cell *deep_copy_to_heap_with_replacement(query *q, cell *p1, pl_idx p1_ctx, bool
 #define tmp_heap_used(q) (q)->tmphp
 
 void fix_list(cell *c);
+unsigned rebase_term(query *q, cell *c, unsigned start_nbr);
+
+// These allocate on the heap...
 
 void allocate_structure(query *q, const char *functor, const cell *c);
 void append_structure(query *q, const cell *c);
@@ -42,5 +42,5 @@ cell *end_structure(query *q);
 
 void allocate_list(query *q, const cell *c);
 void append_list(query *q, const cell *c);
-cell *end_list(query *q);
 cell *end_list_unsafe(query *q);
+cell *end_list(query *q);

@@ -111,43 +111,6 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 
 #define is_iso_atom(c) ((is_interned(c) || is_cstring(c)) && !(c)->arity)
 #define is_iso_list(c) (is_interned(c) && ((c)->arity == 2) && ((c)->val_off == g_dot_s))
-
-#define get_list_head(c) ((c) + 1)
-#define get_list_tail(c) (get_list_head(c) + get_list_head(c)->nbr_cells)
-
-#define get_float(c) (c)->val_float
-#define set_float(c,v) (c)->val_float = (v)
-#define get_smallint(c) (c)->val_int
-#define set_smallint(c,v) (c)->val_int = (v)
-#define get_smalluint(c) (c)->val_uint
-#define set_smalluint(c,v) (c)->val_uint = (v)
-
-#define neg_bigint(c) (c)->val_bigint->ival.sign = MP_NEG
-#define neg_smallint(c) (c)->val_int = -llabs((c)->val_int)
-#define neg_float(c) (c)->val_float = -fabs((c)->val_float)
-
-#define is_zero(c) (is_bigint(c) ?							\
-	mp_int_compare_zero(&(c)->val_bigint->ival) == 0 :		\
-	is_smallint(c) ? get_smallint(c) == 0 :					\
-	is_float(c) ? get_float(c) == 0.0 : false)
-
-#define is_negative(c) (is_bigint(c) ?						\
-	(c)->val_bigint->ival.sign == MP_NEG :					\
-	is_smallint(c) ? get_smallint(c) < 0 :					\
-	is_float(c) ? get_float(c) < 0.0 : false)
-
-#define is_positive(c) (is_bigint(c) ?						\
-	mp_int_compare_zero(&(c)->val_bigint->ival) > 0 :		\
-	is_smallint(c) ? get_smallint(c) > 0 :					\
-	is_float(c) ? get_float(c) > 0.0 : false)
-
-#define is_gt(c,n) (get_smallint(c) > (n))
-#define is_ge(c,n) (get_smallint(c) >= (n))
-#define is_eq(c,n) (get_smallint(c) == (n))
-#define is_ne(c,n) (get_smallint(c) != (n))
-#define is_le(c,n) (get_smallint(c) <= (n))
-#define is_lt(c,n) (get_smallint(c) < (n))
-
 #define is_smallint(c) (is_integer(c) && !((c)->flags & FLAG_MANAGED))
 #define is_bigint(c) (is_integer(c) && ((c)->flags & FLAG_MANAGED))
 #define is_boolean(c) ((is_interned(c) && !(c)->arity && (((c)->val_off == g_true_s) || ((c)->val_off == g_false_s))))
@@ -179,7 +142,44 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define is_iso_atomic(c) (is_iso_atom(c) || is_number(c))
 #define is_nonvar(c) !is_var(c)
 
-extern char *g_pool;
+#define is_gt(c,n) (get_smallint(c) > (n))
+#define is_ge(c,n) (get_smallint(c) >= (n))
+#define is_eq(c,n) (get_smallint(c) == (n))
+#define is_ne(c,n) (get_smallint(c) != (n))
+#define is_le(c,n) (get_smallint(c) <= (n))
+#define is_lt(c,n) (get_smallint(c) < (n))
+
+#define get_list_head(c) ((c) + 1)
+#define get_list_tail(c) (get_list_head(c) + get_list_head(c)->nbr_cells)
+
+#define get_float(c) (c)->val_float
+#define set_float(c,v) (c)->val_float = (v)
+#define get_smallint(c) (c)->val_int
+#define set_smallint(c,v) (c)->val_int = (v)
+#define get_smalluint(c) (c)->val_uint
+#define set_smalluint(c,v) (c)->val_uint = (v)
+
+#define neg_bigint(c) (c)->val_bigint->ival.sign = MP_NEG
+#define neg_smallint(c) (c)->val_int = -llabs((c)->val_int)
+#define neg_float(c) (c)->val_float = -fabs((c)->val_float)
+
+#define is_zero(c) (is_bigint(c) ?							\
+	mp_int_compare_zero(&(c)->val_bigint->ival) == 0 :		\
+	is_smallint(c) ? get_smallint(c) == 0 :					\
+	is_float(c) ? get_float(c) == 0.0 : false)
+
+#define is_negative(c) (is_bigint(c) ?						\
+	(c)->val_bigint->ival.sign == MP_NEG :					\
+	is_smallint(c) ? get_smallint(c) < 0 :					\
+	is_float(c) ? get_float(c) < 0.0 : false)
+
+#define is_positive(c) (is_bigint(c) ?						\
+	mp_int_compare_zero(&(c)->val_bigint->ival) > 0 :		\
+	is_smallint(c) ? get_smallint(c) > 0 :					\
+	is_float(c) ? get_float(c) > 0.0 : false)
+
+
+extern char *g_global_atoms;
 
 typedef pl_atomic int64_t pl_refcnt;
 
@@ -212,12 +212,12 @@ typedef struct {
 	)
 
 #define _C_STR(pl,c) 											\
-	( !is_cstring(c) ? (g_pool + (c)->val_off)					\
+	( !is_cstring(c) ? (g_global_atoms + (c)->val_off)					\
 	: _CSTRING_STR(c) 											\
 	)
 
 #define _C_STRLEN(pl,c) 										\
-	( !is_cstring(c) ? strlen(g_pool + (c)->val_off)			\
+	( !is_cstring(c) ? strlen(g_global_atoms + (c)->val_off)			\
 	: _CSTRING_LEN(c)											\
 	)
 
@@ -225,7 +225,7 @@ typedef struct {
 #define C_STRLEN(x,c) _C_STRLEN((x)->pl, c)
 #define C_STRLEN_UTF8(c) substrlen_utf8(C_STR(q, c), C_STRLEN(q, c))
 
-#define GET_POOL(x,off) (g_pool + (off))
+#define GET_POOL(x,off) (g_global_atoms + (off))
 
 #define _CMP_SLICE(pl,c,str,len) slicecmp(_C_STR(pl, c), _C_STRLEN(pl, c), str, len)
 #define _CMP_SLICE2(pl,c,str) slicecmp2(_C_STR(pl, c), _C_STRLEN(pl, c), str)
@@ -408,7 +408,7 @@ struct cell_ {
 		};
 
 		struct {
-			cell *ret_instr;				// used with TAG_EMPTY saves
+			cell *ret_instr;			// used with TAG_EMPTY saves
 			uint64_t chgen;				// choice generation on call
 		};
 	};
@@ -516,7 +516,7 @@ struct slot_ {
 	uint32_t vgen, vgen2;
 };
 
-// Where 'prev_offset' is the number of frames back
+// Where 'prev' is the previous frame
 // Where *initial_slots* is the initial number allocated
 // Where *actual_slots* is the actual number in use (some maybe created)
 // Where *base* is the offset to first slot in use
@@ -525,10 +525,11 @@ struct slot_ {
 struct frame_ {
 	cell *curr_instr;
 	uint64_t dbgen, chgen;
-	pl_idx prev_offset, heap_nbr, hp;
-	pl_idx base, overflow;
+	pl_idx prev, base, overflow;
 	unsigned initial_slots, actual_slots;
 	uint32_t mid;
+	bool has_local_vars:1;
+	bool no_tco:1;
 };
 
 struct run_state_ {
@@ -722,7 +723,6 @@ struct query_ {
 	bool portray_vars:1;
 	bool status:1;
 	bool no_tco:1;
-	bool no_fact:1;
 	bool has_vars:1;
 	bool error:1;
 	bool did_throw:1;
@@ -758,9 +758,9 @@ struct query_ {
 
 struct parser_ {
 	struct {
-		char var_pool[MAX_VAR_POOL_SIZE];
-		unsigned var_used[MAX_VARS];
-		const char *var_name[MAX_VARS];
+		char pool[MAX_VAR_POOL_SIZE];
+		unsigned used[MAX_VARS];
+		const char *name[MAX_VARS];
 		uint8_t vars[MAX_VARS];
 		bool in_body[MAX_VARS];
 		bool in_head[MAX_VARS];

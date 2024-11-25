@@ -1,11 +1,7 @@
 #include <ctype.h>
-#include <ctype.h>
 #include <errno.h>
 #include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
 
-#include "heap.h"
 #include "prolog.h"
 #include "query.h"
 
@@ -352,8 +348,8 @@ cell *prepare_call(query *q, bool prefix, cell *p1, pl_idx p1_ctx, unsigned extr
 	if (!tmp) return NULL;
 
 	if (prefix) {
-		// Needed for follow() to work
-		make_struct(tmp, g_true_s, bif_iso_true_0, 0, 0);
+		// Placeholder needed for follow() to work, get's skipped
+		make_struct(tmp, g_dummy_s, bif_iso_true_0, 0, 0);
 	}
 
 	cell *dst = tmp + (prefix ? PREFIX_LEN : NOPREFIX_LEN);

@@ -5,7 +5,6 @@
 #include <string.h>
 #include <time.h>
 
-#include "heap.h"
 #include "module.h"
 #include "parser.h"
 #include "prolog.h"
@@ -17,21 +16,6 @@
 
 static const unsigned INITIAL_NBR_CELLS = 1000;
 const char *g_solo = "!(){}[]|,;`'\"";
-
-static void *make_string_internal(cell *c, const char *s, size_t n, size_t off)
-{
-	strbuf *strb = malloc(sizeof(strbuf) + n + 1);
-	if (!strb) return NULL;
-	memcpy(strb->cstr, s, n);
-	strb->cstr[n] = 0;
-	strb->len = n;
-	strb->refcnt = 1;
-	c->val_strb = strb;
-	c->strb_off = off;
-	c->strb_len = n;
-	c->flags |= FLAG_MANAGED | FLAG_CSTR_BLOB;
-	return strb;
-}
 
 char *slicedup(const char *s, size_t n)
 {
@@ -135,6 +119,21 @@ size_t slicecpy(char *dst, size_t dstlen, const char *src, size_t len)
 
 	*dst = '\0';
 	return dst - save;
+}
+
+static void *make_string_internal(cell *c, const char *s, size_t n, size_t off)
+{
+	strbuf *strb = malloc(sizeof(strbuf) + n + 1);
+	if (!strb) return NULL;
+	memcpy(strb->cstr, s, n);
+	strb->cstr[n] = 0;
+	strb->len = n;
+	strb->refcnt = 1;
+	c->val_strb = strb;
+	c->strb_off = off;
+	c->strb_len = n;
+	c->flags |= FLAG_MANAGED | FLAG_CSTR_BLOB;
+	return strb;
 }
 
 bool make_cstringn(cell *d, const char *s, size_t n)
@@ -897,7 +896,7 @@ static bool directives(parser *p, cell *d)
 
 			if ((tmp_m = find_module(p->m->pl, name)) != NULL) {
 				//if (DUMP_ERRS || !p->do_read_term)
-				//	fprintf(stdout, "Error: module already loaded: %s, %s:%d\n", name, get_loaded(p->m, p->m->filename), p->line_nbr);
+				//	fprintf(stderr, "Error: module already loaded: %s, %s:%d\n", name, get_loaded(p->m, p->m->filename), p->line_nbr);
 				//
 				p->already_loaded_error = true;
 				p->m = tmp_m;
@@ -908,7 +907,7 @@ static bool directives(parser *p, cell *d)
 
 			if (!tmp_m) {
 				if (DUMP_ERRS || !p->do_read_term)
-					fprintf(stdout, "Error: module creation failed: %s, %s:%d\n", name, get_loaded(p->m, p->m->filename), p->line_nbr);
+					fprintf(stderr, "Error: module creation failed: %s, %s:%d\n", name, get_loaded(p->m, p->m->filename), p->line_nbr);
 
 				p->error = true;
 				return true;
@@ -1309,8 +1308,8 @@ static pl_idx get_varno(parser *p, const char *src, bool in_body)
 	size_t offset = 0;
 	unsigned i = 0;
 
-	while (p->vartab.var_pool[offset]) {
-		if (!strcmp(p->vartab.var_pool+offset, src) && !anon) {
+	while (p->vartab.pool[offset]) {
+		if (!strcmp(p->vartab.pool+offset, src) && !anon) {
 			if (in_body)
 				p->vartab.in_body[i] = true;
 
@@ -1320,7 +1319,7 @@ static pl_idx get_varno(parser *p, const char *src, bool in_body)
 			return i;
 		}
 
-		offset += strlen(p->vartab.var_pool+offset) + 1;
+		offset += strlen(p->vartab.pool+offset) + 1;
 		i++;
 	}
 
@@ -1332,7 +1331,7 @@ static pl_idx get_varno(parser *p, const char *src, bool in_body)
 		return 0;
 	}
 
-	memcpy(p->vartab.var_pool+offset, src, len+1);
+	memcpy(p->vartab.pool+offset, src, len+1);
 
 	if (in_body)
 		p->vartab.in_body[i] = true;
@@ -1343,36 +1342,36 @@ static pl_idx get_varno(parser *p, const char *src, bool in_body)
 	return i;
 }
 
-static bool get_in_body(parser *p, const char *var_name)
+static bool get_in_body(parser *p, const char *name)
 {
-	bool anon = !strcmp(var_name, "_");
+	bool anon = !strcmp(name, "_");
 	size_t offset = 0;
 	unsigned i = 0;
 
-	while (p->vartab.var_pool[offset]) {
-		if (!strcmp(p->vartab.var_pool+offset, var_name) && !anon) {
+	while (p->vartab.pool[offset]) {
+		if (!strcmp(p->vartab.pool+offset, name) && !anon) {
 			return p->vartab.in_body[i];
 		}
 
-		offset += strlen(p->vartab.var_pool+offset) + 1;
+		offset += strlen(p->vartab.pool+offset) + 1;
 		i++;
 	}
 
 	return false;
 }
 
-static bool get_in_head(parser *p, const char *var_name)
+static bool get_in_head(parser *p, const char *name)
 {
-	bool anon = !strcmp(var_name, "_");
+	bool anon = !strcmp(name, "_");
 	size_t offset = 0;
 	unsigned i = 0;
 
-	while (p->vartab.var_pool[offset]) {
-		if (!strcmp(p->vartab.var_pool+offset, var_name) && !anon) {
+	while (p->vartab.pool[offset]) {
+		if (!strcmp(p->vartab.pool+offset, name) && !anon) {
 			return p->vartab.in_head[i];
 		}
 
-		offset += strlen(p->vartab.var_pool+offset) + 1;
+		offset += strlen(p->vartab.pool+offset) + 1;
 		i++;
 	}
 
@@ -1444,9 +1443,9 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 			return;
 		}
 
-		p->vartab.var_name[c->var_nbr] = C_STR(p, c);
+		p->vartab.name[c->var_nbr] = C_STR(p, c);
 
-		if (p->vartab.var_used[c->var_nbr]++ == 0) {
+		if (p->vartab.used[c->var_nbr]++ == 0) {
 			cl->nbr_vars++;
 			p->nbr_vars++;
 		}
@@ -1484,9 +1483,9 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 			return;
 		}
 
-		p->vartab.var_name[c->var_nbr] = C_STR(p, c);
+		p->vartab.name[c->var_nbr] = C_STR(p, c);
 
-		if (p->vartab.var_used[c->var_nbr]++ == 0) {
+		if (p->vartab.used[c->var_nbr]++ == 0) {
 			cl->nbr_vars++;
 			p->nbr_vars++;
 		}
@@ -1522,9 +1521,9 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 	for (unsigned i = 0; i < cl->nbr_vars; i++) {
 		if (!p->vartab.in_body[i])
 
-		if (p->consulting && !p->do_read_term && (p->vartab.var_used[i] == 1) &&
-			(p->vartab.var_name[i][strlen(p->vartab.var_name[i])-1] != '_') &&
-			(*p->vartab.var_name[i] != '_')) {
+		if (p->consulting && !p->do_read_term && (p->vartab.used[i] == 1) &&
+			(p->vartab.name[i][strlen(p->vartab.name[i])-1] != '_') &&
+			(*p->vartab.name[i] != '_')) {
 			if (!p->m->pl->quiet
 				&& !((cl->cells->val_off == g_neck_s) && cl->cells->arity == 1))
 				fprintf_to_stream(p->pl, WARN_FP, "Warning: singleton: %s, near %s:%d\n", p->vartab.var_name[i], get_loaded(p->m, p->m->filename), p->line_nbr);
@@ -1698,7 +1697,7 @@ static bool apply_operators(parser *p, pl_idx start_idx, bool last_op)
 
 			if (off > end_idx) {
 				if (DUMP_ERRS || !p->do_read_term)
-					fprintf(stdout, "Error: syntax error, missing operand to postfix, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
+					fprintf(stderr, "Error: syntax error, missing operand to postfix, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
 
 				p->error_desc = "operand_missing";
 				p->error = true;
@@ -2033,10 +2032,10 @@ static cell *goal_expansion(parser *p, cell *goal)
 	char *src = NULL;
 
 	for (unsigned i = 0; i < p2->cl->nbr_vars; i++) {
-		if (!p2->vartab.var_name[i])
+		if (!p2->vartab.name[i])
 			continue;
 
-		if (strcmp(p2->vartab.var_name[i], "_TermOut"))
+		if (strcmp(p2->vartab.name[i], "_TermOut"))
 			continue;
 
 		slot *e = GET_SLOT(f, i);
@@ -4038,11 +4037,11 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 			set_smallint(c, get_smallint(&p->v));
 		} else if (p->v.tag == TAG_DOUBLE) {
 			set_float(c, get_float(&p->v));
-		} else if (!p->is_string && (!p->is_quoted || is_func || p->is_op || p->is_var
+		} else if (!p->is_string
+			&& (!p->is_quoted || is_func || p->is_op || p->is_var || p->consulting
 			|| (get_builtin(p->m->pl, SB_cstr(p->token), SB_strlen(p->token), 0, &found, NULL), found)
-			|| !SB_strcmp(p->token, "[]")
-			)) {
-
+			|| !SB_strcmp(p->token, "[]"))
+			) {
 			if (is_func && !SB_strcmp(p->token, "."))
 				c->priority = 0;
 
@@ -4053,7 +4052,7 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 			ensure(c->val_off != ERR_IDX);
 		} else {
 			c->tag = TAG_CSTR;
-			size_t toklen =SB_strlen(p->token);
+			size_t toklen = SB_strlen(p->token);
 
 			if ((toklen < MAX_SMALL_STRING) && !p->is_string) {
 				memcpy(c->val_chr, SB_cstr(p->token), toklen);
