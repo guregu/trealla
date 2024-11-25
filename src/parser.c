@@ -1526,7 +1526,7 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 			(*p->vartab.name[i] != '_')) {
 			if (!p->m->pl->quiet
 				&& !((cl->cells->val_off == g_neck_s) && cl->cells->arity == 1))
-				fprintf_to_stream(p->pl, WARN_FP, "Warning: singleton: %s, near %s:%d\n", p->vartab.var_name[i], get_loaded(p->m, p->m->filename), p->line_nbr);
+				fprintf_to_stream(p->pl, WARN_FP, "Warning: singleton: %s, near %s:%d\n", p->vartab.name[i], get_loaded(p->m, p->m->filename), p->line_nbr);
 		}
 	}
 
