@@ -65,24 +65,9 @@ bool make_slice(query *q, cell *d, const cell *orig, size_t off, size_t n)
 		return true;
 	}
 
-	if (n < MAX_SMALL_STRING) {
+	if ((n < MAX_SMALL_STRING) && !is_string(orig)) {
 		const char *s = C_STR(q, orig);
-
 		make_smalln(d, s+off, n);
-
-		if (is_string(orig)) {
-			d->flags |= FLAG_CSTR_STRING;
-			d->arity = 2;
-		}
-
-		return true;
-	}
-
-	if (is_strbuf(orig)) {
-		*d = *orig;
-		d->strb_off += off;
-		d->strb_len = n;
-		share_cell(orig);
 		return true;
 	}
 
