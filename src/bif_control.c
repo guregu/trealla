@@ -698,25 +698,29 @@ static bool bif_between_3(query *q)
 	GET_NEXT_ARG(p3,integer_or_var);
 
 	pl_int low, high, n;
+	mp_small small;
 
 	if (is_bigint(p1)) {
-		if (mp_int_to_int(&p1->val_bigint->ival, &low) == MP_RANGE) {
+		if (mp_int_to_int(&p1->val_bigint->ival, &small) == MP_RANGE) {
 			return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
 		}
+		low = (pl_int)small;
 	} else
 		low = get_smallint(p1);
 
 	if (is_bigint(p2)) {
-		if (mp_int_to_int(&p2->val_bigint->ival, &high) == MP_RANGE) {
+		if (mp_int_to_int(&p2->val_bigint->ival, &small) == MP_RANGE) {
 			return throw_error(q, p2, p2_ctx, "domain_error", "small_integer_range");
 		}
+		high = (pl_int)small;
 	} else
 		high = get_smallint(p2);
 	
 	if (is_bigint(p3)) {
-		if (mp_int_to_int(&p3->val_bigint->ival, &n) == MP_RANGE) {
+		if (mp_int_to_int(&p3->val_bigint->ival, &small) == MP_RANGE) {
 			return throw_error(q, p3, p3_ctx, "domain_error", "small_integer_range");
 		}
+		n = (pl_int)small;
 	} else if (!is_var(p3))
 		n = get_smallint(p3);
 
