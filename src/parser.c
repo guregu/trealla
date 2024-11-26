@@ -132,7 +132,7 @@ static void *make_string_internal(cell *c, const char *s, size_t n, size_t off)
 	c->val_strb = strb;
 	c->strb_off = off;
 	c->strb_len = n;
-	c->flags |= FLAG_MANAGED | FLAG_CSTR_BLOB;
+	c->flags |= (FLAG_MANAGED | FLAG_CSTR_BLOB);
 	return strb;
 }
 
@@ -290,6 +290,19 @@ void make_kvref(cell *tmp, void *ptr)
 	tmp->val_blob = ptr;
 	tmp->val_blob->refcnt = 0;
 }
+
+void share_cells(cell *src, pl_idx nbr_cells)
+{
+	for (pl_idx i = 0; i < nbr_cells; i++, src++)
+		share_cell(src);
+}
+
+void unshare_cells(cell *src, pl_idx nbr_cells)
+{
+	for (pl_idx i = 0; i < nbr_cells; i++, src++)
+		unshare_cell(src);
+}
+
 
 void clear_clause(clause *cl)
 {
@@ -2597,7 +2610,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 			p->v.val_bigint->refcnt = 1;
 			mp_int_init_copy(&p->v.val_bigint->ival, &v2);
 			if (neg) p->v.val_bigint->ival.sign = MP_NEG;
-			p->v.flags |= FLAG_MANAGED;
+			p->v.flags |= FLAG_INT_BIG;
 		} else {
 			set_smallint(&p->v, val);
 			if (neg) p->v.val_int = -p->v.val_int;
@@ -2620,7 +2633,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 			p->v.val_bigint->refcnt = 1;
 			mp_int_init_copy(&p->v.val_bigint->ival, &v2);
 			if (neg) p->v.val_bigint->ival.sign = MP_NEG;
-			p->v.flags |= FLAG_MANAGED;
+			p->v.flags |= FLAG_INT_BIG;
 		} else {
 			set_smallint(&p->v, val);
 			if (neg) p->v.val_int = -p->v.val_int;
@@ -2643,7 +2656,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 			p->v.val_bigint->refcnt = 1;
 			mp_int_init_copy(&p->v.val_bigint->ival, &v2);
 			if (neg) p->v.val_bigint->ival.sign = MP_NEG;
-			p->v.flags |= FLAG_MANAGED;
+			p->v.flags |= FLAG_INT_BIG;
 		} else {
 			set_smallint(&p->v, val);
 			if (neg) p->v.val_int = -p->v.val_int;
@@ -2703,7 +2716,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 		p->v.val_bigint->refcnt = 1;
 		mp_int_init_copy(&p->v.val_bigint->ival, &v2);
 		if (neg) p->v.val_bigint->ival.sign = MP_NEG;
-		p->v.flags |= FLAG_MANAGED;
+		p->v.flags |= FLAG_INT_BIG;
 	} else {
 		set_smallint(&p->v, val);
 		if (neg) p->v.val_int = -p->v.val_int;

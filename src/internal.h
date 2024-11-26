@@ -111,8 +111,8 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 
 #define is_iso_atom(c) ((is_interned(c) || is_cstring(c)) && !(c)->arity)
 #define is_iso_list(c) (is_interned(c) && ((c)->arity == 2) && ((c)->val_off == g_dot_s))
-#define is_smallint(c) (is_integer(c) && !((c)->flags & FLAG_MANAGED))
-#define is_bigint(c) (is_integer(c) && ((c)->flags & FLAG_MANAGED))
+#define is_smallint(c) (is_integer(c) && !((c)->flags & FLAG_INT_BIG))
+#define is_bigint(c) (is_integer(c) && ((c)->flags & FLAG_INT_BIG))
 #define is_boolean(c) ((is_interned(c) && !(c)->arity && (((c)->val_off == g_true_s) || ((c)->val_off == g_false_s))))
 #define is_atom(c) ((is_interned(c) && !(c)->arity) || is_cstring(c))
 #define is_string(c) (is_cstring(c) && ((c)->flags & FLAG_CSTR_STRING))
@@ -255,12 +255,14 @@ enum {
 };
 
 enum {
-	FLAG_INT_HEX=1<<0,					// used with TAG_INTEGER
+	FLAG_SPARE=1<<0,
+
 	FLAG_INT_HANDLE=1<<1,				// used with TAG_INTEGER
 	FLAG_INT_STREAM=1<<2,				// used with TAG_INTEGER
 	FLAG_INT_THREAD=1<<3,				// used with TAG_INTEGER
 	FLAG_INT_MAP=1<<4,					// used with TAG_INTEGER
 	FLAG_INT_ALIAS=1<<5,				// used with TAG_INTEGER
+	FLAG_INT_BIG=1<<6,					// used with TAG_INTEGER
 
 	FLAG_CSTR_BLOB=1<<0,				// used with TAG_CSTR
 	FLAG_CSTR_STRING=1<<1,				// used with TAG_CSTR
@@ -278,11 +280,10 @@ enum {
 
 	FLAG_BLOB_SREGEX=1<<0,				// used with TAG_BLOB
 
-	FLAG_COMPLEX=1<<5,
-	FLAG_GROUND=1<<6,
-	FLAG_TAIL_CALL=1<<7,
-	FLAG_RECURSIVE_CALL=1<<8,
-	FLAG_FFI=1<<9,
+	FLAG_COMPLEX=1<<6,
+	FLAG_GROUND=1<<7,
+	FLAG_TAIL_CALL=1<<8,
+	FLAG_RECURSIVE_CALL=1<<9,
 	FLAG_BUILTIN=1<<10,
 	FLAG_MANAGED=1<<11,					// any ref-counted object
 	FLAG_EVALUABLE=1<<12,
@@ -901,48 +902,49 @@ extern bool do_erase(module *m, const char *str);
 extern unsigned g_cpu_count;
 
 #define share_cell(c) if (is_managed(c)) share_cell_(c)
-#define unshare_cell(c) if (is_managed(c)) unshare_cell_(c)
 
 inline static void share_cell_(const cell *c)
 {
 	if (is_strbuf(c))
-		(c)->val_strb->refcnt++;
+		c->val_strb->refcnt++;
 	else if (is_bigint(c))
-		(c)->val_bigint->refcnt++;
+		c->val_bigint->refcnt++;
 	else if (is_rational(c))
-		(c)->val_bigint->refcnt++;
+		c->val_bigint->refcnt++;
 	else if (is_blob(c))
-		(c)->val_blob->refcnt++;
+		c->val_blob->refcnt++;
 	else if (is_dbid(c))
-		(c)->val_blob->refcnt++;
+		c->val_blob->refcnt++;
 	else if (is_kvid(c))
-		(c)->val_blob->refcnt++;
+		c->val_blob->refcnt++;
 }
+
+#define unshare_cell(c) if (is_managed(c)) unshare_cell_(c)
 
 inline static void unshare_cell_(cell *c)
 {
 	if (is_strbuf(c)) {
-		if (--(c)->val_strb->refcnt == 0) {
-			free((c)->val_strb);
+		if (--c->val_strb->refcnt == 0) {
+			free(c->val_strb);
 			c->flags = 0;
 		}
 	} else if (is_bigint(c)) {
-		if (--(c)->val_bigint->refcnt == 0)	{
-			mp_int_clear(&(c)->val_bigint->ival);
-			free((c)->val_bigint);
+		if (--c->val_bigint->refcnt == 0)	{
+			mp_int_clear(&c->val_bigint->ival);
+			free(c->val_bigint);
 			c->flags = 0;
 		}
 	} else if (is_rational(c)) {
-		if (--(c)->val_bigint->refcnt == 0)	{
-			mp_rat_clear(&(c)->val_bigint->irat);
-			free((c)->val_bigint);
+		if (--c->val_bigint->refcnt == 0)	{
+			mp_rat_clear(&c->val_bigint->irat);
+			free(c->val_bigint);
 			c->flags = 0;
 		}
 	} else if (is_blob(c)) {
-		if (--(c)->val_blob->refcnt == 0) {
-			free((c)->val_blob->ptr2);
-			free((c)->val_blob->ptr);
-			free((c)->val_blob);
+		if (--c->val_blob->refcnt == 0) {
+			free(c->val_blob->ptr2);
+			free(c->val_blob->ptr);
+			free(c->val_blob);
 			c->flags = 0;
 		}
 	} else if (is_dbid(c)) {
@@ -1015,18 +1017,6 @@ inline static pl_idx dup_cells_by_ref(cell *dst, const cell *src, pl_idx src_ctx
 	}
 
 	return nbr_cells;
-}
-
-inline static void share_cells(cell *src, pl_idx nbr_cells)
-{
-	for (pl_idx i = 0; i < nbr_cells; i++, src++)
-		share_cell(src);
-}
-
-inline static void unshare_cells(cell *src, pl_idx nbr_cells)
-{
-	for (pl_idx i = 0; i < nbr_cells; i++, src++)
-		unshare_cell(src);
 }
 
 #define LIST_HANDLER(l) cell l##_h_tmp, l##_t_tmp

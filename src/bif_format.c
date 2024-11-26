@@ -713,7 +713,6 @@ static bool bif_format_2(query *q)
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		tmp.flags |= FLAG_INT_HEX;
 		return throw_error(q, &tmp, q->st.curr_frame, "permission_error", "output,binary_stream");
 	}
 
@@ -749,7 +748,6 @@ static bool bif_format_3(query *q)
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		tmp.flags |= FLAG_INT_HEX;
 		return throw_error(q, &tmp, pstr_ctx, "permission_error", "output,binary_stream");
 	}
 
