@@ -90,6 +90,12 @@ static void trace_call(query *q, cell *c, pl_idx c_ctx, box_t box)
 	q->step++;
 	SB(pr);
 
+	// TODO: some fake modules (like "loader") can put st.m in a NULL state
+	// substitute user temporarily
+	module* save_m = q->st.m;
+	if (!q->st.m)
+		q->st.m = q->pl->user_m;
+
 	SB_sprintf(pr, "[%u:%s:%"PRIu64":f%u:fp%u:cp%u:sp%u:hp%u:tp%u] ",
 		q->my_chan,
 		q->st.m->name,
@@ -121,6 +127,7 @@ static void trace_call(query *q, cell *c, pl_idx c_ctx, box_t box)
 	SB_free(pr);
 	q->max_depth = save_depth;
 	if (++q->vgen == 0) q->vgen = 1;
+	q->st.m = save_m;
 
 	if (q->creep) {
 		msleep(250);
