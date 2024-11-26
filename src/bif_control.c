@@ -697,31 +697,45 @@ static bool bif_between_3(query *q)
 	GET_NEXT_ARG(p2,integer);
 	GET_NEXT_ARG(p3,integer_or_var);
 
-	if (is_bigint(p1))
-		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
+	pl_int low, high, n;
 
-	if (is_bigint(p2))
-		return throw_error(q, p2, p1_ctx, "domain_error", "small_integer_range");
+	if (is_bigint(p1)) {
+		if (mp_int_to_int(&p1->val_bigint->ival, &low) == MP_RANGE) {
+			return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
+		}
+	} else
+		low = get_smallint(p1);
 
-	if (is_bigint(p3))
-		return throw_error(q, p3, p3_ctx, "domain_error", "small_integer_range");
+	if (is_bigint(p2)) {
+		if (mp_int_to_int(&p2->val_bigint->ival, &high) == MP_RANGE) {
+			return throw_error(q, p2, p2_ctx, "domain_error", "small_integer_range");
+		}
+	} else
+		high = get_smallint(p2);
+	
+	if (is_bigint(p3)) {
+		if (mp_int_to_int(&p3->val_bigint->ival, &n) == MP_RANGE) {
+			return throw_error(q, p3, p3_ctx, "domain_error", "small_integer_range");
+		}
+	} else if (!is_var(p3))
+		n = get_smallint(p3);
 
 	if (!q->retry) {
-		if (get_smallint(p1) > get_smallint(p2))
+		if (low > high)
 			return false;
 
 		if (!is_var(p3)) {
-			if (get_smallint(p3) > get_smallint(p2))
+			if (n > high)
 				return false;
 
-			if (get_smallint(p3) < get_smallint(p1))
+			if (n < low)
 				return false;
 
 			return true;
 		}
 
-		if (get_smallint(p1) != get_smallint(p2)) {
-			q->st.cnt = get_smallint(p1);
+		if (low != high) {
+			q->st.cnt = low;
 			check_heap_error(push_choice(q));
 		}
 
@@ -732,7 +746,7 @@ static bool bif_between_3(query *q)
 	cell tmp;
 	make_int(&tmp, ++cnt);
 
-	if (cnt != get_smallint(p2)) {
+	if (cnt != high) {
 		q->st.cnt = cnt;
 		check_heap_error(push_choice(q));
 	}
