@@ -7124,7 +7124,7 @@ static bool fn_sys_memory_stream_create_2(query *q)
 	
 	cell tmp ;
 	make_int(&tmp, n);
-	tmp.flags |= FLAG_INT_STREAM | FLAG_INT_HEX;
+	tmp.flags |= FLAG_INT_STREAM;
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 }
 
