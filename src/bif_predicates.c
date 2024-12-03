@@ -1939,7 +1939,7 @@ static bool bif_term_singletons_2(query *q)
 	return unify(q, p2, p2_ctx, tmp2, q->st.curr_frame);
 }
 
-static bool do_duplicate_term(query *q, bool copy_attrs)
+static bool do_sys_copy_term(query *q, bool copy_attrs)
 {
 	GET_FIRST_ARG(p1,any);
 	GET_NEXT_ARG(p2,any);
@@ -1959,9 +1959,10 @@ static bool do_duplicate_term(query *q, bool copy_attrs)
 	check_heap_error(tmp1);
 	GET_FIRST_RAW_ARG(p1x,any);
 	cell *tmp = alloc_on_heap(q, 1 + p1x->nbr_cells + tmp1->nbr_cells);
+	check_heap_error(tmp);
 	make_struct(tmp, g_eq_s, NULL, 2, p1x->nbr_cells + tmp1->nbr_cells);
 	dup_cells_by_ref(tmp+1, p1x, p1x_ctx, p1x->nbr_cells);
-	dup_cells_by_ref(tmp+1+p1x->nbr_cells, tmp1, q->st.curr_frame, tmp1->nbr_cells);
+	dup_cells_by_ref(tmp+1+p1x->nbr_cells, tmp1, p1_ctx, tmp1->nbr_cells);
 	tmp = deep_copy_to_heap(q, tmp, q->st.curr_frame, copy_attrs);
 	cell *tmpp1 = tmp + 1;
 	cell *tmpp2 = tmpp1 + tmpp1->nbr_cells;
@@ -1973,21 +1974,21 @@ static bool do_duplicate_term(query *q, bool copy_attrs)
 
 static bool bif_copy_term_nat_2(query *q)
 {
-	return do_duplicate_term(q, false);
+	return do_sys_copy_term(q, false);
 }
 
 // Do copy attributes (Note: SICStus & YAP don't, Scryer & SWI do)
 
 static bool bif_iso_copy_term_2(query *q)
 {
-	return do_duplicate_term(q, true);
+	return do_sys_copy_term(q, true);
 }
 
 // Do copy attributes
 
 static bool bif_duplicate_term_2(query *q)
 {
-	return do_duplicate_term(q, true);
+	return do_sys_copy_term(q, true);
 }
 
 static bool bif_iso_functor_3(query *q)

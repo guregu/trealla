@@ -526,7 +526,7 @@ struct slot_ {
 struct frame_ {
 	cell *curr_instr;
 	uint64_t dbgen, chgen;
-	pl_idx prev, base, overflow;
+	pl_idx prev, base, overflow, hp, heap_nbr;
 	unsigned initial_slots, actual_slots;
 	uint32_t mid;
 	bool has_local_vars:1;
@@ -549,7 +549,6 @@ struct run_state_ {
 
 	uint64_t timer_started;
 	pl_idx curr_frame, fp, hp, cp, tp, sp, heap_nbr, key_ctx;
-	float prob;
 	uint8_t qnbr;
 };
 
