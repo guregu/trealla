@@ -530,7 +530,7 @@ struct frame_ {
 	unsigned initial_slots, actual_slots;
 	uint32_t mid;
 	bool has_local_vars:1;
-	bool no_tco:1;
+	bool unify_no_tco:1;
 };
 
 struct run_state_ {
@@ -538,7 +538,7 @@ struct run_state_ {
 	cell *curr_instr;
 	rule *curr_rule;
 	sliter *iter, *f_iter;
-	module *m;
+	module *curr_m;
 
 	union {
 		struct { cell *key; bool karg1_is_ground:1, karg2_is_ground:1, karg1_is_atomic:1, karg2_is_atomic:1;};
@@ -722,7 +722,7 @@ struct query_ {
 	bool is_dump_vars:1;
 	bool portray_vars:1;
 	bool status:1;
-	bool no_tco:1;
+	bool unify_no_tco:1;
 	bool has_vars:1;
 	bool error:1;
 	bool did_throw:1;
