@@ -409,6 +409,7 @@ static void destroy_predicate(module *m, predicate *pr)
 	for (rule *r = pr->head; r;) {
 		rule *save = r->next;
 		clear_clause(&r->cl);
+		free(r->cl.alt);
 		free(r);
 		r = save;
 	}
@@ -1479,6 +1480,7 @@ static bool check_not_multifile(module *m, predicate *pr, rule *dbe_orig)
 
 				if (r != dbe_orig) {
 					clear_clause(&r->cl);
+					free(r->cl.alt);
 					free(r);
 				}
 			}
