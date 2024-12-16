@@ -333,6 +333,34 @@ static cell *make_a_cell(parser *p)
 	return ret;
 }
 
+// Eventually control structures will be pre-compiled
+// so they don't get allocated on the heap at run-time.
+// For now just strip conjunctions.
+
+void compile_term(cell **dst, cell **src)
+{
+	if ((*src)->val_off == g_conjunction_s) {
+		*src += 1;
+		compile_term(dst, src);		// LHS
+		compile_term(dst, src);		// RHS
+		return;
+	} else {
+		pl_idx n = copy_cells(*dst, *src, (*src)->nbr_cells);
+		*dst += n;
+		*src += n;
+	}
+}
+
+void compile_clause(clause *cl, cell *body)
+{
+	pl_idx nbr_cells = cl->cidx - (body - cl->cells);
+	cl->alt = malloc(sizeof(cell) * nbr_cells);
+	cell *dst = cl->alt, *src = body;
+	compile_term(&dst, &src);
+	assert(src->tag == TAG_END);
+	copy_cells(dst, src, 1);
+}
+
 void parser_destroy(parser *p)
 {
 	if (!p) return;
@@ -645,7 +673,7 @@ static bool directives(parser *p, cell *d)
 	CLR_OP(d);
 
 	if (!strcmp(dirname, "initialization") && (c->arity == 1)) {
-		p->run_init = true;
+		p->m->run_init = true;
 		return false;
 	}
 
@@ -4129,7 +4157,7 @@ bool run(parser *p, const char *pSrc, bool dump, query **subq, unsigned int yiel
 		if (!p->cl->cidx)
 			break;
 
-		if (!p->error && !p->end_of_term && !p->run_init) {
+		if (!p->error && !p->end_of_term && !p->m->run_init) {
 			fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, missing operand or operator, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_nbr);
 			p->error = true;
 		}
@@ -4160,7 +4188,7 @@ bool run(parser *p, const char *pSrc, bool dump, query **subq, unsigned int yiel
 
 		q->p = p;
 		q->do_dump_vars = dump;
-		q->run_init = p->run_init;
+		q->run_init = p->m->run_init;
 		execute(q, p->cl->cells, p->cl->nbr_vars);
 
 		if (q->halt) {
