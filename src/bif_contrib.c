@@ -329,7 +329,7 @@ static bool fn_sys_wasi_outbound_http_5(query *q)
 			break; 																\
 		} 																		\
 		cell *tmp = alloc_on_heap(q, 3); 										\
-		make_struct(tmp, g_error_s, NULL, 2, 2); 								\
+		make_instr(tmp, g_error_s, NULL, 2, 2); 								\
 		make_atom(tmp+1, kind);													\
 		make_string(tmp+2, msg); 												\
 		bool ok = unify(q, p, p##_ctx, tmp, q->st.curr_frame);					\
@@ -467,64 +467,64 @@ static bool fn_sys_outbound_pg_query_5(query *q)
 			tmp = alloc_on_heap(q, 1 + row.len*2);
 			check_heap_error(tmp);
 			pl_idx nbr_cells = 0;
-			make_struct(tmp+nbr_cells++, row_idx, NULL, row.len, row.len*2);
+			make_instr(tmp+nbr_cells++, row_idx, NULL, row.len, row.len*2);
 			for (size_t i = 0; i < row.len; i++) {
 				outbound_pg_db_value_t col = row.ptr[i];
 				switch (col.tag) {
 				case OUTBOUND_PG_DB_VALUE_BOOLEAN:
-					make_struct(tmp+nbr_cells++, boolean_idx, NULL, 1, 1);
+					make_instr(tmp+nbr_cells++, boolean_idx, NULL, 1, 1);
 					make_atom(tmp+nbr_cells++, col.val.boolean ? g_true_s : g_false_s);
 					break;
 				case OUTBOUND_PG_DB_VALUE_INT8:
-					make_struct(tmp+nbr_cells++, int8_idx, NULL, 1, 1);
+					make_instr(tmp+nbr_cells++, int8_idx, NULL, 1, 1);
 					make_int(tmp+nbr_cells++, col.val.int8);
 					break;
 				case OUTBOUND_PG_DB_VALUE_INT16:
-					make_struct(tmp+nbr_cells++, int16_idx, NULL, 1, 1);
+					make_instr(tmp+nbr_cells++, int16_idx, NULL, 1, 1);
 					make_int(tmp+nbr_cells++, col.val.int16);
 					break;
 				case OUTBOUND_PG_DB_VALUE_INT32:
-					make_struct(tmp+nbr_cells++, int32_idx, NULL, 1, 1);
+					make_instr(tmp+nbr_cells++, int32_idx, NULL, 1, 1);
 					make_int(tmp+nbr_cells++, col.val.int32);
 					break;
 				case OUTBOUND_PG_DB_VALUE_INT64:
-					make_struct(tmp+nbr_cells++, int64_idx, NULL, 1, 1);
+					make_instr(tmp+nbr_cells++, int64_idx, NULL, 1, 1);
 					make_int(tmp+nbr_cells++, col.val.int64);
 					break;
 				case OUTBOUND_PG_DB_VALUE_UINT8:
-					make_struct(tmp+nbr_cells++, uint8_idx, NULL, 1, 1);
+					make_instr(tmp+nbr_cells++, uint8_idx, NULL, 1, 1);
 					make_uint(tmp+nbr_cells++, col.val.uint8);
 					break;
 				case OUTBOUND_PG_DB_VALUE_UINT16:
-					make_struct(tmp+nbr_cells++, uint16_idx, NULL, 1, 1);
+					make_instr(tmp+nbr_cells++, uint16_idx, NULL, 1, 1);
 					make_uint(tmp+nbr_cells++, col.val.uint16);
 					break;
 				case OUTBOUND_PG_DB_VALUE_UINT32:
-					make_struct(tmp+nbr_cells++, uint32_idx, NULL, 1, 1);
+					make_instr(tmp+nbr_cells++, uint32_idx, NULL, 1, 1);
 					make_uint(tmp+nbr_cells++, col.val.uint32);
 					break;
 				case OUTBOUND_PG_DB_VALUE_UINT64:
-					make_struct(tmp+nbr_cells++, uint64_idx, NULL, 1, 1);
+					make_instr(tmp+nbr_cells++, uint64_idx, NULL, 1, 1);
 					make_uint(tmp+nbr_cells++, col.val.uint64);
 					break;
 				case OUTBOUND_PG_DB_VALUE_FLOATING32:
-					make_struct(tmp+nbr_cells++, float32_idx, NULL, 1, 1);
+					make_instr(tmp+nbr_cells++, float32_idx, NULL, 1, 1);
 					make_float(tmp+nbr_cells++, col.val.floating32);
 					break;
 				case OUTBOUND_PG_DB_VALUE_FLOATING64:
-					make_struct(tmp+nbr_cells++, float64_idx, NULL, 1, 1);
+					make_instr(tmp+nbr_cells++, float64_idx, NULL, 1, 1);
 					make_float(tmp+nbr_cells++, col.val.floating64);
 					break;
 				case OUTBOUND_PG_DB_VALUE_STR:
-					make_struct(tmp+nbr_cells++, string_idx, NULL, 1, 1);
+					make_instr(tmp+nbr_cells++, string_idx, NULL, 1, 1);
 					make_stringn(tmp+nbr_cells++, col.val.str.ptr, col.val.str.len);
 					break;
 				case OUTBOUND_PG_DB_VALUE_BINARY:
-					make_struct(tmp+nbr_cells++, binary_idx, NULL, 1, 1);
+					make_instr(tmp+nbr_cells++, binary_idx, NULL, 1, 1);
 					make_stringn(tmp+nbr_cells++, (char*)col.val.binary.ptr, col.val.binary.len);
 					break;
 				case OUTBOUND_PG_DB_VALUE_DB_NULL:
-					make_struct(tmp+nbr_cells++, null_idx, NULL, 1, 1);
+					make_instr(tmp+nbr_cells++, null_idx, NULL, 1, 1);
 					make_atom(tmp+nbr_cells++, g_nil_s);
 					break;
 				}
@@ -548,7 +548,7 @@ static bool fn_sys_outbound_pg_query_5(query *q)
 		check_heap_error(tmp);
 		pl_idx type_idx = 0;
 		pl_idx nbr_cells = 0;
-		make_struct(tmp+nbr_cells++, g_minus_s, NULL, 2, 2);
+		make_instr(tmp+nbr_cells++, g_minus_s, NULL, 2, 2);
 		SET_OP(tmp, OP_YFX);
 		make_stringn(tmp+nbr_cells++, col.name.ptr, col.name.len);
 		switch (col.data_type) {
@@ -646,7 +646,7 @@ static bool fn_sys_outbound_pg_execute_4(query *q)
 	check_pg_error(p4, ret);
 
 	cell *tmp = alloc_on_heap(q, 2);
-	make_struct(tmp, g_true_s, NULL, 1, 1);
+	make_instr(tmp, g_true_s, NULL, 1, 1);
 	make_uint(tmp+1, ret.val.ok);
 	return unify(q, p4, p4_ctx, tmp, q->st.curr_frame);
 }
@@ -791,28 +791,28 @@ static bool fn_sys_sqlite_query_5(query *q)
 			tmp = alloc_on_heap(q, 1 + row.len*2);
 			check_heap_error(tmp);
 			pl_idx nbr_cells = 0;
-			make_struct(tmp+nbr_cells++, row_idx, NULL, row.len, row.len*2);
+			make_instr(tmp+nbr_cells++, row_idx, NULL, row.len, row.len*2);
 			for (size_t i = 0; i < row.len; i++) {
 				sqlite_value_t col = row.ptr[i];
 				switch (col.tag) {
 				case SQLITE_VALUE_INTEGER:
-					make_struct(tmp+nbr_cells++, integer_idx, NULL, 1, 1);
+					make_instr(tmp+nbr_cells++, integer_idx, NULL, 1, 1);
 					make_int(tmp+nbr_cells++, col.val.integer);
 					break;
 				case SQLITE_VALUE_REAL:
-					make_struct(tmp+nbr_cells++, real_idx, NULL, 1, 1);
+					make_instr(tmp+nbr_cells++, real_idx, NULL, 1, 1);
 					make_float(tmp+nbr_cells++, col.val.real);
 					break;
 				case SQLITE_VALUE_TEXT:
-					make_struct(tmp+nbr_cells++, text_idx, NULL, 1, 1);
+					make_instr(tmp+nbr_cells++, text_idx, NULL, 1, 1);
 					make_stringn(tmp+nbr_cells++, col.val.text.ptr, col.val.text.len);
 					break;
 				case SQLITE_VALUE_BLOB:
-					make_struct(tmp+nbr_cells++, blob_idx, NULL, 1, 1);
+					make_instr(tmp+nbr_cells++, blob_idx, NULL, 1, 1);
 					make_stringn(tmp+nbr_cells++, (char*)col.val.blob.ptr, col.val.blob.len);
 					break;
 				case SQLITE_VALUE_NULL:
-					make_struct(tmp+nbr_cells++, null_idx, NULL, 1, 1);
+					make_instr(tmp+nbr_cells++, null_idx, NULL, 1, 1);
 					make_atom(tmp+nbr_cells++, g_nil_s);
 					break;
 				}
