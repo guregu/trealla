@@ -2381,7 +2381,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 				tmp[idx].arity = 2;
 				tmp[idx++].nbr_cells = ((cnt-done)*4)+1;
 				cell v;
-				make_struct(&v, g_unify_s, bif_iso_unify_2, 2, 2);
+				make_instr(&v, g_unify_s, bif_iso_unify_2, 2, 2);
 				SET_OP(&v,OP_XFX);
 				tmp[idx++] = v;
 				make_atom(&v, q->pl->tabs[i].val_off);
@@ -2440,7 +2440,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 				tmp[idx].arity = 2;
 				tmp[idx++].nbr_cells = ((cnt-done)*4)+1;
 				cell v;
-				make_struct(&v, g_unify_s, bif_iso_unify_2, 2, 2);
+				make_instr(&v, g_unify_s, bif_iso_unify_2, 2, 2);
 				SET_OP(&v,OP_XFX);
 				tmp[idx++] = v;
 				make_atom(&v, q->pl->tabs[i].val_off);
@@ -2957,7 +2957,7 @@ static bool bif_iso_write_term_2(query *q)
 		cell *c = p1;
 		pl_idx c_ctx = p1_ctx;
 		cell p1[1+c->nbr_cells];
-		make_struct(p1+0, new_atom(q->pl, "$portray"), NULL, 1, c->nbr_cells);
+		make_instr(p1+0, new_atom(q->pl, "$portray"), NULL, 1, c->nbr_cells);
 		dup_cells_by_ref(p1+1, c, c_ctx, c->nbr_cells);
 		cell *tmp = prepare_call(q, NOPREFIX_LEN, p1, q->st.curr_frame, 1);
 		pl_idx nbr_cells = p1->nbr_cells;
@@ -3045,7 +3045,7 @@ static bool bif_iso_write_term_3(query *q)
 		cell *c = p1;
 		pl_idx c_ctx = p1_ctx;
 		cell p1[1+1+c->nbr_cells];
-		make_struct(p1+0, new_atom(q->pl, "$portray"), NULL, 2, 1+c->nbr_cells);
+		make_instr(p1+0, new_atom(q->pl, "$portray"), NULL, 2, 1+c->nbr_cells);
 		p1[1] = *pstr;
 		dup_cells_by_ref(p1+2, c, c_ctx, c->nbr_cells);
 		cell *tmp = prepare_call(q, NOPREFIX_LEN, p1, q->st.curr_frame, 1);
@@ -4862,7 +4862,7 @@ static bool do_consult(query *q, cell *p1, pl_idx p1_ctx)
 		unload_file(q->st.curr_m, filename);
 		free(src);
 
-		if (!load_file(q->st.curr_m, filename, false)) {
+		if (!load_file(q->st.curr_m, filename, false, true)) {
 			free(filename);
 			return throw_error(q, p1, p1_ctx, "existence_error", "source_sink");
 		}
@@ -4889,7 +4889,7 @@ static bool do_consult(query *q, cell *p1, pl_idx p1_ctx)
 	convert_path(filename);
 	unload_file(q->st.curr_m, filename);
 
-	if (!load_file(tmp_m, filename, false)) {
+	if (!load_file(tmp_m, filename, false, true)) {
 		module_destroy(tmp_m);
 		free(filename);
 		return throw_error(q, p1, p1_ctx, "existence_error", "source_sink");
@@ -6488,7 +6488,7 @@ static bool do_parse_url(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_
 				dst2 = search2;
 				*dst2 = '\0';
 			} else if (*src2 == '&') {
-				make_struct(tmp, new_atom(q->pl, "="), NULL, 2, 2);
+				make_instr(tmp, new_atom(q->pl, "="), NULL, 2, 2);
 				SET_OP(tmp, OP_YFX);
 
 				len = strlen(key);
@@ -6520,7 +6520,7 @@ static bool do_parse_url(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_
 			*dst2 = '\0';
 		}
 
-		make_struct(tmp, new_atom(q->pl, "="), NULL, 2, 2);
+		make_instr(tmp, new_atom(q->pl, "="), NULL, 2, 2);
 		SET_OP(tmp, OP_YFX);
 
 		len = strlen(key);
@@ -6540,13 +6540,13 @@ static bool do_parse_url(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_
 
 		cell *l = end_list(q);
 		cell *tmp2 = alloc_on_heap(q, 1 + l->nbr_cells);
-		make_struct(tmp2, new_atom(q->pl, "search"), NULL, 1, l->nbr_cells);
+		make_instr(tmp2, new_atom(q->pl, "search"), NULL, 1, l->nbr_cells);
 		dup_cells(tmp2+1, l, l->nbr_cells);
 		allocate_list(q, tmp2);
 	}
 
 	if (protocol[0]) {
-		make_struct(tmp, new_atom(q->pl, "protocol"), NULL, 1, 1);
+		make_instr(tmp, new_atom(q->pl, "protocol"), NULL, 1, 1);
 		make_cstring(tmp+1, protocol);
 
 		if (search[0])
@@ -6561,12 +6561,12 @@ static bool do_parse_url(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_
 		sscanf(host, "%255[^:]:%d", host2, &port);
 		host2[255] = '\0';
 
-		make_struct(tmp, new_atom(q->pl, "host"), NULL, 1, 1);
+		make_instr(tmp, new_atom(q->pl, "host"), NULL, 1, 1);
 		make_cstring(tmp+1, host2);
 		append_list(q, tmp);
 
 		if (port) {
-			make_struct(tmp, new_atom(q->pl, "port"), NULL, 1, 1);
+			make_instr(tmp, new_atom(q->pl, "port"), NULL, 1, 1);
 			make_int(tmp+1, port);
 			append_list(q, tmp);
 		}
@@ -6581,7 +6581,7 @@ static bool do_parse_url(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_
 		check_heap_error(dstbuf);
 		url_decode(path, dstbuf);
 		src = dstbuf;
-		make_struct(tmp, new_atom(q->pl, "path"), NULL, 1, 1);
+		make_instr(tmp, new_atom(q->pl, "path"), NULL, 1, 1);
 		make_cstring(tmp+1, path);
 		append_list(q, tmp);
 		free(dstbuf);
@@ -6593,7 +6593,7 @@ static bool do_parse_url(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_
 		check_heap_error(dstbuf);
 		url_decode(path, dstbuf);
 		src = dstbuf;
-		make_struct(tmp, new_atom(q->pl, "fragment"), NULL, 1, 1);
+		make_instr(tmp, new_atom(q->pl, "fragment"), NULL, 1, 1);
 		make_cstring(tmp+1, fragment);
 		append_list(q, tmp);
 		free(dstbuf);

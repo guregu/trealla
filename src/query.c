@@ -292,7 +292,7 @@ cell *prepare_call(query *q, bool prefix, cell *p1, pl_idx p1_ctx, unsigned extr
 
 	if (prefix) {
 		// Placeholder needed for follow() to work, get's skipped
-		make_struct(tmp, g_dummy_s, bif_iso_true_0, 0, 0);
+		make_instr(tmp, g_dummy_s, bif_iso_true_0, 0, 0);
 	}
 
 	cell *dst = tmp + (prefix ? PREFIX_LEN : NOPREFIX_LEN);
@@ -556,7 +556,8 @@ int retry_choice(query *q)
 
 		if (ch->succeed_on_retry) {
 			leave_predicate(q, ch->st.pr);
-			return -1;
+			q->st.curr_instr += ch->skip ? ch->skip : 0;
+			return ch->skip ? -2 : -1;
 		}
 
 		return 1;
@@ -775,11 +776,12 @@ bool push_barrier(query *q)
 	return true;
 }
 
-bool push_succeed_on_retry(query *q)
+bool push_succeed_on_retry(query *q, pl_idx skip)
 {
 	check_heap_error(push_barrier(q));
 	choice *ch = GET_CURR_CHOICE();
 	ch->succeed_on_retry = true;
+	ch->skip = skip;
 	return true;
 }
 
@@ -1084,11 +1086,11 @@ static bool expand_meta_predicate(query *q, predicate *pr)
 		else if (!is_interned(k) || is_iso_list(k))
 			;
 		else if (is_interned(m) && (m->val_off == g_colon_s)) {
-			make_struct(tmp, g_colon_s, bif_iso_qualify_2, 2, 1+k->nbr_cells);
+			make_instr(tmp, g_colon_s, bif_iso_qualify_2, 2, 1+k->nbr_cells);
 			SET_OP(tmp, OP_XFY); tmp++;
 			make_atom(tmp++, new_atom(q->pl, q->st.curr_m->name));
 		} else if (is_smallint(m) && is_positive(m) && (get_smallint(m) <= 9)) {
-			make_struct(tmp, g_colon_s, bif_iso_qualify_2, 2, 1+k->nbr_cells);
+			make_instr(tmp, g_colon_s, bif_iso_qualify_2, 2, 1+k->nbr_cells);
 			SET_OP(tmp, OP_XFY); tmp++;
 			make_atom(tmp++, new_atom(q->pl, q->st.curr_m->name));
 		}
@@ -1293,7 +1295,7 @@ bool match_rule(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract)
 				p1_body = deref(q, p1_body, p1_ctx);
 				pl_idx p1_body_ctx = q->latest_ctx;
 				cell tmp;
-				make_struct(&tmp, g_true_s, bif_iso_true_0, 0, 0);
+				make_instr(&tmp, g_true_s, bif_iso_true_0, 0, 0);
 				ok = unify(q, p1_body, p1_body_ctx, &tmp, q->st.curr_frame);
 			} else
 				ok = true;
@@ -1500,7 +1502,7 @@ static bool consultall(query *q, cell *l, pl_idx l_ctx)
 		char *s = DUP_STRING(q, l);
 		unload_file(q->p->m, s);
 
-		if (!load_file(q->p->m, s, false)) {
+		if (!load_file(q->p->m, s, false, true)) {
 			free(s);
 			return throw_error(q, l, l_ctx, "existence_error", "source_sink");
 		}
@@ -1526,7 +1528,7 @@ static bool consultall(query *q, cell *l, pl_idx l_ctx)
 			char *s = DUP_STRING(q, h);
 			unload_file(q->p->m, s);
 
-			if (!load_file(q->p->m, s, false)) {
+			if (!load_file(q->p->m, s, false, true)) {
 				free(s);
 				return throw_error(q, h, q->st.curr_frame, "existence_error", "source_sink");
 			}
@@ -1570,9 +1572,12 @@ bool start(query *q)
 				break;
 
 			if (ok < 0) {
-				proceed(q);
 				q->retry = false;
-				goto MORE;
+
+				if (ok == -1) {
+					proceed(q);
+					goto MORE;
+				}
 			}
 		}
 

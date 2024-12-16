@@ -46,6 +46,8 @@ pl_idx g_goal_expansion_s, g_term_expansion_s, g_tm_s, g_float_s;
 pl_idx g_sys_cut_if_det_s, g_as_s, g_colon_s, g_member_s;
 pl_idx g_caret_s, g_sys_counter_s, g_catch_s, g_memberchk_s;
 pl_idx g_cont_s, g_sys_set_if_var_s, g_is_s, g_maplist_s;
+pl_idx g_sys_succeed_on_retry_s, g_sys_fail_on_retry_s;
+pl_idx g_sys_call_check_s, g_ignore_s;
 pl_idx g_dummy_s;
 
 char *g_global_atoms = NULL;
@@ -273,12 +275,12 @@ void pl_capture_reset(prolog *pl) {
 
 bool pl_consult_fp(prolog *pl, FILE *fp, const char *filename)
 {
-	return load_fp(pl->user_m, fp, filename, false) != NULL;
+	return load_fp(pl->user_m, fp, filename, false, true) != NULL;
 }
 
 bool pl_consult(prolog *pl, const char *filename)
 {
-	return load_file(pl->user_m, filename, false);
+	return load_file(pl->user_m, filename, false, true);
 }
 
 bool pl_logging(prolog *pl, const char *filename)
@@ -659,6 +661,10 @@ static bool g_init(prolog *pl)
 	CHECK_SENTINEL(g_cont_s = new_atom(pl, "cont"), ERR_IDX);
 	CHECK_SENTINEL(g_sys_set_if_var_s = new_atom(pl, "$set_if_var"), ERR_IDX);
 	CHECK_SENTINEL(g_is_s = new_atom(pl, "is"), ERR_IDX);
+	CHECK_SENTINEL(g_sys_succeed_on_retry_s = new_atom(pl, "$succeed_on_retry"), ERR_IDX);
+	CHECK_SENTINEL(g_sys_fail_on_retry_s = new_atom(pl, "$fail_on_retry"), ERR_IDX);
+	CHECK_SENTINEL(g_sys_call_check_s = new_atom(pl, "$call_check"), ERR_IDX);
+	CHECK_SENTINEL(g_ignore_s = new_atom(pl, "ignore"), ERR_IDX);
 
 #if !defined(_WIN32) && !defined(__wasi__) && !defined(__ANDROID__)
 	struct rlimit rlp;

@@ -333,34 +333,6 @@ static cell *make_a_cell(parser *p)
 	return ret;
 }
 
-// Eventually control structures will be pre-compiled
-// so they don't get allocated on the heap at run-time.
-// For now just strip conjunctions.
-
-void compile_term(cell **dst, cell **src)
-{
-	if ((*src)->val_off == g_conjunction_s) {
-		*src += 1;
-		compile_term(dst, src);		// LHS
-		compile_term(dst, src);		// RHS
-		return;
-	} else {
-		pl_idx n = copy_cells(*dst, *src, (*src)->nbr_cells);
-		*dst += n;
-		*src += n;
-	}
-}
-
-void compile_clause(clause *cl, cell *body)
-{
-	pl_idx nbr_cells = cl->cidx - (body - cl->cells);
-	cl->alt = malloc(sizeof(cell) * nbr_cells);
-	cell *dst = cl->alt, *src = body;
-	compile_term(&dst, &src);
-	assert(src->tag == TAG_END);
-	copy_cells(dst, src, 1);
-}
-
 void parser_destroy(parser *p)
 {
 	if (!p) return;
@@ -405,7 +377,7 @@ static void consultall(parser *p, cell *l)
 		else {
 			char *s = C_STR(p, h);
 
-			if (!load_file(p->m, s, false))
+			if (!load_file(p->m, s, false, true))
 				fprintf_to_stream(p->pl, ERROR_FP, "Error: file not found: '%s'\n", s);
 		}
 
@@ -773,7 +745,7 @@ static bool directives(parser *p, cell *d)
 		const char *name = C_STR(p, p1);
 		char *filename = relative_to(p->m->filename, name);
 
-		if (!load_file(p->m, filename, true)) {
+		if (!load_file(p->m, filename, true, false)) {
 			if (DUMP_ERRS || !p->do_read_term)
 				fprintf_to_stream(p->pl, ERROR_FP, "Error: not found: %s:%d\n", filename, p->line_nbr);
 
@@ -796,7 +768,7 @@ static bool directives(parser *p, cell *d)
 		const char *name = C_STR(p, p1);
 		char *filename = relative_to(p->m->filename, name);
 
-		if (!load_file(p->m, filename, false)) {
+		if (!load_file(p->m, filename, false, false)) {
 			if (DUMP_ERRS || !p->do_read_term)
 				fprintf_to_stream(p->pl, ERROR_FP, "Error: not found: %s:%d\n", filename, p->line_nbr);
 
@@ -1855,7 +1827,7 @@ static bool dcg_expansion(parser *p)
 	q->trace = false;
 	cell *c = p->cl->cells;
 	cell *tmp = alloc_on_heap(q, 1+c->nbr_cells+1+1);
-	make_struct(tmp, new_atom(p->pl, "dcg_translate"), NULL, 2, c->nbr_cells+1);
+	make_instr(tmp, new_atom(p->pl, "dcg_translate"), NULL, 2, c->nbr_cells+1);
 	dup_cells(tmp+1, p->cl->cells, c->nbr_cells);
 	make_ref(tmp+1+c->nbr_cells, p->cl->nbr_vars, 0);
 	make_end(tmp+1+c->nbr_cells+1);
@@ -1939,7 +1911,7 @@ static bool term_expansion(parser *p)
 	cell *c = p->cl->cells;
 	cell *tmp = alloc_on_heap(q, 1+c->nbr_cells+2);
 	unsigned nbr_cells = 0;
-	make_struct(tmp+nbr_cells++, new_atom(p->pl, "term_expansion"), NULL, 2, c->nbr_cells+1);
+	make_instr(tmp+nbr_cells++, new_atom(p->pl, "term_expansion"), NULL, 2, c->nbr_cells+1);
 	dup_cells(tmp+nbr_cells, p->cl->cells, c->nbr_cells);
 	nbr_cells += c->nbr_cells;
 	make_ref(tmp+nbr_cells++, p->cl->nbr_vars, 0);
@@ -2192,7 +2164,7 @@ static cell *insert_call_here(parser *p, cell *c, cell *p1)
 		*dst-- = *last--;
 
 	p1 = p->cl->cells + p1_idx;
-	make_struct(p1, g_call_s, bif_iso_call_1, 1, 1);
+	make_instr(p1, g_call_s, bif_iso_call_1, 1, 1);
 	p->cl->cidx++;
 	return p->cl->cells + c_idx;
 }

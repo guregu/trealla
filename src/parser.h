@@ -19,7 +19,6 @@ void read_integer(parser *p, mp_int v2, int base, const char **srcptr);
 void share_cells(cell *src, pl_idx nbr_cells);
 void unshare_cells(cell *src, pl_idx nbr_cells);
 
-void compile_term(cell **dst, cell **src);
 void compile_clause(clause *cl, cell *body);
 
 void make_uint(cell *tmp, pl_uint v);
@@ -50,7 +49,7 @@ int do_dlclose(void *handle);
 
 void make_struct_(cell *tmp, pl_idx offset, unsigned arity, pl_idx extra_cells);
 
-#define make_struct(tmp, offset, fn, arity, extra_cells) { \
+#define make_instr(tmp, offset, fn, arity, extra_cells) { \
 	cell *tmp_make = tmp; \
 	make_struct_(tmp_make, offset, arity, extra_cells); \
 	\

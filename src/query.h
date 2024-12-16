@@ -17,7 +17,7 @@ void query_destroy(query *q);
 
 bool push_choice(query *q);
 bool push_barrier(query *q);
-bool push_succeed_on_retry(query *q);
+bool push_succeed_on_retry(query *q, pl_idx skip);
 bool push_fail_on_retry(query *q);
 bool push_reset_handler(query *q);
 bool push_catcher(query *q, enum q_retry type);
@@ -50,6 +50,7 @@ int check_interrupt(query *q);
 bool make_slice(query *q, cell *d, const cell *orig, size_t off, size_t n);
 void check_pressure(query *q);
 cell *prepare_call(query *q, bool prefix, cell *p1, pl_idx p1_ctx, unsigned extras);
+bool call_check(query *q, cell *tmp2, bool *status, bool calln);
 
 bool throw_error(query *q, cell *c, pl_idx c_ctx, const char *err_type, const char *expected);
 bool throw_error3(query *q, cell *c, pl_idx c_ctx, const char *err_type, const char *expected, cell *goal);
@@ -114,6 +115,9 @@ bool bif_iso_qualify_2(query *q);
 bool bif_iso_cut_0(query *q);
 bool bif_iso_unify_2(query *q);
 
+bool bif_sys_call_check_1(query *q);
+bool bif_sys_succeed_on_retry_2(query *q);
+bool bif_sys_fail_on_retry_1(query *q);
 bool bif_sys_drop_barrier_1(query *q);
 bool bif_sys_call_cleanup_3(query *q);
 bool bif_sys_set_if_var_2(query *q);
