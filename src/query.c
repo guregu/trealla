@@ -72,7 +72,19 @@ static void trace_call(query *q, cell *c, pl_idx c_ctx, box_t box)
 		return;
 
 #ifndef DEBUG
+	if (c->val_off == g_sys_succeed_on_retry_s)
+		return;
+
+	if (c->val_off == g_sys_fail_on_retry_s)
+		return;
+
+	if (c->val_off == g_sys_jump_s)
+		return;
+
 	if (c->val_off == g_sys_drop_barrier_s)
+		return;
+
+	if (c->val_off == g_sys_block_catcher_s)
 		return;
 
 	if (c->val_off == g_conjunction_s)
@@ -556,7 +568,7 @@ int retry_choice(query *q)
 
 		if (ch->succeed_on_retry) {
 			leave_predicate(q, ch->st.pr);
-			q->st.curr_instr += ch->skip ? ch->skip : 0;
+			q->st.curr_instr += ch->skip;
 			return ch->skip ? -2 : -1;
 		}
 
@@ -748,6 +760,7 @@ bool push_choice(query *q)
 	check_heap_error(check_choice(q));
 	const frame *f = GET_CURR_FRAME();
 	choice *ch = GET_CHOICE(q->cp++);
+	ch->skip = 0;
 	ch->st = q->st;
 	ch->dbgen = f->dbgen;
 	ch->frame_chgen = ch->chgen = f->chgen;
@@ -759,20 +772,7 @@ bool push_choice(query *q)
 		ch->catchme_exception = ch->barrier = ch->register_cleanup =
 		ch->block_catcher = ch->catcher = ch->fail_on_retry =
 		ch->succeed_on_retry = ch->reset = false;
-	return true;
-}
 
-// A barrier is used when making a call, it sets a new
-// choice generation so that normal cuts are contained.
-// This is because there is no separate choice stack.
-
-bool push_barrier(query *q)
-{
-	check_heap_error(push_choice(q));
-	frame *f = GET_CURR_FRAME();
-	choice *ch = GET_CURR_CHOICE();
-	ch->chgen = f->chgen = ++q->chgen;
-	ch->barrier = true;
 	return true;
 }
 
@@ -785,7 +785,20 @@ bool push_succeed_on_retry_no_barrier(query *q, pl_idx skip)
 	return true;
 }
 
-bool push_succeed_on_retry_with_barrier(query *q, pl_idx skip)
+// A barrier is used when making a call, it sets a new
+// choice generation so that normal cuts are contained.
+
+bool push_barrier(query *q)
+{
+	check_heap_error(push_choice(q));
+	frame *f = GET_CURR_FRAME();
+	choice *ch = GET_CURR_CHOICE();
+	ch->chgen = f->chgen = ++q->chgen;
+	ch->barrier = true;
+	return true;
+}
+
+bool push_succeed_on_retry(query *q, pl_idx skip)
 {
 	check_heap_error(push_barrier(q));
 	choice *ch = GET_CURR_CHOICE();
