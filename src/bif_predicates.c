@@ -229,7 +229,7 @@ static bool bif_iso_notunify_2(query *q)
 	make_uint(tmp+nbr_cells++, q->cp);
 	make_instr(tmp+nbr_cells++, g_fail_s, bif_iso_fail_0, 0, 0);
 	make_call(q, tmp+nbr_cells);
-	check_heap_error(push_succeed_on_retry(q, 0));
+	check_heap_error(push_succeed_on_retry_with_barrier(q, 0));
 	q->st.curr_instr = tmp;
 	return true;
 }
@@ -2806,147 +2806,6 @@ static bool bif_iso_op_3(query *q)
 	if (is_atom(p3))
 		return do_op(q, p3, p3_ctx);
 
-	return true;
-}
-
-static bool bif_listing_0(query *q)
-{
-	int n = q->pl->current_output;
-	stream *str = &q->pl->streams[n];
-	save_db(str->fp, q, 0);
-	return true;
-}
-
-static void save_name(FILE *fp, query *q, pl_idx name, unsigned arity, bool alt)
-{
-	module *m = q->st.curr_rule ? q->st.curr_rule->owner->m : q->st.curr_m;
-	q->listing = true;
-
-	for (predicate *pr = list_front(&m->predicates);
-		pr; pr = list_next(pr)) {
-		if (pr->is_builtin && (arity == -1U))
-			continue;
-
-		if (name != pr->key.val_off)
-			continue;
-
-		if ((arity != pr->key.arity) && (arity != -1U))
-			continue;
-
-		for (rule *r = pr->head; r; r = r->next) {
-			if (r->cl.dbgen_retracted)
-				continue;
-
-			for (unsigned i = 0; i < MAX_IGNORES; i++)
-				q->ignores[i] = false;
-
-			q->print_idx = 0;
-
-			if (alt && r->cl.alt) {
-				cell *c = r->cl.alt;
-
-				while (!is_end(c)) {
-					print_term(q, fp, c, 0, 0);
-					c += c->nbr_cells;
-					printf("\n");
-				}
-			} else if (alt)
-				fprintf(fp, "true");
-			else {
-				print_term(q, fp, r->cl.cells, 0, 0);
-				fprintf(fp, ".\n");
-			}
-		}
-	}
-
-	q->listing = false;
-}
-
-static bool bif_listing_1(query *q)
-{
-	GET_FIRST_ARG(p1,callable);
-	pl_idx name = p1->val_off;
-	unsigned arity = -1;
-
-	if (p1->val_off == g_colon_s) {
-		p1 = p1 + 1;
-		cell *cm = deref(q, p1, p1_ctx);
-		module *m = find_module(q->pl, C_STR(q, cm));
-
-		if (!m)
-			return throw_error(q, cm, p1_ctx, "existence_error", "module");
-
-		p1 += p1->nbr_cells;
-	}
-
-	if (p1->arity) {
-		if (CMP_STRING_TO_CSTR(q, p1, "/") && CMP_STRING_TO_CSTR(q, p1, "//"))
-			return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-		cell *p2 = p1 + 1;
-
-		if (!is_atom(p2))
-			return throw_error(q, p2, p1_ctx, "type_error", "atom");
-
-		cell *p3 = p2 + p2->nbr_cells;
-
-		if (!is_integer(p3))
-			return throw_error(q, p3, p1_ctx, "type_error", "integer");
-
-		name = new_atom(q->pl, C_STR(q, p2));
-		arity = get_smallint(p3);
-
-		if (!CMP_STRING_TO_CSTR(q, p1, "//"))
-			arity += 2;
-	}
-
-	int n = q->pl->current_output;
-	stream *str = &q->pl->streams[n];
-	save_name(str->fp, q, name, arity, false);
-	return true;
-}
-
-static bool bif_sys_xlisting_1(query *q)
-{
-	GET_FIRST_ARG(p1,callable);
-	pl_idx name = p1->val_off;
-	unsigned arity = -1;
-
-	if (p1->val_off == g_colon_s) {
-		p1 = p1 + 1;
-		cell *cm = deref(q, p1, p1_ctx);
-		module *m = find_module(q->pl, C_STR(q, cm));
-
-		if (!m)
-			return throw_error(q, cm, p1_ctx, "existence_error", "module");
-
-		p1 += p1->nbr_cells;
-	}
-
-	if (p1->arity) {
-		if (CMP_STRING_TO_CSTR(q, p1, "/") && CMP_STRING_TO_CSTR(q, p1, "//"))
-			return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
-
-		cell *p2 = p1 + 1;
-
-		if (!is_atom(p2))
-			return throw_error(q, p2, p1_ctx, "type_error", "atom");
-
-		cell *p3 = p2 + p2->nbr_cells;
-
-		if (!is_integer(p3))
-			return throw_error(q, p3, p1_ctx, "type_error", "integer");
-
-		name = new_atom(q->pl, C_STR(q, p2));
-		arity = get_smallint(p3);
-
-		if (!CMP_STRING_TO_CSTR(q, p1, "//"))
-			arity += 2;
-	}
-
-	int n = q->pl->current_output;
-	stream *str = &q->pl->streams[n];
-	save_name(str->fp, q, name, arity, true);
 	return true;
 }
 
@@ -6066,6 +5925,13 @@ bool bif_sys_get_level_1(query *q)
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 }
 
+bool bif_sys_jump_1(query *q)
+{
+	GET_FIRST_ARG(p1,integer);
+	q->st.curr_instr += get_smallint(p1);
+	return true;
+}
+
 static bool do_dump_term(query *q, cell *p1, pl_idx p1_ctx, bool deref, int depth)
 {
 	if (!depth) {
@@ -6247,14 +6113,22 @@ bool bif_sys_fail_on_retry_1(query *q)
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 }
 
+bool bif_sys_succeed_on_retry_1(query *q)
+{
+	GET_FIRST_ARG(p1,integer);
+	check_heap_error(push_succeed_on_retry_no_barrier(q, get_smalluint(p1)));
+	return true;
+}
+
 bool bif_sys_succeed_on_retry_2(query *q)
 {
 	GET_FIRST_ARG(p1,var);
 	GET_NEXT_ARG(p2,integer);
 	cell tmp;
 	make_uint(&tmp, (pl_uint)q->cp);
-	check_heap_error(push_succeed_on_retry(q, get_smalluint(p2)));
-	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
+	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
+	check_heap_error(push_succeed_on_retry_with_barrier(q, get_smalluint(p2)));
+	return ok;
 }
 
 static bool bif_iso_compare_3(query *q)
@@ -6890,10 +6764,6 @@ builtins g_other_bifs[] =
 	{"shell", 1, bif_shell_1, "+atom", false, false, BLAH},
 	{"shell", 2, bif_shell_2, "+atom,-integer", false, false, BLAH},
 #endif
-
-	{"listing", 0, bif_listing_0, NULL, false, false, BLAH},
-	{"listing", 1, bif_listing_1, "+predicate_indicator", false, false, BLAH},
-	{"$xlisting", 1, bif_sys_xlisting_1, "+predicate_indicator", false, false, BLAH},
 	{"time", 1, bif_time_1, ":callable", false, false, BLAH},
 	{"trace", 0, bif_trace_0, NULL, false, false, BLAH},
 	{"notrace", 0, fn_notrace_0, NULL, false, false, BLAH},
@@ -6997,6 +6867,7 @@ builtins g_other_bifs[] =
 	{"$queue", 1, bif_sys_queue_1, "+term", false, false, BLAH},
 	{"$incr", 2, bif_sys_incr_2, "@integer,+integer", false, false, BLAH},
 	{"$fail_on_retry", 1, bif_sys_fail_on_retry_1, "-integer", false, false, BLAH},
+	{"$succeed_on_retry", 1, bif_sys_succeed_on_retry_1, "+integer", false, false, BLAH},
 	{"$succeed_on_retry", 2, bif_sys_succeed_on_retry_2, "-integer,+integer", false, false, BLAH},
 	{"$call_check", 1, bif_sys_call_check_1, "+callable", false, false, BLAH},
 	{"$alarm", 1, bif_sys_alarm_1, "+integer", false, false, BLAH},
@@ -7013,6 +6884,7 @@ builtins g_other_bifs[] =
 	{"$call_cleanup", 3, bif_sys_call_cleanup_3, NULL, false, false, BLAH},
 	{"$cleanup_if_det", 1, bif_sys_cleanup_if_det_1, NULL, false, false, BLAH},
 	{"$drop_barrier", 1, bif_sys_drop_barrier_1, NULL, false, false, BLAH},
+	{"$jump", 1, bif_sys_jump_1, NULL, false, false, BLAH},
 	{"$timer", 0, bif_sys_timer_0, NULL, false, false, BLAH},
 	{"$elapsed", 0, bif_sys_elapsed_0, NULL, false, false, BLAH},
 	{"$lt", 2, bif_sys_lt_2, NULL, false, false, BLAH},
