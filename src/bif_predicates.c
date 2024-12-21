@@ -5939,13 +5939,6 @@ bool bif_sys_drop_barrier_1(query *q)
 	return true;
 }
 
-bool bif_sys_make_barrier_0(query *q)
-{
-	q->tot_inferences--;
-	check_heap_error(push_barrier(q));
-	return true;
-}
-
 bool bif_sys_jump_1(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
@@ -6903,7 +6896,6 @@ builtins g_other_bifs[] =
 #endif
 
 	{"$call_cleanup", 3, bif_sys_call_cleanup_3, NULL, false, false, BLAH},
-	{"$make_barrier", 0, bif_sys_make_barrier_0, NULL, false, false, BLAH},
 	{"$drop_barrier", 1, bif_sys_drop_barrier_1, "+integer", false, false, BLAH},
 	{"$jump", 1, bif_sys_jump_1, NULL, false, false, BLAH},
 	{"$timer", 0, bif_sys_timer_0, NULL, false, false, BLAH},
