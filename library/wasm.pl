@@ -49,9 +49,7 @@ js_ask(Stream, Input) :-
 
 query(Stream, Query, Status) :-
 	write(Stream, '\x2\'),  % START OF TEXT
-	% TODO: do we always want to run queries from the user module?
-	% seems to help with use_module/1
-	(   '$module'(user), call(Query)
+	(   call(Query)
 	*-> Status = success
 	;   Status = failure
 	).
