@@ -36,6 +36,8 @@ js_ask(Stream, Input) :-
 			result_json(error, Stream, Vars, Error)
 		)
 	),
+	% TODO: sometimes Vars gets erased? but binding it here helps
+	Vars2 = Vars,
 	% '$memory_stream_create'(Stream, []),
 	catch(
 		query(Stream, Query, Status),
@@ -43,11 +45,13 @@ js_ask(Stream, Input) :-
 		Status = error
 	),
 	write(Stream, '\x3\'),
-	result_json(Status, Stream, Vars, Error).
+	result_json(Status, Stream, Vars2, Error).
 
 query(Stream, Query, Status) :-
 	write(Stream, '\x2\'),  % START OF TEXT
-	(   call(Query)
+	% TODO: do we always want to run queries from the user module?
+	% seems to help with use_module/1
+	(   '$module'(user), call(Query)
 	*-> Status = success
 	;   Status = failure
 	).
