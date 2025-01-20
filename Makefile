@@ -166,6 +166,7 @@ LIBOBJECTS +=  \
 	library/reif.o \
 	library/si.o \
 	library/sqlite3.o \
+	library/time.o \
 	library/ugraphs.o \
 	library/uuid.o \
 	library/wasm.o \

@@ -74,7 +74,7 @@ static bool bif_posix_strftime_3(query *q)
 
 		if (strftime(buffer, length, format, &tm) > 0) {
 			cell tmp;
-			make_cstring(&tmp, buffer);
+			make_string(&tmp, buffer);
 			free(buffer);
 			bool ok = unify(q, p3, p3_ctx, &tmp, q->st.curr_frame);
 			unshare_cell(&tmp);
@@ -90,7 +90,7 @@ static bool bif_posix_strftime_3(query *q)
 static bool bif_posix_strptime_3(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
-	GET_NEXT_ARG(p2,atom);
+	GET_NEXT_ARG(p2,string);
 	GET_NEXT_ARG(p3,var);
 
     struct tm tm = {0};
