@@ -41,7 +41,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_uint(save_dst1+2, *dst - save_dst1);					// Real value1
 		compile_term(pr, cl, dst, src);								// Arg3
 		make_uint(save_dst2+1, *dst - save_dst2);					// Real value2
-		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);		// Why????
+		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);
 		return;
 	}
 
@@ -58,6 +58,8 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_var((*dst)++, g_anon_s, var_nbr);
 		make_uint((*dst)++, 0);										// Dummy value1
 		compile_term(pr, cl, dst, src);								// Arg1
+		make_instr((*dst)++, g_cut_s, bif_iso_cut_1, 1, 1);
+		make_var((*dst)++, g_anon_s, var_nbr);
 		make_instr((*dst)++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 		make_var((*dst)++, g_anon_s, var_nbr);
 		compile_term(pr, cl, dst, src);								// Arg2
@@ -67,7 +69,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_uint(save_dst1+2, *dst - save_dst1);					// Real value1
 		compile_term(pr, cl, dst, src);								// Arg3
 		make_uint(save_dst2+1, *dst - save_dst2);					// Real value2
-		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);		// Why????
+		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);
 		return;
 	}
 
@@ -85,9 +87,10 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_uint(save_dst1+1, *dst - save_dst1);					// Real value1
 		compile_term(pr, cl, dst, src);								// RHS
 		make_uint(save_dst2+1, *dst - save_dst2);					// Real value2
-		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);		// Why????
+		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);
 		return;
 	}
+#endif
 
 	// T1 -> T2
 
@@ -138,10 +141,9 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_uint(save_dst1+2, *dst - save_dst1);					// Real value1
 		compile_term(pr, cl, dst, src);								// Arg3
 		make_uint(save_dst2+1, *dst - save_dst2);					// Real value2
-		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);		// Why????
+		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);
 		return;
 	}
-#endif
 
 	if (((*src)->val_off == g_call_s) && ((*src)->arity == 1) && !is_var((*src)+1)) {
 		unsigned var_nbr = cl->nbr_vars++;
@@ -218,6 +220,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_instr((*dst)++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 		make_var((*dst)++, g_anon_s, var_nbr);
 		make_uint(save_dst+2, *dst - save_dst);						// Real value
+		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);
 		return;
 	}
 
@@ -235,7 +238,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_var((*dst)++, g_anon_s, var_nbr);
 		make_instr((*dst)++, g_fail_s, bif_iso_fail_0, 0, 0);
 		make_uint(save_dst+2, *dst - save_dst);						// Real value
-		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);		// Why????
+		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);
 		return;
 	}
 
