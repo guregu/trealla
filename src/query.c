@@ -1893,8 +1893,13 @@ void query_destroy(query *q)
 		c->attrs = tr->attrs;
 	}
 
-	for (int i = 0; i < MAX_QUEUES; i++)
+	for (int i = 0; i < MAX_QUEUES; i++) {
+		cell *c = q->queue[i];
+		for (pl_idx j = 0; j < q->qp[i]; j++, c++)
+			unshare_cell(c);
+
 		free(q->queue[i]);
+	}
 
 	slot *e = q->slots;
 
