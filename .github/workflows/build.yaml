@@ -177,7 +177,7 @@
               ATTRIBUTION
               README.md
         - name: Upload artifacts
-          uses: actions/upload-artifact@v3
+          uses: actions/upload-artifact@v4
           with:
             name: libtpl-wasm
             path: |
@@ -186,7 +186,7 @@
               ATTRIBUTION
               README.md
         - name: Upload artifacts
-          uses: actions/upload-artifact@v3
+          uses: actions/upload-artifact@v4
           with:
             name: libtpl-wasm-js
             path: |
@@ -195,7 +195,7 @@
               ATTRIBUTION
               README.md
         - name: Upload artifacts
-          uses: actions/upload-artifact@v3
+          uses: actions/upload-artifact@v4
           with:
             name: libtpl-wasm-spin
             path: |
