@@ -1658,7 +1658,7 @@ bool start(query *q)
 				if (!(q->s_cnt++ % 100))
 					check_pressure(q);
 
-				if (q->yield_at && !q->run_hook) {
+				if (q->yield_at && !q->run_hook && !q->no_yield) {
 					uint64_t now = get_time_in_usec() / 1000;
 					if (now > q->yield_at)  {
 						do_yield_then(q, status);

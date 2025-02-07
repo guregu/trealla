@@ -6230,7 +6230,7 @@ static bool fn_sys_host_resume_1(query *q) {
 		free(reply);
 		return false;
 	}
-	
+
 	if (status == WASM_HOST_CALL_CHOICE) {
 		check_heap_error(push_choice(q), free(reply));
 	} else if (status != WASM_HOST_CALL_OK) {
@@ -6249,6 +6249,17 @@ static bool fn_sys_host_resume_1(query *q) {
 	return false;
 #endif
 }
+
+static bool fn_sys_yield_off_0(query *q) {
+	q->no_yield = true;
+	return true;
+}
+
+static bool fn_sys_yield_on_0(query *q) {
+	q->no_yield = false;
+	return true;
+}
+
 #endif
 
 bool bif_sys_counter_1(query *q)
@@ -6893,6 +6904,8 @@ builtins g_other_bifs[] =
 #ifdef __wasi__
 	{"$host_call", 2, fn_sys_host_call_2, "+string,-string", false, false, BLAH},
 	{"$host_resume", 1, fn_sys_host_resume_1, "-string", false, false, BLAH},
+	{"$yield_off", 0, fn_sys_yield_off_0, NULL, false, false, BLAH},
+	{"$yield_on", 0, fn_sys_yield_on_0, NULL, false, false, BLAH},
 #endif
 
 	{"$call_cleanup", 3, bif_sys_call_cleanup_3, NULL, false, false, BLAH},
