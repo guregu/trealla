@@ -57,7 +57,7 @@ query(Stream, Query, Status) :-
 result_json(Status, Stream, Vars, Error) :-
 	setup_call_cleanup(
 		'$yield_off',
-		result_json_(Status, Stream, Vars, Error),
+		( write(Stream, '\x3\'), result_json_(Status, Stream, Vars, Error) ),
 		'$yield_on'
 	).
 result_json_(success, Stream, Vars, _) :-
