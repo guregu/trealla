@@ -1898,7 +1898,7 @@ static bool bif_iso_flush_output_1(query *q)
 
 	if (!strcmp(str->mode, "read"))
 		return throw_error(q, pstr, q->st.curr_frame, "permission_error", "output,stream");
-	
+
 	if (is_memory_stream(str))
 		return true;
 
@@ -1923,7 +1923,7 @@ static bool bif_iso_nl_0(query *q)
 
 	if (is_memory_stream(str))
 		return true;
-	
+
 	int err = fflush(str->fp);
 
 	if (err == EOF)
@@ -3136,7 +3136,7 @@ static bool bif_iso_put_char_2(query *q)
 	char tmpbuf[80];
 	put_char_utf8(tmpbuf, ch);
 	net_write(tmpbuf, strlen(tmpbuf), str);
-	
+
 	if (is_memory_stream(str))
 		return true;
 
@@ -3200,7 +3200,7 @@ static bool bif_iso_put_code_2(query *q)
 	char tmpbuf[80];
 	put_char_utf8(tmpbuf, ch);
 	net_write(tmpbuf, strlen(tmpbuf), str);
-	
+
 	if (is_memory_stream(str))
 		return true;
 
@@ -3232,7 +3232,7 @@ static bool bif_iso_put_byte_1(query *q)
 	char tmpbuf[80];
 	snprintf(tmpbuf, sizeof(tmpbuf), "%c", ch);
 	net_write(tmpbuf, 1, str);
-	
+
 	if (is_memory_stream(str))
 		return true;
 
@@ -3265,7 +3265,7 @@ static bool bif_iso_put_byte_2(query *q)
 	char tmpbuf[80];
 	snprintf(tmpbuf, sizeof(tmpbuf), "%c", ch);
 	net_write(tmpbuf, 1, str);
-	
+
 	if (is_memory_stream(str))
 		return true;
 
@@ -7119,7 +7119,7 @@ static bool fn_sys_memory_stream_create_2(query *q)
 	str->is_memory = true;
 	str->mode = strdup("append");
 	str->eof_action = eof_action_reset;
-	
+
 	cell tmp ;
 	make_int(&tmp, n);
 	tmp.flags |= FLAG_INT_STREAM;
@@ -7137,8 +7137,8 @@ static bool fn_sys_memory_stream_to_chars_2(query *q)
 	cell tmp;
 	check_heap_error(make_stringn(&tmp, src, len));
 	// str->is_memory = false;
-	SB_free(str->sb);
-	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);;
+	SB_init(str->sb);
+	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 	unshare_cell(&tmp);
 	return ok;
 }
@@ -7615,7 +7615,7 @@ builtins g_streams_bifs[] =
 
 	{"$memory_stream_create", 2, fn_sys_memory_stream_create_2, "-stream,+options", false, false, BLAH},
 	{"$memory_stream_to_chars", 2, fn_sys_memory_stream_to_chars_2, "+stream,-string", false, false, BLAH},
-	
+
 	{"$gsl_vector_write", 2, bif_sys_gsl_vector_write_2, "+integer,+stream", false, false, BLAH},
 	{"$gsl_vector_alloc", 2, bif_sys_gsl_vector_alloc_2, "+stream,-integer", false, false, BLAH},
 	{"$gsl_vector_read", 2, bif_sys_gsl_vector_read_2, "+integer,+stream", false, false, BLAH},
@@ -7640,4 +7640,3 @@ builtins g_streams_bifs[] =
 
 	{0}
 };
-

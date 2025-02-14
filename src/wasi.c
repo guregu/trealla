@@ -28,6 +28,7 @@ void canonical_abi_free(void *ptr, size_t size, size_t align) {
 // Guest (Trealla) is responsible for freeing msg and reply.
 int32_t host_call(int32_t subquery, const char *msg, size_t msg_size, char **reply, size_t *reply_size);
 bool host_resume(int32_t subquery, char **reply, size_t *reply_size);
+bool host_push_answer(int32_t subquery, const char *msg, size_t msg_size);
 
 #endif
 
