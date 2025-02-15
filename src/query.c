@@ -539,6 +539,7 @@ void undo_me(query *q)
 		cell *c = &e->c;
 		unshare_cell(c);
 		c->tag = TAG_EMPTY;
+		c->flags = 0;
 		c->attrs = tr->attrs;
 	}
 }
@@ -914,6 +915,20 @@ static bool resume_any_choices(const query *q, const frame *f)
 	return ch->chgen > f->chgen;
 }
 
+static void trim_frame(query *q, const frame *f)
+{
+	for (unsigned i = 0; i < f->actual_slots; i++) {
+		slot *e = GET_SLOT(f, i);
+		cell *c = &e->c;
+		unshare_cell(c);
+		c->tag = TAG_EMPTY;
+		c->flags = 0;
+	}
+
+	q->st.sp -= f->actual_slots;
+	q->st.fp--;
+}
+
 // Resume at next goal in previous clause...
 
 static bool resume_frame(query *q)
@@ -932,8 +947,7 @@ static bool resume_frame(query *q)
 		q->st.hp = f->hp;
 		q->st.heap_nbr = f->heap_nbr;
 		trim_heap(q);
-		q->st.sp -= f->actual_slots;
-		q->st.fp--;
+		trim_frame(q, f);
 	}
 
 	q->st.curr_instr = f->curr_instr;
@@ -1905,14 +1919,11 @@ void query_destroy(query *q)
 		free(save);
 	}
 
-	while (q->st.tp > 0) {
-		const trail *tr = q->trails + --q->st.tp;
-		const frame *f = GET_FRAME(tr->var_ctx);
-		slot *e = GET_SLOT(f, tr->var_nbr);
+	slot *e = q->slots;
+
+	for (pl_idx i = 0; i < q->st.sp; i++, e++) {
 		cell *c = &e->c;
 		unshare_cell(c);
-		c->tag = TAG_EMPTY;
-		c->attrs = tr->attrs;
 	}
 
 	for (int i = 0; i < MAX_QUEUES; i++) {
@@ -1921,13 +1932,6 @@ void query_destroy(query *q)
 			unshare_cell(c);
 
 		free(q->queue[i]);
-	}
-
-	slot *e = q->slots;
-
-	for (pl_idx i = 0; i < q->st.sp; i++, e++) {
-		cell *c = &e->c;
-		unshare_cell(c);
 	}
 
 	while (q->tasks) {
