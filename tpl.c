@@ -411,7 +411,9 @@ int main(int ac, char *av[], char * envp[])
 		do {
 			pl_capture_read(pl, &out, &out_len, &err, &err_len);
 			printf("stdout: %.*s\nstderr: %.*s\n", out_len, out, err_len, err);
+			pl_capture_reset(pl);
 		} while (pl_redo(subq));
+		pl_capture_free(pl);
 #endif
 
 		free(line);

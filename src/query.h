@@ -30,7 +30,6 @@ void do_yield_at(query *q, unsigned int time_in_ms);
 
 char *url_encode(const char *src, int len, char *dstbuf);
 char *url_decode(const char *src, char *dstbuf);
-cell *do_term_variables(query *q, cell *p1, pl_idx p1_ctx);
 bool query_redo(query *q);
 bool has_next_key(query *q);
 bool check_slot(query *q, unsigned cnt);
@@ -52,6 +51,7 @@ bool make_slice(query *q, cell *d, const cell *orig, size_t off, size_t n);
 void check_pressure(query *q);
 cell *prepare_call(query *q, bool prefix, cell *p1, pl_idx p1_ctx, unsigned extras);
 bool call_check(query *q, cell *tmp2, bool *status, bool calln);
+bool make_slice(query *q, cell *d, const cell *orig, size_t off, size_t n);
 
 bool throw_error(query *q, cell *c, pl_idx c_ctx, const char *err_type, const char *expected);
 bool throw_error3(query *q, cell *c, pl_idx c_ctx, const char *err_type, const char *expected, cell *goal);

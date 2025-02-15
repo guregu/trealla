@@ -1550,7 +1550,7 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 	c->nbr_cells = 1;
 }
 
-static bool apply_operators(parser *p, pl_idx start_idx, bool last_op)
+static bool reduce(parser *p, pl_idx start_idx, bool last_op)
 {
 	pl_idx lowest = IDX_MAX, work_idx, end_idx = p->cl->cidx - 1;
 	bool do_work = false, bind_le = false;
@@ -1722,9 +1722,11 @@ static bool apply_operators(parser *p, pl_idx start_idx, bool last_op)
 			save.nbr_cells += lhs->nbr_cells;
 			pl_idx cells_to_move = lhs->nbr_cells;
 			cell *save_c = lhs;
+			const cell *src = c - 1;
+			cell *dst = c;
 
 			while (cells_to_move--)
-				*c++ = *lhs++;
+				*dst-- = *src--;
 
 			*save_c = save;
 			break;
@@ -1801,7 +1803,7 @@ static bool apply_operators(parser *p, pl_idx start_idx, bool last_op)
 
 static bool analyze(parser *p, pl_idx start_idx, bool last_op)
 {
-	while (apply_operators(p, start_idx, last_op))
+	while (reduce(p, start_idx, last_op))
 		;
 
 	return !p->error;
