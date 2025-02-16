@@ -192,6 +192,7 @@ int main(int ac, char *av[], char * envp[])
 	int i, do_goal = 0, do_lib = 0, do_log = 0, do_restore = 0;
 	int version = 0, daemon = 0;
 	bool ns = false, no_res = false, quiet = false;
+	bool emulate = false;
 	const char *restore_file = NULL;
 #ifdef __wasi__
     if (!initialized) init_func();
@@ -226,6 +227,8 @@ int main(int ac, char *av[], char * envp[])
 			set_trace(pl);
 		else if (!strcmp(av[i], "-d") || !strcmp(av[i], "--daemon"))
 			daemon = 1;
+		else if (!strcmp(av[i], "--emulatewasm"))
+			emulate = true;
 	}
 
 #ifndef __wasi__
@@ -400,21 +403,22 @@ int main(int ac, char *av[], char * envp[])
 
 		g_tpl_interrupt = 0;
 
-#if 0
-		pl_eval(pl, src, true);
-#else
-		pl_sub_query *subq;
-		char *out, *err;
-		int32_t out_len, err_len;
-		pl_capture(pl);
-		pl_query(pl, src, &subq, 0);
-		do {
-			pl_capture_read(pl, &out, &out_len, &err, &err_len);
-			printf("stdout: %.*s\nstderr: %.*s\n", out_len, out, err_len, err);
-			pl_capture_reset(pl);
-		} while (pl_redo(subq));
-		pl_capture_free(pl);
-#endif
+		if (!emulate) {
+			pl_eval(pl, src, true);
+		} else {
+			pl_sub_query *subq;
+			char *out, *err;
+			int32_t out_len, err_len;
+			pl_capture(pl);
+			bool ok = pl_query(pl, src, &subq, 0);
+			do {
+				pl_capture_read(pl, &out, &out_len, &err, &err_len);
+				printf("stdout: %.*s\nstderr: %.*s\n", out_len, out, err_len, err);
+				printf("status: %s\nok: %d\n", pl_query_status(subq) ? "true" : "false", ok);
+				pl_capture_reset(pl);
+			} while ((ok = pl_redo(subq)));
+			pl_capture_free(pl);
+		}
 
 		free(line);
 

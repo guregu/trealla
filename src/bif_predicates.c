@@ -6244,14 +6244,18 @@ static bool fn_sys_host_push_answer_1(query *q) {
 	GET_FIRST_ARG(p1,atom_or_list);
 
 	dup_string(msg, p1);
-	// char *msg = "{\"status\":\"success\",\"answer\":{\"X\":1}}";
-	// size_t msg_len = strlen(msg);
 
 	host_push_answer((int32_t)q, msg, msg_len);
 	free(msg);
 
 	return true;
 #else
+	GET_FIRST_ARG(p1,atom_or_list);
+	dup_string(msg, p1);
+
+	fprintf(stderr, "push: %s\n", msg);
+	free(msg);
+
 	return true;
 #endif
 }

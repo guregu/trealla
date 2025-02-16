@@ -182,6 +182,14 @@ bool pl_query(prolog *pl, const char *s, pl_sub_query **subq, unsigned int yield
 	return ok;
 }
 
+bool pl_query_status(pl_sub_query *subq)
+{
+	if (!subq)
+		return false;
+
+	return ((query*)subq)->status;
+}
+
 bool pl_redo(pl_sub_query *subq)
 {
 	if (!subq)
@@ -189,10 +197,13 @@ bool pl_redo(pl_sub_query *subq)
 
 	query *q = (query*)subq;
 
+	q->pl->p = q->p;
 	if (query_redo(q))
 		return true;
 
 	parser_destroy(q->p);
+	if (q->pl->p == q->p)
+		q->pl->p = NULL;
 	query_destroy(q);
 	return false;
 }
@@ -224,6 +235,8 @@ bool pl_done(pl_sub_query *subq)
 	query *q = (query*)subq;
 
 	parser_destroy(q->p);
+	if (q->pl->p == q->p)
+		q->pl->p = NULL;
 	query_destroy(q);
 	return true;
 }
@@ -271,8 +284,8 @@ void pl_capture_reset(prolog *pl) {
 	stream* stdout_stream = &pl->streams[1];
 	stream* stderr_stream = &pl->streams[2];
 
-	SB_init(stdout_stream->sb);
-	SB_init(stderr_stream->sb);
+	SB_free(stdout_stream->sb);
+	SB_free(stderr_stream->sb);
 }
 
 bool pl_consult_fp(prolog *pl, FILE *fp, const char *filename)
@@ -741,7 +754,8 @@ void pl_destroy(prolog *pl)
 		free(str->data);
 	}
 
-	parser_destroy(pl->p);
+	if (pl->p)
+		parser_destroy(pl->p);
 
 	if (!--g_tpl_count)
 		g_destroy();
