@@ -44,7 +44,6 @@ js_ask(Stream, Input) :-
 		Error,
 		Status = error
 	),
-	write(Stream, '\x3\'),
 	result_json(Status, Stream, Vars2, Error).
 
 query(Stream, Query, Status) :-
