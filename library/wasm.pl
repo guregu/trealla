@@ -41,19 +41,24 @@ js_ask(Input) :-
 	Vars2 = Vars,
 	% TODO: something leaks if the query ends in a failing branch,
 	% this hacks around it
-	% Query2 = (Query ; Done = true),
+	Query2 = (Query ; Done = true),
 	catch(
-		query(Query, Status),
+		query(Query2, Status),
 		Error,
 		Status = error
 	),
-	'$yield_off',
-	'$memory_stream_create'(Stream, []),
-	result_json(Status, Stream, Vars2, Error),
-	'$memory_stream_to_chars'(Stream, Cs),
-	'$host_push_answer'(Cs),
-	close(Stream),
-	'$yield_on'.
+	(  Done == true
+	-> true
+	;  (
+		'$yield_off',
+		'$memory_stream_create'(Stream, []),
+		result_json(Status, Stream, Vars2, Error),
+		'$memory_stream_to_chars'(Stream, Cs),
+		'$host_push_answer'(Cs),
+		close(Stream),
+		'$yield_on'
+	   )
+	).
 
 query(Query, Status) :-
 	(   call(Query)
