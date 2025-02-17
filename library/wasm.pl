@@ -32,7 +32,7 @@ js_ask(Stream, Input) :-
 		read_term_from_chars(Input, Query, [variable_names(Vars)]),
 		Error,
 		(
-			write(Stream, '\x2\\x3\'),
+			write(Stream, '\x2\'),
 			result_json(error, Stream, Vars, Error)
 		)
 	),
