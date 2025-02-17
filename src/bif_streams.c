@@ -1745,7 +1745,7 @@ static bool stream_close(query *q, int n)
 		sl_set(str2->alias, strdup("user_error"), NULL);
 	}
 
-	if (!str->socket && !str->is_mutex && !str->is_queue)
+	if (!str->socket && !str->is_mutex && !str->is_queue && !str->is_memory)
 		del_stream_properties(q, n);
 
 	bool ok = true;
@@ -7120,7 +7120,7 @@ static bool fn_sys_memory_stream_create_2(query *q)
 	str->mode = strdup("append");
 	str->eof_action = eof_action_reset;
 
-	cell tmp ;
+	cell tmp;
 	make_int(&tmp, n);
 	tmp.flags |= FLAG_INT_STREAM;
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
