@@ -238,6 +238,7 @@ libtpl-debug.wasm:
 
 libtpl-js.wasm:
 	$(MAKE) WASI=1 TPL=libtpl-js.wasm 'OPT=$(OPT) -DNDEBUG -DWASI_IMPORTS -DWASI_TARGET_GENERIC -DWASI_TARGET_JS'
+	# $(MAKE) WASI=1 TPL=libtpl-js.wasm 'OPT=-O0 -g -DDEBUG -DWASI_IMPORTS -DWASI_TARGET_GENERIC -DWASI_TARGET_JS'
 
 libtpl-spin.wasm:
 	$(MAKE) WASI=1 WASI_TARGET_SPIN=1 TPL=libtpl-spin.wasm 'OPT=$(OPT) -DNDEBUG -DWASI_TARGET_SPIN'

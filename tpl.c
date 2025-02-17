@@ -414,7 +414,8 @@ int main(int ac, char *av[], char * envp[])
 			do {
 				pl_capture_read(pl, &out, &out_len, &err, &err_len);
 				printf("stdout: %.*s\nstderr: %.*s\n", out_len, out, err_len, err);
-				printf("status: %s\nok: %d\n", pl_query_status(subq) ? "true" : "false", ok);
+				if (subq)
+					printf("status: %s\nok: %d\n", get_status(pl) ? "true" : "false", ok);
 				pl_capture_reset(pl);
 			} while ((ok = pl_redo(subq)));
 			pl_capture_free(pl);
