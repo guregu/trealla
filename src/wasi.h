@@ -14,8 +14,7 @@ __attribute__((import_module("trealla"), import_name("host-call")))
 extern int32_t host_call(int32_t subquery, const char *msg, size_t msg_size, char **reply, size_t *reply_size);
 __attribute__((import_module("trealla"), import_name("host-resume")))
 extern int32_t host_resume(int32_t subquery, char **reply, size_t *reply_size);
-__attribute__((import_module("trealla"), import_name("host-push-answer")))
-extern int32_t host_push_answer(int32_t subquery, const char *msg, size_t msg_size);
+
 #endif
 
 #ifdef __wasi__

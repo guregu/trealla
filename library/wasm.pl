@@ -11,7 +11,7 @@
 		"error": "<throw/1 exception term>"
 	}
 */
-:- module(wasm, [js_toplevel/0, js_ask/1, js_ask_v2/1]).
+:- module(wasm, [js_toplevel/0, js_ask/1]).
 
 :- use_module(library(lists)).
 :- use_module(library(pseudojson)).
@@ -24,48 +24,31 @@ js_toplevel :-
 	js_ask(Line).
 
 js_ask(Input) :-
+	% '$memory_stream_create'(Stream, []),
 	js_ask(stdout, Input).
-
-js_ask_v2(Input) :-
-	'$silent_toplevel',
-	catch(
-		read_term_from_chars(Input, Query, [variable_names(Vars)]),
-		Error,
-		result_json(error, Stream, Vars, Error)
-	),
-	% TODO: sometimes Vars gets erased? but binding it here helps
-	Vars2 = Vars,
-	setup_call_cleanup(
-		'$memory_stream_create'(Stream, []),
-		(
-			catch(
-				query(Stream, Query, Status),
-				Error,
-				Status = error
-			),
-			result_json(Status, Stream, Vars2, Error),
-			'$memory_stream_to_chars'(Stream, Cs),
-			host_push_answer(Cs)
-		),
-		close(Stream)
-	).
 
 js_ask(Stream, Input) :-
 	catch(
 		read_term_from_chars(Input, Query, [variable_names(Vars)]),
 		Error,
-		result_json(error, Stream, Vars, Error)
+		(
+			write(Stream, '\x2\\x3\'),
+			result_json(error, Stream, Vars, Error)
+		)
 	),
 	% TODO: sometimes Vars gets erased? but binding it here helps
 	Vars2 = Vars,
+	% '$memory_stream_create'(Stream, []),
 	catch(
 		query(Stream, Query, Status),
 		Error,
 		Status = error
 	),
+	write(Stream, '\x3\'),
 	result_json(Status, Stream, Vars2, Error).
 
 query(Stream, Query, Status) :-
+	write(Stream, '\x2\'),  % START OF TEXT
 	(   call(Query)
 	*-> Status = success
 	;   Status = failure
@@ -74,7 +57,7 @@ query(Stream, Query, Status) :-
 result_json(Status, Stream, Vars, Error) :-
 	setup_call_cleanup(
 		'$yield_off',
-		( result_json_(Status, Stream, Vars, Error) ),
+		( write(Stream, '\x3\'), result_json_(Status, Stream, Vars, Error) ),
 		'$yield_on'
 	).
 result_json_(success, Stream, Vars, _) :-
@@ -250,6 +233,3 @@ term_json_stream_(Stream, _) :-
 
 write_json_term(Stream, T) :-
 	write_term(Stream, T, [json(true), double_quotes(true), quoted(true), max_depth(0)]).
-
-host_push_answer(JSON) :-
-	'$host_push_answer'(JSON).

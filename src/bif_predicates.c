@@ -6221,8 +6221,6 @@ static bool fn_sys_host_resume_1(query *q) {
 	return false;
 #endif
 }
-#endif
-#if 1
 
 static bool fn_sys_yield_off_0(query *q) {
 	q->no_yield = true;
@@ -6234,27 +6232,6 @@ static bool fn_sys_yield_on_0(query *q) {
 	return true;
 }
 
-static bool fn_sys_silent_toplevel_0(query *q) {
-	q->silent_toplevel = true;
-	return true;
-}
-
-static bool fn_sys_host_push_answer_1(query *q) {
-#ifdef WASI_IMPORTS
-	GET_FIRST_ARG(p1,atom_or_list);
-
-	dup_string(msg, p1);
-	// char *msg = "{\"status\":\"success\",\"answer\":{\"X\":1}}";
-	// size_t msg_len = strlen(msg);
-
-	host_push_answer((int32_t)q, msg, msg_len);
-	free(msg);
-
-	return true;
-#else
-	return true;
-#endif
-}
 #endif
 
 bool bif_sys_counter_1(query *q)
@@ -6899,12 +6876,8 @@ builtins g_other_bifs[] =
 #ifdef __wasi__
 	{"$host_call", 2, fn_sys_host_call_2, "+string,-string", false, false, BLAH},
 	{"$host_resume", 1, fn_sys_host_resume_1, "-string", false, false, BLAH},
-	#endif
-	#if 1
-	{"$host_push_answer", 1, fn_sys_host_push_answer_1, "+string", false, false, BLAH},
 	{"$yield_off", 0, fn_sys_yield_off_0, NULL, false, false, BLAH},
 	{"$yield_on", 0, fn_sys_yield_on_0, NULL, false, false, BLAH},
-	{"$silent_toplevel", 0, fn_sys_silent_toplevel_0, NULL, false, false, BLAH},
 #endif
 
 	{"$call_cleanup", 3, bif_sys_call_cleanup_3, NULL, false, false, BLAH},

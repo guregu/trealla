@@ -145,8 +145,7 @@ bool check_redo(query *q)
 					printf("   ");
 			}
 
-			if (!q->silent_toplevel)
-				printf("true");
+			printf("true");
 		}
 	}
 
@@ -157,8 +156,7 @@ bool check_redo(query *q)
 
 	if (q->fail_on_retry && (q->autofail_n > 1)) {
 		q->autofail_n--;
-		if (!q->silent_toplevel)
-			printf("\n; ");
+		printf("\n; ");
 		fflush(stdout);
 		q->is_redo = true;
 		q->retry = QUERY_RETRY;
@@ -169,8 +167,7 @@ bool check_redo(query *q)
 	q->autofail_n = 0;
 
 	for (;;) {
-		if (!q->silent_toplevel)
-			printf("\n;");
+		printf("\n;");
 		fflush(stdout);
 		int ch = history_getch();
 
@@ -190,8 +187,7 @@ bool check_redo(query *q)
 		}
 
 #ifdef __wasi__
-	if (!q->silent_toplevel)
-		printf(" ");
+	printf(" ");
 #endif
 
 		if ((ch == 'a') || isdigit(ch)) {
