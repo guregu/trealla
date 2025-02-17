@@ -39,25 +39,19 @@ js_ask(Input) :-
 	),
 	% TODO: sometimes Vars gets erased? but binding it here helps
 	Vars2 = Vars,
-	% TODO: something leaks if the query ends in a failing branch,
-	% this hacks around it
-	Query2 = (Query ; Done = true),
-	catch(
-		query(Query2, Status),
-		Error,
-		Status = error
-	),
-	(  Done == true
-	-> true
-	;  (
-		'$yield_off',
+	setup_call_cleanup(
 		'$memory_stream_create'(Stream, []),
-		result_json(Status, Stream, Vars2, Error),
-		'$memory_stream_to_chars'(Stream, Cs),
-		'$host_push_answer'(Cs),
-		close(Stream),
-		'$yield_on'
-	   )
+		(
+			catch(
+				query(Query, Status),
+				Error,
+				Status = error
+			),
+			result_json(Status, Stream, Vars2, Error),
+			'$memory_stream_to_chars'(Stream, Cs),
+			'$host_push_answer'(Cs)
+		),
+		close(Stream)
 	).
 
 query(Query, Status) :-

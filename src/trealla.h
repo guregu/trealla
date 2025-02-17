@@ -64,8 +64,6 @@ EXPORT(get_error)
 extern bool get_error(prolog*);
 EXPORT(get_status)
 extern bool get_status(prolog*);
-EXPORT(pl_query_status)
-extern bool pl_query_status(pl_sub_query*);
 EXPORT(get_redo)
 extern bool get_redo(prolog*);
 EXPORT(did_dump_vars)
