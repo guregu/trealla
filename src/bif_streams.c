@@ -7137,7 +7137,7 @@ static bool fn_sys_memory_stream_to_chars_2(query *q)
 	cell tmp;
 	check_heap_error(make_stringn(&tmp, src, len));
 	// str->is_memory = false;
-	SB_init(str->sb);
+	SB_free(str->sb);
 	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 	unshare_cell(&tmp);
 	return ok;
