@@ -37,11 +37,6 @@ js_ask(Input) :-
 			fail
 		)
 	),
-	% TODO: sometimes Vars gets erased? but binding it here helps
-	% Vars2 = Vars,
-	% TODO: something leaks if the query ends in a failing branch,
-	% this hacks around it
-	% Query2 = (Query ; Done = true),
 	catch(
 		query(Query, Status),
 		Error,
