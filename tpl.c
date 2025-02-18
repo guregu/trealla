@@ -374,7 +374,7 @@ int main(int ac, char *av[], char * envp[])
 
 		g_tpl_interrupt = 0;
 
-#if 1
+#ifndef SUBQUERY_DEBUG
 		pl_eval(pl, src, true);
 #else
 		pl_sub_query *subq;
