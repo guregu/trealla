@@ -17,7 +17,6 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 
 	cell *c = (*src) + 1;
 
-#if 0
 	// T1 -> T2 ; T3
 
 	if (((*src)->val_off == g_disjunction_s) && ((*src)->arity == 2)
@@ -58,7 +57,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_var((*dst)++, g_anon_s, var_nbr);
 		make_uint((*dst)++, 0);										// Dummy value1
 		compile_term(pr, cl, dst, src);								// Arg1
-		make_instr((*dst)++, g_cut_s, bif_iso_cut_1, 1, 1);
+		make_instr((*dst)++, g_sys_cut_s, bif_sys_cut_1, 1, 1);
 		make_var((*dst)++, g_anon_s, var_nbr);
 		make_instr((*dst)++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 		make_var((*dst)++, g_anon_s, var_nbr);
@@ -90,7 +89,6 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);
 		return;
 	}
-#endif
 
 	// T1 -> T2
 
@@ -159,37 +157,6 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		return;
 	}
 
-#if 0
-	// This is not worth doing as the conditions are very rare
-
-	if (((*src)->val_off == g_call_s) && ((*src)->arity > 1) && is_ground(*src)) {
-		unsigned var_nbr = cl->nbr_vars++;
-		cl->has_local_vars = true;
-		unsigned arity = (*src)->arity;
-		*src += 1;
-		make_instr((*dst)++, g_sys_fail_on_retry_s, bif_sys_fail_on_retry_1, 1, 1);
-		make_var((*dst)++, g_anon_s, var_nbr);
-		cell *save_dst = *dst;
-		make_instr((*dst)++, g_sys_call_s, bif_sys_call_1, 1, 0);
-		cell *save_dst1 = *dst;
-		cell *save_dst2 = *dst;
-		compile_term(pr, cl, dst, src);
-		save_dst->nbr_cells += *dst - save_dst2;
-
-		for (unsigned i = 1; i < arity; i++) {
-			cell *save_dst2 = *dst;
-			compile_term(pr, cl, dst, src);
-			save_dst->nbr_cells += *dst - save_dst2;
-			save_dst1->nbr_cells += *dst - save_dst2;
-			save_dst1->arity++;
-		}
-
-		make_instr((*dst)++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
-		make_var((*dst)++, g_anon_s, var_nbr);
-		return;
-	}
-#endif
-
 	if (((*src)->val_off == g_once_s) && ((*src)->arity == 1) && !is_var((*src)+1)) {
 		unsigned var_nbr = cl->nbr_vars++;
 		cl->has_local_vars = true;
@@ -232,7 +199,13 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_instr((*dst)++, g_sys_succeed_on_retry_s, bif_sys_succeed_on_retry_2, 2, 2);
 		make_var((*dst)++, g_anon_s, var_nbr);
 		make_uint((*dst)++, 0);										// Dummy value
+#if 0
 		compile_term(pr, cl, dst, src);
+#else
+		unsigned n = copy_cells(*dst, *src, (*src)->nbr_cells);
+		*dst += n;
+		*src += n;
+#endif
 		make_instr((*dst)++, g_cut_s, bif_iso_cut_0, 0, 0);
 		make_instr((*dst)++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 		make_var((*dst)++, g_anon_s, var_nbr);
