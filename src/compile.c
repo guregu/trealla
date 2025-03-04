@@ -6,6 +6,13 @@
 #include "prolog.h"
 #include "query.h"
 
+static void copy_term(cell **dst, cell **src)
+{
+	unsigned n = copy_cells(*dst, *src, (*src)->nbr_cells);
+	*dst += n;
+	*src += n;
+}
+
 static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 {
 	if (((*src)->val_off == g_conjunction_s) && ((*src)->arity == 2)) {
@@ -40,7 +47,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_uint(save_dst1+2, *dst - save_dst1);					// Real value1
 		compile_term(pr, cl, dst, src);								// Arg3
 		make_uint(save_dst2+1, *dst - save_dst2);					// Real value2
-		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);
+		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);		// Landing
 		return;
 	}
 
@@ -68,7 +75,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_uint(save_dst1+2, *dst - save_dst1);					// Real value1
 		compile_term(pr, cl, dst, src);								// Arg3
 		make_uint(save_dst2+1, *dst - save_dst2);					// Real value2
-		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);
+		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);		// Landing
 		return;
 	}
 
@@ -86,7 +93,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_uint(save_dst1+1, *dst - save_dst1);					// Real value1
 		compile_term(pr, cl, dst, src);								// RHS
 		make_uint(save_dst2+1, *dst - save_dst2);					// Real value2
-		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);
+		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);		// Landing
 		return;
 	}
 
@@ -139,7 +146,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_uint(save_dst1+2, *dst - save_dst1);					// Real value1
 		compile_term(pr, cl, dst, src);								// Arg3
 		make_uint(save_dst2+1, *dst - save_dst2);					// Real value2
-		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);
+		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);		// Landing
 		return;
 	}
 
@@ -187,7 +194,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_instr((*dst)++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 		make_var((*dst)++, g_anon_s, var_nbr);
 		make_uint(save_dst+2, *dst - save_dst);						// Real value
-		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);
+		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);		// Landing
 		return;
 	}
 
@@ -202,16 +209,14 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 #if 0
 		compile_term(pr, cl, dst, src);
 #else
-		unsigned n = copy_cells(*dst, *src, (*src)->nbr_cells);
-		*dst += n;
-		*src += n;
+		copy_term(dst, src);
 #endif
 		make_instr((*dst)++, g_cut_s, bif_iso_cut_0, 0, 0);
 		make_instr((*dst)++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 		make_var((*dst)++, g_anon_s, var_nbr);
 		make_instr((*dst)++, g_fail_s, bif_iso_fail_0, 0, 0);
 		make_uint(save_dst+2, *dst - save_dst);						// Real value
-		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);
+		make_instr((*dst)++, g_true_s, bif_iso_true_0, 0, 0);		// Landing
 		return;
 	}
 
@@ -231,9 +236,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		return;
 	}
 
-	pl_idx n = copy_cells(*dst, *src, (*src)->nbr_cells);
-	*dst += n;
-	*src += n;
+	copy_term(dst, src);
 }
 
 void compile_clause(predicate *pr, clause *cl, cell *body)
