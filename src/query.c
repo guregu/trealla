@@ -791,7 +791,7 @@ bool push_choice(query *q)
 	ch->base = f->base;
 	ch->catchme_retry =
 		ch->catchme_exception = ch->barrier = ch->register_cleanup =
-		ch->block_catcher = ch->catcher = ch->fail_on_retry =
+		ch->block_catcher = ch->fail_on_retry =
 		ch->succeed_on_retry = ch->reset = false;
 
 	return true;
@@ -848,7 +848,6 @@ bool push_catcher(query *q, enum q_retry retry)
 {
 	check_heap_error(push_barrier(q));
 	choice *ch = GET_CURR_CHOICE();
-	ch->catcher = true;
 
 	if (retry == QUERY_RETRY)
 		ch->catchme_retry = true;
@@ -880,7 +879,7 @@ void cut(query *q)
 	const frame *f = GET_CURR_FRAME();
 
 	while (q->cp) {
-		choice *ch = GET_CURR_CHOICE();
+		const choice *ch = GET_CURR_CHOICE();
 
 		// A normal cut can't break out of a barrier...
 
@@ -896,9 +895,9 @@ void cut(query *q)
 		drop_choice(q);
 
 		if (ch->register_cleanup && !ch->fail_on_retry) {
-			cell *c = ch->st.curr_instr;
+			cell *c = FIRST_ARG(ch->st.curr_instr);
 			pl_idx c_ctx = ch->st.curr_frame;
-			c = deref(q, FIRST_ARG(c), c_ctx);
+			c = deref(q, c, c_ctx);
 			c_ctx = q->latest_ctx;
 			do_cleanup(q, c, c_ctx);
 			break;
