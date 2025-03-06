@@ -122,15 +122,29 @@ term_json(Stream, _, Value) :-
 	;  write_json_term(Stream, Value)
 	).
 
+% floats
 term_json(Stream, _, Value) :-
 	float(Value),
 	write(Stream, Value).
+% rationals
+term_json(Stream, _, Value) :-
+	rational(Value),
+	\+integer(Value),
+	Numerator is numerator(Value),
+	Denominator is denominator(Value),
+	write(Stream, '{"numerator":'),
+	term_json(Stream, _, Numerator),
+	write(Stream, ',"denominator":'),
+	term_json(Stream, _, Denominator),
+	write(Stream, '}').
+% smallints
 term_json(Stream, _, Value) :-
 	number(Value),
 	% safe value range for JS integers
 	Value =< 9007199254740991,
 	Value >= -9007199254740991,
 	write(Stream, Value).
+% bigints
 term_json(Stream, _, Value) :-
 	number(Value),
 	write(Stream, '{"number":"'),
