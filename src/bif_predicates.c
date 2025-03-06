@@ -9,6 +9,7 @@
 #include "base64.h"
 #include "history.h"
 #include "module.h"
+#include "network.h"
 #include "parser.h"
 #include "prolog.h"
 #include "query.h"
@@ -6246,16 +6247,18 @@ static bool fn_sys_host_push_answer_1(query *q) {
 	dup_string(msg, p1);
 
 	host_push_answer((int32_t)q, msg, msg_len);
-	free(msg);
 
+	free(msg);
 	return true;
 #else
 	GET_FIRST_ARG(p1,atom_or_list);
 	dup_string(msg, p1);
 
-	fprintf(stderr, "push: %s\n", msg);
-	free(msg);
+	int n = q->st.curr_m->pl->current_output;
+	stream *str = &q->pl->streams[n];
+	net_write(msg, msg_len, str);
 
+	free(msg);
 	return true;
 #endif
 }
