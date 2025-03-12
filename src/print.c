@@ -1632,7 +1632,9 @@ bool print_term_to_stream(query *q, stream *str, cell *c, pl_idx c_ctx, int runn
 
 bool print_term(query *q, FILE *fp, cell *c, pl_idx c_ctx, int running)
 {
+#if DEBUG
 	if (q->is_dump_vars) printf("*** print_term c=%p, c_ctx=%u\n", c, c_ctx);
+#endif
 
 	q->did_quote = false;
 	q->last_thing = WAS_SPACE;
