@@ -217,7 +217,7 @@ release:
 	$(MAKE) 'OPT=$(OPT) -DNDEBUG'
 
 install:
-	cp ./tpl ~/bin
+	ln -s ./tpl ~/bin/tpl
 
 tpl.wasm:
 	$(MAKE) WASI=1 TPL=tpl.wasm 'OPT=$(OPT) -DNDEBUG'
