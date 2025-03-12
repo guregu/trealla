@@ -797,7 +797,9 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		return false;
 	}
 
+#if DEBUG
 	if (q->is_dump_vars) printf("*** print_term_to_buf_ c=%p, c_ctx=%u\n", c, c_ctx);
+#endif
 
 	// THREAD OBJECTS
 
@@ -1499,7 +1501,9 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 
 bool print_term_to_buf(query *q, cell *c, pl_idx c_ctx, int running, int cons)
 {
+#if DEBUG
 	if (q->is_dump_vars) printf("*** print_term_to_buf c=%p, c_ctx=%u\n", c, c_ctx);
+#endif
 	visit me;
 	me.next = NULL;
 	me.c = c;
