@@ -797,10 +797,6 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		return false;
 	}
 
-#if DEBUG
-	if (q->is_dump_vars) printf("*** print_term_to_buf_ c=%p, c_ctx=%u\n", c, c_ctx);
-#endif
-
 	// THREAD OBJECTS
 
 	if ((c->tag == TAG_INTEGER) && (c->flags & FLAG_INT_THREAD)) {
@@ -896,7 +892,6 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 	// SMALL INTEGER
 
 	if (is_smallint(c)) {
-		//if (dstlen) printf("*** int %d,  was=%d, is=%d\n", (int)c->val_int, q->last_thing_was_symbol, false);
 		char tmpbuf[256];
 		sprint_int(tmpbuf, sizeof(tmpbuf), get_smallint(c), 10);
 		SB_sprintf(q->sb, "%s", tmpbuf);
@@ -1081,8 +1076,6 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 				&& strcmp(src, "\\") && strcmp(src, ",") && strcmp(src, ";")
 				&& strcmp(src, "[]") && strcmp(src, "{}") && !q->parens;
 
-			//printf("*** here last_was_symbol=%d, is_symbol=%d, q->parens=%d, quote=%d\n", q->last_thing == WAS_SYMBOL, is_symbol, q->parens, quote);
-
 			if ((q->last_thing == WAS_SYMBOL) && is_symbol && !q->parens && !quote
 				&& (c->arity == 1) // Only if prefix
 				) {
@@ -1109,8 +1102,6 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 				pl_idx tmp_ctx = c_ctx;
 				if (running) tmp = deref(q, tmp, tmp_ctx);
 				if (running) tmp_ctx = q->latest_ctx;
-
-				if (q->is_dump_vars) printf("*** print struct tmp=%p, tmp_ctx=%u\n", tmp, tmp_ctx);
 
 				if (q->is_dump_vars && has_visited(visited, tmp, tmp_ctx)) {
 					tmp = c;
@@ -1177,7 +1168,12 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		if (running) lhs = deref(q, lhs, lhs_ctx);
 		if (running) lhs_ctx = q->latest_ctx;
 		unsigned lhs_pri = is_interned(lhs) ? match_op(q->st.curr_m, C_STR(q, lhs), NULL, lhs->arity) : 0;
-		bool any = false, is_op_lhs = lhs_pri;
+		bool any = false, is_op_lhs = lhs_pri, parens = false;
+		bool space = (c->val_off == g_minus_s) && (is_number(lhs) || is_op_lhs);
+		if ((c->val_off == g_plus_s) && is_op_lhs) space = true;
+		int ch = peek_char_utf8(src);
+		if (iswalpha(ch)) space = true;
+		if (lhs_pri >= my_priority) { parens = true; space = false; }
 
 		if (!is_var(lhs) && q->max_depth && ((depth+1) >= q->max_depth)) {
 			if (q->last_thing != WAS_SPACE) SB_sprintf(q->sb, "%s", " ");
@@ -1190,13 +1186,13 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 			me.c = lhs;
 			me.c_ctx = lhs_ctx;
 			pl_idx lhs_ctx = running ? q->latest_ctx : 0;
-			print_term_to_buf_(q, lhs, lhs_ctx, running, 0, 0, depth+1, &me);
-		}
 
-		bool space = (c->val_off == g_minus_s) && (is_number(lhs) || is_op_lhs);
-		if ((c->val_off == g_plus_s) && is_op_lhs) space = true;
-		int ch = peek_char_utf8(src);
-		if (iswalpha(ch)) space = true;
+			if (parens) { SB_sprintf(q->sb, "%s", "("); q->last_thing = WAS_OTHER; }
+
+			print_term_to_buf_(q, lhs, lhs_ctx, running, 0, 0, depth+1, &me);
+
+			if (parens) { SB_sprintf(q->sb, "%s", ")"); q->last_thing = WAS_OTHER; }
+		}
 
 		if (q->is_dump_vars && has_visited(visited, lhs, lhs_ctx)) {
 			if (q->is_dump_vars) {
@@ -1214,7 +1210,10 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		}
 
 		int quote = q->quoted && needs_quoting(q->st.curr_m, src, src_len);
-		if (quote) { SB_sprintf(q->sb, "%s", quote?" '":""); }
+		if (quote) {
+			if (!parens) SB_sprintf(q->sb, "%s", " ");
+			SB_sprintf(q->sb, "%s", quote?"'":"");
+		}
 
 		SB_strcatn(q->sb, src, srclen);
 		if (quote) { SB_sprintf(q->sb, "%s", quote?"'":""); }
@@ -1399,8 +1398,6 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 		&& !iswalpha(ch) && strcmp(src, ",") && strcmp(src, ";")
 		&& strcmp(src, "[]") && strcmp(src, "{}") && !q->parens;
 
-	//if (dstlen) printf("*** op '%s',  was=%d, is=%d\n", src, q->last_thing_was_symbol, is_symbol);
-
 	if (!*src || ((q->last_thing == WAS_SYMBOL) && is_symbol && !lhs_parens && !q->parens))
 		space = true;
 
@@ -1501,9 +1498,6 @@ static bool print_term_to_buf_(query *q, cell *c, pl_idx c_ctx, int running, int
 
 bool print_term_to_buf(query *q, cell *c, pl_idx c_ctx, int running, int cons)
 {
-#if DEBUG
-	if (q->is_dump_vars) printf("*** print_term_to_buf c=%p, c_ctx=%u\n", c, c_ctx);
-#endif
 	visit me;
 	me.next = NULL;
 	me.c = c;
@@ -1632,10 +1626,6 @@ bool print_term_to_stream(query *q, stream *str, cell *c, pl_idx c_ctx, int runn
 
 bool print_term(query *q, FILE *fp, cell *c, pl_idx c_ctx, int running)
 {
-#if DEBUG
-	if (q->is_dump_vars) printf("*** print_term c=%p, c_ctx=%u\n", c, c_ctx);
-#endif
-
 	q->did_quote = false;
 	q->last_thing = WAS_SPACE;
 	SB_init(q->sb);

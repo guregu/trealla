@@ -1971,36 +1971,38 @@ static bool bif_iso_functor_3(query *q)
 
 		unsigned arity = get_smallint(p3);
 
-		if (!arity) {
-			unify(q, p1, p1_ctx, p2, p2_ctx);
-		} else {
-			int var_nbr = create_vars(q, arity);
-			check_heap_error(var_nbr != -1);
-			cell *tmp = alloc_on_heap(q, 1+arity);
-			check_heap_error(tmp);
-			*tmp = (cell){0};
-			tmp[0].tag = TAG_INTERNED;
-			tmp[0].arity = arity;
-			tmp[0].nbr_cells = 1 + arity;
+		if (!arity)
+			return unify(q, p1, p1_ctx, p2, p2_ctx);
 
-			if (is_cstring(p2)) {
-				tmp[0].val_off = new_atom(q->pl, C_STR(q, p2));
-			} else
-				tmp[0].val_off = p2->val_off;
+		int var_nbr = create_vars(q, arity);
+		check_heap_error(var_nbr != -1);
+		cell *tmp = alloc_on_heap(q, 1+arity);
+		check_heap_error(tmp);
+		*tmp = (cell){0};
+		tmp[0].tag = TAG_INTERNED;
+		tmp[0].arity = arity;
+		tmp[0].nbr_cells = 1 + arity;
 
-			for (unsigned i = 1; i <= arity; i++) {
-				memset(tmp+i, 0, sizeof(cell));
-				tmp[i].tag = TAG_VAR;
-				tmp[i].nbr_cells = 1;
-				tmp[i].var_nbr = var_nbr++;
-				tmp[i].var_ctx = q->st.curr_frame;
-				tmp[i].flags = FLAG_VAR_REF | FLAG_VAR_FRESH | FLAG_VAR_ANON;
-			}
+		if (is_cstring(p2)) {
+			tmp[0].val_off = new_atom(q->pl, C_STR(q, p2));
+		} else
+			tmp[0].val_off = p2->val_off;
 
-			unify(q, p1, p1_ctx, tmp, q->st.curr_frame);
+		for (unsigned i = 1; i <= arity; i++) {
+			memset(tmp+i, 0, sizeof(cell));
+			tmp[i].tag = TAG_VAR;
+			tmp[i].nbr_cells = 1;
+			tmp[i].var_nbr = var_nbr++;
+			tmp[i].var_ctx = q->st.curr_frame;
+			tmp[i].flags = FLAG_VAR_REF | FLAG_VAR_FRESH | FLAG_VAR_ANON;
 		}
 
-		return true;
+		bool status;
+
+		if (!call_check(q, tmp, &status, false))
+			return status;
+
+		return unify(q, p1, p1_ctx, tmp, q->st.curr_frame);
 	}
 
 	cell tmp = *p1;
@@ -2188,38 +2190,6 @@ static bool bif_iso_acyclic_term_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 	return is_acyclic_term(q, p1, p1_ctx) ? true : false;
-}
-
-static bool bif_call_residue_vars_2(query *q)
-{
-	GET_FIRST_ARG(p1,callable);
-	GET_NEXT_ARG(p2,list_or_nil_or_var);
-
-	bool is_partial = false;
-
-	// This checks for a valid list (it allows for partial but acyclic lists)...
-
-	if (is_iso_list(p2) && !check_list(q, p2, p2_ctx, &is_partial, NULL))
-		return throw_error(q, p2, p2_ctx, "type_error", "list");
-
-	cell *tmp = prepare_call(q, PREFIX_LEN, p1, p1_ctx, 6);
-	check_heap_error(tmp);
-	tmp[1].flags &= ~FLAG_TAIL_CALL;
-	pl_idx nbr_cells = PREFIX_LEN + p1->nbr_cells;
-	make_instr(tmp+nbr_cells++, new_atom(q->pl, "term_attributed_variables"), NULL, 2, 2);
-	make_indirect(tmp+nbr_cells++, p1, p1_ctx);
-
-	if (is_var(p2))
-		make_ref(tmp+nbr_cells++, p2->var_nbr, p2_ctx);
-	else
-		make_indirect(tmp+nbr_cells++, p2, p2_ctx);
-
-	make_instr(tmp+nbr_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
-	make_uint(tmp+nbr_cells++, q->cp);
-	make_call(q, tmp+nbr_cells);
-	check_heap_error(push_fail_on_retry(q));
-	q->st.curr_instr = tmp;
-	return true;
 }
 
 static bool bif_sys_current_prolog_flag_2(query *q)
@@ -3635,7 +3605,7 @@ static bool bif_load_text_2(query *q)
 				m = find_module(q->pl, name_s);
 
 				if (!m) {
-					if (q->p->command)
+					if (q->p->is_command)
 						fprintf(stdout, "Info: created module '%s'\n", name_s);
 
 					m = module_create(q->pl, name_s);
@@ -5711,7 +5681,7 @@ static bool bif_sys_module_1(query *q)
 	module *m = find_module(q->pl, name);
 
 	if (!m) {
-		if (q->p->command)
+		if (q->p->is_command)
 			fprintf(stdout, "Info: created module '%s'\n", name);
 
 		m = module_create(q->pl, name);
@@ -6012,58 +5982,6 @@ static bool bif_sys_integer_in_radix_3(query *q)
 static bool bif_abort_0(query *q)
 {
 	return throw_error(q, q->st.curr_instr, q->st.curr_frame, "$aborted", "abort_error");
-}
-
-bool call_check(query *q, cell *tmp2, bool *status, bool calln)
-{
-	if (tmp2->val_off == g_colon_s) {
-		tmp2 = tmp2 + 1;
-		tmp2 += tmp2->nbr_cells;
-	}
-
-	if (!tmp2->match) {
-		bool found = false;
-
-		if ((tmp2->bif_ptr = get_builtin_term(q->st.curr_m, tmp2, &found, NULL)), found) {
-			tmp2->flags |= FLAG_BUILTIN;
-		} else if ((tmp2->match = search_predicate(q->st.curr_m, tmp2, NULL)) != NULL) {
-			tmp2->flags &= ~FLAG_BUILTIN;
-		} else {
-			tmp2->flags &= ~FLAG_BUILTIN;
-		}
-	}
-
-	if (calln && (tmp2->arity <= 2)) {
-		const char *functor = C_STR(q, tmp2);
-		unsigned specifier;
-
-		if (search_op(q->st.curr_m, functor, &specifier, false))
-			SET_OP(tmp2, specifier);
-	}
-
-	if ((tmp2 = check_body_callable(tmp2)) != NULL) {
-		*status = throw_error(q, tmp2, q->st.curr_frame, "type_error", "callable");
-		return false;
-	}
-
-	*status = true;
-	return true;
-}
-
-bool bif_sys_call_check_1(query *q)
-{
-	GET_FIRST_ARG(p1,callable);
-
-	if ((is_builtin(p1) && !is_evaluable(p1)) || !p1->arity) {
-		check_heap_error(init_tmp_heap(q));
-		p1 = deep_clone_to_tmp(q, p1, p1_ctx);
-		check_heap_error(p1);
-		p1_ctx = q->st.curr_frame;
-		bool status;
-		return call_check(q, p1, &status, false) ? true : status;
-	}
-
-	return true;
 }
 
 bool bif_sys_reset_handler_1(query *q)
@@ -6453,7 +6371,6 @@ static void load_properties(module *m)
 	format_property(m, tmpbuf, sizeof(tmpbuf), "abolish", 1, "meta_predicate(abolish(:))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "clause", 2, "meta_predicate(clause(:,?))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "clause", 3, "meta_predicate(clause(:,?,?))", false); SB_strcat(pr, tmpbuf);
-	format_property(m, tmpbuf, sizeof(tmpbuf), "call_residue_vars", 2, "meta_predicate(call_residue_vars(0,?))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "bb_b_put", 2, "meta_predicate(bb_b_put(:,?))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "bb_put", 2, "meta_predicate(bb_put(:,?))", false); SB_strcat(pr, tmpbuf);
 	format_property(m, tmpbuf, sizeof(tmpbuf), "bb_get", 2, "meta_predicate(bb_get(:,?))", false); SB_strcat(pr, tmpbuf);
@@ -6664,7 +6581,7 @@ static void load_properties(module *m)
 
 	parser *p = parser_create(m);
 	p->srcptr = SB_cstr(pr);
-	p->consulting = true;
+	p->is_consulting = true;
 	tokenize(p, false, false);
 	parser_destroy(p);
 	SB_free(pr);
@@ -6714,7 +6631,7 @@ static void load_flags(query *q)
 
 	parser *p = parser_create(m->pl->user_m);
 	p->srcptr = SB_cstr(pr);
-	p->consulting = true;
+	p->is_consulting = true;
 	tokenize(p, false, false);
 	parser_destroy(p);
 	SB_free(pr);
@@ -6795,7 +6712,7 @@ static void load_ops(query *q)
 
 	parser *p = parser_create(q->pl->user_m);
 	p->srcptr = SB_cstr(pr);
-	p->consulting = true;
+	p->is_consulting = true;
 	tokenize(p, false, false);
 	parser_destroy(p);
 	//printf("*** %s load_ops %s\n", q->st.curr_m->name, SB_cstr(pr));
@@ -6924,7 +6841,6 @@ builtins g_other_bifs[] =
 	{"string_length", 2, bif_string_length_2, "+string,?integer", false, false, BLAH},
 	{"crypto_n_random_bytes", 2, bif_crypto_n_random_bytes_2, "+integer,-codes", false, false, BLAH},
 	{"cyclic_term", 1, bif_cyclic_term_1, "+term", false, false, BLAH},
-	{"call_residue_vars", 2, bif_call_residue_vars_2, ":callable,-list", false, false, BLAH},
 	{"sleep", 1, bif_sleep_1, "+number", false, false, BLAH},
 	{"load_text", 2, bif_load_text_2, "+string,+list", false, false, BLAH},
 	{"between", 3, bif_between_3, "+integer,+integer,-integer", false, false, BLAH},
@@ -6958,7 +6874,6 @@ builtins g_other_bifs[] =
 	{"$fail_on_retry", 1, bif_sys_fail_on_retry_1, "-integer", false, false, BLAH},
 	{"$succeed_on_retry", 1, bif_sys_succeed_on_retry_1, "+integer", false, false, BLAH},
 	{"$succeed_on_retry", 2, bif_sys_succeed_on_retry_2, "-integer,+integer", false, false, BLAH},
-	{"$call_check", 1, bif_sys_call_check_1, "+callable", false, false, BLAH},
 	{"$alarm", 1, bif_sys_alarm_1, "+integer", false, false, BLAH},
 	{"$first_non_octet", 2, bif_sys_first_non_octet_2, "+chars,-integer", false, false, BLAH},
 	{"$skip_max_list", 4, bif_sys_skip_max_list_4, "?integer,?integer?,?term,?term", false, false, BLAH},

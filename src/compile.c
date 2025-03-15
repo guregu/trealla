@@ -27,6 +27,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 	// T1 -> T2 ; T3
 
 	if (((*src)->val_off == g_disjunction_s) && ((*src)->arity == 2)
+		&& !is_var((*src)+1)
 		&& is_callable(c) && c->bif_ptr && (c->arity == 2)
 		&& (c->bif_ptr->fn == bif_iso_if_then_2)) {
 		*src += 2;
@@ -99,7 +100,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 
 	// T1 -> T2
 
-	if (((*src)->val_off == g_if_then_s) && ((*src)->arity == 2)) {
+	if (((*src)->val_off == g_if_then_s) && ((*src)->arity == 2) && !is_var((*src)+1)) {
 		unsigned var_nbr = cl->nbr_vars++;
 		cl->has_local_vars = true;
 		*src += 1;
@@ -115,7 +116,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 
 	// T1 *-> T2
 
-	if (((*src)->val_off == g_soft_cut_s) && ((*src)->arity == 2)) {
+	if (((*src)->val_off == g_soft_cut_s) && ((*src)->arity == 2) && !is_var((*src)+1)) {
 		unsigned var_nbr = cl->nbr_vars++;
 		cl->has_local_vars = true;
 		*src += 1;
@@ -128,7 +129,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		return;
 	}
 
-	if (((*src)->val_off == g_if_s) && ((*src)->arity == 3)) {
+	if (((*src)->val_off == g_if_s) && ((*src)->arity == 3) && !is_var((*src)+1)) {
 		*src += 1;
 		unsigned var_nbr = cl->nbr_vars++;
 		cl->has_local_vars = true;
@@ -150,7 +151,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		return;
 	}
 
-	if (((*src)->val_off == g_call_s) && ((*src)->arity == 1)) {
+	if (((*src)->val_off == g_call_s) && ((*src)->arity == 1) && !is_var((*src)+1)) {
 		unsigned var_nbr = cl->nbr_vars++;
 		cl->has_local_vars = true;
 		*src += 1;
@@ -164,7 +165,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		return;
 	}
 
-	if (((*src)->val_off == g_once_s) && ((*src)->arity == 1)) {
+	if (((*src)->val_off == g_once_s) && ((*src)->arity == 1) && !is_var((*src)+1)) {
 		unsigned var_nbr = cl->nbr_vars++;
 		cl->has_local_vars = true;
 		*src += 1;
@@ -179,7 +180,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		return;
 	}
 
-	if (((*src)->val_off == g_ignore_s) && ((*src)->arity == 1)) {
+	if (((*src)->val_off == g_ignore_s) && ((*src)->arity == 1) && !is_var((*src)+1)) {
 		unsigned var_nbr = cl->nbr_vars++;
 		cl->has_local_vars = true;
 		*src += 1;
@@ -198,7 +199,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		return;
 	}
 
-	if (((*src)->val_off == g_negation_s) && ((*src)->arity == 1)) {
+	if (((*src)->val_off == g_negation_s) && ((*src)->arity == 1) && !is_var((*src)+1)) {
 		unsigned var_nbr = cl->nbr_vars++;
 		cl->has_local_vars = true;
 		*src += 1;
@@ -206,11 +207,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_instr((*dst)++, g_sys_succeed_on_retry_s, bif_sys_succeed_on_retry_2, 2, 2);
 		make_var((*dst)++, g_anon_s, var_nbr);
 		make_uint((*dst)++, 0);										// Dummy value
-#if 0
-		compile_term(pr, cl, dst, src);
-#else
-		copy_term(dst, src);
-#endif
+		copy_term(dst, src);										// Not compile_term
 		make_instr((*dst)++, g_cut_s, bif_iso_cut_0, 0, 0);
 		make_instr((*dst)++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 		make_var((*dst)++, g_anon_s, var_nbr);
@@ -220,7 +217,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		return;
 	}
 
-	if (((*src)->val_off == g_reset_s) && ((*src)->arity == 3)) {
+	if (((*src)->val_off == g_reset_s) && ((*src)->arity == 3) && !is_var((*src)+1)) {
 		unsigned var_nbr = cl->nbr_vars++;
 		cl->has_local_vars = true;
 		*src += 1;
