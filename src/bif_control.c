@@ -156,7 +156,6 @@ static bool bif_iso_call_n(query *q)
 
 	check_heap_error(init_tmp_heap(q));
 	unsigned arity = p1->arity, args = 1, xarity = q->st.curr_instr->arity;
-
 	check_heap_error(deep_clone_to_tmp(q, p1, p1_ctx));
 
 	while (args++ < xarity) {
@@ -604,13 +603,13 @@ bool call_check(query *q, cell *tmp2, bool *status, bool calln)
 		tmp2 += tmp2->nbr_cells;
 	}
 
-	if (calln && !tmp2->match) {
+	if (calln) {
 		bool found = false;
 
-		if ((tmp2->bif_ptr = get_builtin_term(q->st.curr_m, tmp2, &found, NULL)), found) {
-			tmp2->flags |= FLAG_BUILTIN;
-		} else if ((tmp2->match = search_predicate(q->st.curr_m, tmp2, NULL)) != NULL) {
+		if ((tmp2->match = search_predicate(q->st.curr_m, tmp2, NULL)) != NULL) {
 			tmp2->flags &= ~FLAG_BUILTIN;
+		} else if ((tmp2->bif_ptr = get_builtin_term(q->st.curr_m, tmp2, &found, NULL)), found) {
+			tmp2->flags |= FLAG_BUILTIN;
 		} else {
 			tmp2->flags &= ~FLAG_BUILTIN;
 		}
