@@ -1508,7 +1508,24 @@ static bool check_not_multifile(module *m, predicate *pr, rule *dbe_orig)
 	return true;
 }
 
-static void optimize_rule(module *m, rule *dbe_orig)
+static void check_goal_expansion(module *m, cell *p1)
+{
+	cell *h = get_head(p1);
+
+	if (h->val_off != g_goal_expansion_s)
+		return;
+
+	cell *arg1 = h + 1;
+
+	if (is_var(arg1)) {
+		m->wild_goal_expansion = true;
+		return;
+	}
+
+	create_goal_expansion(m, arg1);
+}
+
+static void check_unique(module *m, rule *dbe_orig)
 {
 	cell *head = get_head(dbe_orig->cl.cells);
 	bool matched = false;
@@ -1530,24 +1547,7 @@ static void optimize_rule(module *m, rule *dbe_orig)
 		dbe_orig->cl.is_unique = true;
 }
 
-static void check_goal_expansion(module *m, cell *p1)
-{
-	cell *h = get_head(p1);
-
-	if (h->val_off != g_goal_expansion_s)
-		return;
-
-	cell *arg1 = h + 1;
-
-	if (is_var(arg1)) {
-		m->wild_goal_expansion = true;
-		return;
-	}
-
-	create_goal_expansion(m, arg1);
-}
-
-static void xref_cell(module *m, clause *cl, cell *c, predicate *parent, int last_was_colon, bool is_directive)
+static void process_cell(module *m, clause *cl, cell *c, predicate *parent, int last_was_colon, bool is_directive)
 {
 	cell *body = cl->cells;
 	unsigned specifier;
@@ -1601,7 +1601,7 @@ static void xref_cell(module *m, clause *cl, cell *c, predicate *parent, int las
 	}
 }
 
-void xref_clause(module *m, clause *cl, predicate *parent)
+void process_clause(module *m, clause *cl, predicate *parent)
 {
 	cl->is_unique = false;
 	cell *c = cl->cells;
@@ -1621,16 +1621,16 @@ void xref_clause(module *m, clause *cl, predicate *parent)
 		// Don't want to match on module qualified predicates
 
 		//if (c->val_off == g_colon_s) {
-		//	xref_cell(m, cl, c, parent, 0, is_directive);
+		//	process_cell(m, cl, c, parent, 0, is_directive);
 		//	last_was_colon = 3;
 		//} else {
 		//	last_was_colon--;
-		xref_cell(m, cl, c, parent, last_was_colon, is_directive);
+		process_cell(m, cl, c, parent, last_was_colon, is_directive);
 		//}
 	}
 }
 
-static void xref_predicate(predicate *pr)
+static void process_predicate(predicate *pr)
 {
 	if (pr->is_processed)
 		return;
@@ -1638,7 +1638,7 @@ static void xref_predicate(predicate *pr)
 	pr->is_processed = true;
 
 	for (rule *r = pr->head; r; r = r->next) {
-		xref_clause(pr->m, &r->cl, pr);
+		process_clause(pr->m, &r->cl, pr);
 	}
 
 	if (pr->is_dynamic || pr->idx)
@@ -1654,14 +1654,14 @@ static void xref_predicate(predicate *pr)
 	}
 
 	for (rule *r = pr->head; r; r = r->next)
-		optimize_rule(pr->m, r);
+		check_unique(pr->m, r);
 }
 
-void xref_db(module *m)
+void process_db(module *m)
 {
 	for (predicate *pr = list_front(&m->predicates);
 		pr; pr = list_next(pr)) {
-		xref_predicate(pr);
+		process_predicate(pr);
 	}
 }
 
@@ -1949,7 +1949,7 @@ rule *asserta_to_db(module *m, unsigned nbr_vars, cell *p1, bool consulting)
 		pr->is_processed = false;
 
 		if (pr->is_dirty)
-			xref_predicate(pr);
+			process_predicate(pr);
 
 		pr->is_dirty = false;
 	}
@@ -1990,7 +1990,7 @@ rule *assertz_to_db(module *m, unsigned nbr_vars, cell *p1, bool consulting)
 		pr->is_processed = false;
 
 		if (pr->is_dirty)
-			xref_predicate(pr);
+			process_predicate(pr);
 
 		pr->is_dirty = false;
 	}
@@ -2043,7 +2043,7 @@ module *load_text(module *m, const char *src, const char *filename)
 	}
 
 	if (!p->error) {
-		xref_db(p->m);
+		process_db(p->m);
 		int save = p->m->pl->quiet;
 		//p->m->pl->quiet = true;
 		p->m->pl->halt = false;
@@ -2100,7 +2100,7 @@ static bool unload_realfile(module *m, const char *filename)
 			if (!pr->is_multifile && !pr->is_dynamic)
 				pr->is_abolished = true;
 		} else
-			xref_db(m);
+			process_db(m);
 
 		list_remove(&m->predicates, pr);
 	}
@@ -2188,7 +2188,7 @@ module *load_fp(module *m, FILE *fp, const char *filename, bool including, bool 
 	module *save_m = p->m;
 
 	if (!p->error && !p->already_loaded_error) {
-		xref_db(p->m);
+		process_db(p->m);
 		int save = p->m->pl->quiet;
 		p->is_directive = true;
 
@@ -2538,7 +2538,7 @@ module *module_create(prolog *pl, const char *name)
 	parser *p = parser_create(m);
 	if (p) {
 		p->is_consulting = true;
-		xref_db(p->m);
+		process_db(p->m);
 		parser_destroy(p);
 	}
 

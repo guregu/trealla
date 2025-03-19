@@ -5,30 +5,22 @@
 
 size_t alloc_grow(query *q, void **addr, size_t elem_size, size_t min_elements, size_t max_elements, bool zeroit);
 
-cell *append_to_tmp(query *q, cell *p1, pl_idx p1_ctx);
-cell *clone_to_heap(query *q, cell *p1, pl_idx p1_ctx);
-
-cell *deep_clone_to_tmp(query *q, cell *p1, pl_idx p1_ctx);
-cell *deep_clone_to_heap(query *q, cell *p1, pl_idx p1_ctx);
-
-cell *deep_copy_to_tmp(query *q, cell *p1, pl_idx p1_ctx, bool copy_attrs);
-cell *deep_copy_to_heap(query *q, cell *p1, pl_idx p1_ctx, bool copy_attrs);
-
-cell *alloc_on_heap(query *q, unsigned nbr_cells);
-cell *alloc_on_tmp(query *q, unsigned nbr_cells);
-cell *alloc_on_queuen(query *q, unsigned qnbr, const cell *c);
-
-void trim_heap(query *q);
-
 cell *init_tmp_heap(query *q);
-cell *preinit_tmp_heap(query *q, pl_idx n);
-
-// Used for copying attributes and doesn't init tmp heap...
-cell *deep_copy_to_heap_with_replacement(query *q, cell *p1, pl_idx p1_ctx, bool copy_attrs, cell *from, pl_idx from_ctx, cell *to, pl_idx to_ctx);
+cell *alloc_on_tmp(query *q, unsigned nbr_cells);
+cell *append_to_tmp(query *q, cell *p1, pl_idx p1_ctx);
+cell *clone_term_to_tmp(query *q, cell *p1, pl_idx p1_ctx);
+cell *copy_term_to_tmp(query *q, cell *p1, pl_idx p1_ctx, bool copy_attrs);
 
 #define get_tmp_heap_start(q) (q)->tmp_heap
 #define get_tmp_heap(q,i) ((q)->tmp_heap + (i))
 #define tmp_heap_used(q) (q)->tmphp
+
+cell *alloc_on_heap(query *q, unsigned nbr_cells);
+cell *clone_term_to_heap(query *q, cell *p1, pl_idx p1_ctx);
+cell *copy_term_to_heap(query *q, cell *p1, pl_idx p1_ctx, bool copy_attrs);
+void trim_heap(query *q);
+
+cell *alloc_on_queuen(query *q, unsigned qnbr, const cell *c);
 
 void fix_list(cell *c);
 unsigned rebase_term(query *q, cell *c, unsigned start_nbr);

@@ -26,6 +26,8 @@ static void msleep(int ms)
 
 #define Trace(p1,p2,p3,p4) { q->step++; if (q->trace /*&& !consulting*/) trace_call(p1,p2,p3,p4); }
 
+#define DEBUG_MATCH if (0)
+
 static const unsigned INITIAL_NBR_QUEUE_CELLS = 1000;
 static const unsigned INITIAL_NBR_HEAP_CELLS = 1000;
 static const unsigned INITIAL_NBR_SLOTS = 1000;
@@ -1168,10 +1170,11 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 
 	if (!pr->idx) {
 		q->st.curr_rule = pr->head;
+		DEBUG_MATCH printf("*** here !pr->idx\n");
 
 		if (key->arity) {
 			if (pr->is_multifile || pr->is_meta_predicate) {
-				q->st.key = clone_to_heap(q, key, key_ctx);
+				q->st.key = clone_term_to_heap(q, key, key_ctx);
 				check_heap_error(q->st.key);
 				q->st.key_ctx = q->st.curr_frame;
 
@@ -1188,7 +1191,7 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 	}
 
 	check_heap_error(init_tmp_heap(q));
-	key = deep_clone_to_tmp(q, key, key_ctx);
+	key = clone_term_to_tmp(q, key, key_ctx);
 	key_ctx = q->st.curr_frame;
 
 	if (pr->is_meta_predicate) {
@@ -1483,8 +1486,8 @@ static bool match_head(query *q)
 				return false;
 			}
 
-			c->flags = 0;
 			c->match = pr;
+			c->flags = 0;
 		}
 
 		if (pr->alias) {
@@ -1517,6 +1520,7 @@ static bool match_head(query *q)
 		cell *head = get_head(cl->cells);
 		try_me(q, cl->nbr_vars);
 		q->st.curr_rule->attempted++;
+		DEBUG_MATCH printf("*** here\n");
 
 		if (unify(q, q->st.key, q->st.key_ctx, head, q->st.fp)) {
 			q->st.curr_rule->matched++;

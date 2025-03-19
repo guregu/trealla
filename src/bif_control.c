@@ -86,16 +86,39 @@ bool bif_call_0(query *q, cell *p1, pl_idx p1_ctx)
 	return true;
 }
 
-bool bif_sys_call_1(query *q)
+bool call_check(query *q, cell *tmp2, bool *status, bool calln)
 {
-	GET_FIRST_RAW_ARG(p1,callable);
-	bool status;
+	if (tmp2->val_off == g_colon_s) {
+		tmp2 = tmp2 + 1;
+		tmp2 += tmp2->nbr_cells;
+	}
 
-	if (!call_check(q, p1, &status, true))
-		return status;
+	if (calln) {
+		bool found = false;
 
-	q->st.curr_instr++;
-	q->retry = QUERY_NOOP;
+		if ((tmp2->match = search_predicate(q->st.curr_m, tmp2, NULL)) != NULL) {
+			tmp2->flags &= ~FLAG_BUILTIN;
+		} else if ((tmp2->bif_ptr = get_builtin_term(q->st.curr_m, tmp2, &found, NULL)), found) {
+			tmp2->flags |= FLAG_BUILTIN;
+		} else {
+			tmp2->flags &= ~FLAG_BUILTIN;
+		}
+	}
+
+	if (calln && is_builtin(tmp2) && (tmp2->arity <= 2)) {
+		const char *functor = C_STR(q, tmp2);
+		unsigned specifier;
+
+		if (search_op(q->st.curr_m, functor, &specifier, false))
+			SET_OP(tmp2, specifier);
+	}
+
+	if (is_builtin(tmp2) && (tmp2 = check_body_callable(tmp2)) != NULL) {
+		*status = throw_error(q, tmp2, q->st.curr_frame, "type_error", "callable");
+		return false;
+	}
+
+	*status = true;
 	return true;
 }
 
@@ -105,7 +128,7 @@ bool bif_iso_call_1(query *q)
 
 	if ((is_builtin(p1) && !is_evaluable(p1)) || !p1->arity) {
 		check_heap_error(init_tmp_heap(q));
-		p1 = deep_clone_to_tmp(q, p1, p1_ctx);
+		p1 = clone_term_to_tmp(q, p1, p1_ctx);
 		check_heap_error(p1);
 		p1_ctx = q->st.curr_frame;
 		bool status;
@@ -156,11 +179,11 @@ static bool bif_iso_call_n(query *q)
 
 	check_heap_error(init_tmp_heap(q));
 	unsigned arity = p1->arity, args = 1, xarity = q->st.curr_instr->arity;
-	check_heap_error(deep_clone_to_tmp(q, p1, p1_ctx));
+	check_heap_error(clone_term_to_tmp(q, p1, p1_ctx));
 
 	while (args++ < xarity) {
 		GET_NEXT_ARG(p2,any);
-		check_heap_error(deep_clone_to_tmp(q, p2, p2_ctx));
+		check_heap_error(clone_term_to_tmp(q, p2, p2_ctx));
 		arity++;
 	}
 
@@ -203,7 +226,7 @@ static bool bif_iso_once_1(query *q)
 
 	if ((is_builtin(p1) && !is_evaluable(p1)) || !p1->arity) {
 		check_heap_error(init_tmp_heap(q));
-		p1 = deep_clone_to_tmp(q, p1, p1_ctx);
+		p1 = clone_term_to_tmp(q, p1, p1_ctx);
 		check_heap_error(p1);
 		p1_ctx = q->st.curr_frame;
 		bool status;
@@ -231,7 +254,7 @@ static bool bif_ignore_1(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 	check_heap_error(init_tmp_heap(q));
-	cell *tmp2 = deep_clone_to_tmp(q, p1, p1_ctx);
+	cell *tmp2 = clone_term_to_tmp(q, p1, p1_ctx);
 	check_heap_error(tmp2);
 	bool status;
 
@@ -558,7 +581,7 @@ bool bif_sys_call_cleanup_3(query *q)
 
 	if (q->retry && q->ball) {
 		GET_NEXT_ARG(p2,any);
-		cell *tmp = deep_clone_to_heap(q, q->ball, q->ball_ctx);
+		cell *tmp = clone_term_to_heap(q, q->ball, q->ball_ctx);
 		check_heap_error(tmp);
 		return unify(q, p2, p2_ctx, tmp, q->st.curr_frame);
 	}
@@ -596,49 +619,13 @@ bool bif_sys_call_cleanup_3(query *q)
 	return true;
 }
 
-bool call_check(query *q, cell *tmp2, bool *status, bool calln)
-{
-	if (tmp2->val_off == g_colon_s) {
-		tmp2 = tmp2 + 1;
-		tmp2 += tmp2->nbr_cells;
-	}
-
-	if (calln) {
-		bool found = false;
-
-		if ((tmp2->match = search_predicate(q->st.curr_m, tmp2, NULL)) != NULL) {
-			tmp2->flags &= ~FLAG_BUILTIN;
-		} else if ((tmp2->bif_ptr = get_builtin_term(q->st.curr_m, tmp2, &found, NULL)), found) {
-			tmp2->flags |= FLAG_BUILTIN;
-		} else {
-			tmp2->flags &= ~FLAG_BUILTIN;
-		}
-	}
-
-	if (calln && is_builtin(tmp2) && (tmp2->arity <= 2)) {
-		const char *functor = C_STR(q, tmp2);
-		unsigned specifier;
-
-		if (search_op(q->st.curr_m, functor, &specifier, false))
-			SET_OP(tmp2, specifier);
-	}
-
-	if (is_builtin(tmp2) && (tmp2 = check_body_callable(tmp2)) != NULL) {
-		*status = throw_error(q, tmp2, q->st.curr_frame, "type_error", "callable");
-		return false;
-	}
-
-	*status = true;
-	return true;
-}
-
 bool bif_sys_call_check_1(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
 
 	if ((is_builtin(p1) && !is_evaluable(p1)) || !p1->arity) {
 		check_heap_error(init_tmp_heap(q));
-		p1 = deep_clone_to_tmp(q, p1, p1_ctx);
+		p1 = clone_term_to_tmp(q, p1, p1_ctx);
 		check_heap_error(p1);
 		bool status;
 		return call_check(q, p1, &status, false) ? true : status;
@@ -658,7 +645,7 @@ static cell *parse_to_heap(query *q, const char *src)
 	p2->skip = true;
 	p2->srcptr = SB_cstr(s);
 	tokenize(p2, false, false);
-	xref_clause(p2->m, p2->cl, NULL);
+	process_clause(p2->m, p2->cl, NULL);
 	p2->read_term_slots = 0;
 	SB_free(s);
 
@@ -669,7 +656,7 @@ static cell *parse_to_heap(query *q, const char *src)
 		}
 	}
 
-	cell *tmp = deep_clone_to_heap(q, p2->cl->cells, q->st.curr_frame);
+	cell *tmp = clone_term_to_heap(q, p2->cl->cells, q->st.curr_frame);
 	check_error(tmp, parser_destroy(p2));
 	parser_destroy(p2);
 	return tmp;
@@ -710,7 +697,7 @@ static bool find_exception_handler(query *q, char *ball)
 		q->error = true;
 		return false;
 	} else {
-		q->ball = deep_clone_to_heap(q, e, e_ctx);
+		q->ball = clone_term_to_heap(q, e, e_ctx);
 		q->ball_ctx = q->st.curr_frame;
 		rebase_term(q, q->ball, 0);
 	}
@@ -1082,7 +1069,6 @@ builtins g_control_bifs[] =
 	{"shift", 1, bif_shift_1, "+term", false, false, BLAH},
 
 	{"$cut", 1, bif_sys_cut_1, "+integer", false, false, BLAH},
-	{"$call", 1, bif_sys_call_1, ":callable", true, false, BLAH},
 	{"$catch", 3, bif_iso_catch_3, ":callable,?term,:callable", true, false, BLAH},
 	{"$block_catcher", 1, bif_sys_block_catcher_1, NULL, false, false, BLAH},
 	{"$set_if_var", 2, bif_sys_set_if_var_2, "?term,+term", false, false, BLAH},
