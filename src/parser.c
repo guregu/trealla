@@ -1299,23 +1299,6 @@ static void check_first_cut(clause *cl)
 	}
 }
 
-static void check_complex(clause *cl)
-{
-	cell *c = get_head(cl->cells);
-	cell *save_c = c;
-	c++;
-
-	for (unsigned i = 0; i < c->arity; i++) {
-		if (is_iso_list(c)) {
-			save_c->flags |= FLAG_COMPLEX;
-			//printf("*** complex %s/%u\n", C_STR(cl->owner, save_c), save_c->arity);
-			break;
-		}
-
-		c += c->nbr_cells;
-	}
-}
-
 static pl_idx get_varno(parser *p, const char *src, bool in_body)
 {
 	int anon = !strcmp(src, "_");
@@ -1325,10 +1308,9 @@ static pl_idx get_varno(parser *p, const char *src, bool in_body)
 	while (p->vartab.pool[offset]) {
 		if (!strcmp(p->vartab.pool+offset, src) && !anon) {
 			if (in_body)
-				p->vartab.in_body[i] = true;
-
-			if (!in_body)
-				p->vartab.in_head[i] = true;
+				p->vartab.in_body[i]++;
+			else
+				p->vartab.in_head[i]++;
 
 			return i;
 		}
@@ -1348,33 +1330,14 @@ static pl_idx get_varno(parser *p, const char *src, bool in_body)
 	memcpy(p->vartab.pool+offset, src, len+1);
 
 	if (in_body)
-		p->vartab.in_body[i] = true;
-
-	if (!in_body)
-		p->vartab.in_head[i] = true;
+		p->vartab.in_body[i]++;
+	else
+		p->vartab.in_head[i]++;
 
 	return i;
 }
 
-static bool get_in_body(parser *p, const char *name)
-{
-	bool anon = !strcmp(name, "_");
-	size_t offset = 0;
-	unsigned i = 0;
-
-	while (p->vartab.pool[offset]) {
-		if (!strcmp(p->vartab.pool+offset, name) && !anon) {
-			return p->vartab.in_body[i];
-		}
-
-		offset += strlen(p->vartab.pool+offset) + 1;
-		i++;
-	}
-
-	return false;
-}
-
-static bool get_in_head(parser *p, const char *name)
+static unsigned get_in_head(parser *p, const char *name)
 {
 	bool anon = !strcmp(name, "_");
 	size_t offset = 0;
@@ -1389,16 +1352,34 @@ static bool get_in_head(parser *p, const char *name)
 		i++;
 	}
 
-	return false;
+	return 0;
+}
+
+static unsigned get_in_body(parser *p, const char *name)
+{
+	bool anon = !strcmp(name, "_");
+	size_t offset = 0;
+	unsigned i = 0;
+
+	while (p->vartab.pool[offset]) {
+		if (!strcmp(p->vartab.pool+offset, name) && !anon) {
+			return p->vartab.in_body[i];
+		}
+
+		offset += strlen(p->vartab.pool+offset) + 1;
+		i++;
+	}
+
+	return 0;
 }
 
 static void check_term_ground(cell *c)
 {
-	c->flags |= FLAG_GROUND;
+	c->flags |= FLAG_INTERNED_GROUND;
 
 	for (unsigned i = 0; i < c->nbr_cells; i++) {
 		if (is_var(c+i)) {
-			c->flags &= ~ FLAG_GROUND;
+			c->flags &= ~ FLAG_INTERNED_GROUND;
 			break;
 		}
 	}
@@ -1516,18 +1497,24 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 		if (!is_var(c))
 			continue;
 
-		// A temporary variable is one that occurs only in the
-		// head of a clause. A local is one only in the body.
+		// A variable is global iff it occurs at least once in a structured term, it's
+		// lifetime is indeterminate. All other variables can be classified as...
+		// A variable is void iff it has only one occurance, it's lifetime is zero.
+		// A variable is temporary iff it appears more than once, with no
+		// occurance in the body, it's lifetime is the that of the unification.
+		// A variable is local iff it appears more than once with at least one
+		// occurance in the body, it's lifetime is that of it's environment.
 
-		bool var_in_head = get_in_head(p, C_STR(p, c));
-		bool var_in_body = get_in_body(p, C_STR(p, c));
+		unsigned var_in_head = get_in_head(p, C_STR(p, c));
+		unsigned var_in_body = get_in_body(p, C_STR(p, c));
+		unsigned occurrances = var_in_head + var_in_body;
 
-		if (!var_in_head && in_body) {
+		if ((occurrances > 1) && var_in_body) {
 			cl->has_local_vars = true;
 			c->flags |= FLAG_VAR_LOCAL;
 		}
 
-		if (!var_in_body && !in_body) {
+		if ((occurrances > 1) && !var_in_body) {
 			c->flags |= FLAG_VAR_TEMPORARY;
 		}
 	}
@@ -3399,7 +3386,6 @@ static bool process_term(parser *p, cell *p1)
 	}
 
 	check_first_cut(&r->cl);
-	check_complex(&r->cl);
 	r->cl.is_fact = !get_logical_body(r->cl.cells);
 	r->cl.has_local_vars = p->cl->has_local_vars;
 	r->line_nbr_start = p->line_nbr_start;
