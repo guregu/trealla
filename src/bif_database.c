@@ -23,7 +23,7 @@ static bool module_context(query *q, cell **p1, pl_idx p1_ctx)
 				return throw_error(q, cm, p1_ctx, "existence_error", "module");
 			}
 
-			*p1 += (*p1)->nbr_cells;
+			*p1 += (*p1)->num_cells;
 		}
 	}
 
@@ -331,7 +331,7 @@ static bool bif_iso_abolish_1(query *q)
 	if (!is_var(p1)) {
 		if (p1->val_off == g_colon_s) {
 			p1 = p1 + 1;
-			p1 += p1->nbr_cells;
+			p1 += p1->num_cells;
 		}
 	}
 
@@ -394,36 +394,36 @@ static unsigned count_non_anons(uint8_t *mask, unsigned bit)
 
 static void term_assign_vars(parser *p)
 {
-	pl_idx nbr_cells = p->cl->cidx;
+	pl_idx num_cells = p->cl->cidx;
 	assign_vars(p, 0, true);
 	memset(p->vartab.vars, 0, sizeof(p->vartab.vars));
 
-	for (pl_idx i = 0; i < nbr_cells; i++) {
+	for (pl_idx i = 0; i < num_cells; i++) {
 		cell *c = p->cl->cells+i;
 
 		if (!is_var(c))
 			continue;
 
-		assert(c->var_nbr < MAX_VARS);
-		p->vartab.vars[c->var_nbr]++;
+		assert(c->var_num < MAX_VARS);
+		p->vartab.vars[c->var_num]++;
 	}
 
-	for (pl_idx i = 0; i < nbr_cells; i++) {
+	for (pl_idx i = 0; i < num_cells; i++) {
 		cell *c = p->cl->cells+i;
 
 		if (!is_var(c))
 			continue;
 
-		unsigned var_nbr = count_non_anons(p->vartab.vars, c->var_nbr);
+		unsigned var_num = count_non_anons(p->vartab.vars, c->var_num);
 
 		char ch = 'A';
-		ch += var_nbr % 26;
-		unsigned n = var_nbr / 26;
+		ch += var_num % 26;
+		unsigned n = var_num / 26;
 		char tmpbuf[80];
 
-		if (p->vartab.vars[c->var_nbr] == 1)
+		if (p->vartab.vars[c->var_num] == 1)
 			snprintf(tmpbuf, sizeof(tmpbuf), "%s", "_");
-		else if (var_nbr < 26)
+		else if (var_num < 26)
 			snprintf(tmpbuf, sizeof(tmpbuf), "%c", ch);
 		else
 			snprintf(tmpbuf, sizeof(tmpbuf), "%c%d", ch, n);
@@ -462,22 +462,22 @@ static bool bif_iso_asserta_1(query *q)
 		return throw_error(q, tmp2, q->st.curr_frame, "type_error", "callable");
 	}
 
-	pl_idx nbr_cells = tmp->nbr_cells;
+	pl_idx num_cells = tmp->num_cells;
 	parser *p = parser_create(q->st.curr_m);
 
-	if (nbr_cells > p->cl->nbr_allocated_cells) {
-		p->cl = realloc(p->cl, sizeof(clause)+(sizeof(cell)*(nbr_cells+1)));
+	if (num_cells > p->cl->num_allocated_cells) {
+		p->cl = realloc(p->cl, sizeof(clause)+(sizeof(cell)*(num_cells+1)));
 		check_heap_error(p->cl, prolog_unlock(q->pl));
-		p->cl->nbr_allocated_cells = nbr_cells;
+		p->cl->num_allocated_cells = num_cells;
 	}
 
-	p->cl->cidx = dup_cells(p->cl->cells, tmp, nbr_cells);
+	p->cl->cidx = dup_cells(p->cl->cells, tmp, num_cells);
 	term_assign_vars(p);
 	term_to_body(p);
 	cell *h = get_head(p->cl->cells);
 
 	prolog_lock(q->pl);
-	rule *r = asserta_to_db(q->st.curr_m, p->cl->nbr_vars, p->cl->cells, 0);
+	rule *r = asserta_to_db(q->st.curr_m, p->cl->num_vars, p->cl->cells, 0);
 	prolog_unlock(q->pl);
 
 	p->cl->cidx = 0;
@@ -518,22 +518,22 @@ static bool bif_iso_assertz_1(query *q)
 		return throw_error(q, tmp2, q->st.curr_frame, "type_error", "callable");
 	}
 
-	pl_idx nbr_cells = tmp->nbr_cells;
+	pl_idx num_cells = tmp->num_cells;
 	parser *p = parser_create(q->st.curr_m);
 
-	if (nbr_cells > p->cl->nbr_allocated_cells) {
-		p->cl = realloc(p->cl, sizeof(clause)+(sizeof(cell)*(nbr_cells+1)));
+	if (num_cells > p->cl->num_allocated_cells) {
+		p->cl = realloc(p->cl, sizeof(clause)+(sizeof(cell)*(num_cells+1)));
 		check_heap_error(p->cl, prolog_unlock(q->pl));
-		p->cl->nbr_allocated_cells = nbr_cells;
+		p->cl->num_allocated_cells = num_cells;
 	}
 
-	p->cl->cidx = dup_cells(p->cl->cells, tmp, nbr_cells);
+	p->cl->cidx = dup_cells(p->cl->cells, tmp, num_cells);
 	term_assign_vars(p);
 	term_to_body(p);
 	cell *h = get_head(p->cl->cells);
 
 	prolog_lock(q->pl);
-	rule *r = assertz_to_db(q->st.curr_m, p->cl->nbr_vars, p->cl->cells, false);
+	rule *r = assertz_to_db(q->st.curr_m, p->cl->num_vars, p->cl->cells, false);
 	prolog_unlock(q->pl);
 
 	p->cl->cidx = 0;
@@ -582,22 +582,22 @@ static bool do_asserta_2(query *q)
 	cell *tmp = copy_term_to_tmp(q, p1, p1_ctx, false);
 	check_heap_error(tmp);
 
-	pl_idx nbr_cells = tmp->nbr_cells;
+	pl_idx num_cells = tmp->num_cells;
 	parser *p = parser_create(q->st.curr_m);
 
-	if (nbr_cells > p->cl->nbr_allocated_cells) {
-		p->cl = realloc(p->cl, sizeof(clause)+(sizeof(cell)*(nbr_cells+1)));
+	if (num_cells > p->cl->num_allocated_cells) {
+		p->cl = realloc(p->cl, sizeof(clause)+(sizeof(cell)*(num_cells+1)));
 		check_heap_error(p->cl, prolog_unlock(q->pl));
-		p->cl->nbr_allocated_cells = nbr_cells;
+		p->cl->num_allocated_cells = num_cells;
 	}
 
-	p->cl->cidx = dup_cells(p->cl->cells, tmp, nbr_cells);
+	p->cl->cidx = dup_cells(p->cl->cells, tmp, num_cells);
 	term_assign_vars(p);
 	term_to_body(p);
 	cell *h = get_head(p->cl->cells);
 
 	prolog_lock(q->pl);
-	rule *r = asserta_to_db(q->st.curr_m, p->cl->nbr_vars, p->cl->cells, 0);
+	rule *r = asserta_to_db(q->st.curr_m, p->cl->num_vars, p->cl->cells, 0);
 	prolog_unlock(q->pl);
 
 	p->cl->cidx = 0;
@@ -674,22 +674,22 @@ static bool do_assertz_2(query *q)
 	cell *tmp = copy_term_to_tmp(q, p1, p1_ctx, false);
 	check_heap_error(tmp);
 
-	pl_idx nbr_cells = tmp->nbr_cells;
+	pl_idx num_cells = tmp->num_cells;
 	parser *p = parser_create(q->st.curr_m);
 
-	if (nbr_cells > p->cl->nbr_allocated_cells) {
-		p->cl = realloc(p->cl, sizeof(clause)+(sizeof(cell)*(nbr_cells+1)));
+	if (num_cells > p->cl->num_allocated_cells) {
+		p->cl = realloc(p->cl, sizeof(clause)+(sizeof(cell)*(num_cells+1)));
 		check_heap_error(p->cl, prolog_unlock(q->pl));
-		p->cl->nbr_allocated_cells = nbr_cells;
+		p->cl->num_allocated_cells = num_cells;
 	}
 
-	p->cl->cidx = dup_cells(p->cl->cells, tmp, nbr_cells);
+	p->cl->cidx = dup_cells(p->cl->cells, tmp, num_cells);
 	term_assign_vars(p);
 	term_to_body(p);
 	cell *h = get_head(p->cl->cells);
 
 	prolog_lock(q->pl);
-	rule *r = assertz_to_db(q->st.curr_m, p->cl->nbr_vars, p->cl->cells, false);
+	rule *r = assertz_to_db(q->st.curr_m, p->cl->num_vars, p->cl->cells, false);
 	prolog_unlock(q->pl);
 
 	p->cl->cidx = 0;
@@ -783,7 +783,7 @@ static bool bif_abolish_2(query *q)
 	if (!is_var(p1)) {
 		if (p1->val_off == g_colon_s) {
 			p1 = p1 + 1;
-			p1 += p1->nbr_cells;
+			p1 += p1->num_cells;
 		}
 	}
 
@@ -898,14 +898,14 @@ static bool bif_instance_2(query *q)
 static bool bif_sys_retract_on_backtrack_1(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
-	int var_nbr = create_vars(q, 1);
-	check_heap_error(var_nbr != -1);
+	int var_num = create_vars(q, 1);
+	check_heap_error(var_num != -1);
 	blob *b = calloc(1, sizeof(blob));
 	b->ptr = (void*)q->st.curr_m;
 	b->ptr2 = (void*)strdup(C_STR(q, p1));
 	check_heap_error(b->ptr2);
 	cell c, v;
-	make_ref(&c, var_nbr, q->st.curr_frame);
+	make_ref(&c, var_num, q->st.curr_frame);
 	make_dbref(&v, b);
 	return unify(q, &c, q->st.curr_frame, &v, q->st.curr_frame);
 }
@@ -954,7 +954,7 @@ static void save_name(FILE *fp, query *q, pl_idx name, unsigned arity, bool alt)
 				while (!is_end(c)) {
 					printf("  ");
 					print_term(q, fp, c, 0, 0);
-					c += c->nbr_cells;
+					c += c->num_cells;
 					printf("\n");
 				}
 			} else if (alt)
@@ -983,7 +983,7 @@ static bool bif_listing_1(query *q)
 		if (!m)
 			return throw_error(q, cm, p1_ctx, "existence_error", "module");
 
-		p1 += p1->nbr_cells;
+		p1 += p1->num_cells;
 	}
 
 	if (p1->arity) {
@@ -995,7 +995,7 @@ static bool bif_listing_1(query *q)
 		if (!is_atom(p2))
 			return throw_error(q, p2, p1_ctx, "type_error", "atom");
 
-		cell *p3 = p2 + p2->nbr_cells;
+		cell *p3 = p2 + p2->num_cells;
 
 		if (!is_integer(p3))
 			return throw_error(q, p3, p1_ctx, "type_error", "integer");
@@ -1027,7 +1027,7 @@ static bool bif_sys_xlisting_1(query *q)
 		if (!m)
 			return throw_error(q, cm, p1_ctx, "existence_error", "module");
 
-		p1 += p1->nbr_cells;
+		p1 += p1->num_cells;
 	}
 
 	if (p1->arity) {
@@ -1039,7 +1039,7 @@ static bool bif_sys_xlisting_1(query *q)
 		if (!is_atom(p2))
 			return throw_error(q, p2, p1_ctx, "type_error", "atom");
 
-		cell *p3 = p2 + p2->nbr_cells;
+		cell *p3 = p2 + p2->num_cells;
 
 		if (!is_integer(p3))
 			return throw_error(q, p3, p1_ctx, "type_error", "integer");

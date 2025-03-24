@@ -93,39 +93,39 @@ void do_yield_at(query *q, unsigned int time_in_ms);
 
 inline static void init_queuen(query *q)
 {
-	free(q->queue[q->st.qnbr]);
-	q->queue[q->st.qnbr] = NULL;
-	q->qp[q->st.qnbr] = 0;
-	q->qcnt[q->st.qnbr] = 0;
+	free(q->queue[q->st.qnum]);
+	q->queue[q->st.qnum] = NULL;
+	q->qp[q->st.qnum] = 0;
+	q->qcnt[q->st.qnum] = 0;
 }
 
 inline static void grab_queuen(query *q)
 {
-	q->st.qnbr++;
+	q->st.qnum++;
 	init_queuen(q);
 }
 
 inline static void drop_queuen(query *q)
 {
 	init_queuen(q);
-	q->st.qnbr--;
+	q->st.qnum--;
 }
 
 inline static pl_idx queuen_used(const query *q)
 {
-	return q->qp[q->st.qnbr];
+	return q->qp[q->st.qnum];
 }
 
 inline static cell *get_queuen(query *q)
 {
-	return q->queue[q->st.qnbr];
+	return q->queue[q->st.qnum];
 }
 
 inline static cell *take_queuen(query *q)
 {
-	cell *save = q->queue[q->st.qnbr];
-	q->queue[q->st.qnbr] = NULL;
-	q->qp[q->st.qnbr] = 0;
+	cell *save = q->queue[q->st.qnum];
+	q->queue[q->st.qnum] = NULL;
+	q->qp[q->st.qnum] = 0;
 	return save;
 }
 
@@ -135,7 +135,7 @@ inline static cell *deref_var_(query *q, cell *c, pl_idx c_ctx)
 		c_ctx = c->var_ctx;
 
 	const frame *f = GET_FRAME(c_ctx);
-	slot *e = GET_SLOT(f, c->var_nbr);
+	slot *e = GET_SLOT(f, c->var_num);
 
 	while (is_var(&e->c)) {
 		c_ctx = e->c.var_ctx;
@@ -145,7 +145,7 @@ inline static cell *deref_var_(query *q, cell *c, pl_idx c_ctx)
 			c_ctx = c->var_ctx;
 
 		f = GET_FRAME(c_ctx);
-		e = GET_SLOT(f, c->var_nbr);
+		e = GET_SLOT(f, c->var_num);
 	}
 
 	if (is_indirect(&e->c)) {
@@ -228,13 +228,13 @@ inline static cell *get_first_raw_arg0(query *q, cell *p0)
 
 inline static cell *get_next_arg(query *q)
 {
-	q->last_arg += q->last_arg->nbr_cells;
+	q->last_arg += q->last_arg->num_cells;
 	return deref(q, q->last_arg, q->st.curr_frame);
 }
 
 inline static cell *get_next_raw_arg(query *q)
 {
-	q->last_arg += q->last_arg->nbr_cells;
+	q->last_arg += q->last_arg->num_cells;
 	q->latest_ctx = q->st.curr_frame;
 	return q->last_arg;
 }
@@ -244,7 +244,7 @@ inline static cell *get_raw_arg(query *q, int n)
 	cell *c = q->st.curr_instr + 1;
 
 	for (int i = 1; i < n; i++)
-		c += c->nbr_cells;
+		c += c->num_cells;
 
 	q->latest_ctx = q->st.curr_frame;
 	return c;
@@ -265,7 +265,7 @@ inline static cell *get_raw_arg(query *q, int n)
 			tmp_cc_ctx = cc->var_ctx;								\
 																	\
 		const frame *f = GET_FRAME(tmp_cc_ctx);						\
-		ee = GET_SLOT(f, cc->var_nbr);								\
+		ee = GET_SLOT(f, cc->var_num);								\
 		svg = evgen;												\
 																	\
 		if (evgen == qvgen) {										\
@@ -288,7 +288,7 @@ inline static cell *get_raw_arg(query *q, int n)
 			tmp_cc_ctx = cc->var_ctx;								\
 																	\
 		const frame *f = GET_FRAME(tmp_cc_ctx);						\
-		ee = GET_SLOT(f, cc->var_nbr);								\
+		ee = GET_SLOT(f, cc->var_num);								\
 		svg = evgen;												\
 																	\
 		if (evgen == qvgen) {										\
@@ -307,7 +307,7 @@ inline static cell *get_raw_arg(query *q, int n)
 			cc_ctx = cc->var_ctx;									\
 																	\
 		const frame *f = GET_FRAME(cc_ctx);							\
-		slot *e = GET_SLOT(f, cc->var_nbr);							\
+		slot *e = GET_SLOT(f, cc->var_num);							\
 		e->vgen = 0;												\
 		p = deref(q, cc, cc_ctx);									\
 		p_ctx = q->latest_ctx;										\
@@ -319,7 +319,7 @@ inline static cell *get_raw_arg(query *q, int n)
 			cc_ctx = cc->var_ctx;									\
 																	\
 		const frame *f = GET_FRAME(cc_ctx);							\
-		slot *e = GET_SLOT(f, cc->var_nbr);							\
+		slot *e = GET_SLOT(f, cc->var_num);							\
 		e->vgen2 = 0;												\
 		p = deref(q, cc, cc_ctx);									\
 		p_ctx = q->latest_ctx;										\
@@ -331,7 +331,7 @@ inline static cell *get_raw_arg(query *q, int n)
 			cc_ctx = cc->var_ctx;									\
 																	\
 		const frame *f = GET_FRAME(cc_ctx);							\
-		slot *e = GET_SLOT(f, cc->var_nbr);							\
+		slot *e = GET_SLOT(f, cc->var_num);							\
 		if (e->vgen == qvgen) any = true;							\
 		e->vgen = 0;												\
 		p = deref(q, cc, cc_ctx);									\

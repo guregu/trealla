@@ -7,13 +7,13 @@
 #include "prolog.h"
 #include "query.h"
 
-static void show_goals(query *q, int nbr)
+static void show_goals(query *q, int num)
 {
 	frame *f = GET_CURR_FRAME();
 	cell *c = q->st.curr_instr;
 	pl_idx c_ctx = q->st.curr_frame;
 
-	while (c && nbr--) {
+	while (c && num--) {
 		printf(" [%llu] ", (long long unsigned)c_ctx);
 		unsigned save = q->max_depth;
 		q->max_depth = 5;
@@ -262,7 +262,7 @@ typedef struct item_ item;
 struct item_ {
 	cell *c;
 	pl_idx c_ctx;
-	int nbr;
+	int num;
 	item *next;
 };
 
@@ -277,18 +277,18 @@ static void	clear_results()
 	}
 }
 
-static void add_result(int nbr, cell *c, pl_idx c_ctx)
+static void add_result(int num, cell *c, pl_idx c_ctx)
 {
 	item *ptr = malloc(sizeof(item));
 	ensure(ptr);
 	ptr->c = c;
 	ptr->c_ctx = c_ctx;
-	ptr->nbr = nbr;
+	ptr->num = num;
 	ptr->next = g_items;
 	g_items = ptr;
 }
 
-static int check_duplicate_result(query *q, int nbr, cell *c, pl_idx c_ctx)
+static int check_duplicate_result(query *q, int num, cell *c, pl_idx c_ctx)
 {
 	return -1;
 
@@ -299,13 +299,13 @@ static int check_duplicate_result(query *q, int nbr, cell *c, pl_idx c_ctx)
 
 	while (ptr) {
 		if (!compare(q, c, c_ctx, ptr->c, ptr->c_ctx))
-			return ptr->nbr;
+			return ptr->num;
 
 		ptr = ptr->next;
 	}
 
 	if (!is_atomic(c))
-		add_result(nbr, c, c_ctx);
+		add_result(num, c, c_ctx);
 
 	return -1;
 }
@@ -353,7 +353,7 @@ void dump_vars(query *q, bool partial)
 	for (unsigned i = 0; i < MAX_IGNORES; i++)
 		q->ignores[i] = false;
 
-	for (unsigned i = 0; i < p->nbr_vars; i++) {
+	for (unsigned i = 0; i < p->num_vars; i++) {
 		int j;
 
 		if ((p->vartab.name[i][0] == '_')
@@ -366,7 +366,7 @@ void dump_vars(query *q, bool partial)
 
 	init_tmp_heap(q);
 
-	for (unsigned i = 0; i < p->nbr_vars; i++) {
+	for (unsigned i = 0; i < p->num_vars; i++) {
 		cell tmp[3];
 		make_instr(tmp, g_eq_s, NULL, 2, 2);
 		make_atom(tmp+1, new_atom(q->pl, p->vartab.name[i]));
@@ -381,7 +381,7 @@ void dump_vars(query *q, bool partial)
 	bool want_space = false;
 	q->print_idx = 0;
 
-	for (unsigned i = 0; i < p->nbr_vars; i++) {
+	for (unsigned i = 0; i < p->num_vars; i++) {
 		if (!strcmp(p->vartab.name[i], "__G_"))
 			continue;
 
@@ -405,7 +405,7 @@ void dump_vars(query *q, bool partial)
 			continue;
 
 		if (is_ref(c)) {
-			if (p->vartab.name[c->var_nbr][0] == '_')
+			if (p->vartab.name[c->var_num][0] == '_')
 				continue;
 		}
 
@@ -475,7 +475,7 @@ void dump_vars(query *q, bool partial)
 		q->double_quotes = q->pl->def_double_quotes;
 		q->quoted = q->pl->def_quoted ? 1 : 0;
 		q->parens = parens;
-		q->dump_var_nbr = i;
+		q->dump_var_num = i;
 		e->vgen = ++q->vgen;
 
 		print_term(q, stdout, c, c_ctx, 1);
@@ -508,8 +508,8 @@ void dump_vars(query *q, bool partial)
 		make_instr(p1+0, new_atom(q->pl, "dump_attvars"), NULL, 1, 1);
 		make_atom(p1+1, any ? g_true_s : g_false_s);
 		cell *tmp = prepare_call(q, NOPREFIX_LEN, p1, q->st.curr_frame, 1);
-		pl_idx nbr_cells = p1->nbr_cells;
-		make_end(tmp+nbr_cells);
+		pl_idx num_cells = p1->num_cells;
+		make_end(tmp+num_cells);
 		q->st.curr_instr = tmp;
 		q->in_attvar_print = true;
 		bool save_trace = q->trace;

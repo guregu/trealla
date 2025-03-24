@@ -290,7 +290,7 @@ static predicate *find_predicate_(module *m, cell *c, bool abolished)
 	cell tmp = *c;
 	tmp.tag = TAG_INTERNED;
 	tmp.flags = 0;
-	tmp.nbr_cells = 1;
+	tmp.num_cells = 1;
 
 	if (is_cstring(c)) {
 		tmp.val_off = new_atom(m->pl, C_STR(m, c));
@@ -392,7 +392,7 @@ predicate *create_predicate(module *m, cell *c, bool *created)
 		pr->m = m;
 		pr->key = *c;
 		pr->key.tag = TAG_INTERNED;
-		pr->key.nbr_cells = 1;
+		pr->key.num_cells = 1;
 		pr->is_noindex = m->pl->noindex || !pr->key.arity;
 		sl_set(m->index, &pr->key, pr);
 		return pr;
@@ -418,7 +418,7 @@ static void destroy_predicate(module *m, predicate *pr)
 	sl_destroy(pr->idx);
 
 	if (pr->meta_args) {
-		unshare_cells(pr->meta_args, pr->meta_args->nbr_cells);
+		unshare_cells(pr->meta_args, pr->meta_args->num_cells);
 		free(pr->meta_args);
 	}
 
@@ -624,8 +624,8 @@ static int index_cmpkey_(const void *ptr1, const void *ptr2, const void *param, 
 						break;
 
 					sl_set_wild_card(l);
-					p1 += p1->nbr_cells;
-					p2 += p2->nbr_cells;
+					p1 += p1->num_cells;
+					p2 += p2->num_cells;
 					continue;
 				}
 
@@ -634,8 +634,8 @@ static int index_cmpkey_(const void *ptr1, const void *ptr2, const void *param, 
 				if (ok != 0)
 					return ok;
 
-				p1 += p1->nbr_cells;
-				p2 += p2->nbr_cells;
+				p1 += p1->num_cells;
+				p2 += p2->num_cells;
 			}
 
 			return 0;
@@ -771,13 +771,13 @@ void set_meta_predicate_in_db(module *m, cell *c)
 		push_property(m, name, arity, tmpbuf);
 
 		if (pr->meta_args) {
-			unshare_cells(pr->meta_args, pr->meta_args->nbr_cells);
+			unshare_cells(pr->meta_args, pr->meta_args->num_cells);
 			free(pr->meta_args);
 		}
 
 		pr->is_meta_predicate = true;
-		pr->meta_args = malloc(sizeof(cell)*c->nbr_cells);
-		dup_cells(pr->meta_args, c, c->nbr_cells);
+		pr->meta_args = malloc(sizeof(cell)*c->num_cells);
+		dup_cells(pr->meta_args, c, c->num_cells);
 	} else
 		m->error = true;
 }
@@ -999,7 +999,7 @@ bool do_use_module_2(module *curr_m, cell *c)
 		return true;
 
 	cell *p1 = c + 1;
-	cell *p2 = p1 + p1->nbr_cells;
+	cell *p2 = p1 + p1->num_cells;
 	LIST_HANDLER(p2);
 
 	while (is_iso_list(p2)) {
@@ -1008,7 +1008,7 @@ bool do_use_module_2(module *curr_m, cell *c)
 		if (is_interned(head) && (head->arity == 2)
 			&& ((head->val_off == g_as_s) || (head->val_off == g_colon_s))) {
 			cell *lhs = head + 1;
-			cell *rhs = lhs + lhs->nbr_cells;
+			cell *rhs = lhs + lhs->num_cells;
 
 			if (is_structure(lhs) && (lhs->arity == 2)
 				&& (lhs->val_off == g_slash_s)
@@ -1052,7 +1052,7 @@ bool do_use_module_2(module *curr_m, cell *c)
 bool do_foreign_struct(module *m, cell *p)
 {
 	cell *p1 = p + 1;
-	cell *p2 = p1 + p1->nbr_cells;
+	cell *p2 = p1 + p1->num_cells;
 	const char *symbol = C_STR(m, p1);
 	cell *l = p2;
 
@@ -1064,7 +1064,7 @@ bool do_foreign_struct(module *m, cell *p)
 bool do_use_foreign_module(module *m, cell *p)
 {
 	cell *p1 = p + 1;
-	cell *p2 = p1 + p1->nbr_cells;
+	cell *p2 = p1 + p1->num_cells;
 	LIST_HANDLER(p2);
 
 	const char *name = C_STR(m, p1);
@@ -1080,7 +1080,7 @@ bool do_use_foreign_module(module *m, cell *p)
 		cell *h = LIST_HEAD(p2);
 		const char *symbol = C_STR(m, h);
 		cell *l = h + 1;
-		cell *r = l + l->nbr_cells;
+		cell *r = l + l->num_cells;
 		const char *ret_type = C_STR(m, r);
 		do_register_predicate(m, NULL, handle, symbol, l, 0, ret_type);
 		p2 = LIST_TAIL(p2);
@@ -1578,7 +1578,7 @@ static void process_cell(module *m, clause *cl, cell *c, predicate *parent, int 
 
 	if (!is_directive
 		&& is_interned(c)
-		&& ((c+c->nbr_cells) >= (body + cl->cidx-1))
+		&& ((c+c->num_cells) >= (body + cl->cidx-1))
 		) {
 			c->flags |= FLAG_INTERNED_TAIL_CALL;
 			if (parent
@@ -1655,8 +1655,8 @@ bool module_dump_term(module* m, cell *p1)
 {
 	cell *tmp = p1;
 
-	for (unsigned i = 0; i <p1->nbr_cells; i++, tmp++) {
-		printf("[%02u] tag=%10s, nbr_cells=%u, arity=%u",
+	for (unsigned i = 0; i <p1->num_cells; i++, tmp++) {
+		printf("[%02u] tag=%10s, num_cells=%u, arity=%u",
 			i,
 			(
 				(tmp->tag == TAG_VAR && is_ref(tmp))? "var_ref" :
@@ -1672,7 +1672,7 @@ bool module_dump_term(module* m, cell *p1)
 				tmp->tag == TAG_KVID ? "kvid" :
 				"other"
 			),
-			tmp->nbr_cells, tmp->arity);
+			tmp->num_cells, tmp->arity);
 
 		if ((tmp->tag == TAG_INTEGER) && !is_managed(tmp))
 			printf(", %lld", (long long)tmp->val_int);
@@ -1684,9 +1684,9 @@ bool module_dump_term(module* m, cell *p1)
 			printf(", local=%d, temp=%d, anon=%d", is_local(tmp), is_temporary(tmp), is_anon(tmp));
 
 		if (is_ref(tmp))
-			printf(", slot=%u, ctx=%u", tmp->var_nbr, tmp->var_ctx);
+			printf(", slot=%u, ctx=%u", tmp->var_num, tmp->var_ctx);
 		else if (is_var(tmp))
-			printf(", slot=%u, %s", tmp->var_nbr, C_STR(q, tmp));
+			printf(", slot=%u, %s", tmp->var_num, C_STR(q, tmp));
 
 		printf("\n");
 	}
@@ -1694,7 +1694,7 @@ bool module_dump_term(module* m, cell *p1)
 	return true;
 }
 
-static rule *assert_begin(module *m, unsigned nbr_vars, cell *p1, bool consulting)
+static rule *assert_begin(module *m, unsigned num_vars, cell *p1, bool consulting)
 {
 	bool is_dirty = false;
 	cell *c = p1;
@@ -1724,11 +1724,11 @@ static rule *assert_begin(module *m, unsigned nbr_vars, cell *p1, bool consultin
 				m = tmp_m;
 
 			cell *head = p1 + 3;
-			pl_idx head_nbr_cells = head->nbr_cells;
-			cell *body = head + head_nbr_cells;
-			move_cells(p1+1, head, head_nbr_cells);
-			cell *new_body = p1 + 1 + head_nbr_cells;
-			make_instr(new_body, g_colon_s, bif_iso_qualify_2, 2, 1+body->nbr_cells);
+			pl_idx head_num_cells = head->num_cells;
+			cell *body = head + head_num_cells;
+			move_cells(p1+1, head, head_num_cells);
+			cell *new_body = p1 + 1 + head_num_cells;
+			make_instr(new_body, g_colon_s, bif_iso_qualify_2, 2, 1+body->num_cells);
 			SET_OP(new_body, OP_XFY);
 			make_atom(new_body+1, new_atom(m->pl, save_m->name));
 			is_dirty = true;
@@ -1762,7 +1762,7 @@ static rule *assert_begin(module *m, unsigned nbr_vars, cell *p1, bool consultin
 			}
 
 
-			move_cells(p1, p1+2, p1->nbr_cells-2);
+			move_cells(p1, p1+2, p1->num_cells-2);
 			c = get_head(p1);
 		}
 	}
@@ -1816,16 +1816,16 @@ static rule *assert_begin(module *m, unsigned nbr_vars, cell *p1, bool consultin
 	if (m->prebuilt)
 		pr->is_builtin = true;
 
-	size_t dbe_size = sizeof(rule) + (sizeof(cell) * (p1->nbr_cells+1));
+	size_t dbe_size = sizeof(rule) + (sizeof(cell) * (p1->num_cells+1));
 	rule *r = calloc(1, dbe_size);
 	ensure(r);
 
-	copy_cells(r->cl.cells, p1, p1->nbr_cells);
-	r->cl.cells[p1->nbr_cells] = (cell){0};
-	r->cl.cells[p1->nbr_cells].tag = TAG_END;
-	r->cl.nbr_vars = nbr_vars;
-	r->cl.nbr_allocated_cells = p1->nbr_cells;
-	r->cl.cidx = p1->nbr_cells+1;
+	copy_cells(r->cl.cells, p1, p1->num_cells);
+	r->cl.cells[p1->num_cells] = (cell){0};
+	r->cl.cells[p1->num_cells].tag = TAG_END;
+	r->cl.num_vars = num_vars;
+	r->cl.num_allocated_cells = p1->num_cells;
+	r->cl.cidx = p1->num_cells+1;
 	r->cl.dbgen_created = ++m->pl->dbgen;
 	r->filename = m->filename;
 	r->owner = pr;
@@ -1902,13 +1902,13 @@ static void assert_commit(module *m, rule *r, predicate *pr, bool append)
 	}
 }
 
-rule *asserta_to_db(module *m, unsigned nbr_vars, cell *p1, bool consulting)
+rule *asserta_to_db(module *m, unsigned num_vars, cell *p1, bool consulting)
 {
 	predicate *pr;
 	rule *r;
 
 	do {
-		r = assert_begin(m, nbr_vars, p1, consulting);
+		r = assert_begin(m, num_vars, p1, consulting);
 
 		if (!r)
 			return NULL;
@@ -1943,13 +1943,13 @@ rule *asserta_to_db(module *m, unsigned nbr_vars, cell *p1, bool consulting)
 	return r;
 }
 
-rule *assertz_to_db(module *m, unsigned nbr_vars, cell *p1, bool consulting)
+rule *assertz_to_db(module *m, unsigned num_vars, cell *p1, bool consulting)
 {
 	predicate *pr;
 	rule *r;
 
 	do {
-		r = assert_begin(m, nbr_vars, p1, consulting);
+		r = assert_begin(m, num_vars, p1, consulting);
 
 		if (!r)
 			return NULL;
@@ -2023,7 +2023,7 @@ module *load_text(module *m, const char *src, const char *filename)
 
 	if (!p->error && !p->already_loaded_error && !p->end_of_term && p->cl->cidx) {
 		if (DUMP_ERRS || !p->do_read_term)
-			fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, incomplete statement, %s:%d\n", filename, p->line_nbr);
+			fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, incomplete statement, %s:%d\n", filename, p->line_num);
 
 		p->error = true;
 	}
@@ -2166,7 +2166,7 @@ module *load_fp(module *m, FILE *fp, const char *filename, bool including, bool 
 
 	if (!p->error && !p->already_loaded_error && !p->end_of_term && p->cl->cidx) {
 		if (DUMP_ERRS || !p->do_read_term)
-			fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, incomplete statement, %s:%d\n", filename, p->line_nbr);
+			fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, incomplete statement, %s:%d\n", filename, p->line_num);
 
 		p->error = true;
 	}

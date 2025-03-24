@@ -5,7 +5,7 @@
 bool accum_var(query *q, const cell *c, pl_idx c_ctx)
 {
 	const frame *f = GET_FRAME(c_ctx);
-	const slot *e = GET_SLOT(f, c->var_nbr);
+	const slot *e = GET_SLOT(f, c->var_num);
 	const void *v;
 
 	if (sl_get(q->vars, e, &v)) {
@@ -29,7 +29,7 @@ bool accum_var(query *q, const cell *c, pl_idx c_ctx)
 	}
 
 	q->pl->tabs[q->tab_idx].ctx = c_ctx;
-	q->pl->tabs[q->tab_idx].var_nbr = c->var_nbr;
+	q->pl->tabs[q->tab_idx].var_num = c->var_num;
 	q->pl->tabs[q->tab_idx].val_off = c->val_off;
 	q->pl->tabs[q->tab_idx].is_anon = is_anon(c) ? true : false;
 	q->pl->tabs[q->tab_idx].cnt = 1;
@@ -60,7 +60,7 @@ static void collect_var_lists(query *q, cell *p1, pl_idx p1_ctx, unsigned depth)
 			collect_vars_internal(q, h, h_ctx, depth+1);
 
 		if (e) e->vgen = save_vgen;
-		l = l + 1; l += l->nbr_cells;
+		l = l + 1; l += l->num_cells;
 		e = NULL;
 		both = 0;
 
@@ -75,7 +75,7 @@ static void collect_var_lists(query *q, cell *p1, pl_idx p1_ctx, unsigned depth)
 		l_ctx = p1_ctx;
 
 		while (is_iso_list(l)) {
-			l = l + 1; l += l->nbr_cells;
+			l = l + 1; l += l->num_cells;
 			cell *c = l;
 			pl_idx c_ctx = l_ctx;
 			RESTORE_VAR(c, c_ctx, l, l_ctx, q->vgen);
@@ -127,7 +127,7 @@ static void collect_vars_internal(query *q, cell *p1, pl_idx p1_ctx, unsigned de
 			collect_vars_internal(q, c, c_ctx, depth+1);
 
 		if (e) e->vgen = save_vgen;
-		p1 += p1->nbr_cells;
+		p1 += p1->num_cells;
 	}
 }
 
@@ -157,7 +157,7 @@ static bool has_vars_lists(query *q, cell *p1, pl_idx p1_ctx, unsigned depth)
 				c_ctx = c->var_ctx;
 
 			const frame *f = GET_FRAME(c_ctx);
-			slot *e = GET_SLOT(f, c->var_nbr);
+			slot *e = GET_SLOT(f, c->var_num);
 			uint32_t save_vgen = 0;
 			c = deref(q, c, c_ctx);
 			c_ctx = q->latest_ctx;
@@ -179,14 +179,14 @@ static bool has_vars_lists(query *q, cell *p1, pl_idx p1_ctx, unsigned depth)
 				return true;
 		}
 
-		l = l + 1; l += l->nbr_cells;
+		l = l + 1; l += l->num_cells;
 
 		if (is_var(l)) {
 			if (is_ref(l))
 				l_ctx = l->var_ctx;
 
 			const frame *f = GET_FRAME(l_ctx);
-			slot *e = GET_SLOT(f, l->var_nbr);
+			slot *e = GET_SLOT(f, l->var_num);
 			l = deref(q, l, l_ctx);
 			l_ctx = q->latest_ctx;
 
@@ -201,7 +201,7 @@ static bool has_vars_lists(query *q, cell *p1, pl_idx p1_ctx, unsigned depth)
 	l_ctx = p1_ctx;
 
 	while (is_iso_list(l)) {
-		l = l + 1; l += l->nbr_cells;
+		l = l + 1; l += l->num_cells;
 		cell *c = l;
 		pl_idx c_ctx = l_ctx;
 		RESTORE_VAR(c, c_ctx, l, l_ctx, q->vgen);
@@ -238,7 +238,7 @@ static bool has_vars_internal(query *q, cell *p1, pl_idx p1_ctx, unsigned depth)
 
 		if (is_var(c)) {
 			frame *f = GET_FRAME(c_ctx);
-			slot *e = GET_SLOT(f, c->var_nbr);
+			slot *e = GET_SLOT(f, c->var_num);
 			uint32_t save_vgen = 0;
 			c = deref(q, c, c_ctx);
 			c_ctx = q->latest_ctx;
@@ -260,7 +260,7 @@ static bool has_vars_internal(query *q, cell *p1, pl_idx p1_ctx, unsigned depth)
 				return true;
 		}
 
-		p1 += p1->nbr_cells;
+		p1 += p1->num_cells;
 	}
 
 	return false;
@@ -296,7 +296,7 @@ static bool is_cyclic_term_lists(query *q, cell *p1, pl_idx p1_ctx, unsigned dep
 			return true;
 
 		if (e) e->vgen = save_vgen;
-		l = l + 1; l += l->nbr_cells;
+		l = l + 1; l += l->num_cells;
 		e = NULL;
 		both = 0;
 
@@ -311,7 +311,7 @@ static bool is_cyclic_term_lists(query *q, cell *p1, pl_idx p1_ctx, unsigned dep
 		l_ctx = p1_ctx;
 
 		while (is_iso_list(l)) {
-			l = l + 1; l += l->nbr_cells;
+			l = l + 1; l += l->num_cells;
 			cell *c = l;
 			pl_idx c_ctx = l_ctx;
 			RESTORE_VAR(c, c_ctx, l, l_ctx, q->vgen);
@@ -357,7 +357,7 @@ static bool is_cyclic_term_internal(query *q, cell *p1, pl_idx p1_ctx, unsigned 
 			return true;
 
 		if (e) e->vgen = save_vgen;
-		p1 += p1->nbr_cells;
+		p1 += p1->num_cells;
 	}
 
 	return false;
@@ -382,7 +382,7 @@ inline static cell *term_next(query *q, cell *c, pl_idx *c_ctx, bool *done)
 	}
 
 	c += 1;
-	c += c->nbr_cells;
+	c += c->num_cells;
 	c = deref(q, c, *c_ctx);
 	*c_ctx = q->latest_ctx;
 	return c;
