@@ -194,10 +194,8 @@ static bool bif_iso_notunify_2(query *q)
 	cell *tmp = prepare_call(q, PREFIX_LEN, &tmp2, q->st.curr_frame, p1->num_cells+p2->num_cells+4);
 	pl_idx num_cells = PREFIX_LEN;
 	tmp[num_cells++].num_cells += p1->num_cells+p2->num_cells;
-	dup_cells_by_ref(tmp+num_cells, p1, p1_ctx, p1->num_cells);
-	num_cells += p1->num_cells;
-	dup_cells_by_ref(tmp+num_cells, p2, p2_ctx, p2->num_cells);
-	num_cells += p2->num_cells;
+	num_cells += dup_cells_by_ref(tmp+num_cells, p1, p1_ctx, p1->num_cells);
+	num_cells += dup_cells_by_ref(tmp+num_cells, p2, p2_ctx, p2->num_cells);
 	make_instr(tmp+num_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+num_cells++, q->cp);
 	make_instr(tmp+num_cells++, g_fail_s, bif_iso_fail_0, 0, 0);
@@ -5680,7 +5678,7 @@ static bool bif_strip_module_3(query *q)
 	return unify(q, p3, p3_ctx, p1, p1_ctx);
 }
 
-static bool bif_sys_module_1(query *q)
+bool bif_sys_module_1(query *q)
 {
 	GET_FIRST_ARG(p1,atom_or_var);
 
@@ -5693,8 +5691,11 @@ static bool bif_sys_module_1(query *q)
 	const char *name = C_STR(q, p1);
 	module *m = find_module(q->pl, name);
 
+	if (!strcmp(name, "loader"))
+		return true;
+
 	if (!m) {
-		if (q->p->is_command)
+		if (q->p->is_command && !q->run_init)
 			fprintf(stdout, "Info: created module '%s'\n", name);
 
 		m = module_create(q->pl, name);
@@ -5937,9 +5938,9 @@ static bool do_dump_term(query *q, cell *p1, pl_idx p1_ctx, bool deref, int dept
 			const frame *f = GET_FRAME(is_ref(tmp)?tmp->var_ctx:p1_ctx);
 			slot *e = GET_SLOT(f, tmp->var_num);
 
-			if (e->c.attrs) {
+			if (e->c.val_attrs) {
 				printf("\n");
-				do_dump_term(q, e->c.attrs, q->st.curr_frame, deref, depth+1);
+				do_dump_term(q, e->c.val_attrs, q->st.curr_frame, deref, depth+1);
 				continue;
 			}
 		}

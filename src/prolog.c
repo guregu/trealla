@@ -49,7 +49,7 @@ pl_idx g_cont_s, g_sys_set_if_var_s, g_is_s, g_maplist_s;
 pl_idx g_sys_succeed_on_retry_s, g_sys_fail_on_retry_s;
 pl_idx g_sys_call_check_s, g_ignore_s, g_sys_reset_handler_s;
 pl_idx g_reset_s, g_sys_get_level_s, g_sys_jump_s, g_if_s;
-pl_idx g_sys_call_s, g_sys_cut_s;
+pl_idx g_sys_call_s, g_sys_cut_s, g_notunify_s, g_sys_module_s;
 pl_idx g_dummy_s;
 
 char *g_global_atoms = NULL;
@@ -626,6 +626,7 @@ static bool g_init(prolog *pl)
 	CHECK_SENTINEL(g_sys_counter_s = new_atom(pl, "$counter"), ERR_IDX);
 	CHECK_SENTINEL(g_braces_s = new_atom(pl, "braces"), ERR_IDX);
 	CHECK_SENTINEL(g_unify_s = new_atom(pl, "="), ERR_IDX);
+	CHECK_SENTINEL(g_notunify_s = new_atom(pl, "\\="), ERR_IDX);
 	CHECK_SENTINEL(g_on_s = new_atom(pl, "on"), ERR_IDX);
 	CHECK_SENTINEL(g_off_s = new_atom(pl, "off"), ERR_IDX);
 	CHECK_SENTINEL(g_cut_s = new_atom(pl, "!"), ERR_IDX);
@@ -675,6 +676,7 @@ static bool g_init(prolog *pl)
 	CHECK_SENTINEL(g_if_s = new_atom(pl, "if"), ERR_IDX);
 	CHECK_SENTINEL(g_sys_call_s = new_atom(pl, "$call"), ERR_IDX);
 	CHECK_SENTINEL(g_sys_cut_s = new_atom(pl, "$cut"), ERR_IDX);
+	CHECK_SENTINEL(g_sys_module_s = new_atom(pl, "$module"), ERR_IDX);
 
 #if !defined(_WIN32) && !defined(__wasi__) && !defined(__ANDROID__)
 	struct rlimit rlp;

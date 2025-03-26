@@ -129,9 +129,9 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define is_evaluable(c) (is_interned(c) && ((c)->flags & FLAG_INTERNED_EVALUABLE))
 #define is_tail_call(c) ((c)->flags & FLAG_INTERNED_TAIL_CALL)
 #define is_recursive_call(c) ((c)->flags & FLAG_INTERNED_RECURSIVE_CALL)
-#define is_temporary(c) (!is_global(c) && ((c)->flags & FLAG_VAR_TEMPORARY))
-#define is_local(c) (!is_global(c) && ((c)->flags & FLAG_VAR_LOCAL))
-#define is_void(c) (!is_global(c) && ((c)->flags & FLAG_VAR_VOID))
+#define is_temporary(c) ((c)->flags & FLAG_VAR_TEMPORARY)
+#define is_local(c) ((c)->flags & FLAG_VAR_LOCAL)
+#define is_void(c) ((c)->flags & FLAG_VAR_VOID)
 #define is_global(c) ((c)->flags & FLAG_VAR_GLOBAL)
 #define is_ref(c) (is_var(c) && ((c)->flags & FLAG_VAR_REF))
 #define is_op(c) ((c)->flags & 0xE000) ? true : false
@@ -400,7 +400,7 @@ struct cell_ {
 				cell *tmp_attrs;		// used with TAG_VAR in copy_term
 			};
 
-			uint32_t var_num;			// used with TAG_VAR
+			pl_idx var_num;				// used with TAG_VAR
 
 			union {
 				uint32_t val_off;		// used with TAG_VAR & TAG_INTERNED
@@ -413,12 +413,12 @@ struct cell_ {
 		};
 
 		struct {
-			cell *attrs;				// used with TAG_EMPTY in slot
+			cell *val_attrs;			// used with TAG_EMPTY in slot
 		};
 
 		struct {
-			cell *ret_instr;			// used with TAG_EMPTY saves
-			uint64_t chgen;				// choice generation on call
+			cell *ret_instr;			// used with TAG_EMPTY in call
+			uint64_t chgen;				// saves choice generation
 		};
 	};
 };
@@ -516,8 +516,7 @@ typedef struct {
 
 struct trail_ {
 	cell *attrs;
-	pl_idx var_ctx;
-	uint32_t var_num;
+	pl_idx var_ctx, var_num;
 };
 
 struct slot_ {
@@ -533,10 +532,10 @@ struct slot_ {
 
 struct frame_ {
 	cell *curr_instr;
+	module *curr_m;
 	uint64_t dbgen, chgen;
 	pl_idx prev, base, overflow, hp, heap_num;
 	unsigned initial_slots, actual_slots;
-	uint32_t mid;
 	bool has_local_vars:1;
 	bool unify_no_tco:1;
 };
@@ -549,14 +548,14 @@ struct run_state_ {
 	module *curr_m;
 
 	union {
-		struct { cell *key; bool karg1_is_ground:1, karg2_is_ground:1, karg1_is_atomic:1, karg2_is_atomic:1;};
+		struct { cell *key; pl_idx key_ctx; bool karg1_is_ground:1, karg2_is_ground:1, karg1_is_atomic:1, karg2_is_atomic:1;};
 		struct { uint64_t uv1, uv2; };
 		struct { int64_t v1, v2; };
 		int64_t cnt;
 	};
 
 	uint64_t timer_started;
-	pl_idx curr_frame, fp, hp, cp, tp, sp, heap_num, key_ctx;
+	pl_idx curr_frame, fp, hp, cp, tp, sp, heap_num;
 	uint8_t qnum;
 };
 
@@ -853,7 +852,6 @@ struct module_ {
 	bool error:1;
 	bool ignore_vars:1;
 	bool wild_goal_expansion:1;
-	bool no_tco:1;
 	bool make:1;
 	bool run_init:1;
 };
@@ -935,21 +933,18 @@ inline static void unshare_cell_(cell *c)
 		if (--c->val_strb->refcnt == 0) {
 			free(c->val_strb);
 			c->flags = 0;
-			c->tag = TAG_EMPTY;
 		}
 	} else if (is_bigint(c)) {
 		if (--c->val_bigint->refcnt == 0)	{
 			mp_int_clear(&c->val_bigint->ival);
 			free(c->val_bigint);
 			c->flags = 0;
-			c->tag = TAG_EMPTY;
 		}
 	} else if (is_rational(c)) {
 		if (--c->val_bigint->refcnt == 0)	{
 			mp_rat_clear(&c->val_bigint->irat);
 			free(c->val_bigint);
 			c->flags = 0;
-			c->tag = TAG_EMPTY;
 		}
 	} else if (is_blob(c)) {
 		if (--c->val_blob->refcnt == 0) {
@@ -957,7 +952,6 @@ inline static void unshare_cell_(cell *c)
 			free(c->val_blob->ptr);
 			free(c->val_blob);
 			c->flags = 0;
-			c->tag = TAG_EMPTY;
 		}
 	} else if (is_dbid(c)) {
 		if (--c->val_blob->refcnt == 0) {
@@ -967,7 +961,6 @@ inline static void unshare_cell_(cell *c)
 			free(c->val_blob->ptr2);
 			free(c->val_blob);
 			c->flags = 0;
-			c->tag = TAG_EMPTY;
 		}
 	} else if (is_kvid(c)) {
 		if (--c->val_blob->refcnt == 0) {
@@ -977,7 +970,6 @@ inline static void unshare_cell_(cell *c)
 			free(c->val_blob->ptr2);
 			free(c->val_blob);
 			c->flags = 0;
-			c->tag = TAG_EMPTY;
 		}
 	}
 }
@@ -1065,7 +1057,7 @@ inline static void init_cell(cell *c)
 	c->flags = 0;
 	c->num_cells = 0;
 	c->arity = 0;
-	c->attrs = NULL;
+	c->val_attrs = NULL;
 }
 
 inline static void predicate_delink(predicate *pr, rule *r)

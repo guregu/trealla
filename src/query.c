@@ -197,6 +197,7 @@ static bool check_trail(query *q)
 		return true;
 
 	pl_idx new_trailssize = alloc_grow(q, (void**)&q->trails, sizeof(trail), q->st.tp, q->trails_size*2, false);
+
 	if (!new_trailssize) {
 		q->oom = q->error = true;
 		return false;
@@ -215,6 +216,7 @@ static bool check_choice(query *q)
 		return true;
 
 	pl_idx new_choicessize = alloc_grow(q, (void**)&q->choices, sizeof(choice), q->cp, q->choices_size*2, false);
+
 	if (!new_choicessize) {
 		q->oom = q->error = true;
 		return false;
@@ -454,7 +456,7 @@ static void leave_predicate(query *q, predicate *pr)
 {
 	//printf("*** LEAVE %s\n", C_STR(q, &pr->key));
 
-	if (!pr || !pr->is_dynamic || !pr->refcnt)
+	if (!pr->is_dynamic || !pr->refcnt)
 		return;
 
 	sl_done(q->st.iter);
@@ -541,8 +543,7 @@ void undo_me(query *q)
 		cell *c = &e->c;
 		unshare_cell(c);
 		c->tag = TAG_EMPTY;
-		c->flags = 0;
-		c->attrs = tr->attrs;
+		c->val_attrs = tr->attrs;
 	}
 }
 
@@ -640,28 +641,31 @@ static bool commit_any_choices(const query *q, const frame *f)
 static void commit_frame(query *q)
 {
 	clause *cl = &q->st.curr_rule->cl;
-	cell *head = get_head(cl->cells);
-	cell *body = get_body(cl->cells);
 	frame *f = GET_CURR_FRAME();
-	f->mid = q->st.curr_m->id;
+	f->curr_m = q->st.curr_m;
 
 	bool is_det = !q->has_vars && cl->is_unique;
 	bool next_key = has_next_key(q);
 	bool last_match = is_det || cl->is_first_cut || !next_key;
 	bool tco = false;
 
+#if 0
+	fprintf(stderr, "*** q->unify_no_tco=%d, last_match=%d\n", q->unify_no_tco, last_match);
+#endif
+
 	if (!q->unify_no_tco
 		&& last_match
-		&& (q->st.fp == (q->st.curr_frame + 1))	// At top of frame stack
-		&& !q->st.curr_m->no_tco						// For CLPZ
+		&& (q->st.fp == (q->st.curr_frame + 1))		// At top of frame stack
 		) {
 		bool tail_call = is_tail_call(q->st.curr_instr);
 		bool tail_recursive = tail_call && is_recursive_call(q->st.curr_instr);
 		bool slots_ok = f->initial_slots <= cl->num_vars;
-		bool choices = !commit_any_choices(q, f);
-		tco = slots_ok && tail_recursive && choices;
+		bool choices = commit_any_choices(q, f);
+		tco = slots_ok && tail_recursive && !choices;
 
 #if 0
+		cell *head = get_head(cl->cells);
+
 		fprintf(stderr,
 			"*** %s/%u tco=%d,q->unify_no_tco=%d,last_match=%d,is_det=%d,"
 			"next_key=%d,tail_call=%d/r%d,slots_ok=%d,choices=%d,"
@@ -692,8 +696,8 @@ static void commit_frame(query *q)
 		ch->chgen = f->chgen;
 	}
 
-	Trace(q, head, q->st.curr_frame, EXIT);
-	q->st.curr_instr = cl->alt ? cl->alt : body;
+	Trace(q, get_head(cl->cells), q->st.curr_frame, EXIT);
+	q->st.curr_instr = cl->alt ? cl->alt : get_body(cl->cells);
 	q->st.iter = NULL;
 }
 
@@ -916,7 +920,7 @@ static void trim_frame(query *q, const frame *f)
 		cell *c = &e->c;
 		unshare_cell(c);
 		c->tag = TAG_EMPTY;
-		c->flags = 0;
+		c->val_attrs = NULL;
 	}
 
 	q->st.sp -= f->actual_slots;
@@ -947,7 +951,7 @@ static bool resume_frame(query *q)
 	q->st.curr_instr = f->curr_instr;
 	q->st.curr_frame = f->prev;
 	f = GET_CURR_FRAME();
-	q->st.curr_m = q->pl->modmap[f->mid];
+	q->st.curr_m = f->curr_m;
 	return true;
 }
 
@@ -1715,7 +1719,7 @@ bool start(query *q)
 
 			Trace(q, save_cell, save_ctx, EXIT);
 			proceed(q);
-		} else if (is_iso_list(q->st.curr_instr)) {
+		} else if (!q->run_init && is_iso_list(q->st.curr_instr)) {
 			if (!consultall(q, q->st.curr_instr, q->st.curr_frame)) {
 				Trace(q, q->st.curr_instr, q->st.curr_frame, FAIL);
 				q->retry = QUERY_RETRY;
