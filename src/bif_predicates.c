@@ -184,7 +184,7 @@ bool bif_iso_unify_2(query *q)
 	return unify(q, p1, p1_ctx, p2, p2_ctx);
 }
 
-static bool bif_iso_notunify_2(query *q)
+static bool bif_iso_notunifiable_2(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 	GET_NEXT_ARG(p2,any);
@@ -611,7 +611,7 @@ static bool bif_iso_number_chars_2(query *q)
 static bool bif_iso_atom_codes_2(query *q)
 {
 	GET_FIRST_ARG(p1,iso_atom_or_var);
-	GET_NEXT_ARG(p2,iso_list_or_nil_or_var);
+	GET_NEXT_ARG(p2,list_or_nil_or_var);
 
 	if (is_var(p1) && is_var(p2))
 		return throw_error(q, p1, p1_ctx, "instantiation_error", "not_sufficiently_instantiated");
@@ -634,7 +634,7 @@ static bool bif_iso_atom_codes_2(query *q)
 
 	// Verify the list
 
-	if (!is_var(p2)) {
+	if (!is_var(p2) && !is_codes(p2)) {
 		cell *save_p2 = p2;
 		pl_idx save_p2_ctx = p2_ctx;
 		LIST_HANDLER(p2);
@@ -668,7 +668,6 @@ static bool bif_iso_atom_codes_2(query *q)
 		while (is_list(p2)) {
 			cell *head = LIST_HEAD(p2);
 			head = deref(q, head, p2_ctx);
-
 			pl_int val = get_smallint(head);
 
 			if (val < 0)
@@ -701,34 +700,21 @@ static bool bif_iso_atom_codes_2(query *q)
 		return ok;
 	}
 
-	const char *src = C_STR(q, p1);
-	size_t len = C_STRLEN(q, p1);
 	cell tmp;
-	len -= len_char_utf8(src);
-	make_int(&tmp, get_char_utf8(&src));
-	allocate_list(q, &tmp);
 
-	while (len) {
-		CHECK_INTERRUPT();
-		int char_len = len_char_utf8(src);
+	if (is_iso_atom(p1))
+		make_string(&tmp, C_STR(q, p1));
+	else
+		tmp = *p1;
 
-		if (char_len > 6)
-			return throw_error(q, p1, p1_ctx, "representation_error", "character_code");
-
-		len -= char_len;
-		make_int(&tmp, get_char_utf8(&src));
-		append_list(q, &tmp);
-	}
-
-	cell *l = end_list(q);
-	check_heap_error(l);
-	return unify(q, p2, p2_ctx, l, q->st.curr_frame);
+	tmp.flags |= FLAG_CSTR_STRING | FLAG_CSTR_CODES;
+	return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 }
 
 static bool bif_string_codes_2(query *q)
 {
 	GET_FIRST_ARG(p1,any);
-	GET_NEXT_ARG(p2,iso_list_or_nil_or_var);
+	GET_NEXT_ARG(p2,list_or_nil_or_var);
 
 	if (is_var(p1) && is_var(p2))
 		return throw_error(q, p1, p1_ctx, "instantiation_error", "not_sufficiently_instantiated");
@@ -754,7 +740,7 @@ static bool bif_string_codes_2(query *q)
 
 	// Verify the list
 
-	if (!is_var(p2)) {
+	if (!is_var(p2) && !is_codes(p2)) {
 		cell *save_p2 = p2;
 		pl_idx save_p2_ctx = p2_ctx;
 		LIST_HANDLER(p2);
@@ -788,7 +774,6 @@ static bool bif_string_codes_2(query *q)
 		while (is_list(p2)) {
 			cell *head = LIST_HEAD(p2);
 			head = deref(q, head, p2_ctx);
-
 			pl_int val = get_smallint(head);
 
 			if (val < 0)
@@ -814,30 +799,22 @@ static bool bif_string_codes_2(query *q)
 			return throw_error(q, p2, p2_ctx, "type_error", "list");
 
 		cell tmp;
-		make_cstringn(&tmp, SB_cstr(pr), SB_strlen(pr));
+		make_stringn(&tmp, SB_cstr(pr), SB_strlen(pr));
 		SB_free(pr);
 		bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 		unshare_cell(&tmp);
 		return ok;
 	}
 
-	const char *tmpbuf = C_STR(q, p1);
-	size_t len = C_STRLEN(q, p1);
-	const char *src = tmpbuf;
 	cell tmp;
-	len -= len_char_utf8(src);
-	make_int(&tmp, get_char_utf8(&src));
-	allocate_list(q, &tmp);
 
-	while (len) {
-		len -= len_char_utf8(src);
-		make_int(&tmp, get_char_utf8(&src));
-		append_list(q, &tmp);
-	}
+	if (is_iso_atom(p1))
+		make_string(&tmp, C_STR(q, p1));
+	else
+		tmp = *p1;
 
-	cell *l = end_list(q);
-	check_heap_error(l);
-	return unify(q, p2, p2_ctx, l, q->st.curr_frame);
+	tmp.flags |= FLAG_CSTR_STRING | FLAG_CSTR_CODES;
+	return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 }
 
 static bool bif_hex_bytes_2(query *q)
@@ -1036,7 +1013,7 @@ static bool bif_hex_bytes_2(query *q)
 static bool bif_iso_number_codes_2(query *q)
 {
 	GET_FIRST_ARG(p1,number_or_var);
-	GET_NEXT_ARG(p2,iso_list_or_nil_or_var);
+	GET_NEXT_ARG(p2,list_or_nil_or_var);
 	cell *orig_p2 = p2;
 
 	if (is_var(p1) && is_var(p2))
@@ -6029,8 +6006,9 @@ bool bif_sys_succeed_on_retry_2(query *q)
 	GET_NEXT_ARG(p2,integer);
 	cell tmp;
 	make_uint(&tmp, (pl_uint)q->cp);
-	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
+	// Do the unify after the push to save a trail
 	check_heap_error(push_succeed_on_retry(q, get_smalluint(p2)));
+	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 	return ok;
 }
 
@@ -6441,16 +6419,6 @@ static void load_properties(module *m)
 		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
 	}
 
-	for (const builtins *ptr = g_contrib_bifs; ptr->name; ptr++) {
-		sl_set(m->pl->biftab, ptr->name, ptr);
-		if (ptr->name[0] == '$') continue;
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "built_in", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
-		format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "static", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf);
-		if (ptr->iso) { format_property(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, "iso", ptr->evaluable?true:false); SB_strcat(pr, tmpbuf); }
-		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, false); SB_strcat(pr, tmpbuf);
-		format_template(m, tmpbuf, sizeof(tmpbuf), ptr->name, ptr->arity, ptr, ptr->evaluable?true:false, true); SB_strcat(pr, tmpbuf);
-	}
-
 	for (const builtins *ptr = g_csv_bifs; ptr->name; ptr++) {
 		sl_set(m->pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
@@ -6737,7 +6705,7 @@ builtins g_iso_bifs[] =
 	{":", 2, bif_iso_qualify_2, "+atom,:callable", true, false, BLAH},
 	{"=..", 2, bif_iso_univ_2, "+term,?list", true, false, BLAH},
 	{"=", 2, bif_iso_unify_2, "+term,+term", true, false, BLAH},
-	{"\\=", 2, bif_iso_notunify_2, "+term,+term", true, false, BLAH},
+	{"\\=", 2, bif_iso_notunifiable_2, "+term,+term", true, false, BLAH},
 
 	{"repeat", 0, bif_iso_repeat_0, NULL, true, false, BLAH},
 	{"atom", 1, bif_iso_atom_1, "+term", true, false, BLAH},
