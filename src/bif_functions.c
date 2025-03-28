@@ -100,6 +100,7 @@ void clr_accum(cell *p)
 #else
 
 #define ON_OVERFLOW(op,v1,v2)									\
+	pl_int tmp = (pl_int)v1 op v2;								\
 	if ((v1) >= INT32_MAX ||									\
 		(v1) <= INT32_MIN ||									\
 		(v2) >= INT32_MAX ||									\
@@ -119,7 +120,7 @@ void clr_accum(cell *p)
 			mp_int_clear(&tmp); \
 			SET_ACCUM(); \
 		} else { \
-			q->accum.val_int = p1.val_int op p2.val_int; \
+			q->accum.val_int = tmp; \
 			q->accum.tag = TAG_INTEGER; \
 		} \
 	} else if (is_bigint(&p1)) { \
@@ -546,6 +547,73 @@ static bool bif_denominator_1(query *q)
 		return throw_error(q, &p1, q->st.curr_frame, "resource_error", "memory");
 	q->accum.flags = FLAG_INT_BIG | FLAG_MANAGED;
 	q->accum.val_bigint->refcnt = 0;
+	return true;
+}
+
+#include <stdio.h>
+#include <stdbool.h>
+
+// Structure to represent a ratio
+typedef struct {
+    long numerator;
+    long denominator;
+} Ratio;
+
+// Function to create a ratio
+Ratio make_ratio(long num, long den) {
+    Ratio r = {num, den};
+    return r;
+}
+
+// Mediant function
+Ratio mediant(Ratio r1, Ratio r2) {
+    Ratio result;
+    result.numerator = r1.numerator + r2.numerator;
+    result.denominator = r1.denominator + r2.denominator;
+    return result;
+}
+
+// Approximate function
+Ratio approximate(Ratio low, Ratio high, double target) {
+    Ratio mid = mediant(low, high);
+    double mid_float = (double)mid.numerator / mid.denominator;
+
+    if (target < mid_float) {
+        return approximate(low, mid, target);
+    }
+    else if (target == mid_float) {
+        return mid;
+    }
+    else {
+        return approximate(mid, high, target);
+    }
+}
+
+// Rationalize function
+Ratio rationalize(double f) {
+    Ratio zero = make_ratio(0, 1);
+    // Using a large number to represent 1/0 (infinity)
+    Ratio inf = make_ratio(1, 0);
+    return approximate(zero, inf, f);
+}
+
+static bool bif_rationalize_1(query *q)
+{
+	START_FUNCTION(q);
+	GET_FIRST_ARG(p1_tmp,any);
+	CLEANUP cell p1 = eval(q, p1_tmp);
+
+	if (!is_number(&p1))
+		return throw_error(q, &p1, q->st.curr_frame, "type_error", "number"); \
+
+	Ratio r = rationalize(is_float(&p1)? p1.val_float:(double)p1.val_int);
+
+	if (mp_int_set_value(&q->tmp_irat.num, r.numerator) == MP_MEMORY)
+		return throw_error(q, &p1, q->st.curr_frame, "resource_error", "memory");
+	if (mp_int_set_value(&q->tmp_irat.den, r.denominator) == MP_MEMORY)
+		return throw_error(q, &p1, q->st.curr_frame, "resource_error", "memory");
+
+	SET_RAT_ACCUM2();
 	return true;
 }
 
@@ -2977,7 +3045,7 @@ builtins g_evaluable_bifs[] =
 	{"erfc", 1, bif_erfc_1, "+number,-float", false, true, BLAH},
 
 	{"atan2", 2, bif_iso_atan2_2, "+number,+number,-float", true, true, BLAH},
-	{"copysign", 2, bif_iso_copysign_2, "+number,-number", true, true, BLAH},
+	{"copysign", 2, bif_iso_copysign_2, "+number,-number", false, true, BLAH},
 	{"truncate", 1, bif_iso_truncate_1, "+float,-integer", true, true, BLAH},
 	{"round", 1, bif_iso_round_1, "+float,-integer", true, true, BLAH},
 	{"ceiling", 1, bif_iso_ceiling_1, "+float,-integer", true, true, BLAH},
@@ -2989,6 +3057,7 @@ builtins g_evaluable_bifs[] =
 	{"denominator", 1, bif_denominator_1, "+rational,-integer", false, true, BLAH},
 	{"rational", 1, bif_rational_1, "+term", false, false, BLAH},
 	{"rdiv", 2, bif_rdiv_2, "+integer,+integer,-rational", false, true, BLAH},
+	{"rationalize", 1, bif_rationalize_1, "+number,-rational", false, true, BLAH},
 
 	{"divmod", 4, bif_divmod_4, "+integer,+integer,?integer,?integer", false, false, BLAH},
 	{"log", 2, bif_log_2, "+number,+number,-float", false, true, BLAH},

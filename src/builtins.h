@@ -130,14 +130,32 @@ inline static cell *take_queuen(query *q)
 	return save;
 }
 
+#define GET_CHOICE(i) (q->choices+(i))
+#define GET_CURR_CHOICE() GET_CHOICE(q->cp-1)
+#define GET_PREV_CHOICE() GET_CHOICE(q->cp-2)
+
+#define GET_FRAME(i) (q->frames+(i))
+#define GET_CURR_FRAME() GET_FRAME(q->st.curr_frame)
+#define GET_NEW_FRAME() GET_FRAME(q->st.fp)
+
+#define GET_SLOT(f,var_num) get_slot(q, f, var_num)
+
+inline static slot *get_slot(const query *q, const frame *f, unsigned var_num)
+{
+	if (var_num < f->initial_slots)
+		return q->slots + f->base + var_num;
+	else
+		return q->slots + f->overflow +(var_num - f->initial_slots);
+}
+
 inline static cell *deref(query *q, cell *c, pl_idx c_ctx)
 {
-	if (is_indirect(c)) {
-		q->latest_ctx = c->var_ctx;
-		return c->val_ptr;
-	}
-
 	if (!is_var(c)) {
+		if (is_indirect(c)) {
+			q->latest_ctx = c->var_ctx;
+			return c->val_ptr;
+		}
+
 		q->latest_ctx = c_ctx;
 		return c;
 	}
@@ -171,6 +189,9 @@ inline static cell *deref(query *q, cell *c, pl_idx c_ctx)
 
 	return &e->c;
 }
+
+#define FIRST_ARG(c) ((c)+1)
+#define NEXT_ARG(c) ((c)+(c)->num_cells)
 
 #define GET_RAW_ARG(n,p) \
 	cell *p = get_raw_arg(q,n); \

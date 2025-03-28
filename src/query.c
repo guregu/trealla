@@ -445,7 +445,6 @@ bool make_slice(query *q, cell *d, const cell *orig, size_t off, size_t n)
 
 static void enter_predicate(query *q, predicate *pr)
 {
-	//printf("*** ENTER %s\n", C_STR(q, &pr->key));
 	q->st.pr = pr;
 
 	if (pr->is_dynamic)
@@ -454,7 +453,8 @@ static void enter_predicate(query *q, predicate *pr)
 
 static void leave_predicate(query *q, predicate *pr)
 {
-	//printf("*** LEAVE %s\n", C_STR(q, &pr->key));
+	if (!pr)
+		return;
 
 	if (!pr->is_dynamic || !pr->refcnt)
 		return;
@@ -620,7 +620,6 @@ static void reuse_frame(query *q, const clause *cl)
 		to->c = from->c;
 	}
 
-	trim_trail(q);
 	q->st.hp = f->hp;
 	q->st.heap_num = f->heap_num;
 	trim_heap(q);
@@ -985,7 +984,6 @@ int create_vars(query *q, unsigned cnt)
 		return f->actual_slots;
 
 	if ((f->actual_slots + cnt) > MAX_LOCAL_VARS) {
-		//printf("*** OOPS %s %d\n", __FILE__, __LINE__);
 		q->oom = q->error = true;
 		return -1;
 	}
@@ -1003,7 +1001,7 @@ int create_vars(query *q, unsigned cnt)
 		pl_idx cnt2 = f->actual_slots - f->initial_slots;
 
 		if (!check_slot(q, cnt2)) {
-			//printf("*** OOPS %s %d\n", __FILE__, __LINE__);
+			q->error = true;
 			return -1;
 		}
 
@@ -1012,7 +1010,7 @@ int create_vars(query *q, unsigned cnt)
 	}
 
 	if (!check_slot(q, cnt)) {
-		//printf("*** OOPS %s %d\n", __FILE__, __LINE__);
+		q->error = true;
 		return -1;
 	}
 

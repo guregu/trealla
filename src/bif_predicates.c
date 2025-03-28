@@ -142,7 +142,6 @@ static bool bif_sys_unifiable_3(query *q)
 	pl_idx save_tp = q->st.tp;
 
 	if (!unify(q, p1, p1_ctx, p2, p2_ctx) && !q->cycle_error) {
-		undo_me(q);
 		drop_choice(q);
 		return false;
 	}
@@ -5777,6 +5776,10 @@ static bool bif_sys_det_length_rundown_2(query *q)
 {
 	GET_FIRST_ARG(p1,list_or_var);
 	GET_NEXT_ARG(p2,integer);
+
+	if (is_bigint(p2) || (get_smallint(p2) > INT32_MAX))
+		return throw_error(q, p2, p2_ctx, "resource_error", "memory");
+
 	unsigned n = get_smalluint(p2);
 	int var_num = create_vars(q, n);
 	check_heap_error(var_num != -1);
@@ -5805,7 +5808,7 @@ static bool bif_sys_memberchk_3(query *q)
 	GET_NEXT_ARG(p2,list_or_nil_or_var);
 	GET_NEXT_ARG(p3,var);
 	LIST_HANDLER(p2);
-	push_choice(q);
+	check_heap_error(push_choice(q));
 
 	while (is_list(p2)) {
 		cell *h = LIST_HEAD(p2);
