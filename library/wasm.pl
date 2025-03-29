@@ -56,21 +56,15 @@ query(Query, Status) :-
 	;   Status = failure
 	).
 
-result_json(Status, Stream, Vars, Error) :-
-	setup_call_cleanup(
-		'$yield_off',
-		( result_json_(Status, Stream, Vars, Error) ),
-		'$yield_on'
-	).
-result_json_(success, Stream, Vars, _) :-
+result_json(success, Stream, Vars, _) :-
 	write(Stream, '{"status":"success","answer":'),
 	once(solution_json(Stream, Vars)),
 	write(Stream, '}'),
 	nl(Stream).
-result_json_(failure, Stream, _, _) :-
+result_json(failure, Stream, _, _) :-
 	write(Stream, '{"status":"failure"}'),
 	nl(Stream).
-result_json_(error, Stream, Vars, Error) :-
+result_json(error, Stream, Vars, Error) :-
 	write(Stream, '{"status":"error","error":'),
 	once(term_json(Stream, Vars, Error)),
 	write(Stream, '}'),

@@ -211,7 +211,7 @@ profile:
 	$(MAKE) 'OPT=$(OPT) -O0 -pg -DDEBUG'
 
 debug:
-	$(MAKE) 'OPT=$(OPT) -O0 -g -DDEBUG'
+	$(MAKE) 'OPT=$(OPT) -O0 -g -DDEBUG -fsanitize=address'
 
 release:
 	$(MAKE) 'OPT=$(OPT) -DNDEBUG'

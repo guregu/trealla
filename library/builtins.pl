@@ -832,3 +832,44 @@ sre_subst_all_(Reg, TextIn, Subst, L0, L) :-
 
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% wasm interop
+% JSON toplevel
+
+'$json_ask'(Input) :-
+	'$silent_toplevel',
+	catch(
+		read_term_from_chars(Input, Query, [variable_names(Vars)]),
+		Error,
+		(
+			'$memory_stream_create'(ErrStream, []),
+			wasm:result_json(error, ErrStream, Vars, Error),
+			'$memory_stream_to_chars'(ErrStream, ErrResult),
+			'$host_push_answer'(ErrResult),
+			close(ErrStream),
+			fail
+		)
+	),
+	catch(
+		(   call(Query)
+		*-> Status = success
+		;   Status = failure
+		),
+		Error,
+		Status = error
+	),
+	setup_call_cleanup(
+		(
+			'$yield_off',
+			'$memory_stream_create'(Stream, [])
+		),
+		(
+			wasm:result_json(Status, Stream, Vars, Error),
+			'$memory_stream_to_chars'(Stream, Cs),
+			'$host_push_answer'(Cs)
+		),
+		(
+			close(Stream),
+			'$yield_on'
+		)
+	).
