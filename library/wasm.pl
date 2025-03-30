@@ -216,14 +216,25 @@ term_json_list_(Stream, _, []) :-
 	write(Stream, '[]'), !.
 term_json_list_(Stream, Vars, [V|Vs]) :-
 	write(Stream, '['),
-	term_json(Stream, Vars, V), !,
+	term_json_acyclic_(Stream, Vars, V), !,
 	term_json_list_tail_(Stream, Vars, Vs),
 	write(Stream, ']').
 term_json_list_tail_(_, _, []) :- !.
 term_json_list_tail_(Stream, Vars, [V|Vs]) :-
 	write(Stream, ','),
-	term_json(Stream, Vars, V), !,
+	term_json_acyclic_(Stream, Vars, V), !,
 	term_json_list_tail_(Stream, Vars, Vs).
+
+term_json_acyclic_(Stream, Vars, V) :-
+	acyclic_term(V),
+	term_json(Stream, Vars, V), !.
+term_json_acyclic_(Stream, Vars, V) :-
+	\+acyclic_term(V),
+	once(var_name(Vars, V, Name)),
+	write(Stream, '{"var":'),
+	write_json_term(Stream, Name),
+	write(Stream, '}'),
+	!.
 
 term_json_stream_(Stream, V) :-
 	stream_property(V, alias(Alias0)),
