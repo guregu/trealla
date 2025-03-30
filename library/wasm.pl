@@ -165,7 +165,7 @@ term_json(Stream, Vars, Value) :-
 
 term_json(Stream, Vars, Value) :-
 	var(Value),
-	once(var_name(Vars, Value, Name)),
+	var_name_with_fallback(Vars, Value, Name),
 	write(Stream, '{"var":'),
 	write_json_term(Stream, Name),
 	write(Stream, '}'),
@@ -185,7 +185,7 @@ term_json(Stream, _, _) :-
 
 term_json_top(Stream, Vars, Value) :-
 	var(Value),
-	once(var_name(Vars, Value, Name)),
+	var_name_with_fallback(Vars, Value, Name),
 	write(Stream, '{"var":'),
 	write_json_term(Stream, Name),
 	attvar_json(Stream, Vars, Value),
@@ -194,13 +194,16 @@ term_json_top(Stream, Vars, Value) :-
 term_json_top(Stream, Vars, Value) :-
 	once(term_json(Stream, Vars, Value)).
 
+var_name_with_fallback(Vars, Var, Name) :-
+	var_name(Vars, Var, Name), !.
+var_name_with_fallback(_, _, "_").
+
 var_name([K0=V|_], Var, K) :-
-	V == Var,
+	V == Var, !,
 	atom_chars(K0, K).
 var_name([_=V|Vs], Var, Name) :-
 	V \== Var,
 	var_name(Vs, Var, Name).
-var_name([], _, "_").
 
 attvar_json(Stream, Vars, Var) :-
 	copy_term(Var, Var, Attr),
@@ -229,11 +232,16 @@ term_json_acyclic_(Stream, Vars, V) :-
 	acyclic_term(V),
 	term_json(Stream, Vars, V), !.
 term_json_acyclic_(Stream, Vars, V) :-
+	% replace cyclic terms with the variable name if they match
 	\+acyclic_term(V),
-	once(var_name(Vars, V, Name)),
-	write(Stream, '{"var":'),
-	write_json_term(Stream, Name),
-	write(Stream, '}'),
+	(  var_name(Vars, V, Name)
+	-> (
+		write(Stream, '{"var":'),
+		write_json_term(Stream, Name),
+		write(Stream, '}')
+	   )
+	;  term_json(Stream, Vars, V)
+	),
 	!.
 
 term_json_stream_(Stream, V) :-
