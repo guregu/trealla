@@ -56,7 +56,11 @@ char *g_global_atoms = NULL;
 char *g_tpl_lib = NULL;
 int g_ac = 0, g_avc = 1;
 char **g_av = NULL, *g_argv0 = NULL;
+#ifdef __wasi__
+unsigned g_max_depth = 1000;			// default recursion limit (WASI)
+#else
 unsigned g_max_depth = 6000;			// default recursion limit (Linux)
+#endif
 unsigned g_cpu_count = 4;				// FIXME: query system
 
 bool is_multifile_in_db(prolog *pl, const char *mod, const char *name, unsigned arity)
