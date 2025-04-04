@@ -952,7 +952,7 @@ bool valid_list(query *q, cell *c, pl_idx c_ctx)
 #if !defined(_WIN32) && !defined(__wasi__)
 static bool bif_popen_4(query *q)
 {
-	GET_FIRST_ARG(p1,atom);
+	GET_FIRST_ARG(p1,source_sink);
 	GET_NEXT_ARG(p2,atom);
 	GET_NEXT_ARG(p3,var);
 	GET_NEXT_ARG(p4,list_or_nil);
@@ -966,7 +966,7 @@ static bool bif_popen_4(query *q)
 
 	if (is_atom(p1))
 		filename = src = DUP_STRING(q, p1);
-	else
+	else if (!is_iso_list(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "source_sink");
 
 	if (is_iso_list(p1)) {
@@ -1436,7 +1436,7 @@ static void *mmap(void *start, size_t length, int prot, int flags, int fd, off_t
 
 static bool bif_iso_open_4(query *q)
 {
-	GET_FIRST_ARG(p1,atom_or_compound);
+	GET_FIRST_ARG(p1,source_sink);
 	GET_NEXT_ARG(p2,atom);
 	GET_NEXT_ARG(p3,var);
 	GET_NEXT_ARG(p4,list_or_nil);
@@ -1459,7 +1459,7 @@ static bool bif_iso_open_4(query *q)
 		filename = oldstr->filename;
 	} else if (is_atom(p1))
 		filename = src = DUP_STRING(q, p1);
-	else
+	else if (!is_iso_list(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "source_sink");
 
 	if (is_iso_list(p1)) {
@@ -4749,7 +4749,7 @@ static bool bif_read_line_to_string_2(query *q)
 
 static bool bif_read_file_to_string_3(query *q)
 {
-	GET_FIRST_ARG(p1,atom_or_list);
+	GET_FIRST_ARG(p1,source_sink);
 	GET_NEXT_ARG(p2,var);
 	GET_NEXT_ARG(p3,list_or_nil);
 	char *filename;
@@ -4934,7 +4934,7 @@ static bool do_deconsult(query *q, cell *p1, pl_idx p1_ctx)
 
 static bool bif_load_files_2(query *q)
 {
-	GET_FIRST_ARG(p1,atom_or_list);
+	GET_FIRST_ARG(p1,source_sink);
 
 	if (is_atom(p1)) {
 		check_heap_error(do_consult(q, p1, p1_ctx));
@@ -4958,7 +4958,7 @@ static bool bif_load_files_2(query *q)
 
 static bool bif_unload_files_1(query *q)
 {
-	GET_FIRST_ARG(p1,atom_or_compound);
+	GET_FIRST_ARG(p1,source_sink);
 
 	if (is_atom(p1)) {
 		check_heap_error(do_deconsult(q, p1, p1_ctx));
@@ -4992,7 +4992,7 @@ static bool bif_make_0(query *q)
 
 static bool bif_savefile_2(query *q)
 {
-	GET_FIRST_ARG(p1,atom_or_list);
+	GET_FIRST_ARG(p1,source_sink);
 	GET_NEXT_ARG(p2,atom);
 	char *filename;
 
@@ -5017,7 +5017,7 @@ static bool bif_savefile_2(query *q)
 
 static bool bif_loadfile_2(query *q)
 {
-	GET_FIRST_ARG(p1,atom_or_list);
+	GET_FIRST_ARG(p1,source_sink);
 	GET_NEXT_ARG(p2,var);
 	char *filename;
 
@@ -5075,7 +5075,7 @@ static bool bif_loadfile_2(query *q)
 
 static bool bif_getfile_2(query *q)
 {
-	GET_FIRST_ARG(p1,atom_or_list);
+	GET_FIRST_ARG(p1,source_sink);
 	GET_NEXT_ARG(p2,var);
 	char *filename;
 
@@ -5164,7 +5164,7 @@ static bool get_terminator(query *q, cell *l, pl_idx l_ctx)
 
 static bool bif_getfile_3(query *q)
 {
-	GET_FIRST_ARG(p1,atom_or_list);
+	GET_FIRST_ARG(p1,source_sink);
 	GET_NEXT_ARG(p2,var);
 	GET_NEXT_ARG(p3,list_or_nil);
 	char *filename;
@@ -5634,7 +5634,7 @@ static bool bif_getline_3(query *q)
 
 static bool bif_access_file_2(query *q)
 {
-	GET_FIRST_ARG(p1,atom_or_list);
+	GET_FIRST_ARG(p1,source_sink);
 	GET_NEXT_ARG(p2,atom);
 	char *filename;
 
@@ -5687,7 +5687,7 @@ static bool bif_access_file_2(query *q)
 
 static bool bif_exists_file_1(query *q)
 {
-	GET_FIRST_ARG(p1,atom_or_list);
+	GET_FIRST_ARG(p1,source_sink);
 	char *filename;
 
 	if (is_iso_list(p1)) {
@@ -5718,7 +5718,7 @@ static bool bif_exists_file_1(query *q)
 
 static bool bif_directory_files_2(query *q)
 {
-	GET_FIRST_ARG(p1,atom_or_list);
+	GET_FIRST_ARG(p1,source_sink);
 	GET_NEXT_ARG(p2,var);
 	char *filename;
 
@@ -5774,7 +5774,7 @@ static bool bif_directory_files_2(query *q)
 
 static bool bif_delete_file_1(query *q)
 {
-	GET_FIRST_ARG(p1,atom_or_list);
+	GET_FIRST_ARG(p1,source_sink);
 	char *filename;
 
 	if (is_iso_list(p1)) {
@@ -5802,8 +5802,8 @@ static bool bif_delete_file_1(query *q)
 
 static bool bif_rename_file_2(query *q)
 {
-	GET_FIRST_ARG(p1,atom_or_list);
-	GET_NEXT_ARG(p2,atom_or_list);
+	GET_FIRST_ARG(p1,source_sink);
+	GET_NEXT_ARG(p2,source_sink);
 	char *filename1, *filename2;
 
 	if (is_iso_list(p1)) {
@@ -5846,8 +5846,8 @@ static bool bif_rename_file_2(query *q)
 
 static bool bif_copy_file_2(query *q)
 {
-	GET_FIRST_ARG(p1,atom_or_list);
-	GET_NEXT_ARG(p2,atom_or_list);
+	GET_FIRST_ARG(p1,source_sink);
+	GET_NEXT_ARG(p2,source_sink);
 	char *filename1, *filename2;
 
 	if (is_iso_list(p1)) {
@@ -5916,7 +5916,7 @@ static bool bif_copy_file_2(query *q)
 
 static bool bif_time_file_2(query *q)
 {
-	GET_FIRST_ARG(p1,atom_or_list);
+	GET_FIRST_ARG(p1,source_sink);
 	GET_NEXT_ARG(p2,var);
 	char *filename;
 
@@ -5946,7 +5946,7 @@ static bool bif_time_file_2(query *q)
 
 static bool bif_size_file_2(query *q)
 {
-	GET_FIRST_ARG(p1,atom_or_list);
+	GET_FIRST_ARG(p1,source_sink);
 	GET_NEXT_ARG(p2,integer_or_var);
 	char *filename;
 
@@ -5976,7 +5976,7 @@ static bool bif_size_file_2(query *q)
 
 static bool bif_exists_directory_1(query *q)
 {
-	GET_FIRST_ARG(p1,atom_or_list);
+	GET_FIRST_ARG(p1,source_sink);
 	char *filename;
 
 	if (is_iso_list(p1)) {
@@ -6007,7 +6007,7 @@ static bool bif_exists_directory_1(query *q)
 
 static bool bif_make_directory_1(query *q)
 {
-	GET_FIRST_ARG(p1,atom_or_list);
+	GET_FIRST_ARG(p1,source_sink);
 	char *filename;
 
 	if (is_iso_list(p1)) {
@@ -6039,7 +6039,7 @@ static bool bif_make_directory_1(query *q)
 
 static bool bif_make_directory_path_1(query *q)
 {
-	GET_FIRST_ARG(p1,atom_or_list);
+	GET_FIRST_ARG(p1,source_sink);
 	char *filename;
 
 	if (is_iso_list(p1)) {
@@ -6126,7 +6126,7 @@ static bool bif_working_directory_2(query *q)
 
 static bool bif_chdir_1(query *q)
 {
-	GET_FIRST_ARG(p1,atom_or_list);
+	GET_FIRST_ARG(p1,source_sink);
 	char *filename;
 
 	if (is_iso_list(p1)) {
@@ -6793,6 +6793,12 @@ static bool bif_bread_3(query *q)
 			str->data_len = 0;
 		}
 
+		if (str->ungetch) {
+			unsigned n = put_char_utf8(str->data, str->ungetch);
+			str->data_len += n;
+			str->ungetch = 0;
+		}
+
 		for (;;) {
 			len = get_smallint(p1) - str->data_len;
 			size_t nbytes = net_read(str->data+str->data_len, len, str);
@@ -6831,6 +6837,12 @@ static bool bif_bread_3(query *q)
 			str->data_len = 0;
 		}
 
+		if (str->ungetch) {
+			unsigned n = put_char_utf8(str->data, str->ungetch);
+			str->data_len += n;
+			str->ungetch = 0;
+		}
+
 		size_t nbytes = net_read(str->data, str->alloc_nbytes, str);
 		str->data[nbytes] = '\0';
 		str->data = realloc(str->data, nbytes+1);
@@ -6848,6 +6860,12 @@ static bool bif_bread_3(query *q)
 		str->data = malloc((str->alloc_nbytes=1024)+1);
 		check_heap_error(str->data);
 		str->data_len = 0;
+	}
+
+	if (str->ungetch) {
+		unsigned n = put_char_utf8(str->data, str->ungetch);
+		str->data_len += n;
+		str->ungetch = 0;
 	}
 
 	for (;;) {
@@ -7493,7 +7511,7 @@ builtins g_streams_bifs[] =
 {
 	// ISO...
 
-	{"open", 4, bif_iso_open_4, "+atom,+mode,--stream,+list", true, false, BLAH},
+	{"open", 4, bif_iso_open_4, "+source_sink,+mode,--stream,+list", true, false, BLAH},
 	{"close", 1, bif_iso_close_1, "+stream", true, false, BLAH},
 	{"close", 2, bif_iso_close_2, "+stream,+opts", true, false, BLAH},
 	{"read_term", 2, bif_iso_read_term_2, "+stream,-term", true, false, BLAH},
@@ -7574,25 +7592,25 @@ builtins g_streams_bifs[] =
 	{"load_files", 2, bif_load_files_2, "+atom,+list", false, false, BLAH},
 	{"unload_files", 1, bif_unload_files_1, "+atom", false, false, BLAH},
 	{"make", 0, bif_make_0, NULL, false, false, BLAH},
-	{"getfile", 2, bif_getfile_2, "+atom,-list", false, false, BLAH},
-	{"getfile", 3, bif_getfile_3, "+atom,-list,+list", false, false, BLAH},
-	{"loadfile", 2, bif_loadfile_2, "+atom,-atom", false, false, BLAH},
-	{"savefile", 2, bif_savefile_2, "+atom,+atom", false, false, BLAH},
-	{"rename_file", 2, bif_rename_file_2, "+atom,+atom", false, false, BLAH},
-	{"copy_file", 2, bif_copy_file_2, "+atom,+atom", false, false, BLAH},
-	{"directory_files", 2, bif_directory_files_2, "+atom,-list", false, false, BLAH},
-	{"delete_file", 1, bif_delete_file_1, "+atom", false, false, BLAH},
-	{"exists_file", 1, bif_exists_file_1, "+atom", false, false, BLAH},
-	{"access_file", 2, bif_access_file_2, "+atom,+atom", false, false, BLAH},
-	{"time_file", 2, bif_time_file_2, "+atom,-float", false, false, BLAH},
-	{"size_file", 2, bif_size_file_2, "+atom,-integer", false, false, BLAH},
-	{"exists_directory", 1, bif_exists_directory_1, "+atom", false, false, BLAH},
-	{"make_directory", 1, bif_make_directory_1, "+atom", false, false, BLAH},
-	{"make_directory_path", 1, bif_make_directory_path_1, "+atom", false, false, BLAH},
-	{"working_directory", 2, bif_working_directory_2, "-atom,+atom", false, false, BLAH},
-	{"absolute_file_name", 3, bif_absolute_file_name_3, "+atom,-atom,+list", false, false, BLAH},
-	{"is_absolute_file_name", 1, bif_is_absolute_file_name_1, "+atom", false, false, BLAH},
-	{"chdir", 1, bif_chdir_1, "+atom", false, false, BLAH},
+	{"getfile", 2, bif_getfile_2, "+source_sink,-list", false, false, BLAH},
+	{"getfile", 3, bif_getfile_3, "+source_sink,-list,+list", false, false, BLAH},
+	{"loadfile", 2, bif_loadfile_2, "+source_sink,-atom", false, false, BLAH},
+	{"savefile", 2, bif_savefile_2, "+source_sink,+source_sink", false, false, BLAH},
+	{"rename_file", 2, bif_rename_file_2, "+source_sink,+source_sink", false, false, BLAH},
+	{"copy_file", 2, bif_copy_file_2, "+source_sink,+source_sink", false, false, BLAH},
+	{"directory_files", 2, bif_directory_files_2, "+source_sink,-list", false, false, BLAH},
+	{"delete_file", 1, bif_delete_file_1, "+source_sink", false, false, BLAH},
+	{"exists_file", 1, bif_exists_file_1, "+source_sink", false, false, BLAH},
+	{"access_file", 2, bif_access_file_2, "+source_sink,+atom", false, false, BLAH},
+	{"time_file", 2, bif_time_file_2, "+source_sink,-float", false, false, BLAH},
+	{"size_file", 2, bif_size_file_2, "+source_sink,-integer", false, false, BLAH},
+	{"exists_directory", 1, bif_exists_directory_1, "+source_sink", false, false, BLAH},
+	{"make_directory", 1, bif_make_directory_1, "+source_sink", false, false, BLAH},
+	{"make_directory_path", 1, bif_make_directory_path_1, "+source_sink", false, false, BLAH},
+	{"working_directory", 2, bif_working_directory_2, "-atom,+source_sink", false, false, BLAH},
+	{"absolute_file_name", 3, bif_absolute_file_name_3, "+source_sink,-atom,+list", false, false, BLAH},
+	{"is_absolute_file_name", 1, bif_is_absolute_file_name_1, "+source_sink", false, false, BLAH},
+	{"chdir", 1, bif_chdir_1, "+source_sink", false, false, BLAH},
 	{"$put_chars", 1, bif_sys_put_chars_1, "+string", false, false, BLAH},
 	{"$put_chars", 2, bif_sys_put_chars_2, "+stream,+string", false, false, BLAH},
 	{"read_term_from_atom", 3, bif_read_term_from_atom_3, "+atom,?term,+list", false, false, BLAH},
@@ -7648,7 +7666,7 @@ builtins g_streams_bifs[] =
 #endif
 
 #if !defined(_WIN32) && !defined(__wasi__)
-	{"popen", 4, bif_popen_4, "+atom,+atom,--stream,+list", false, false, BLAH},
+	{"popen", 4, bif_popen_4, "+source_sink,+atom,--stream,+list", false, false, BLAH},
 #endif
 
 	{0}

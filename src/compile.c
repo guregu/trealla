@@ -153,7 +153,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_var((*dst)++, g_anon_s, var_num);
 		make_instr((*dst)++, g_sys_call_check_s, bif_sys_call_check_1, 1, (*src)->num_cells);
 		*dst += copy_cells(*dst, *src, (*src)->num_cells);
-		compile_term(pr, cl, dst, src);
+		compile_term(pr, cl, dst, src);								// Arg1
 		make_instr((*dst)++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 		make_var((*dst)++, g_anon_s, var_num);
 		return;
@@ -166,7 +166,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_var((*dst)++, g_anon_s, var_num);
 		make_instr((*dst)++, g_sys_call_check_s, bif_sys_call_check_1, 1, (*src)->num_cells);
 		*dst += copy_cells(*dst, *src, (*src)->num_cells);
-		compile_term(pr, cl, dst, src);
+		compile_term(pr, cl, dst, src);								// Arg1
 		make_instr((*dst)++, g_cut_s, bif_iso_cut_0, 0, 0);
 		make_instr((*dst)++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 		make_var((*dst)++, g_anon_s, var_num);
@@ -182,7 +182,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_uint((*dst)++, 0);										// Dummy value
 		make_instr((*dst)++, g_sys_call_check_s, bif_sys_call_check_1, 1, (*src)->num_cells);
 		*dst += copy_cells(*dst, *src, (*src)->num_cells);
-		compile_term(pr, cl, dst, src);
+		compile_term(pr, cl, dst, src);								// Arg1
 		make_instr((*dst)++, g_cut_s, bif_iso_cut_0, 0, 0);
 		make_instr((*dst)++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 		make_var((*dst)++, g_anon_s, var_num);
@@ -264,6 +264,178 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_var((*dst)++, g_anon_s, var_num2);
 		return;
 	}
+
+	if (((*src)->val_off == g_maplist_s) && ((*src)->arity == 2) && !is_var((*src)+1)) {
+		unsigned var_num1 = cl->num_vars++;
+		unsigned var_numL1 = cl->num_vars++;
+		unsigned var_numH1 = cl->num_vars++;
+		unsigned var_numT1 = cl->num_vars++;
+		*src += 1;
+		cell *f = *src;
+		cell *arg1 = f + f->num_cells;
+
+		make_instr((*dst)++, g_sys_fail_on_retry_s, bif_sys_fail_on_retry_1, 1, 1);
+		make_var((*dst)++, g_anon_s, var_num1);
+
+		make_instr((*dst)++, g_eq_s, bif_iso_unify_2, 2, 1+arg1->num_cells); // L1=L
+		make_var((*dst)++, g_anon_s, var_numL1);					// L1
+		*dst += copy_cells(*dst, arg1, arg1->num_cells);			// L
+
+		cell *save_dst0 = *dst;
+		make_instr((*dst)++, g_sys_loop_s, bif_iso_true_0, 0, 0);	// LOOP
+
+		cell *save_dst3 = *dst;
+		make_instr((*dst)++, g_sys_jump_if_nil_s, bif_sys_jump_if_nil_2, 2, 2);
+		make_var((*dst)++, g_anon_s, var_numL1);					// L1
+		make_uint((*dst)++, 0);										// Dummy value
+
+		make_instr((*dst)++, g_eq_s, bif_iso_unify_2, 2, 4);		// L1=[H1|T1]
+		make_var((*dst)++, g_anon_s, var_numL1);					// L1
+		make_instr((*dst)++, g_dot_s, NULL, 2, 2);
+		make_var((*dst)++, g_anon_s, var_numH1);					// H1
+		make_var((*dst)++, g_anon_s, var_numT1);					// T1
+
+		cell *save_dst = *dst;
+		copy_term(dst, src);										// Functor
+		save_dst->arity++;
+		save_dst->num_cells++;
+		make_var((*dst)++, g_anon_s, var_numH1);					// H1
+
+		bool found;
+
+		if ((save_dst->match = search_predicate(pr->m, save_dst, NULL)) != NULL)
+			save_dst->flags &= ~FLAG_INTERNED_BUILTIN;
+		 else if ((save_dst->bif_ptr = get_builtin_term(pr->m, save_dst, &found, NULL)), found)
+			save_dst->flags |= FLAG_INTERNED_BUILTIN;
+		else
+			save_dst->flags &= ~FLAG_INTERNED_BUILTIN;
+
+		*src += (*src)->num_cells;
+
+		make_instr((*dst)++, g_sys_undo_s, bif_sys_undo_1, 1, 1);
+		make_var((*dst)++, g_anon_s, var_numL1);					// L1
+		make_instr((*dst)++, g_eq_s, bif_iso_unify_2, 2, 2);		// L1=T1
+		make_var((*dst)++, g_anon_s, var_numL1);					// L1
+		make_var((*dst)++, g_anon_s, var_numT1);					// T1
+		make_instr((*dst)++, g_sys_undo_s, bif_sys_undo_1, 1, 1);
+		make_var((*dst)++, g_anon_s, var_numH1);					// H1
+		make_instr((*dst)++, g_sys_undo_s, bif_sys_undo_1, 1, 1);
+		make_var((*dst)++, g_anon_s, var_numT1);					// T1
+
+		make_instr((*dst)++, g_sys_jump_s, bif_sys_jump_1, 1, 1);
+		make_int((*dst), -(ssize_t)((*dst)-save_dst0));				// jump to LOOP
+		(*dst)++;
+
+		make_uint(save_dst3+2, *dst - save_dst3);					// Real value
+		make_instr((*dst)++, g_sys_end_s, bif_iso_true_0, 0, 0);	// Landing
+		make_instr((*dst)++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
+		make_var((*dst)++, g_anon_s, var_num1);
+		return;
+	}
+
+#if 0
+	if (((*src)->val_off == g_maplist_s) && ((*src)->arity == 3) && !is_var((*src)+1)) {
+		unsigned var_num1 = cl->num_vars++;
+		unsigned var_numL1 = cl->num_vars++;
+		unsigned var_numL2 = cl->num_vars++;
+		unsigned var_numH1 = cl->num_vars++;
+		unsigned var_numH2 = cl->num_vars++;
+		unsigned var_numT1 = cl->num_vars++;
+		unsigned var_numT2 = cl->num_vars++;
+		*src += 1;
+		cell *f = *src;
+		cell *arg1 = f + f->num_cells;
+		cell *arg2 = arg1 + arg1->num_cells;
+
+		make_instr((*dst)++, g_sys_fail_on_retry_s, bif_sys_fail_on_retry_1, 1, 1);
+		make_var((*dst)++, g_anon_s, var_num1);
+
+		make_instr((*dst)++, g_eq_s, bif_iso_unify_2, 2, 1+arg1->num_cells); // L1=L
+		make_var((*dst)++, g_anon_s, var_numL1);					// L1
+		*dst += copy_cells(*dst, arg1, arg1->num_cells);			// L
+
+		make_instr((*dst)++, g_eq_s, bif_iso_unify_2, 2, 1+arg2->num_cells); // L2=L
+		make_var((*dst)++, g_anon_s, var_numL2);					// L2
+		*dst += copy_cells(*dst, arg2, arg2->num_cells);			// L
+
+		cell *save_dst0 = *dst;
+		make_instr((*dst)++, g_sys_loop_s, bif_iso_true_0, 0, 0);	// LOOP
+
+		cell *save_dst31 = *dst;
+		make_instr((*dst)++, g_sys_jump_if_nil_s, bif_sys_jump_if_nil_2, 2, 2);
+		make_var((*dst)++, g_anon_s, var_numL1);					// L1
+		make_uint((*dst)++, 0);										// Dummy value
+
+		cell *save_dst32 = *dst;
+		make_instr((*dst)++, g_sys_jump_if_nil_s, bif_sys_jump_if_nil_2, 2, 2);
+		make_var((*dst)++, g_anon_s, var_numL2);					// L2
+		make_uint((*dst)++, 0);										// Dummy value
+
+		make_instr((*dst)++, g_eq_s, bif_iso_unify_2, 2, 4);		// L1=[H1|T1]
+		make_var((*dst)++, g_anon_s, var_numL1);					// L1
+		make_instr((*dst)++, g_dot_s, NULL, 2, 2);
+		make_var((*dst)++, g_anon_s, var_numH1);					// H1
+		make_var((*dst)++, g_anon_s, var_numT1);					// T1
+
+		make_instr((*dst)++, g_eq_s, bif_iso_unify_2, 2, 4);		// L2=[H2|T2]
+		make_var((*dst)++, g_anon_s, var_numL2);					// L2
+		make_instr((*dst)++, g_dot_s, NULL, 2, 2);
+		make_var((*dst)++, g_anon_s, var_numH2);					// H2
+		make_var((*dst)++, g_anon_s, var_numT2);					// T2
+
+		cell *save_dst = *dst;
+		copy_term(dst, src);										// Functor
+		save_dst->arity++;
+		save_dst->num_cells++;
+		make_var((*dst)++, g_anon_s, var_numH1);					// H1
+		save_dst->arity++;
+		save_dst->num_cells++;
+		make_var((*dst)++, g_anon_s, var_numH2);					// H2
+
+		bool found;
+
+		if ((save_dst->match = search_predicate(pr->m, save_dst, NULL)) != NULL)
+			save_dst->flags &= ~FLAG_INTERNED_BUILTIN;
+		 else if ((save_dst->bif_ptr = get_builtin_term(pr->m, save_dst, &found, NULL)), found)
+			save_dst->flags |= FLAG_INTERNED_BUILTIN;
+		else
+			save_dst->flags &= ~FLAG_INTERNED_BUILTIN;
+
+		*src += (*src)->num_cells;
+		*src += (*src)->num_cells;
+
+		make_instr((*dst)++, g_sys_undo_s, bif_sys_undo_1, 1, 1);
+		make_var((*dst)++, g_anon_s, var_numL1);					// L1
+		make_instr((*dst)++, g_eq_s, bif_iso_unify_2, 2, 2);		// L1=T1
+		make_var((*dst)++, g_anon_s, var_numL1);					// L1
+		make_var((*dst)++, g_anon_s, var_numT1);					// T1
+		make_instr((*dst)++, g_sys_undo_s, bif_sys_undo_1, 1, 1);
+		make_var((*dst)++, g_anon_s, var_numH1);					// H1
+		make_instr((*dst)++, g_sys_undo_s, bif_sys_undo_1, 1, 1);
+		make_var((*dst)++, g_anon_s, var_numT1);					// T1
+
+		make_instr((*dst)++, g_sys_undo_s, bif_sys_undo_1, 1, 1);
+		make_var((*dst)++, g_anon_s, var_numL2);					// L2
+		make_instr((*dst)++, g_eq_s, bif_iso_unify_2, 2, 2);		// L2=T2
+		make_var((*dst)++, g_anon_s, var_numL2);					// L2
+		make_var((*dst)++, g_anon_s, var_numT2);					// T2
+		make_instr((*dst)++, g_sys_undo_s, bif_sys_undo_1, 1, 1);
+		make_var((*dst)++, g_anon_s, var_numH2);					// H2
+		make_instr((*dst)++, g_sys_undo_s, bif_sys_undo_1, 1, 1);
+		make_var((*dst)++, g_anon_s, var_numT2);					// T2
+
+		make_instr((*dst)++, g_sys_jump_s, bif_sys_jump_1, 1, 1);
+		make_int((*dst), -(ssize_t)((*dst)-save_dst0));				// jump to LOOP
+		(*dst)++;
+
+		make_uint(save_dst31+2, *dst - save_dst31);					// Real value
+		make_uint(save_dst32+2, *dst - save_dst32);					// Real value
+		make_instr((*dst)++, g_sys_end_s, bif_iso_true_0, 0, 0);	// Landing
+		make_instr((*dst)++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
+		make_var((*dst)++, g_anon_s, var_num1);
+		return;
+	}
+#endif
 
 	copy_term(dst, src);
 }

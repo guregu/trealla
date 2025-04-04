@@ -183,6 +183,13 @@ bool bif_iso_unify_2(query *q)
 	return unify(q, p1, p1_ctx, p2, p2_ctx);
 }
 
+bool bif_sys_undo_1(query *q)
+{
+	GET_FIRST_RAW_ARG(p1,var);
+	undo_var(q, p1, p1_ctx);
+	return true;
+}
+
 static bool bif_iso_notunifiable_2(query *q)
 {
 	GET_FIRST_ARG(p1,any);
@@ -707,7 +714,9 @@ static bool bif_iso_atom_codes_2(query *q)
 		tmp = *p1;
 
 	tmp.flags |= FLAG_CSTR_STRING | FLAG_CSTR_CODES;
-	return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
+	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
+	unshare_cell(&tmp);
+	return ok;
 }
 
 static bool bif_string_codes_2(query *q)
@@ -813,7 +822,9 @@ static bool bif_string_codes_2(query *q)
 		tmp = *p1;
 
 	tmp.flags |= FLAG_CSTR_STRING | FLAG_CSTR_CODES;
-	return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
+	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
+	unshare_cell(&tmp);
+	return ok;
 }
 
 static bool bif_hex_bytes_2(query *q)
@@ -3228,13 +3239,14 @@ bool bif_statistics_0(query *q)
 		"heap %u.\n"
 		"Backtracks %"PRIu64", "
 		"TCOs:%"PRIu64", "
+		"Frame recovs:%"PRIu64", "
 		"Queue: %u\n",
 		q->tot_inferences, q->tot_matches,
 		q->hw_frames, q->hw_choices, q->hw_trails, q->hw_slots,
 		q->hw_heap_num,
 		q->st.fp, q->cp, q->st.tp, q->st.sp,
 		q->st.heap_num,
-		q->tot_retries, q->tot_tcos,
+		q->tot_retries, q->tot_tcos, q->tot_recovs,
 		(unsigned)q->qcnt[q->st.qnum]
 		);
 	return true;
@@ -5515,6 +5527,31 @@ static bool bif_get_unbuffered_char_1(query *q)
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 }
 
+static bool bif_numlist_3(query *q)
+{
+	GET_FIRST_ARG(p1,integer);
+	GET_NEXT_ARG(p2,integer);
+	GET_NEXT_ARG(p3,var);
+	long long from = get_smallint(p1);
+	long long to = get_smallint(p2);
+
+	if (from > to)
+		return false;
+
+	long long cnt = (to - from) + 1;
+	check_heap_error(init_tmp_heap(q));
+
+	while (cnt--) {
+		cell tmp;
+		make_int(&tmp,  from++);
+		append_list(q, &tmp);
+	}
+
+	cell *l = end_list(q);
+	check_heap_error(l);
+	return unify(q, p3, p3_ctx, l, q->st.curr_frame);
+}
+
 // module:goal
 
 bool bif_iso_qualify_2(query *q)
@@ -5879,6 +5916,17 @@ bool bif_sys_jump_1(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
 	q->st.curr_instr += get_smallint(p1);
+	return true;
+}
+
+bool bif_sys_jump_if_nil_2(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,integer);
+
+	if (is_nil(p1))
+		q->st.curr_instr += get_smallint(p2);
+
 	return true;
 }
 
@@ -6851,6 +6899,7 @@ builtins g_other_bifs[] =
 	{"sleep", 1, bif_sleep_1, "+number", false, false, BLAH},
 	{"load_text", 2, bif_load_text_2, "+string,+list", false, false, BLAH},
 	{"between", 3, bif_between_3, "+integer,+integer,-integer", false, false, BLAH},
+	{"numlist", 3, bif_numlist_3, "+integer,+integer,-list", false, false, BLAH},
 
 	{"must_be", 4, bif_must_be_4, "+term,+atom,+term,?any", false, false, BLAH},
 	{"must_be", 2, bif_must_be_2, "+atom,+term", false, false, BLAH},
@@ -6903,11 +6952,13 @@ builtins g_other_bifs[] =
 	{"$call_cleanup", 3, bif_sys_call_cleanup_3, NULL, false, false, BLAH},
 	{"$drop_barrier", 1, bif_sys_drop_barrier_1, "+integer", false, false, BLAH},
 	{"$jump", 1, bif_sys_jump_1, NULL, false, false, BLAH},
+	{"$jump_if_nil", 2, bif_sys_jump_if_nil_2, "+term,+integer", false, false, BLAH},
 	{"$timer", 0, bif_sys_timer_0, NULL, false, false, BLAH},
 	{"$elapsed", 0, bif_sys_elapsed_0, NULL, false, false, BLAH},
 	{"$lt", 2, bif_sys_lt_2, NULL, false, false, BLAH},
 	{"$gt", 2, bif_sys_gt_2, NULL, false, false, BLAH},
 	{"$ne", 2, bif_sys_ne_2, NULL, false, false, BLAH},
+	{"$undo", 2, bif_sys_undo_1, "+var", true, false, BLAH},
 
 	{0}
 };

@@ -73,7 +73,7 @@ static void trace_call(query *q, cell *c, pl_idx c_ctx, box_t box)
 	if (is_builtin(c) && c->bif_ptr && !c->bif_ptr->fn)
 		return;
 
-#ifndef DEBUG
+#if 0
 	if (c->val_off == g_sys_succeed_on_retry_s)
 		return;
 
@@ -88,7 +88,9 @@ static void trace_call(query *q, cell *c, pl_idx c_ctx, box_t box)
 
 	if (c->val_off == g_sys_block_catcher_s)
 		return;
+#endif
 
+#ifndef DEBUG
 	if (c->val_off == g_conjunction_s)
 		return;
 
@@ -935,12 +937,19 @@ static bool resume_frame(query *q)
 	if (f->prev == (pl_idx)-1)
 		return false;
 
+#if 0
+	printf("*** q->st.curr_frame=%d, f->unify_no_tco=%d, f->has_local_vars=%d, any_choices=%d\n",
+		(unsigned)q->st.curr_frame,
+		(unsigned)f->unify_no_tco, (unsigned)f->has_local_vars, (unsigned)resume_any_choices(q, f));
+#endif
+
 	if (q->pl->opt
 		&& !f->unify_no_tco
 		&& !f->has_local_vars	// ????
 		&& (q->st.fp == (q->st.curr_frame + 1))
 		&& !resume_any_choices(q, f)
 		) {
+		q->tot_recovs++;
 		q->st.hp = f->hp;
 		q->st.heap_num = f->heap_num;
 		trim_heap(q);
