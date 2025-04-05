@@ -105,7 +105,7 @@ bool call_check(query *q, cell *tmp2, bool *status, bool calln)
 		}
 	}
 
-	if (calln && is_builtin(tmp2) && (tmp2->arity <= 2)) {
+	if (calln && (tmp2->arity <= 2) && is_builtin(tmp2)) {
 		const char *functor = C_STR(q, tmp2);
 		unsigned specifier;
 
@@ -113,7 +113,7 @@ bool call_check(query *q, cell *tmp2, bool *status, bool calln)
 			SET_OP(tmp2, specifier);
 	}
 
-	if (is_builtin(tmp2) && (tmp2 = check_body_callable(tmp2)) != NULL) {
+	if ((tmp2->arity == 2) && is_builtin(tmp2) && (tmp2 = check_body_callable(tmp2)) != NULL) {
 		*status = throw_error(q, tmp2, q->st.curr_frame, "type_error", "callable");
 		return false;
 	}
@@ -179,11 +179,11 @@ static bool bif_iso_call_n(query *q)
 
 	check_heap_error(init_tmp_heap(q));
 	unsigned arity = p1->arity, args = 1, xarity = q->st.curr_instr->arity;
-	check_heap_error(clone_term_to_tmp(q, p1, p1_ctx));
+	check_heap_error(append_to_tmp(q, p1, p1_ctx));
 
 	while (args++ < xarity) {
 		GET_NEXT_ARG(p2,any);
-		check_heap_error(clone_term_to_tmp(q, p2, p2_ctx));
+		check_heap_error(append_to_tmp(q, p2, p2_ctx));
 		arity++;
 	}
 
@@ -202,7 +202,7 @@ static bool bif_iso_call_n(query *q)
 	if (!call_check(q, tmp2, &status, true))
 		return status;
 
-	cell *tmp = prepare_call(q, PREFIX_LEN, tmp2, q->st.curr_frame, 3 );
+	cell *tmp = prepare_call(q, PREFIX_LEN, tmp2, q->st.curr_frame, 3);
 	check_heap_error(tmp);
 	tmp[PREFIX_LEN].flags &= ~FLAG_INTERNED_TAIL_CALL;
 	pl_idx num_cells = PREFIX_LEN + tmp2->num_cells;
