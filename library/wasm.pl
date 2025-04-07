@@ -137,11 +137,13 @@ term_json(Stream, _, Value) :-
 	% safe value range for JS integers
 	Value =< 9007199254740991,
 	Value >= -9007199254740991,
-	write(Stream, Value).
+	write(Stream, '{"int":'),
+	write(Stream, Value),
+	write(Stream, '}').
 % bigints
 term_json(Stream, _, Value) :-
 	number(Value),
-	write(Stream, '{"number":"'),
+	write(Stream, '{"int":"'),
 	write(Stream, Value),
 	write(Stream, '"}').
 
