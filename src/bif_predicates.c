@@ -79,9 +79,9 @@ static bool bif_iso_findall_3(query *q)
 		if (q->st.qnum == MAX_QUEUES)
 			return throw_error(q, p2, p2_ctx, "resource_error", "max_queues");
 
-		cell *tmp = prepare_call(q, PREFIX_LEN, p2, p2_ctx, 1+p1->num_cells+2);
+		cell *tmp = prepare_call(q, CALL_NOSKIP, p2, p2_ctx, 1+p1->num_cells+2);
 		check_heap_error(tmp, drop_queuen(q));
-		pl_idx num_cells = PREFIX_LEN + p2->num_cells;
+		pl_idx num_cells = p2->num_cells;
 		make_instr(tmp+num_cells++, g_sys_queue_s, bif_sys_queue_1, 1, p1->num_cells);
 		num_cells += copy_cells_by_ref(tmp+num_cells, p1, p1_ctx, p1->num_cells);
 		make_instr(tmp+num_cells++, g_fail_s, bif_iso_fail_0, 0, 0);
@@ -197,8 +197,8 @@ static bool bif_iso_notunifiable_2(query *q)
 	cell tmp2;
 	make_instr(&tmp2, g_unify_s, bif_iso_unify_2, 2, 0);
 	SET_OP(&tmp2, OP_XFX);
-	cell *tmp = prepare_call(q, PREFIX_LEN, &tmp2, q->st.curr_frame, p1->num_cells+p2->num_cells+4);
-	pl_idx num_cells = PREFIX_LEN;
+	cell *tmp = prepare_call(q, CALL_NOSKIP, &tmp2, q->st.curr_frame, p1->num_cells+p2->num_cells+4);
+	pl_idx num_cells = 0;
 	tmp[num_cells++].num_cells += p1->num_cells+p2->num_cells;
 	num_cells += dup_cells_by_ref(tmp+num_cells, p1, p1_ctx, p1->num_cells);
 	num_cells += dup_cells_by_ref(tmp+num_cells, p2, p2_ctx, p2->num_cells);
@@ -3176,8 +3176,8 @@ static bool bif_time_1(query *q)
 
 	bif_sys_timer_0(q);
 	GET_FIRST_ARG(p1,callable);
-	cell *tmp = prepare_call(q, PREFIX_LEN, p1, p1_ctx, 4);
-	pl_idx num_cells = PREFIX_LEN + p1->num_cells;
+	cell *tmp = prepare_call(q, CALL_NOSKIP, p1, p1_ctx, 4);
+	pl_idx num_cells = p1->num_cells;
 	make_instr(tmp+num_cells++, g_sys_elapsed_s, bif_sys_elapsed_0, 0, 0);
 	make_instr(tmp+num_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+num_cells++, q->cp);
@@ -5225,8 +5225,8 @@ static bool bif_limit_2(query *q)
 	if (is_bigint(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
 
-	cell *tmp = prepare_call(q, PREFIX_LEN, p2, p2_ctx, 4);
-	pl_idx num_cells = PREFIX_LEN + p2->num_cells;
+	cell *tmp = prepare_call(q, CALL_NOSKIP, p2, p2_ctx, 4);
+	pl_idx num_cells = p2->num_cells;
 	make_instr(tmp+num_cells++, g_fail_s, bif_sys_lt_2, 2, 2);
 	make_int(tmp+num_cells++, 1);
 	make_int(tmp+num_cells++, get_smallint(p1));
@@ -5264,8 +5264,8 @@ static bool bif_offset_2(query *q)
 	if (is_bigint(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
 
-	cell *tmp = prepare_call(q, PREFIX_LEN, p2, p2_ctx, 4);
-	pl_idx num_cells = PREFIX_LEN + p2->num_cells;
+	cell *tmp = prepare_call(q, CALL_NOSKIP, p2, p2_ctx, 4);
+	pl_idx num_cells = p2->num_cells;
 	make_instr(tmp+num_cells++, g_fail_s, bif_sys_gt_2, 2, 2);
 	make_int(tmp+num_cells++, 1);
 	make_int(tmp+num_cells++, get_smallint(p1));
@@ -5329,8 +5329,8 @@ static bool bif_call_nth_2(query *q)
 		return throw_error(q, p2, p2_ctx, "domain_error", "not_less_than_zero");
 
 	if (is_var(p2)) {
-		cell *tmp = prepare_call(q, PREFIX_LEN, p1, p1_ctx, 4);
-		pl_idx num_cells = PREFIX_LEN + p1->num_cells;
+		cell *tmp = prepare_call(q, CALL_NOSKIP, p1, p1_ctx, 4);
+		pl_idx num_cells = p1->num_cells;
 		make_instr(tmp+num_cells++, g_sys_incr_s, bif_sys_incr_2, 2, 2);
 		GET_RAW_ARG(2,p2_raw);
 		tmp[num_cells] = *p2_raw;
@@ -5342,8 +5342,8 @@ static bool bif_call_nth_2(query *q)
 		return true;
 	}
 
-	cell *tmp = prepare_call(q, PREFIX_LEN, p1, p1_ctx, 7);
-	pl_idx num_cells = PREFIX_LEN + p1->num_cells;
+	cell *tmp = prepare_call(q, CALL_NOSKIP, p1, p1_ctx, 7);
+	pl_idx num_cells = p1->num_cells;
 	make_instr(tmp+num_cells++, g_sys_ne_s, bif_sys_ne_2, 2, 2);
 	make_int(tmp+num_cells++, 1);
 	make_int(tmp+num_cells++, get_smallint(p2));
@@ -5573,9 +5573,9 @@ bool bif_iso_qualify_2(query *q)
 			m = q->st.curr_m;
 	}
 
-	cell *tmp = prepare_call(q, PREFIX_LEN, p2, p2_ctx, 4);
+	cell *tmp = prepare_call(q, CALL_NOSKIP, p2, p2_ctx, 4);
 	check_heap_error(tmp);
-	pl_idx num_cells = PREFIX_LEN;
+	pl_idx num_cells = 0;
 
 	if (!is_builtin(p2))
 		tmp[num_cells].match = find_predicate(q->st.curr_m, p2);
@@ -5809,8 +5809,8 @@ static bool bif_sys_register_cleanup_1(query *q)
 {
 	if (q->retry) {
 		GET_FIRST_ARG(p1,callable);
-		cell *tmp = prepare_call(q, PREFIX_LEN, p1, p1_ctx, 3);
-		pl_idx num_cells = PREFIX_LEN + p1->num_cells;
+		cell *tmp = prepare_call(q, CALL_NOSKIP, p1, p1_ctx, 3);
+		pl_idx num_cells = p1->num_cells;
 		make_instr(tmp+num_cells++, g_cut_s, bif_iso_cut_0, 0, 0);
 		make_instr(tmp+num_cells++, g_fail_s, bif_iso_fail_0, 0, 0);
 		make_call(q, tmp+num_cells);
@@ -6270,9 +6270,9 @@ static bool bif_sys_countall_2(query *q)
 	cell n;
 	make_uint(&n, 0);
 	reset_var(q, p2, p2_ctx, &n, q->st.curr_frame);
-	cell *tmp = prepare_call(q, PREFIX_LEN, tmp2, q->st.curr_frame, 4);
+	cell *tmp = prepare_call(q, CALL_NOSKIP, tmp2, q->st.curr_frame, 4);
 	check_heap_error(tmp);
-	pl_idx num_cells = PREFIX_LEN + tmp2->num_cells;
+	pl_idx num_cells = tmp2->num_cells;
 	make_instr(tmp+num_cells++, g_sys_counter_s, bif_sys_counter_1, 1, 1);
 	make_ref(tmp+num_cells++, p2->var_num, p2_ctx);
 	make_instr(tmp+num_cells++, g_fail_s, bif_iso_fail_0, 0, 0);

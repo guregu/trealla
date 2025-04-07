@@ -302,19 +302,13 @@ void add_trail(query *q, pl_idx c_ctx, unsigned c_var_nbr, cell *attrs)
 	tr->attrs = attrs;
 }
 
-cell *prepare_call(query *q, bool prefix, cell *p1, pl_idx p1_ctx, unsigned extras)
+cell *prepare_call(query *q, bool noskip, cell *p1, pl_idx p1_ctx, unsigned extras)
 {
-	unsigned num_cells = (prefix ? PREFIX_LEN : NOPREFIX_LEN) + p1->num_cells + extras;
+	unsigned num_cells = p1->num_cells + extras;
 	cell *tmp = alloc_on_heap(q, num_cells);
 	if (!tmp) return NULL;
-
-	if (prefix) {
-		// Placeholder needed for follow() to work, get's skipped
-		make_instr(tmp, g_dummy_s, bif_iso_true_0, 0, 0);
-	}
-
-	cell *dst = tmp + (prefix ? PREFIX_LEN : NOPREFIX_LEN);
-	dup_cells_by_ref(dst, p1, p1_ctx, p1->num_cells);
+	q->noskip = noskip;
+	dup_cells_by_ref(tmp, p1, p1_ctx, p1->num_cells);
 	return tmp;
 }
 
@@ -969,7 +963,10 @@ static bool resume_frame(query *q)
 
 static void proceed(query *q)
 {
-	q->st.curr_instr += q->st.curr_instr->num_cells;
+	if (!q->noskip)
+		q->st.curr_instr += q->st.curr_instr->num_cells;
+
+	q->noskip = false;
 
 	if (!is_end(q->st.curr_instr))
 		return;
@@ -1562,9 +1559,9 @@ static bool any_outstanding_choices(query *q)
 
 void do_cleanup(query *q, cell *c, pl_idx c_ctx)
 {
-	cell *tmp = prepare_call(q, PREFIX_LEN, c, c_ctx, 4);
+	cell *tmp = prepare_call(q, CALL_NOSKIP, c, c_ctx, 4);
 	ensure(tmp);
-	pl_idx num_cells = PREFIX_LEN + c->num_cells;
+	pl_idx num_cells = c->num_cells;
 	make_instr(tmp+num_cells++, g_cut_s, bif_iso_cut_0, 0, 0);
 	make_instr(tmp+num_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+num_cells++, q->cp);

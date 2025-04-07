@@ -405,8 +405,8 @@ static bool bif_engine_create_4(query *q)
 	GET_FIRST_ARG0(xp1,any,p0);
 	GET_NEXT_ARG(xp2,callable);
 
-	cell *tmp = prepare_call(q, PREFIX_LEN, xp2, xp2_ctx, 1);
-	pl_idx num_cells = PREFIX_LEN + xp2->num_cells;
+	cell *tmp = prepare_call(q, CALL_NOSKIP, xp2, xp2_ctx, 1);
+	pl_idx num_cells = xp2->num_cells;
 	make_call(q, tmp+num_cells);
 	check_heap_error(push_barrier(q));
 	q->st.curr_instr = tmp;
