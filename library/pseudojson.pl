@@ -14,6 +14,7 @@
 :- module(pseudojson, [json_chars/2, json_value/2]).
 
 :- use_module(library(lists)).
+:- use_module(library(charsio)).
 
 json_chars(JSON, Cs) :-
 	ground(JSON),

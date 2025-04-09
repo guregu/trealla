@@ -1154,7 +1154,7 @@ static bool expand_meta_predicate(query *q, predicate *pr)
 			make_atom(tmp++, new_atom(q->pl, q->st.curr_m->name));
 		}
 
-		tmp += dup_cells(tmp, k, k->num_cells);
+		tmp += dup_cells_by_ref(tmp, k, q->st.key_ctx, k->num_cells);
 	}
 
 	save_tmp->num_cells = tmp - save_tmp;
@@ -1176,15 +1176,9 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 		DEBUG_MATCH printf("*** here !pr->idx\n");
 
 		if (key->arity) {
-			if (pr->is_multifile || pr->is_meta_predicate) {
-				q->st.key = clone_term_to_heap(q, key, key_ctx);
-				check_heap_error(q->st.key);
-				q->st.key_ctx = q->st.curr_frame;
-
-				if (pr->is_meta_predicate) {
-					if (!expand_meta_predicate(q, pr))
-						return false;
-				}
+			if (pr->is_meta_predicate) {
+				if (!expand_meta_predicate(q, pr))
+					return false;
 			}
 
 			setup_key(q);
@@ -1193,13 +1187,16 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 		return true;
 	}
 
-	check_heap_error(init_tmp_heap(q));
-	key = clone_term_to_tmp(q, key, key_ctx);
-	key_ctx = q->st.curr_frame;
-
 	if (pr->is_meta_predicate) {
 		if (!expand_meta_predicate(q, pr))
 			return false;
+
+		key = q->st.key;
+		key_ctx = q->st.curr_frame;
+	} else {
+		check_heap_error(init_tmp_heap(q));
+		key = clone_term_to_tmp(q, key, key_ctx);
+		key_ctx = q->st.curr_frame;
 	}
 
 	cell *arg1 = key->arity ? FIRST_ARG(key) : NULL;
@@ -1599,7 +1596,9 @@ static bool consultall(query *q, cell *l, pl_idx l_ctx)
 				return false;
 		} else {
 			char *s = DUP_STRING(q, h);
-			unload_file(q->p->m, s);
+
+			if (q->p->m != q->pl->user_m)
+				unload_file(q->p->m, s);
 
 			if (!load_file(q->p->m, s, false, true)) {
 				free(s);

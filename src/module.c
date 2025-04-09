@@ -707,7 +707,7 @@ void set_discontiguous_in_db(module *m, const char *name, unsigned arity)
 	predicate *pr = find_predicate(m, &tmp);
 	if (!pr) pr = create_predicate(m, &tmp, NULL);
 
-	if (pr) {
+	if (pr && !pr->is_discontiguous) {
 		push_property(m, name, arity, "discontiguous");
 		pr->is_discontiguous = true;
 	} else
@@ -724,7 +724,7 @@ void set_multifile_in_db(module *m, const char *name, pl_idx arity)
 	predicate *pr = find_predicate(m, &tmp);
 	if (!pr) pr = create_predicate(m, &tmp, NULL);
 
-	if (pr) {
+	if (pr && !pr->is_multifile) {
 		push_property(m, name, arity, "multifile");
 		pr->is_multifile = true;
 	} else
@@ -741,7 +741,7 @@ void set_dynamic_in_db(module *m, const char *name, unsigned arity)
 	predicate *pr = find_predicate(m, &tmp);
 	if (!pr) pr = create_predicate(m, &tmp, NULL);
 
-	if (pr) {
+	if (pr && !pr->is_dynamic) {
 		push_property(m, name, arity, "dynamic");
 		pr->is_dynamic = true;
 	} else
@@ -760,7 +760,7 @@ void set_meta_predicate_in_db(module *m, cell *c)
 	predicate *pr = find_predicate(m, &tmp);
 	if (!pr) pr = create_predicate(m, &tmp, NULL);
 
-	if (pr) {
+	if (pr && !pr->is_meta_predicate) {
 		query q = (query){0};
 		q.pl = m->pl;
 		q.st.curr_m = m;
@@ -929,7 +929,15 @@ static bool do_import_predicate(module *curr_m, module *m, predicate *pr, cell *
 		&& strcmp(curr_m->name, "wasm")				// Hack???
 		&& !pr->m->prebuilt
 		) {
-		fprintf_to_stream(curr_m->pl, ERROR_FP, "Error: permission to import into '%s' failed: %s:%s/%u, %s\n", curr_m->name, pr->m->name, C_STR(curr_m, as), as->arity, get_loaded(m, m->filename));
+
+#if 0
+		if (!strcmp(pr->m->name, "format")			// Hack???
+			|| !strcmp(pr->m->name, "charsio")		// Hack???
+			)
+			return true;
+#endif
+
+		fprintf_to_stream(curr_m->pl, ERROR_FP, "Error: permission to import failed: %s:%s/%u from %s, see %s\n", curr_m->name, C_STR(curr_m, as), as->arity, pr->m->name, get_loaded(m, tmp_pr->filename));
 		m->error = true;
 		return false;
 	}
@@ -2248,9 +2256,8 @@ module *load_file(module *m, const char *filename, bool including, bool init)
 			if (!sl_get(str->alias, "user_input", NULL))
 				continue;
 
-			for (predicate *pr = list_front(&m->predicates); pr; pr = list_next(pr)) {
+			for (predicate *pr = list_front(&m->predicates); pr; pr = list_next(pr))
 				pr->is_reload = true;
-			}
 
 			// Process extra input line text...
 

@@ -16,6 +16,7 @@
 :- use_module(library(lists)).
 :- use_module(library(pseudojson)).
 :- use_module(library(dcgs)). % TODO: required for clpz?
+:- use_module(library(charsio)).
 
 % Host (WASM) → Guest (Trealla)
 

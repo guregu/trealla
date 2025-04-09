@@ -531,10 +531,8 @@ read_term_from_chars_(T, Opts, Cs, Rest) :-
 	'$read_term_from_chars'(T, Opts, Cs, Rest).
 
 read_from_atom(A, T) :- read_term_from_atom(A, T, []).
-read_from_chars(Cs, T) :- read_term_from_chars(Cs, T, []).
 
 :- help(read_from_atom(+atom,?term), [iso(false)]).
-:- help(read_from_chars(+chars,?term), [iso(false)]).
 
 with_output_to(chars(Cs), Goal) :-
 	setup_call_cleanup(
@@ -673,7 +671,6 @@ type_error(Type, Term, Context) :-
 % NOTE: this doesn't display var names properly...
 
 pretty(PI) :-
-	use_module(library(format)),
 	nonvar(PI),
 	(   PI = Name/Arity0 ->
 		Arity = Arity0
