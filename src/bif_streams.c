@@ -603,7 +603,7 @@ static void add_stream_properties(query *q, int n)
 	else if (str->is_alias)
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, alias(true)).\n", n);
 
-	parser *p = parser_create(q->st.curr_m);
+	parser *p = parser_create(q->st.m);
 	p->srcptr = tmpbuf;
 	p->is_consulting = true;
 	tokenize(p, false, false);
@@ -847,11 +847,11 @@ static void clear_streams_properties(query *q)
 	tmp.num_cells = 1;
 	tmp.arity = 2;
 
-	predicate *pr = find_predicate(q->st.curr_m, &tmp);
+	predicate *pr = find_predicate(q->st.m, &tmp);
 
 	if (pr) {
-		for (rule *r = pr->head; r;) {
-			rule *save = r;
+		for (db_entry *r = pr->head; r;) {
+			db_entry *save = r;
 			r = r->next;
 			retract_from_db(pr->m, save);
 		}
@@ -902,7 +902,7 @@ static bool bif_iso_stream_property_2(query *q)
 	}
 
 	check_heap_error(init_tmp_heap(q));
-	cell *tmp = clone_term_to_tmp(q, q->st.curr_instr, q->st.curr_frame);
+	cell *tmp = clone_term_to_tmp(q, q->st.instr, q->st.curr_frame);
 	check_heap_error(tmp);
 	tmp->val_off = g_sys_stream_property_s;
 
@@ -915,7 +915,7 @@ static bool bif_iso_stream_property_2(query *q)
 		return false;
 	}
 
-	clause *cl = &q->st.curr_rule->cl;
+	clause *cl = &q->st.dbe->cl;
 	GET_FIRST_ARG(pstrx,any);
 	pstrx->flags |= FLAG_INT_STREAM;
 	stash_frame(q, cl, false);
@@ -1771,7 +1771,7 @@ static bool stream_close(query *q, int n)
 	str->at_end_of_file = true;
 
 	if (!ok)
-		return throw_error(q, q->st.curr_instr, q->st.curr_frame, "io_error", strerror(errno));
+		return throw_error(q, q->st.instr, q->st.curr_frame, "io_error", strerror(errno));
 
 	return true;
 }
@@ -1885,7 +1885,7 @@ static bool bif_iso_flush_output_0(query *q)
 	int err = fflush(str->fp);
 
 	if (err == EOF)
-		return throw_error(q, q->st.curr_instr, q->st.curr_frame, "io_error", strerror(errno));
+		return throw_error(q, q->st.instr, q->st.curr_frame, "io_error", strerror(errno));
 
 	return !ferror(str->fp);
 }
@@ -1916,7 +1916,7 @@ static bool bif_iso_nl_0(query *q)
 	stream *str = &q->pl->streams[n];
 
 	if (str->binary)
-		return throw_error(q, q->st.curr_instr, q->st.curr_frame, "permission_error", "output,binary_stream");
+		return throw_error(q, q->st.instr, q->st.curr_frame, "permission_error", "output,binary_stream");
 
 	if (!net_write("\n", 1, str))
 		return false;
@@ -1927,7 +1927,7 @@ static bool bif_iso_nl_0(query *q)
 	int err = fflush(str->fp);
 
 	if (err == EOF)
-		return throw_error(q, q->st.curr_instr, q->st.curr_frame, "io_error", strerror(errno));
+		return throw_error(q, q->st.instr, q->st.curr_frame, "io_error", strerror(errno));
 
 	return !ferror(str->fp);
 }
@@ -2064,9 +2064,9 @@ static bool parse_read_params(query *q, stream *str, cell *c, pl_idx c_ctx, cell
 bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_ctx, char *src)
 {
 	if (!str->p) {
-		str->p = parser_create(q->st.curr_m);
+		str->p = parser_create(q->st.m);
 		check_heap_error(str->p);
-		str->p->flags = q->st.curr_m->flags;
+		str->p->flags = q->st.m->flags;
 		str->p->fp = str->fp;
 		if (q->p) str->p->no_fp = q->p->no_fp;
 	} else
@@ -2118,7 +2118,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 		char *src = (char*)eat_space(str->p);
 
 		if (str->p->error)
-			return throw_error(q, q->st.curr_instr, q->st.curr_frame, "syntax_error", str->p->error_desc?str->p->error_desc:"read_term");
+			return throw_error(q, q->st.instr, q->st.curr_frame, "syntax_error", str->p->error_desc?str->p->error_desc:"read_term");
 
 		str->p->line_num_start = str->p->line_num;
 		str->p->srcptr = src;
@@ -2922,7 +2922,7 @@ static bool bif_iso_write_term_2(query *q)
 		return throw_error(q, &tmp, q->st.curr_frame, "permission_error", "output,binary_stream");
 	}
 
-	q->flags = q->st.curr_m->flags;
+	q->flags = q->st.m->flags;
 	q->numbervars = false;
 	cell *p2_orig = p2, *vnames = NULL;
 	pl_idx p2_orig_ctx = p2_ctx, vnames_ctx = 0;
@@ -3010,7 +3010,7 @@ static bool bif_iso_write_term_3(query *q)
 		return throw_error(q, &tmp, q->st.curr_frame, "permission_error", "output,binary_stream");
 	}
 
-	q->flags = q->st.curr_m->flags;
+	q->flags = q->st.m->flags;
 	q->numbervars = false;
 	cell *p2_orig = p2, *vnames = NULL;
 	pl_idx p2_orig_ctx = p2_ctx, vnames_ctx;
@@ -4267,8 +4267,8 @@ static bool bif_sys_read_term_from_chars_4(query *q)
 		return throw_error(q, p_chars, p_chars_ctx, "type_error", "character");
 	}
 
-	str->p = parser_create(q->st.curr_m);
-	str->p->flags = q->st.curr_m->flags;
+	str->p = parser_create(q->st.m);
+	str->p->flags = q->st.m->flags;
 	str->p->fp = str->fp;
 	reset(str->p);
 	str->p->srcptr = src;
@@ -4295,7 +4295,7 @@ static bool bif_sys_read_term_from_chars_4(query *q)
 
 	if (str->p->error) {
 		parser_destroy(str->p);
-		return throw_error(q, q->st.curr_instr, q->st.curr_frame, "syntax_error", str->p->error_desc?str->p->error_desc:"read_term");
+		return throw_error(q, q->st.instr, q->st.curr_frame, "syntax_error", str->p->error_desc?str->p->error_desc:"read_term");
 	}
 
 	cell tmp;
@@ -4362,8 +4362,8 @@ static bool bif_read_term_from_chars_3(query *q)
 		return throw_error(q, p_chars, p_chars_ctx, "type_error", "character");
 	}
 
-	str->p = parser_create(q->st.curr_m);
-	str->p->flags = q->st.curr_m->flags;
+	str->p = parser_create(q->st.m);
+	str->p->flags = q->st.m->flags;
 	str->p->fp = str->fp;
 	reset(str->p);
 	char *save_src = src;
@@ -4441,7 +4441,7 @@ static bool bif_write_term_to_atom_3(query *q)
 	GET_NEXT_ARG(p2,list_or_nil);
 	cell *vnames = NULL;
 	pl_idx vnames_ctx = 0;
-	q->flags = q->st.curr_m->flags;
+	q->flags = q->st.m->flags;
 	LIST_HANDLER(p2);
 
 	while (is_list(p2)) {
@@ -4473,7 +4473,7 @@ static bool bif_write_term_to_chars_3(query *q)
 	GET_NEXT_ARG(p_chars,atom_or_var);
 	cell *vnames = NULL;
 	pl_idx vnames_ctx = 0;
-	q->flags = q->st.curr_m->flags;
+	q->flags = q->st.m->flags;
 	LIST_HANDLER(p2);
 
 	while (is_list(p2)) {
@@ -4505,7 +4505,7 @@ static bool bif_write_canonical_to_chars_3(query *q)
 	GET_NEXT_ARG(p2,list_or_nil);
 	cell *vnames = NULL;
 	pl_idx vnames_ctx = 0;
-	q->flags = q->st.curr_m->flags;
+	q->flags = q->st.m->flags;
 	LIST_HANDLER(p2);
 
 	while (is_list(p2)) {
@@ -4853,16 +4853,16 @@ static bool bif_read_file_to_string_3(query *q)
 	return ok;
 }
 
-static bool do_consult(query *q, cell *p1, pl_idx p1_ctx)
+bool do_load_file(query *q, cell *p1, pl_idx p1_ctx)
 {
 	if (is_atom(p1)) {
 		char *src = DUP_STRING(q, p1);
-		char *filename = relative_to(q->st.curr_m->filename, src);
+		char *filename = relative_to(q->st.m->filename, src);
 		convert_path(filename);
-		unload_file(q->st.curr_m, filename);
+		unload_file(q->st.m, filename);
 		free(src);
 
-		if (!load_file(q->st.curr_m, filename, false, true)) {
+		if (!load_file(q->st.m, filename, false, true)) {
 			free(filename);
 			return throw_error(q, p1, p1_ctx, "existence_error", "source_sink");
 		}
@@ -4884,10 +4884,11 @@ static bool do_consult(query *q, cell *p1, pl_idx p1_ctx)
 		return throw_error(q, p1, p1_ctx, "type_error", "atom");
 
 	module *tmp_m = module_create(q->pl, C_STR(q, mod));
-	char *filename = C_STR(q, file);
-	filename = relative_to(q->st.curr_m->filename, filename);
+	char *src = DUP_STRING(q, file);
+	char *filename = relative_to(q->st.m->filename, src);
+	free(src);
 	convert_path(filename);
-	unload_file(q->st.curr_m, filename);
+	unload_file(tmp_m, filename);
 
 	if (!load_file(tmp_m, filename, false, true)) {
 		module_destroy(tmp_m);
@@ -4899,15 +4900,15 @@ static bool do_consult(query *q, cell *p1, pl_idx p1_ctx)
 	return true;
 }
 
-static bool do_deconsult(query *q, cell *p1, pl_idx p1_ctx)
+static bool do_unload_file(query *q, cell *p1, pl_idx p1_ctx)
 {
 	if (is_atom(p1)) {
 		char *src = DUP_STRING(q, p1);
-		char *filename = relative_to(q->st.curr_m->filename, src);
-		convert_path(filename);
-		unload_file(q->st.curr_m, filename);
-		free(filename);
+		char *filename = relative_to(q->st.m->filename, src);
 		free(src);
+		convert_path(filename);
+		unload_file(q->st.m, filename);
+		free(filename);
 		return true;
 	}
 
@@ -4924,10 +4925,11 @@ static bool do_deconsult(query *q, cell *p1, pl_idx p1_ctx)
 		return throw_error(q, p1, p1_ctx, "type_error", "source_sink");
 
 	module *tmp_m = module_create(q->pl, C_STR(q, mod));
-	char *filename = C_STR(q, file);
-	filename = relative_to(q->st.curr_m->filename, filename);
+	char *src = DUP_STRING(q, file);
+	char *filename = relative_to(q->st.m->filename, src);
+	free(src);
 	convert_path(filename);
-	unload_file(q->st.curr_m, filename);
+	unload_file(q->st.m, filename);
 	free(filename);
 	return true;
 }
@@ -4935,11 +4937,10 @@ static bool do_deconsult(query *q, cell *p1, pl_idx p1_ctx)
 static bool bif_load_files_2(query *q)
 {
 	GET_FIRST_ARG(p1,source_sink);
+	GET_NEXT_ARG(p2,list_or_nil);
 
-	if (is_atom(p1)) {
-		check_heap_error(do_consult(q, p1, p1_ctx));
-		return true;
-	}
+	if (is_atom(p1))
+		return do_load_file(q, p1, p1_ctx);
 
 	LIST_HANDLER(p1);
 
@@ -4947,7 +4948,10 @@ static bool bif_load_files_2(query *q)
 		cell *h = LIST_HEAD(p1);
 		cell *c = deref(q, h, p1_ctx);
 		pl_idx c_ctx = q->latest_ctx;
-		check_heap_error(do_consult(q, c, c_ctx));
+
+		if (!do_load_file(q, c, c_ctx))
+			return false;
+
 		p1 = LIST_TAIL(p1);
 		p1 = deref(q, p1, p1_ctx);
 		p1_ctx = q->latest_ctx;
@@ -4960,10 +4964,8 @@ static bool bif_unload_files_1(query *q)
 {
 	GET_FIRST_ARG(p1,source_sink);
 
-	if (is_atom(p1)) {
-		check_heap_error(do_deconsult(q, p1, p1_ctx));
-		return true;
-	}
+	if (is_atom(p1))
+		return do_unload_file(q, p1, p1_ctx);
 
 	LIST_HANDLER(p1);
 
@@ -4971,7 +4973,10 @@ static bool bif_unload_files_1(query *q)
 		cell *h = LIST_HEAD(p1);
 		cell *c = deref(q, h, p1_ctx);
 		pl_idx c_ctx = q->latest_ctx;
-		check_heap_error(do_deconsult(q, c, c_ctx));
+
+		if (!do_unload_file(q, c, c_ctx))
+			return false;
+
 		p1 = LIST_TAIL(p1);
 		p1 = deref(q, p1, p1_ctx);
 		p1_ctx = q->latest_ctx;

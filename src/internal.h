@@ -317,7 +317,7 @@ enum {
 typedef struct module_ module;
 typedef struct query_ query;
 typedef struct predicate_ predicate;
-typedef struct rule_ rule;
+typedef struct db_entry_ db_entry;
 typedef struct cell_ cell;
 typedef struct clause_ clause;
 typedef struct trail_ trail;
@@ -417,7 +417,7 @@ struct clause_ {
 	uint64_t dbgen_created, dbgen_retracted;
 	pl_idx cidx, num_allocated_cells;
 	unsigned num_vars;
-	bool has_local_vars:1;
+	bool unify_no_tco:1;
 	bool is_first_cut:1;
 	bool is_cut_only:1;
 	bool is_unique:1;
@@ -427,10 +427,10 @@ struct clause_ {
 	cell cells[];						// 'num_allocated_cells'
 };
 
-struct rule_ {
+struct db_entry_ {
 	lnode hdr;							// must be first
 	predicate *owner;
-	rule *prev, *next;
+	db_entry *prev, *next;
 	const char *filename;
 	uuid u;
 	uint64_t db_id, matched, attempted, tcos;
@@ -441,7 +441,7 @@ struct rule_ {
 struct predicate_ {
 	lnode hdr;							// must be first
 	predicate *alias;
-	rule *head, *tail;
+	db_entry *head, *tail;
 	module *m;
 	skiplist *idx, *idx2;
 	const char *filename;
@@ -510,28 +510,28 @@ struct slot_ {
 	uint32_t vgen, vgen2;
 };
 
-// Where 'prev' is the previous frame
-// Where *initial_slots* is the initial number allocated
-// Where *actual_slots* is the actual number in use (some maybe created)
+// Where *prev* is the previous frame
+// Where *initial_slots* is the number allocated
+// Where *actual_slots* is the number allocated+created
 // Where *base* is the offset to first slot in use
-// Where *overflow* is where new slots are allocated (actual_slots > initial_slots)
+// Where *overflow* is where new slots are created (actual_slots > initial_slots)
+// Where *chgen* is the choice generation that created this frame
 
 struct frame_ {
-	cell *curr_instr;
-	module *curr_m;
+	cell *instr;
+	module *m;
 	uint64_t dbgen, chgen;
 	pl_idx prev, base, overflow, hp, heap_num;
 	unsigned initial_slots, actual_slots;
-	bool has_local_vars:1;
 	bool unify_no_tco:1;
 };
 
 struct run_state_ {
 	predicate *pr;
-	cell *curr_instr;
-	rule *curr_rule;
+	cell *instr;
+	db_entry *dbe;
 	sliter *iter, *f_iter;
-	module *curr_m;
+	module *m;
 
 	union {
 		struct { cell *key; pl_idx key_ctx; bool karg1_is_ground:1, karg2_is_ground:1, karg1_is_atomic:1, karg2_is_atomic:1;};
@@ -545,9 +545,12 @@ struct run_state_ {
 	uint8_t qnum;
 };
 
+// Where *chgen* is the choice generation
+// Where *orig_chgen* is the choice generation of the frame this belongs to
+
 struct choice_ {
 	run_state st;
-	uint64_t chgen, frame_chgen, dbgen;
+	uint64_t chgen, orig_chgen, dbgen;
 	pl_idx base, overflow, initial_slots, actual_slots, skip;
 	bool catchme_retry:1;
 	bool catchme_exception:1;
@@ -855,7 +858,7 @@ struct prolog_ {
 	module *modmap[MAX_MODULES];
 	struct { pl_idx tab1[MAX_IGNORES], tab2[MAX_IGNORES]; };
 	list modules;
-	module *system_m, *user_m, *curr_m, *dcgs;
+	module *system_m, *user_m, *m, *dcgs;
 	var_item *tabs;
 	parser *p;
 	skiplist *biftab, *keyval, *help, *fortab;
@@ -1047,7 +1050,7 @@ inline static void init_cell(cell *c)
 	c->val_attrs = NULL;
 }
 
-inline static void predicate_delink(predicate *pr, rule *r)
+inline static void predicate_delink(predicate *pr, db_entry *r)
 {
 	if (r->prev) r->prev->next = r->next;
 	if (r->next) r->next->prev = r->prev;

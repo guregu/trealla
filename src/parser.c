@@ -314,6 +314,8 @@ void unshare_cells(cell *src, pl_idx num_cells)
 void clear_clause(clause *cl)
 {
 	unshare_cells(cl->cells, cl->cidx);
+	free(cl->alt);
+	cl->alt = NULL;
 	cl->num_vars = 0;
 	cl->cidx = 0;
 }
@@ -348,9 +350,7 @@ void parser_destroy(parser *p)
 
 	if (p->cl) {
 		clear_clause(p->cl);
-		free(p->cl->alt);
 		free(p->cl);
-		p->cl = NULL;
 	}
 
 	free(p);
@@ -697,7 +697,7 @@ static bool directives(parser *p, cell *d)
 		pl_idx p1_ctx = 0;
 		query q = (query){0};
 		q.pl = p->pl;
-		q.st.curr_m = p->m;
+		q.st.m = p->m;
 		char *dst = print_term_to_strbuf(&q, p1, p1_ctx, 0);
 		builtins *ptr = calloc(1, sizeof(builtins));
 		ensure(ptr);
@@ -1397,7 +1397,7 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 	clause *cl = p->cl;
 	cl->is_first_cut = false;
 	cl->is_cut_only = false;
-	cl->has_local_vars = false;
+	cl->unify_no_tco = false;
 	p->start_term = true;
 
 	if (!p->reuse) {
@@ -1502,22 +1502,23 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 			continue;
 
 		// A variable is global iff it occurs at least once in a structured term, it's
-		// lifetime is indeterminate. All other variables can be classified as...
-		// A variable is void iff it has only one occurance, it's lifetime is zero.
-		// A variable is temporary iff it appears more than once, with no
-		// occurance in the body, it's lifetime is the that of the unification.
+		// lifetime is indeterminate. TO-DO
+		// All other variables can be classified as...
 		// A variable is local iff it appears more than once with at least one
 		// occurance in the body, it's lifetime is that of it's environment.
+		// A variable is temporary iff it appears more than once, with no
+		// occurance in the body, it's lifetime is the that of the unification.
+		// A variable is void iff it has only one occurance, it's lifetime is zero.
 
 		unsigned var_in_head = get_in_head(p, C_STR(p, c));
 		unsigned var_in_body = get_in_body(p, C_STR(p, c));
 		unsigned occurrances = var_in_head + var_in_body;
 
-		if (!occurrances)		// Anonymous vars
-			occurrances = 1;
+		if (!occurrances)		// Anonymous vars weren't
+			occurrances = 1;	// counted it seems
 
 		if ((occurrances > 1) && var_in_body) {
-			cl->has_local_vars = true;
+			cl->unify_no_tco = true;				// FIXME
 			c->flags |= FLAG_VAR_LOCAL;
 		} else if ((occurrances > 1) && !var_in_body) {
 			c->flags |= FLAG_VAR_TEMPORARY;
@@ -1864,7 +1865,6 @@ static bool dcg_expansion(parser *p)
 	free(src);
 
 	clear_clause(p->cl);
-	free(p->cl->alt);
 	free(p->cl);
 	p->cl = p2->cl;					// Take the completed clause
 	p->num_vars = p2->num_vars;
@@ -1947,7 +1947,6 @@ static bool term_expansion(parser *p)
 	free(src);
 
 	clear_clause(p->cl);
-	free(p->cl->alt);
 	free(p->cl);
 	p->cl = p2->cl;					// Take the completed clause
 	p->num_vars = p2->num_vars;
@@ -2159,10 +2158,6 @@ static cell *goal_expansion(parser *p, cell *goal)
 
 	memcpy(goal, p2->cl->cells, sizeof(cell)*new_cells);
 	p->cl->cidx += new_cells;
-	clear_clause(p2->cl);
-	free(p2->cl->alt);
-	free(p2->cl);
-	p2->cl = NULL;
 
 	//DUMP_TERM("new", p->cl->cells, 0, 0);
 
@@ -3434,7 +3429,7 @@ static bool process_term(parser *p, cell *p1)
 		h->arity = 0;
 	}
 
-	rule *r;
+	db_entry *r;
 
 	if ((r = assertz_to_db(p->m, p->cl->num_vars, p1, consulting)) == NULL) {
 		if ((DUMP_ERRS || !p->do_read_term) && 0)
@@ -3446,7 +3441,7 @@ static bool process_term(parser *p, cell *p1)
 
 	check_first_cut(&r->cl);
 	r->cl.is_fact = !get_logical_body(r->cl.cells);
-	r->cl.has_local_vars = p->cl->has_local_vars;
+	r->cl.unify_no_tco = p->cl->unify_no_tco;
 	r->line_num_start = p->line_num_start;
 	r->line_num_end = p->line_num;
 	p->line_num_start = 0;
@@ -3852,7 +3847,7 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 		if (!p->quote_char && p->start_term &&
 			(!SB_strcmp(p->token, "]") || !SB_strcmp(p->token, ")") || !SB_strcmp(p->token, "}"))) {
 			if (DUMP_ERRS || !p->do_read_term)
-				fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, start of rule expected, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
+				fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, start of db_entry expected, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
 
 			p->error_desc = "start_expected";
 			p->error = true;
@@ -4227,7 +4222,7 @@ bool run(parser *p, const char *pSrc, bool dump, query **subq, unsigned int yiel
 		p->m->pl->is_redo = q->is_redo;
 
 		ok = !q->error;
-		p->m = q->st.curr_m;
+		p->m = q->st.m;
 
 		if (!subq)
 			query_destroy(q);

@@ -11,15 +11,15 @@ typedef struct {
 } csv;
 
 query *query_create(module *m);
-query *query_create_subquery(query *q, cell *curr_instr);
-query *query_create_task(query *q, cell *curr_instr);
+query *query_create_subquery(query *q, cell *instr);
+query *query_create_task(query *q, cell *instr);
 void query_destroy(query *q);
 
 bool push_choice(query *q);
 bool push_barrier(query *q);
+bool push_succeed_on_retry_with_barrier(query *q, pl_idx skip);
 bool push_succeed_on_retry(query *q, pl_idx skip);
-bool push_succeed_on_retry_no_barrier(query *q, pl_idx skip);
-bool push_fail_on_retry(query *q);
+bool push_fail_on_retry_with_barrier(query *q);
 bool push_reset_handler(query *q);
 bool push_catcher(query *q, enum q_retry type);
 
@@ -87,6 +87,7 @@ void make_call(query *q, cell *tmp);
 void make_call_redo(query *q, cell *tmp);
 bool do_post_unify_hook(query *q, bool is_builtin);
 bool any_attributed(query *q);
+bool do_load_file(query *q, cell *p1, pl_idx p1_ctx);
 
 #if USE_THREADS
 void do_signal(query *q, void *thread_ptr);
