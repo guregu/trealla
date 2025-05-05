@@ -12,7 +12,8 @@
 		exclude/3, include/3, permutation/2,
 		foldl/4, foldl/5, foldl/6, foldl/7,
 		maplist/2, maplist/3, maplist/4, maplist/5, maplist/6, maplist/7, maplist/8, maplist/9,
-		tasklist/2, tasklist/3, tasklist/4, tasklist/5, tasklist/6, tasklist/7, tasklist/8, tasklist/9
+		tasklist/2, tasklist/3, tasklist/4, tasklist/5, tasklist/6, tasklist/7, tasklist/8, tasklist/9,
+		flatten/2
 	]).
 
 reverse(Xs, Ys) :-
@@ -603,3 +604,8 @@ tasklist_([E1|T1], [E2|T2], [E3|T3], [E4|T4], [E5|T5], [E6|T6], [E7|T7], G) :-
 :- help(tasklist(:callable,+list,+list,+list,+list,+list), [iso(false)]).
 :- help(tasklist(:callable,+list,+list,+list,+list,+list,+list), [iso(false)]).
 :- help(tasklist(:callable,+list,+list,+list,+list,+list,+list,+list), [iso(false)]).
+
+% TODO: this diverges from upstream, need to get this back in
+flatten(L0, L) :- flatten_(L0, L).
+
+:- help(flatten(+list,-list), [iso(false)]).
