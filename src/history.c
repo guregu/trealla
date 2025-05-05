@@ -87,7 +87,7 @@ LOOP:
 
 		char *s2 = strchr(cmd, '%');
 
-		if (s2) {
+		if (s2 && !strchr(cmd, '"') && !strchr(cmd, '\'')) {
 			*s2 = '\0';
 			end_ptr--;
 		}
@@ -129,6 +129,7 @@ static char *functor_name_generator(const char *text, int state)
 	static int s_files_list_index, s_files_len;
 	static int s_format_list_index, s_format_len;
 	static int s_iso_list_index, s_iso_len;
+	static int s_os_list_index, s_os_len;
 	static int s_other_list_index, s_other_len;
 	static int s_posix_list_index, s_posix_len;
 	static int s_maps_list_index, s_maps_len;
@@ -155,6 +156,7 @@ static char *functor_name_generator(const char *text, int state)
 		s_format_list_index = 0; s_format_len = strlen(text);
 		s_iso_list_index = 0; s_iso_len = strlen(text);
 		s_other_list_index = 0; s_other_len = strlen(text);
+		s_os_list_index = 0; s_os_len = strlen(text);
 		s_posix_list_index = 0; s_posix_len = strlen(text);
 		s_maps_list_index = 0; s_maps_len = strlen(text);
 		s_sort_list_index = 0; s_sort_len = strlen(text);
@@ -174,7 +176,7 @@ static char *functor_name_generator(const char *text, int state)
 	while ((name = g_bboard_bifs[s_bboard_list_index].name)) {
 		s_bboard_list_index++;
 
-		if (strncmp(name, text, s_atts_len) == 0)
+		if (strncmp(name, text, s_bboard_len) == 0)
 			return strdup(name);
 	}
 
@@ -241,6 +243,13 @@ static char *functor_name_generator(const char *text, int state)
 			return strdup(name);
 	}
 
+	while ((name = g_os_bifs[s_os_list_index].name)) {
+		s_os_list_index++;
+
+		if (strncmp(name, text, s_os_len) == 0)
+			return strdup(name);
+	}
+
 	while ((name = g_control_bifs[s_control_list_index].name)) {
 		s_control_list_index++;
 
@@ -258,7 +267,7 @@ static char *functor_name_generator(const char *text, int state)
 	while ((name = g_sort_bifs[s_sort_list_index].name)) {
 		s_sort_list_index++;
 
-		if (strncmp(name, text, s_other_len) == 0)
+		if (strncmp(name, text, s_sort_len) == 0)
 			return strdup(name);
 	}
 

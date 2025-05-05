@@ -9,6 +9,12 @@ dcg_translate(TermIn, Term) :-
 	nonvar(TermIn),
 	dcg_rule(TermIn, Term).
 
+:- help(writeln(+term), [iso(false)]).
+:- help(writeln(+stream,+term), [iso(false)]).
+
+writeln(T) :- write(T), nl.
+writeln(S, T) :- write(S, T), nl.
+
 predicate_property(P, A) :-
 	nonvar(P), atom(A), !,
 	must_be(P, callable, predicate_property/2, _),
@@ -73,12 +79,18 @@ current_prolog_flag(P, A) :-
 
 :- help(current_prolog_flag(+callable,+term), [iso(true)]).
 
-cfor(I0,J0,K) :-
-	I is I0,
-	J is J0,
-	between(I, J, K).
+repeat_integer_(N) :-
+	N > 0.
+repeat_integer_(N0) :-
+	N0 > 0,
+	N1 is N0 - 1,
+	repeat_integer_(N1).
 
-:- help(cfor(+evaluable,+evaluable,-var), [iso(false),desc('C-style for loop')]).
+repeat(N) :-
+	must_be(N, integer, repeat/1, _),
+	repeat_integer_(N).
+
+:- help(repeat(+integer), [iso(false)]).
 
 subsumes_term(G, S) :-
 	\+ \+ (
@@ -90,57 +102,8 @@ subsumes_term(G, S) :-
 
 :- help(subsumes_term(+term,+term), [iso(true)]).
 
-% definition taken from the SWI-Prolog documentation
-variant(Term1, Term2) :-
-	% avoid trouble in any shared variables
-	copy_term(Term1, Term1Copy),
-	copy_term(Term2, Term2Copy),
-	% ground and compare the term copies
-	numbervars(Term1Copy, 0, N),
-	numbervars(Term2Copy, 0, N),
-	Term1Copy == Term2Copy.
-
-:- help(variant(+term,+term), [iso(false)]).
-
 catch(G, E, C) :-
 	'$catch'(call(G), E, call(C)).
-
-:- meta_predicate(call_det(0,?)).
-
-call_det(G, Det) :-
-	'$get_level'(L1),
-	call(G),
-	'$get_level'(L2),
-	(L1 = L2 -> Det = true; Det = false).
-
-:- help(call_det(:callable,?boolean), [iso(false)]).
-
-:- meta_predicate(findall(?,0,-,?)).
-
-findall(T, G, B, Tail) :-
-	can_be(B, list, findall/4, _),
-	can_be(Tail, list, findall/4, _),
-	findall(T, G, B0),
-	append(B0, Tail, B), !.
-
-:- help(findall(+term,:callable,-list,+list), [iso(false)]).
-
-flatten(List, FlatList) :-
-	flatten_(List, [], FlatList0),
-	!,
-	FlatList = FlatList0.
-
-flatten_(Var, Tl, [Var|Tl]) :-
-	var(Var),
-	!.
-flatten_([], Tl, Tl) :- !.
-flatten_([Hd|Tl], Tail, List) :-
-	!,
-	flatten_(Hd, FlatHeadTail, List),
-	flatten_(Tl, Tail, FlatHeadTail).
-flatten_(NonList, Tl, [NonList|Tl]).
-
-:- help(flatten(+list,-list), [iso(false)]).
 
 '$post_unify_hook' :-
 	'$undo_trail'(Vars, State),
@@ -218,12 +181,6 @@ copy_term_nat(Term, Copy) :-
 	'$duplicate_term'(Term, Copy, 0).
 
 :- help(copy_term_nat(+term,?term), [iso(false)]).
-
-term_variables(P1, P2, P3) :-
-	term_variables(P1, P4),
-	append(P4, P3, P2).
-
-:- help(term_variables(+term,-list,?tail), [iso(false)]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
@@ -346,13 +303,6 @@ directory_exists(F) :- exists_directory(F).
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-:- meta_predicate(not(0)).
-
-not(X) :- X, !, fail.
-not(_).
-
-:- help(not(:callable), [iso(false),deprecated(true)]).
-
 recorda(K, V) :- nonvar(K), nonvar(V), asserta('$record_global_key'(K,V)).
 recorda(K, V, R) :- nonvar(K), nonvar(V), asserta('$record_global_key'(K,V), R).
 recordz(K, V) :- nonvar(K), nonvar(V), assertz('$record_global_key'(K,V)).
@@ -368,29 +318,6 @@ current_key(K) :- var(K), '$record_global_key'(K,_).
 :- help(recorded(+term,?term), [iso(false),deprecated(true)]).
 :- help(recorded(+term,?term,-ref), [iso(false),deprecated(true)]).
 :- help(current_key(-term), [iso(false),deprecated(true)]).
-
-:- meta_predicate(call_with_time_limit(+,0)).
-
-call_with_time_limit(Time, Goal) :-
-	Time0 is truncate(Time * 1000),
-	'$alarm'(Time0),
-	(	catch(once(Goal), E, ('$alarm'(0), throw(E))) ->
-		'$alarm'(0)
-	;	('$alarm'(0), fail)
-	).
-
-:- help(call_with_time_limit(+millisecs,:callable), [iso(false)]).
-
-:- meta_predicate(time_out(0,+,-)).
-
-time_out(Goal, Time, Result) :-
-	'$alarm'(Time),
-	(	catch(once(Goal), E, ('$alarm'(0), throw(E))) ->
-		('$alarm'(0), Result = success)
-	;	('$alarm'(0), fail)
-	).
-
-:- help(time_out(:callable,+integer,?atom), [iso(false)]).
 
 '$portray_term'(S, T) :-
 	compound(T), !,
@@ -421,14 +348,6 @@ print(S, T) :- format(S, "~p", [T]).
 
 :- help(print(+term), [iso(false)]).
 :- help(print(+stream,+term), [iso(false)]).
-
-writeln(T) :- write(T), nl.
-
-:- help(writeln(+term), [iso(false)]).
-
-writeln(S, T) :- write(S, T), nl.
-
-:- help(writeln(+stream,+term), [iso(false)]).
 
 open(F, M, S) :- open(F, M, S, []).
 
@@ -575,26 +494,11 @@ numberlist_(['$VAR'(N0)|Vars], N0, N) :-
    N1 is N0+1,
    numberlist_(Vars, N1, N).
 
-:- help(numberlist(+list,?integer,?integer), [iso(false)]).
-
 read_line_to_codes(Stream, Codes) :-
 	read_line_to_string(Stream, String),
 	string_codes(String, Codes).
 
 :- help(read_line_to_codes(+stream,?list), [iso(false)]).
-
-repeat_integer(N) :-
-	N > 0.
-repeat_integer(N0) :-
-	N0 > 0,
-	N1 is N0 - 1,
-	repeat_integer(N1).
-
-repeat(N) :-
-	must_be(N, integer, repeat/1, _),
-	repeat_integer(N).
-
-:- help(repeat(+integer), [iso(false)]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
@@ -732,6 +636,21 @@ print_goals_(Any, [Goal|Goals]) :-
 	(Goals == [] -> true ;	write(', ')),
 	print_goals_(false, Goals).
 
+flatten_(List, FlatList) :-
+	flatten_(List, [], FlatList0),
+	!,
+	FlatList = FlatList0.
+
+flatten_(Var, Tl, [Var|Tl]) :-
+	var(Var),
+	!.
+flatten_([], Tl, Tl) :- !.
+flatten_([Hd|Tl], Tail, List) :-
+	!,
+	flatten_(Hd, FlatHeadTail, List),
+	flatten_(Tl, Tail, FlatHeadTail).
+flatten_(NonList, Tl, [NonList|Tl]).
+
 dump_attvars_([], []).
 dump_attvars_([Var|Vars], [Gs|Rest]) :-
 	copy_term(Var, Var2, Gs),
@@ -742,7 +661,7 @@ dump_attvars(Any) :-
 	'$list_attributed'(Vs0),
 	sort(Vs0, Vs),
 	dump_attvars_(Vs, Gs0),
-	flatten(Gs0, Gs1),
+	flatten_(Gs0, Gs1),
 	sort(Gs1, Gs),
 	print_goals_(Any, Gs).
 

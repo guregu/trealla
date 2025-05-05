@@ -52,6 +52,7 @@ pl_idx g_reset_s, g_sys_get_level_s, g_sys_jump_s, g_if_s;
 pl_idx g_sys_call_s, g_sys_cut_s, g_notunify_s, g_sys_module_s;
 pl_idx g_sys_reunify_s, g_sys_undo_s, g_sys_jump_if_nil_s;
 pl_idx g_sys_loop_s, g_sys_end_s, g_sys_create_var_s;
+pl_idx g_sys_match_s;
 pl_idx g_dummy_s;
 
 char *g_global_atoms = NULL;
@@ -402,6 +403,11 @@ builtins *get_fn_ptr(void *fn)
 			return ptr;
 	}
 
+	for (builtins *ptr = g_os_bifs; ptr->name; ptr++) {
+		if (ptr->fn == fn)
+			return ptr;
+	}
+
 	for (builtins *ptr = g_other_bifs; ptr->name; ptr++) {
 		if (ptr->fn == fn)
 			return ptr;
@@ -542,6 +548,12 @@ void load_builtins(prolog *pl)
 		sl_set(pl->help, ptr->name, ptr);
 	}
 
+	for (const builtins *ptr = g_os_bifs; ptr->name; ptr++) {
+		sl_set(pl->biftab, ptr->name, ptr);
+		if (ptr->name[0] == '$') continue;
+		sl_set(pl->help, ptr->name, ptr);
+	}
+
 	for (const builtins *ptr = g_other_bifs; ptr->name; ptr++) {
 		sl_set(pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
@@ -610,6 +622,7 @@ static bool g_init(prolog *pl)
 
 	CHECK_SENTINEL(g_symtab = sl_create((void*)fake_strcmp, (void*)keyfree, NULL), NULL);
 	CHECK_SENTINEL(g_dummy_s = new_atom(pl, "dummy"), ERR_IDX);
+	CHECK_SENTINEL(g_sys_match_s = new_atom(pl, "$match"), ERR_IDX);
 	CHECK_SENTINEL(g_false_s = new_atom(pl, "false"), ERR_IDX);
 	CHECK_SENTINEL(g_true_s = new_atom(pl, "true"), ERR_IDX);
 	CHECK_SENTINEL(g_at_s = new_atom(pl, "@"), ERR_IDX);

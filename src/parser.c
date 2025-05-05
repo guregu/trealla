@@ -212,6 +212,7 @@ void make_var(cell *tmp, pl_idx off, unsigned var_num)
 {
 	*tmp = (cell){0};
 	tmp->tag = TAG_VAR;
+	tmp->flags = FLAG_VAR_LOCAL;
 	tmp->num_cells = 1;
 	tmp->var_num = var_num;
 	tmp->val_off = off;
@@ -1377,18 +1378,6 @@ static unsigned get_in_body(parser *p, const char *name)
 	return 0;
 }
 
-static void check_term_ground(cell *c)
-{
-	c->flags |= FLAG_INTERNED_GROUND;
-
-	for (unsigned i = 0; i < c->num_cells; i++) {
-		if (is_var(c+i)) {
-			c->flags &= ~ FLAG_INTERNED_GROUND;
-			break;
-		}
-	}
-}
-
 void assign_vars(parser *p, unsigned start, bool rebase)
 {
 	if (!p || p->error)
@@ -1397,7 +1386,6 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 	clause *cl = p->cl;
 	cl->is_first_cut = false;
 	cl->is_cut_only = false;
-	cl->unify_no_tco = false;
 	p->start_term = true;
 
 	if (!p->reuse) {
@@ -1411,9 +1399,6 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 
 	for (unsigned i = 0; i < cl->cidx; i++) {
 		cell *c = cl->cells + i;
-
-		if (c->arity)
-			check_term_ground(c);
 
 		if (c == body)
 			in_body = true;
@@ -1501,15 +1486,6 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 		if (!is_var(c))
 			continue;
 
-		// A variable is global iff it occurs at least once in a structured term, it's
-		// lifetime is indeterminate. TO-DO
-		// All other variables can be classified as...
-		// A variable is local iff it appears more than once with at least one
-		// occurance in the body, it's lifetime is that of it's environment.
-		// A variable is temporary iff it appears more than once, with no
-		// occurance in the body, it's lifetime is the that of the unification.
-		// A variable is void iff it has only one occurance, it's lifetime is zero.
-
 		unsigned var_in_head = get_in_head(p, C_STR(p, c));
 		unsigned var_in_body = get_in_body(p, C_STR(p, c));
 		unsigned occurrances = var_in_head + var_in_body;
@@ -1517,14 +1493,13 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 		if (!occurrances)		// Anonymous vars weren't
 			occurrances = 1;	// counted it seems
 
-		if ((occurrances > 1) && var_in_body) {
-			cl->unify_no_tco = true;				// FIXME
+		if (var_in_body)
 			c->flags |= FLAG_VAR_LOCAL;
-		} else if ((occurrances > 1) && !var_in_body) {
+		else if (!var_in_body)
 			c->flags |= FLAG_VAR_TEMPORARY;
-		} if (occurrances == 1) {
+
+		if (occurrances == 1)
 			c->flags |= FLAG_VAR_VOID;
-		}
 	}
 
 	for (unsigned i = 0; i < cl->num_vars; i++) {
@@ -1543,12 +1518,14 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 	c->num_cells = 1;
 }
 
+// Reduce a vector of cells in token order to a parse tree. This is
+// done in two passes: first find the lowest priority un-applied
+// operator then apply args to that operator.
+
 static bool reduce(parser *p, pl_idx start_idx, bool last_op)
 {
 	pl_idx lowest = IDX_MAX, work_idx, end_idx = p->cl->cidx - 1;
 	bool do_work = false, bind_le = false;
-
-	// Two passes: first find the lowest priority un-applied operator...
 
 	for (pl_idx i = start_idx; i < p->cl->cidx;) {
 		cell *c = p->cl->cells + i;
@@ -1581,8 +1558,6 @@ static bool reduce(parser *p, pl_idx start_idx, bool last_op)
 
 	if (!do_work)
 		return false;
-
-	// Then apply args to that operator...
 
 	pl_idx last_idx = IDX_MAX;
 
@@ -1793,6 +1768,8 @@ static bool reduce(parser *p, pl_idx start_idx, bool last_op)
 
 	return true;
 }
+
+// Stop when no more reductions to do.
 
 static bool analyze(parser *p, pl_idx start_idx, bool last_op)
 {
@@ -2617,7 +2594,6 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 		} else if ((*s == '\'') && s[1] == '\'') {
 			s++;
 			v = *s++;
-#if 1
 		} else if ((*s == '\'') && p->flags.strict_iso && search_op(p->m, "", NULL, false)) {
 			if (DUMP_ERRS || !p->do_read_term)
 				fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, parsing number4, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
@@ -2625,7 +2601,6 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 			p->error_desc = "number";
 			p->error = true;
 			return false;
-#endif
 		} else
 			v = get_char_utf8(&s);
 
@@ -3371,10 +3346,18 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 	p->is_op = search_op(p->m, SB_cstr(p->token), NULL, false);
 	p->srcptr = (char*)src;
 
+	if (*src) {
+		while (iswspace(*src))
+			src++;
+	}
+
 	ch = peek_char_utf8(src);
 
-	if (SB_strcmp(p->token, "(") && !check_space_before_function(p, ch, src))
+	if (SB_strcmp(p->token, "(") && !check_space_before_function(p, ch, p->srcptr))
 		return false;
+
+	if (!SB_strcmp(p->token, ".") && ch == '|')
+		p->quote_char = '\'';
 
 	return true;
 }
@@ -3441,7 +3424,6 @@ static bool process_term(parser *p, cell *p1)
 
 	check_first_cut(&r->cl);
 	r->cl.is_fact = !get_logical_body(r->cl.cells);
-	r->cl.unify_no_tco = p->cl->unify_no_tco;
 	r->line_num_start = p->line_num_start;
 	r->line_num_end = p->line_num;
 	p->line_num_start = 0;

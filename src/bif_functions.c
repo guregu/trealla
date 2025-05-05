@@ -81,10 +81,6 @@ void clr_accum(cell *p)
 		free(p->val_bigint);
 	}
 
-#ifdef FE_INVALID
-	feclearexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW);
-#endif
-
 	p->tag = TAG_INTEGER;
 	p->flags = 0;
 }
@@ -273,7 +269,7 @@ bool call_builtin(query *q, cell *c, pl_idx c_ctx)
 	q->eval = true;
 
 #if USE_FFI
-	if (c->bif_ptr && c->bif_ptr->ffi)
+	if (c->bif_ptr->ffi)
 		wrap_ffi_function(q, c->bif_ptr);
 	else
 #endif
@@ -314,9 +310,7 @@ static bool bif_iso_is_2(query *q)
 	if (is_float(&p2) && isnan(p2.val_float))
 		return throw_error(q, &p2, q->st.curr_frame, "evaluation_error", "undefined");
 
-	q->in_is = true;
 	bool ok = unify(q, p1, p1_ctx, &p2, q->st.curr_frame);
-	q->in_is = false;
 	clr_accum(&q->accum);
 	return ok;
 }
@@ -881,6 +875,7 @@ static bool bif_iso_truncate_1(query *q)
 		if (fetestexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW)) {
 			mp_int_set_double(&q->tmp_ival, p1.val_float);
 			SET_ACCUM();
+			feclearexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW);
 		} else
 #endif
 			q->accum.tag = TAG_INTEGER;
@@ -908,6 +903,7 @@ static bool bif_iso_round_1(query *q)
 		if (fetestexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW)) {
 			mp_int_set_double(&q->tmp_ival, p1.val_float);
 			SET_ACCUM();
+			feclearexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW);
 		} else
 #endif
 			q->accum.tag = TAG_INTEGER;
@@ -935,6 +931,7 @@ static bool bif_iso_ceiling_1(query *q)
 		if (fetestexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW)) {
 			mp_int_set_double(&q->tmp_ival, p1.val_float);
 			SET_ACCUM();
+			feclearexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW);
 		} else
 #endif
 			q->accum.tag = TAG_INTEGER;
@@ -1006,6 +1003,7 @@ static bool bif_iso_floor_1(query *q)
 		if (fetestexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW)) {
 			mp_int_set_double(&q->tmp_ival, p1.val_float);
 			SET_ACCUM();
+			feclearexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW);
 		} else
 #endif
 			q->accum.tag = TAG_INTEGER;

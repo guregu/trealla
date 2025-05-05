@@ -414,10 +414,8 @@ typedef struct {
 } uuid;
 
 struct clause_ {
-	uint64_t dbgen_created, dbgen_retracted;
 	pl_idx cidx, num_allocated_cells;
 	unsigned num_vars;
-	bool unify_no_tco:1;
 	bool is_first_cut:1;
 	bool is_cut_only:1;
 	bool is_unique:1;
@@ -434,6 +432,7 @@ struct db_entry_ {
 	const char *filename;
 	uuid u;
 	uint64_t db_id, matched, attempted, tcos;
+	uint64_t dbgen_created, dbgen_retracted;
 	unsigned line_num_start, line_num_end;
 	clause cl;
 };
@@ -503,6 +502,7 @@ typedef struct {
 struct trail_ {
 	cell *attrs;
 	pl_idx var_ctx, var_num;
+	bool is_local:1;
 };
 
 struct slot_ {
@@ -523,7 +523,8 @@ struct frame_ {
 	uint64_t dbgen, chgen;
 	pl_idx prev, base, overflow, hp, heap_num;
 	unsigned initial_slots, actual_slots;
-	bool unify_no_tco:1;
+	bool no_recov:1;
+	bool no_tco:1;
 };
 
 struct run_state_ {
@@ -545,12 +546,9 @@ struct run_state_ {
 	uint8_t qnum;
 };
 
-// Where *chgen* is the choice generation
-// Where *orig_chgen* is the choice generation of the frame this belongs to
-
 struct choice_ {
 	run_state st;
-	uint64_t chgen, orig_chgen, dbgen;
+	uint64_t gen, chgen, dbgen;
 	pl_idx base, overflow, initial_slots, actual_slots, skip;
 	bool catchme_retry:1;
 	bool catchme_exception:1;
@@ -559,6 +557,8 @@ struct choice_ {
 	bool block_catcher:1;
 	bool fail_on_retry:1;
 	bool succeed_on_retry:1;
+	bool no_recov:1;
+	bool no_tco:1;
 	bool reset:1;
 };
 
@@ -684,7 +684,8 @@ struct query_ {
 	char tmpbuf[256];
 	bool ignores[MAX_IGNORES];
 	uint64_t tot_goals, tot_backtracks, tot_retries, tot_matches, tot_inferences;
-	uint64_t tot_tcos, tot_recovs, step, qid, tmo_msecs, chgen, cycle_error;
+	uint64_t tot_tcos, tot_recovs, tot_matched;
+	uint64_t step, qid, tmo_msecs, chgen, cycle_error;
 	uint64_t get_started, autofail_n, yield_at;
 	uint64_t cpu_started, time_cpu_last_started, future;
 	unsigned max_depth, max_eval_depth, print_idx, tab_idx, dump_var_num;
@@ -718,7 +719,8 @@ struct query_ {
 	bool is_dump_vars:1;
 	bool portray_vars:1;
 	bool status:1;
-	bool unify_no_tco:1;
+	bool no_recov:1;
+	bool no_tco:1;
 	bool has_vars:1;
 	bool error:1;
 	bool did_throw:1;
@@ -749,7 +751,6 @@ struct query_ {
 	bool noderef:1;
 	bool double_quotes:1;
 	bool end_wait:1;
-	bool in_is:1;
 	bool access_private:1;
 	bool did_unhandled_exception:1;
 };

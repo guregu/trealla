@@ -301,13 +301,18 @@ int compare(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_ctx)
 	return compare_internal(q, p1, p1_ctx, p2, p2_ctx, 0);
 }
 
-inline static bool any_choices(const query *q, const frame *f)
+void add_trail(query *q, pl_idx c_ctx, unsigned c_var_nbr, cell *attrs, bool is_local)
 {
-	if (!q->cp)
-		return false;
+	if (!check_trail(q)) {
+		q->error = false;
+		return;
+	}
 
-	const choice *ch = GET_CURR_CHOICE();
-	return ch->chgen > f->chgen;
+	trail *tr = q->trails + q->st.tp++;
+	tr->var_ctx = c_ctx;
+	tr->var_num = c_var_nbr;
+	tr->attrs = attrs;
+	tr->is_local = is_local;
 }
 
 static void set_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx)
@@ -317,7 +322,7 @@ static void set_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx
 	cell *c_attrs = is_empty(&e->c) ? e->c.val_attrs : NULL;
 
 	if (is_managed(v) || (c_ctx != q->st.fp))
-		add_trail(q, c_ctx, c->var_num, c_attrs);
+		add_trail(q, c_ctx, c->var_num, c_attrs, is_local(c));
 
 	if (c_attrs)
 		q->run_hook = true;
@@ -329,13 +334,17 @@ static void set_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx
 	if (is_var(v)) {
 		make_ref(&e->c, v->var_num, v_ctx);
 
-		if ((c_ctx == q->st.fp) && !is_temporary(c) && !is_void(c))
-			q->unify_no_tco = true;
+		if ((c_ctx == q->st.fp) && !is_temporary(c) && !is_void(c)) {
+			q->no_tco = true;
+			q->no_recov = true;	// FIXME: shouldn't be needed
+		}
 	} else if (is_compound(v)) {
 		make_indirect(&e->c, v, v_ctx);
 
-		if ((v_ctx >= q->st.curr_frame) && !is_ground(v))
-			q->unify_no_tco = true;
+		if ((v_ctx >= q->st.curr_frame) && !is_ground(v)) {
+			q->no_tco = true;
+			q->no_recov = true;
+		}
 	} else {
 		e->c = *v;
 		share_cell(v);
@@ -690,7 +699,8 @@ static bool unify_internal(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p
 	}
 
 	if (is_var(p2)) {
-		return unify_var(q, p2, p2_ctx, p1, p1_ctx, depth);
+		set_var(q, p2, p2_ctx, p1, p1_ctx);
+		return true;
 	} else if (is_var(p1)) {
 		if (depth > 1)
 			q->has_vars = true;
@@ -727,7 +737,7 @@ static bool unify_internal(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p
 bool unify(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_ctx)
 {
 	q->is_cyclic1 = q->is_cyclic2 = false;
-	q->has_vars = q->unify_no_tco = false;
+	q->has_vars = q->no_tco = q->no_recov = false;
 	q->before_hook_tp = q->st.tp;
 	if (++q->vgen == 0) q->vgen = 1;
 	bool ok = unify_internal(q, p1, p1_ctx, p2, p2_ctx, 0);

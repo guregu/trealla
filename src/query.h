@@ -28,6 +28,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 bool do_yield(query *q, int msecs);
 void do_yield_at(query *q, unsigned int time_in_ms);
 
+bool check_trail(query *q);
 char *url_encode(const char *src, int len, char *dstbuf);
 char *url_decode(const char *src, char *dstbuf);
 bool query_redo(query *q);
@@ -52,6 +53,7 @@ void check_pressure(query *q);
 cell *prepare_call(query *q, bool noskip, cell *p1, pl_idx p1_ctx, unsigned extras);
 bool call_check(query *q, cell *tmp2, bool *status, bool calln);
 bool make_slice(query *q, cell *d, const cell *orig, size_t off, size_t n);
+bool match_head(query *q);
 
 bool throw_error(query *q, cell *c, pl_idx c_ctx, const char *err_type, const char *expected);
 bool throw_error3(query *q, cell *c, pl_idx c_ctx, const char *err_type, const char *expected, cell *goal);
@@ -79,7 +81,7 @@ bool parse_write_params(query *q, cell *c, pl_idx c_ctx, cell **vnames, pl_idx *
 bool has_vars(query *q, cell *p1, pl_idx p1_ctx);
 bool accum_var(query *q, const cell *c, pl_idx c_ctx);
 bool do_parse_csv_line(query *q, csv *params, const char *src, cell *p2, pl_idx p2_ctx);
-void add_trail(query *q, pl_idx c_ctx, unsigned c_var_nbr, cell *attrs);
+void add_trail(query *q, pl_idx c_ctx, unsigned c_var_nbr, cell *attrs, bool is_local);
 void reset_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx);
 void undo_var(query *q, const cell *c, pl_idx c_ctx);
 bool valid_list(query *q, cell *c, pl_idx c_ctx);
@@ -145,6 +147,7 @@ bool bif_statistics_0(query *q);
 bool bif_sys_module_1(query *q);
 bool bif_sys_undo_1(query *q);
 bool bif_sys_create_var_1(query *q);
+bool bif_sys_match_1(query *q);
 
 void save_db(FILE *fp, query *q, int logging);
 char *uuid_to_buf(const uuid *u, char *buf, size_t buflen);

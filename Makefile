@@ -1,4 +1,5 @@
 GIT_VERSION := "$(shell git describe --abbrev=4 --dirty --always --tags)"
+COMPILER_IS_GCC := $(shell $(CC) --version | grep -E -o 'g?cc')
 
 CFLAGS = -Isrc -I/usr/local/include -DVERSION='$(GIT_VERSION)' \
 	-O3 $(OPT) -D_GNU_SOURCE \
@@ -75,10 +76,11 @@ endif
 ifndef NOTHREADS
 CFLAGS += -DUSE_THREADS=1 -pthread
 LDFLAGS += -pthread
-ifeq ($(shell uname),Darwin)
-LDFLAGS +=
-else
+# -latomic only works for gcc
+ifeq ($(COMPILER_IS_GCC),gcc)
 LDFLAGS += -latomic
+else
+LDFLAGS +=
 endif
 endif
 
@@ -103,6 +105,7 @@ SRCOBJECTS = tpl.o \
 	src/bif_format.o \
 	src/bif_functions.o \
 	src/bif_maps.o \
+	src/bif_os.o \
 	src/bif_posix.o \
 	src/bif_predicates.o \
 	src/bif_sort.o \
@@ -335,6 +338,10 @@ src/bif_functions.o: src/bif_functions.c src/threads.h src/heap.h src/internal.h
  src/utf8.h src/module.h src/prolog.h src/query.h src/parser.h \
  src/builtins.h
 src/bif_maps.o: src/bif_maps.c src/threads.h src/heap.h src/internal.h src/trealla.h \
+ src/cdebug.h src/stringbuf.h src/imath/imath.h src/imath/imrat.h \
+ src/imath/imath.h src/skiplist.h src/list.h src/utf8.h \
+ src/prolog.h src/query.h src/parser.h src/builtins.h
+src/bif_os.o: src/bif_os.c src/threads.h src/heap.h src/internal.h src/trealla.h \
  src/cdebug.h src/stringbuf.h src/imath/imath.h src/imath/imrat.h \
  src/imath/imath.h src/skiplist.h src/list.h src/utf8.h \
  src/prolog.h src/query.h src/parser.h src/builtins.h

@@ -48,6 +48,7 @@ extern pl_idx g_reset_s, g_sys_get_level_s, g_sys_jump_s, g_if_s;
 extern pl_idx g_sys_call_s, g_sys_cut_s, g_notunify_s, g_sys_module_s;
 extern pl_idx g_sys_reunify_s, g_sys_undo_s, g_sys_jump_if_nil_s;
 extern pl_idx g_sys_loop_s, g_sys_end_s, g_sys_create_var_s;
+extern pl_idx g_sys_match_s;
 extern pl_idx g_dummy_s;
 
 extern void convert_path(char *filename);
@@ -64,6 +65,7 @@ extern builtins g_format_bifs[];
 extern builtins g_ffi_bifs[];
 extern builtins g_iso_bifs[];
 extern builtins g_maps_bifs[];
+extern builtins g_os_bifs[];
 extern builtins g_other_bifs[];
 extern builtins g_control_bifs[];
 extern builtins g_posix_bifs[];
