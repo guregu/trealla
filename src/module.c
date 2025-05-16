@@ -151,7 +151,6 @@ static const char *set_loaded(module *m, const char *filename, const char *orig_
 
 	while (ptr) {
 		if (!strcmp(ptr->filename, filename)) {
-			//printf("*** set_loaded '%s'\n", filename);
 			ptr->is_loaded = true;
 			return ptr->filename;
 		}
@@ -168,7 +167,6 @@ static const char *set_loaded(module *m, const char *filename, const char *orig_
 	ptr->is_loaded = true;
 	ptr->parent = NULL;
 	m->loaded_files = ptr;
-	//printf("*** set_loaded '%s'\n", filename);
 	return ptr->filename;
 }
 
@@ -178,7 +176,6 @@ void set_unloaded(module *m, const char *filename)
 
 	while (ptr) {
 		if (!strcmp(ptr->filename, filename)) {
-			//printf("*** set_unloaded '%s'\n", filename);
 			ptr->is_loaded = false;
 			return;
 		}
@@ -375,6 +372,7 @@ predicate *create_predicate(module *m, cell *c, bool *created)
 
 	if (b = get_builtin_term(m, c, &found, &evaluable),
 		!evaluable && found && b->iso) {
+		fprintf(stderr, "Error: permission error modifying %s/%u\n", C_STR(m, c), c->arity);
 		return NULL;
 	}
 
@@ -817,8 +815,6 @@ static bool do_use_module(module *curr_m, cell *c, module **mptr)
 			p1++;
 		}
 
-		//printf("*** mod name=%s, %s\n", name, dstbuf);
-
 		module *m;
 
 		if ((m = find_module(curr_m->pl, name)) != NULL) {
@@ -899,8 +895,6 @@ static bool do_use_module(module *curr_m, cell *c, module **mptr)
 	}
 
 	char *filename = relative_to(curr_m->filename, is_library?dstbuf:name);
-
-	//printf("*** %s / %s / %s\n", curr_m->filename, is_library?dstbuf:name, filename);
 
 	if (!(m = load_file(curr_m, filename, false, true))) {
 		fprintf_to_stream(curr_m->pl, WARN_FP, "Warning: module file not found: %s\n", filename);
@@ -1486,12 +1480,9 @@ static bool check_not_multifile(module *m, predicate *pr, db_entry *dbe_orig)
 
 			while (pr->head) {
 				db_entry *r = pr->head;
-				pr->head = pr->head->next;
-
-				if (r != dbe_orig) {
-					clear_clause(&r->cl);
-					free(r);
-				}
+				pr->head = r->next;
+				clear_clause(&r->cl);
+				free(r);
 			}
 
 			sl_destroy(pr->idx2);
@@ -1589,6 +1580,7 @@ static void process_cell(module *m, clause *cl, cell *c, predicate *parent, int 
 		&& ((c+c->num_cells) >= (body + cl->cidx-1))
 		) {
 			c->flags |= FLAG_INTERNED_TAIL_CALL;
+
 			if (parent
 				&& (parent->key.val_off == c->val_off)
 				&& (parent->key.arity == c->arity)) {
@@ -1826,7 +1818,6 @@ static db_entry *assert_begin(module *m, unsigned num_vars, cell *p1, bool consu
 	size_t dbe_size = sizeof(db_entry) + (sizeof(cell) * (p1->num_cells+1));
 	db_entry *r = calloc(1, dbe_size);
 	ensure(r);
-
 	copy_cells(r->cl.cells, p1, p1->num_cells);
 	r->cl.cells[p1->num_cells] = (cell){0};
 	r->cl.cells[p1->num_cells].tag = TAG_END;
@@ -1846,7 +1837,6 @@ static void assert_commit(module *m, db_entry *r, predicate *pr, bool append)
 
 	pr->db_id++;
 	pr->cnt++;
-
 	uuid_gen(m->pl, &r->u);
 
 	// Note: indexing here refers to the dynamic index...
@@ -2510,6 +2500,7 @@ module *module_create(prolog *pl, const char *name)
 	m->flags.syntax_error = UNK_ERROR;
 	m->flags.double_quote_chars = true;
 	m->flags.character_escapes = true;
+	m->flags.occurs_check = false;
 	m->error = false;
 	m->id = ++pl->next_mod_id;
 	m->defops = sl_create((void*)fake_strcmp, NULL, NULL);

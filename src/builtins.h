@@ -11,8 +11,6 @@
 
 #define MAX_FFI 1000
 
-void clr_accum(cell *p);
-
 #if USE_FFI
 bool wrap_ffi_function(query *q, builtins *bif_ptr);
 bool wrap_ffi_predicate(query *q, builtins *bif_ptr);
@@ -70,6 +68,16 @@ bool wrap_ffi_predicate(query *q, builtins *bif_ptr);
 #define is_virtual_stream(str) (is_memory_stream(str) || is_map_stream(str) || is_engine_stream(str) || is_mutex_stream(str) || is_queue_stream(str) || is_alias_stream(str))
 #define is_live_stream(str) ((str)->fp || (str)->socket || is_virtual_stream(str))
 #define is_file_stream(str) ((str)->fp)
+
+#define GET_SOURCE_SINK(p1, p1_ctx, filename) { \
+	if (is_iso_list(p1)) { \
+		size_t len = scan_is_chars_list(q, p1, p1_ctx, true); \
+		if (!len) \
+			return throw_error(q, p1, p1_ctx, "type_error", "source_sink"); \
+		filename = chars_list_to_string(q, p1, p1_ctx); \
+	} else \
+		filename = DUP_STRING(q, p1); \
+}
 
 bool call_builtin(query *q, cell *c, pl_idx c_ctx);
 bool call_userfun(query *q, cell *c, pl_idx c_ctx);

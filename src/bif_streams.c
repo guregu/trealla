@@ -5400,8 +5400,10 @@ static bool bif_absolute_file_name_3(query *q)
 	if (is_iso_list(p1)) {
 		size_t len = scan_is_chars_list(q, p1, p1_ctx, true);
 
-		if (!len)
+		if (!len) {
+			free(here);
 			return throw_error(q, p1, p1_ctx, "type_error", "atom");
+		}
 
 		filename = chars_list_to_string(q, p1, p1_ctx);
 	} else
@@ -5449,6 +5451,7 @@ static bool bif_absolute_file_name_3(query *q)
 		char *ptr = getenv(envbuf);
 
 		if (!ptr) {
+			free(here);
 			free(filename);
 			return throw_error(q, p1, p1_ctx, "existence_error", "environment_variable");
 		}
@@ -5494,11 +5497,10 @@ static bool bif_absolute_file_name_3(query *q)
 		}
 	}
 
-	free(filename);
-
 	if (cwd != here)
 		free(cwd);
 
+	free(filename);
 	free(here);
 	cell tmp;
 
@@ -6164,10 +6166,13 @@ static void parse_host(const char *src, char hostname[1024], char path[4096], un
 	if (*src == ':')
 		sscanf(src, ":%u/%4095s", port, path);
 	else
-		sscanf(src, "%1023[^:/]:%u/%4095s", hostname, port, path);
+		sscanf(src, "%1023[^/]%4095s", hostname, path);
 
 	hostname[1023] = '\0';
 	path[4095] = '\0';
+
+	if (path[0] == '/')
+		strcpy(path, path+1);
 }
 
 static bool bif_server_3(query *q)
@@ -7626,7 +7631,7 @@ builtins g_streams_bifs[] =
 	{"write_term_to_chars", 3, bif_write_term_to_chars_3, "?term,+list,?string", false, false, BLAH},
 	{"write_canonical_to_chars", 3, bif_write_canonical_to_chars_3, "?string,?term,+list", false, false, BLAH},
 	{"read_line_to_string", 2, bif_read_line_to_string_2, "+stream,-string", false, false, BLAH},
-	{"read_file_to_string", 3, bif_read_file_to_string_3, "+atom,-string,+options", false, false, BLAH},
+	{"read_file_to_string", 3, bif_read_file_to_string_3, "+source_sink,-string,+options", false, false, BLAH},
 
 	{"http_location", 2, bif_http_location_2, "?list,?atom", false, false, BLAH},
 	{"parse_url", 2, bif_parse_url_2, "?atom,?list", false, false, BLAH},

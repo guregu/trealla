@@ -90,8 +90,8 @@ extern void *pl_global();
 #endif
 
 extern int g_tpl_interrupt;
-extern int g_ac, g_avc;
-extern char **g_av, *g_argv0;
+extern int g_ac, g_avc, g_argvc;
+extern char **g_av, **g_argv, *g_argv0;
 extern char *g_tpl_lib;
 extern const char *g_version;
 

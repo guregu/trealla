@@ -66,7 +66,7 @@ static int compare_lists(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_
 	}
 
 #if USE_RATIONAL_TREES
-	if (any2 && 0) {
+	if (any2) {
 		p1 = orig_p1;
 		p1_ctx = orig_p1_ctx;
 		p2 = orig_p2;
@@ -327,16 +327,15 @@ static void set_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx
 	if (c_attrs)
 		q->run_hook = true;
 
-	// If anything outside the current frame points inside the
-	// current frame then we can't TCO.
-	// If anything points inside the next frame then ditto.
-
 	if (is_var(v)) {
 		make_ref(&e->c, v->var_num, v_ctx);
 
-		if ((c_ctx == q->st.fp) && !is_temporary(c) && !is_void(c)) {
+		if ((c_ctx == q->st.fp)
+			//&& (v_ctx == q->st.fp)
+			&& !is_temporary(c) && !is_void(c)
+			) {
 			q->no_tco = true;
-			q->no_recov = true;	// FIXME: shouldn't be needed
+			q->no_recov = true;
 		}
 	} else if (is_compound(v)) {
 		make_indirect(&e->c, v, v_ctx);
@@ -741,6 +740,11 @@ bool unify(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_ctx)
 	q->before_hook_tp = q->st.tp;
 	if (++q->vgen == 0) q->vgen = 1;
 	bool ok = unify_internal(q, p1, p1_ctx, p2, p2_ctx, 0);
+
+	if (q->no_recov) {
+		frame *f = GET_CURR_FRAME();
+		f->no_recov = true;
+	}
 
 	if (q->cycle_error) {
 		if (q->flags.occurs_check == OCCURS_CHECK_TRUE)

@@ -191,6 +191,8 @@ cell *make_nil(void)
 	static cell tmp = {
 		.tag = TAG_INTERNED,
 		.num_cells = 1,
+		.flags = 0,
+		.arity = 0,
 		.val_off = 0
 	};
 
@@ -598,7 +600,6 @@ static bool conditionals(parser *p, cell *d)
 
 static bool make_rule(module *m, const char *src)
 {
-	printf("*** %s\n", src);
 	parser *p = parser_create(m);
 	if (!p) return false;
 	p->flags = m->flags;
@@ -751,7 +752,6 @@ static bool directives(parser *p, cell *d)
 			return true;
 		}
 
-		//printf("*** include %s, parent = %s\n", p->m->actual_filename, p->m->filename);
 		set_parent(p->m, p->m->actual_filename, p->m->filename);
 		free(filename);
 		p->line_num = save_line_nbr;
@@ -1121,16 +1121,19 @@ static bool directives(parser *p, cell *d)
 				}
 
 				set_dynamic_in_db(p->m, C_STR(p, c_name), arity);
+				p->error = p->m->error;
 			} else if (!strcmp(dirname, "encoding")) {
 			} else if (!strcmp(dirname, "public")) {
 			} else if (!strcmp(dirname, "export")) {
 			} else if (!strcmp(dirname, "discontiguous")) {
 				set_discontiguous_in_db(p->m, C_STR(p, c_name), arity);
+				p->error = p->m->error;
 			} else if (!strcmp(dirname, "multifile")) {
 				const char *src = C_STR(p, c_name);
 
 				if (strcmp(src, ":")) {
 					set_multifile_in_db(p->m, src, arity);
+					p->error = p->m->error;
 				} else {
 					// multifile(:(mod,/(name,arity)))
 					cell *c_mod = c_name + 1;				// FIXME: verify
@@ -1227,11 +1230,13 @@ static bool directives(parser *p, cell *d)
 			if (!strcmp(C_STR(p, c_id), "//"))
 				arity += 2;
 
-			if (!strcmp(dirname, "multifile"))
+			if (!strcmp(dirname, "multifile")) {
 				set_multifile_in_db(m, C_STR(p, c_name), arity);
-			else if (!strcmp(dirname, "discontiguous"))
+				p->error = m->error;
+			} else if (!strcmp(dirname, "discontiguous")) {
 				set_discontiguous_in_db(m, C_STR(p, c_name), arity);
-			else if (!strcmp(dirname, "public"))
+				p->error = m->error;
+			} else if (!strcmp(dirname, "public"))
 				;
 			else if (!strcmp(dirname, "export"))
 				;
@@ -1247,6 +1252,7 @@ static bool directives(parser *p, cell *d)
 				}
 
 				set_dynamic_in_db(m, C_STR(p, c_name), arity);
+				p->error = m->error;
 			} else {
 				if (((DUMP_ERRS || !p->do_read_term)) && !p->m->pl->quiet)
 					fprintf_to_stream(p->pl, ERROR_FP, "Error: unknown directive: %s/%d\n", dirname, c->arity);
@@ -1265,6 +1271,7 @@ static bool directives(parser *p, cell *d)
 				p1 += 1;
 
 			set_meta_predicate_in_db(m, p1);
+			p->error = m->error;
 			p1 += p1->num_cells;
 		} else if (!strcmp(C_STR(p, p1), ",") && (p1->arity == 2))
 			p1 += 1;
@@ -1942,7 +1949,7 @@ static void expand_meta_predicate(parser *p, predicate *pr, cell *goal)
 	for (cell *k = goal+1, *m = pr->meta_args+1; arity--; k += k->num_cells, m += m->num_cells) {
 		cell tmpbuf[2];
 
-		if (is_interned(k) && k->val_off == g_call_s)
+		if (is_interned(k) && (k->val_off == g_call_s))
 			continue;
 		else if ((k->arity == 2) && (k->val_off == g_colon_s) && is_atom(FIRST_ARG(k)))
 			continue;
@@ -3461,8 +3468,6 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 			&& (*p->srcptr != '_')
 			&& ((*p->srcptr != ' ') || !p->is_op)
 			) {
-
-			//printf("*** here %s\n", p->srcptr);
 
 			if (p->nesting_parens || p->nesting_brackets || p->nesting_braces) {
 				if (DUMP_ERRS || !p->do_read_term)

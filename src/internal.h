@@ -524,7 +524,6 @@ struct frame_ {
 	pl_idx prev, base, overflow, hp, heap_num;
 	unsigned initial_slots, actual_slots;
 	bool no_recov:1;
-	bool no_tco:1;
 };
 
 struct run_state_ {
@@ -558,7 +557,6 @@ struct choice_ {
 	bool fail_on_retry:1;
 	bool succeed_on_retry:1;
 	bool no_recov:1;
-	bool no_tco:1;
 	bool reset:1;
 };
 
@@ -620,17 +618,21 @@ struct thread_ {
 	skiplist *alias;
 	cell *goal, *exit_code, *at_exit, *ball;
 	list signals, queue;
-	unsigned num_vars, at_exit_num_vars, num_locks;
-	int chan, locked_by;
-	bool is_init, is_finished, is_detached, is_exception;
-	bool is_queue_only, is_mutex_only;
-	pl_atomic bool is_active;
-	lock guard;
 #if USE_THREADS
     pthread_t id;
     pthread_cond_t cond;
     pthread_mutex_t mutex;
 #endif
+	unsigned num_vars, at_exit_num_vars, num_locks;
+	int chan, locked_by;
+	lock guard;
+	pl_atomic bool is_active;
+	bool is_init:1;
+	bool is_finished:1;
+	bool is_detached:1;
+	bool is_exception:1;
+	bool is_queue_only:1;
+	bool is_mutex_only:1;
 };
 
 struct page_ {

@@ -540,7 +540,7 @@ static void leave_predicate(query *q, predicate *pr)
 
 			sl_rem(pr->idx, c, r);
 
-			if (q->no_tco || true) {
+			if (true) {
 				r->cl.is_deleted = true;
 				list_push_back(&q->dirty, r);
 			} else {
@@ -646,7 +646,6 @@ static void push_frame(query *q)
 {
 	frame *f = GET_NEW_FRAME();
 	f->overflow = 0;
-	f->no_tco = q->no_tco;
 	f->no_recov = q->no_recov;
 	f->chgen = ++q->chgen;
 	f->hp = q->st.hp;
@@ -678,6 +677,7 @@ static void reuse_frame(query *q, unsigned num_vars)
 	}
 
 	f->initial_slots = f->actual_slots = num_vars;
+	f->no_recov = false;
 	q->st.sp = f->base + f->actual_slots;
 	q->st.dbe->tcos++;
 	q->tot_tcos++;
@@ -711,9 +711,10 @@ static void commit_frame(query *q)
 
 #if 0
 	if (last_match) {
-		fprintf(stderr, "*** q->no_tco=%d, last_match=%d %s/%u\n",
+		fprintf(stderr, "*** q->no_tco=%d, last_match=%d %s/%u, q->st.curr_frame=%u,q->st.fp=%u\n",
 			q->no_tco, last_match,
-			C_STR(q, q->st.key), q->st.key->arity
+			C_STR(q, q->st.key), q->st.key->arity,
+			q->st.curr_frame, q->st.fp
 			);
 	}
 #endif
@@ -733,11 +734,11 @@ static void commit_frame(query *q)
 
 		fprintf(stderr,
 			"*** %s/%u tco=%d,q->no_tco=%d,last_match=%d,is_det=%d,"
-			"next_key=%d,tail_call=%d/r%d,slots_ok=%d,choices=%d,"
+			"tail_call=%d/r%d,slots_ok=%d,choices=%d,"
 			"cl->num_vars=%u,f->initial_slots=%u/%u\n",
 			C_STR(q, head), head->arity,
 			tco, q->no_tco, last_match, is_det,
-			next_key, tail_call, tail_recursive, slots_ok, choices,
+			tail_call, tail_recursive, slots_ok, choices,
 			cl->num_vars, f->initial_slots, f->actual_slots);
 #endif
 	}
@@ -808,7 +809,6 @@ int retry_choice(query *q)
 		f->initial_slots = ch->initial_slots;
 		f->actual_slots = ch->actual_slots;
 		f->no_recov = ch->no_recov;
-		f->no_tco = ch->no_tco;
 		f->overflow = ch->overflow;
 		f->base = ch->base;
 
@@ -858,7 +858,6 @@ bool push_choice(query *q)
 	ch->initial_slots = f->initial_slots;
 	ch->actual_slots = f->actual_slots;
 	ch->no_recov = f->no_recov;
-	ch->no_tco = f->no_tco;
 	ch->overflow = f->overflow;
 	ch->base = f->base;
 
@@ -983,7 +982,7 @@ static bool resume_any_choices(const query *q, const frame *f)
 		return false;
 
 	const choice *ch = GET_CURR_CHOICE();
-	return ch->gen > f->chgen;
+	return ch->gen >= f->chgen;
 }
 
 // Resume at next goal in previous clause...
@@ -1154,9 +1153,11 @@ static bool expand_meta_predicate(query *q, predicate *pr)
 	// Expand module-sensitive args...
 
 	for (cell *k = q->st.key+1, *m = pr->meta_args+1; arity--; k += k->num_cells, m += m->num_cells) {
-		if ((k->arity == 2) && (k->val_off == g_colon_s) && is_atom(FIRST_ARG(k)))
+		cell *k0 = deref(q, k, q->st.key_ctx);
+
+		if ((k0->arity == 2) && (k0->val_off == g_colon_s) && is_atom(FIRST_ARG(k0)))
 			;
-		else if (!is_interned(k) || is_iso_list(k))
+		else if (!is_interned(k0) || is_iso_list(k0))
 			;
 		else if (is_interned(m) && (m->val_off == g_colon_s)) {
 			make_instr(tmp, g_colon_s, bif_iso_qualify_2, 2, 1+k->num_cells);
@@ -1972,7 +1973,6 @@ query *query_create(module *m)
 	q->max_depth = m->pl->def_max_depth;
 	mp_int_init(&q->tmp_ival);
 	mp_rat_init(&q->tmp_irat);
-	clr_accum(&q->accum);
 
 	// Allocate these now...
 

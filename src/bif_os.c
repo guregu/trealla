@@ -32,8 +32,12 @@ static void msleep(int ms)
 #ifndef __wasi__
 static bool bif_shell_1(query *q)
 {
-	GET_FIRST_ARG(p1,atom);
-	int status = system(C_STR(q, p1));
+	GET_FIRST_ARG(p1,source_sink);
+	char *filename;
+	GET_SOURCE_SINK(p1, p1_ctx, filename);
+	int status = system(filename);
+	free(filename);
+
 	if (status == 0)
 		return true;
 	else
@@ -42,9 +46,12 @@ static bool bif_shell_1(query *q)
 
 static bool bif_shell_2(query *q)
 {
-	GET_FIRST_ARG(p1,atom);
+	GET_FIRST_ARG(p1,source_sink);
 	GET_NEXT_ARG(p2,var);
-	int status = system(C_STR(q, p1));
+	char *filename;
+	GET_SOURCE_SINK(p1, p1_ctx, filename);
+	int status = system(filename);
+	free(filename);
 	cell tmp;
 	make_int(&tmp, status);
 	return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
@@ -63,9 +70,12 @@ static bool bif_shell_2(query *q)
 
 static bool bif_getenv_2(query *q)
 {
-	GET_FIRST_ARG(p1,atom);
-	GET_NEXT_ARG(p2,atom_or_var);
-	const char *value = getenv(C_STR(q, p1));
+	GET_FIRST_ARG(p1,source_sink);
+	GET_NEXT_ARG(p2,var);
+	char *filename;
+	GET_SOURCE_SINK(p1, p1_ctx, filename);
+	const char *value = getenv(filename);
+	free(filename);
 
 	if (!value)
 		return false;
@@ -84,28 +94,24 @@ static bool bif_getenv_2(query *q)
 
 static bool bif_setenv_2(query *q)
 {
-	GET_FIRST_ARG(p1,atom);
-	GET_NEXT_ARG(p2,atom_or_integer);
-
-	if (is_bigint(p2))
-		return throw_error(q, p2, p2_ctx, "domain_error", "small_integer_range");
-
-	if (is_atom(p2)) {
-		setenv(C_STR(q, p1), C_STR(q, p2), 1);
-	} else if (is_integer(p2)) {
-		char tmpbuf[256];
-		sprint_int(tmpbuf, sizeof(tmpbuf), get_smallint(p2), 10);
-		setenv(C_STR(q, p1), tmpbuf, 1);
-	} else
-		return false;
-
+	GET_FIRST_ARG(p1,source_sink);
+	GET_NEXT_ARG(p2,source_sink);
+	char *filename, *filename2;
+	GET_SOURCE_SINK(p1, p1_ctx, filename);
+	GET_SOURCE_SINK(p2, p2_ctx, filename2);
+	setenv(filename, filename2, 1);
+	free(filename2);
+	free(filename);
 	return true;
 }
 
 static bool bif_unsetenv_1(query *q)
 {
-	GET_FIRST_ARG(p1,atom);
-	unsetenv(C_STR(q, p1));
+	GET_FIRST_ARG(p1,source_sink);
+	char *filename;
+	GET_SOURCE_SINK(p1, p1_ctx, filename);
+	unsetenv(filename);
+	free(filename);
 	return true;
 }
 

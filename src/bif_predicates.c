@@ -1375,8 +1375,6 @@ static bool do_atom_concat_3(query *q)
 
 	GET_RAW_ARG(1,p1_raw);
 	GET_RAW_ARG(2,p2_raw);
-	unshare_cell(p1);
-	unshare_cell(p2);
 	cell tmp;
 	check_heap_error(make_slice(q, &tmp, p3, 0, len1+len));
 	reset_var(q, p1_raw, p1_raw_ctx, &tmp, q->st.curr_frame);
@@ -2350,11 +2348,25 @@ static bool bif_sys_current_prolog_flag_2(query *q)
 
 		int i = g_avc;
 		cell tmp;
-		make_cstring(&tmp, g_av[i++]);
+		make_string(&tmp, g_av[i++]);
 		allocate_list(q, &tmp);
 
 		while (i < g_ac) {
-			make_cstring(&tmp, g_av[i++]);
+			make_string(&tmp, g_av[i++]);
+			append_list(q, &tmp);
+		}
+
+		cell *l = end_list(q);
+		check_heap_error(l);
+		return unify(q, p2, p2_ctx, l, q->st.curr_frame);
+	} else if (!CMP_STRING_TO_CSTR(q, p1, "raw_argv")) {
+		int i = 0;
+		cell tmp;
+		make_string(&tmp, g_argv[i++]);
+		allocate_list(q, &tmp);
+
+		while (i < g_argvc) {
+			make_string(&tmp, g_argv[i++]);
 			append_list(q, &tmp);
 		}
 

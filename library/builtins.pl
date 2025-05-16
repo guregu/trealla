@@ -102,8 +102,11 @@ subsumes_term(G, S) :-
 
 :- help(subsumes_term(+term,+term), [iso(true)]).
 
-catch(G, E, C) :-
-	'$catch'(call(G), E, call(C)).
+argv(L) :- current_prolog_flag(argv, L).
+raw_argv(L) :- current_prolog_flag(raw_argv, L).
+
+:- help(argv(-list), [iso(false)]).
+:- help(raw_argv(-list), [iso(false)]).
 
 '$post_unify_hook' :-
 	'$undo_trail'(Vars, State),
