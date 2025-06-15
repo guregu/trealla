@@ -36,7 +36,7 @@ bool bif_sys_cut_1(query *q)
 
 bool bif_iso_conjunction_2(query *q)
 {
-	q->tot_inferences--;
+	q->total_inferences--;
 	q->retry = QUERY_NOOP;
 	q->st.instr++;
 	return true;
@@ -44,7 +44,7 @@ bool bif_iso_conjunction_2(query *q)
 
 static bool bif_sys_cleanup_if_det_1(query *q)
 {
-	q->tot_inferences--;
+	q->total_inferences--;
 	GET_FIRST_RAW_ARG(p1,integer)
 	choice *ch = GET_CURR_CHOICE();
 
@@ -67,22 +67,6 @@ static bool bif_sys_cleanup_if_det_1(query *q)
 	c = deref(q, FIRST_ARG(c), c_ctx);
 	c_ctx = q->latest_ctx;
 	do_cleanup(q, c, c_ctx);
-	return true;
-}
-
-bool bif_call_0(query *q, cell *p1, pl_idx p1_ctx)
-{
-	if (!is_callable(p1))
-		return throw_error(q, p1, p1_ctx, "type_error", "callable");
-
-	cell *tmp = prepare_call(q, CALL_NOSKIP, p1, p1_ctx, 3);
-	check_heap_error(tmp);
-	pl_idx num_cells = p1->num_cells;
-	make_instr(tmp+num_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
-	make_uint(tmp+num_cells++, q->cp);
-	make_call(q, tmp+num_cells);
-	check_heap_error(push_fail_on_retry_with_barrier(q));
-	q->st.instr = tmp;
 	return true;
 }
 
@@ -114,6 +98,29 @@ bool call_check(query *q, cell *tmp2, bool *status, bool calln)
 	}
 
 	*status = true;
+	return true;
+}
+
+bool bif_call_0(query *q, cell *p1, pl_idx p1_ctx)
+{
+	if (!is_callable(p1))
+		return throw_error(q, p1, p1_ctx, "type_error", "callable");
+
+	if (!p1->match) {
+		bool status;
+
+		if (!call_check(q, p1, &status, true))
+			return status;
+	}
+
+	cell *tmp = prepare_call(q, CALL_NOSKIP, p1, p1_ctx, 3);
+	check_heap_error(tmp);
+	pl_idx num_cells = p1->num_cells;
+	make_instr(tmp+num_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
+	make_uint(tmp+num_cells++, q->cp);
+	make_call(q, tmp+num_cells);
+	check_heap_error(push_fail_on_retry_with_barrier(q));
+	q->st.instr = tmp;
 	return true;
 }
 
@@ -467,7 +474,7 @@ static bool bif_iso_catch_3(query *q)
 		check_heap_error(tmp);
 		tmp->num_cells += p3->num_cells;
 		pl_idx num_cells = 1;
-		num_cells += copy_cells_by_ref(tmp+num_cells, p3, p3_ctx, p3->num_cells);
+		num_cells += dup_cells_by_ref(tmp+num_cells, p3, p3_ctx, p3->num_cells);
 		make_instr(tmp+num_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 		make_uint(tmp+num_cells++, q->cp);
 		make_call(q, tmp+num_cells);
@@ -487,7 +494,7 @@ static bool bif_iso_catch_3(query *q)
 	check_heap_error(tmp);
 	tmp->num_cells += p1->num_cells;
 	pl_idx num_cells = 1;
-	num_cells += copy_cells_by_ref(tmp+num_cells, p1, p1_ctx, p1->num_cells);
+	num_cells += dup_cells_by_ref(tmp+num_cells, p1, p1_ctx, p1->num_cells);
 	make_instr(tmp+num_cells++, g_sys_block_catcher_s, bif_sys_block_catcher_1, 1, 1);
 	make_uint(tmp+num_cells++, q->cp);
 	make_call(q, tmp+num_cells);
@@ -671,7 +678,7 @@ bool bif_sys_get_level_1(query *q)
 bool bif_sys_drop_barrier_1(query *q)
 {
 	GET_FIRST_ARG(p1,integer)
-	q->tot_inferences--;
+	q->total_inferences--;
 	drop_barrier(q, get_smalluint(p1));
 
 	if (q->cp) {

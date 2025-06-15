@@ -598,6 +598,7 @@ static bool conditionals(parser *p, cell *d)
 	return false;
 }
 
+#if 0
 static bool make_rule(module *m, const char *src)
 {
 	parser *p = parser_create(m);
@@ -617,6 +618,7 @@ static bool make_rule(module *m, const char *src)
 	parser_destroy(p);
 	return true;
 }
+#endif
 
 static bool directives(parser *p, cell *d)
 {
@@ -806,7 +808,7 @@ static bool directives(parser *p, cell *d)
 
 		module *tmp_m;
 
-		if ((tmp_m = find_module(p->m->pl, name)) != NULL) {
+		if ((tmp_m = find_module(p->pl, name)) != NULL) {
 			//if (DUMP_ERRS || !p->do_read_term)
 			//	fprintf_to_stream(p->pl, ERROR_FP, "Error: module already loaded: %s, %s:%d\n", name, get_loaded(p->m, p->m->filename), p->line_num);
 			//
@@ -820,7 +822,7 @@ static bool directives(parser *p, cell *d)
 			return true;
 		}
 
-		tmp_m = module_create(p->m->pl, name);
+		tmp_m = module_create(p->pl, name);
 		if (!tmp_m) {
 			if (DUMP_ERRS || !p->do_read_term)
 				fprintf_to_stream(p->pl, ERROR_FP, "Error: module creation failed: %s, %s:%d\n", name, get_loaded(p->m, p->m->filename), p->line_num);
@@ -849,7 +851,7 @@ static bool directives(parser *p, cell *d)
 			cell *f = arg;
 			char *name = C_STR(p->m, f+1);
 			unsigned arity = get_smallint(f+2);
-			module_duplicate(p->m->pl, p->m, name, arity);
+			module_duplicate(p->pl, p->m, name, arity);
 			return true;
 		}
 
@@ -861,7 +863,7 @@ static bool directives(parser *p, cell *d)
 
 			char *name = C_STR(p->m, f+1);
 			unsigned arity = get_smallint(f+2);
-			module_duplicate(p->m->pl, p->m, name, arity);
+			module_duplicate(p->pl, p->m, name, arity);
 			arg += 4;
 		}
 
@@ -872,7 +874,7 @@ static bool directives(parser *p, cell *d)
 
 		char *name = C_STR(p->m, f+1);
 		unsigned arity = get_smallint(f+2);
-		module_duplicate(p->m->pl, p->m, name, arity);
+		module_duplicate(p->pl, p->m, name, arity);
 		return true;
 	}
 
@@ -904,7 +906,7 @@ static bool directives(parser *p, cell *d)
 		if (!p->m->make) {
 			module *tmp_m;
 
-			if ((tmp_m = find_module(p->m->pl, name)) != NULL) {
+			if ((tmp_m = find_module(p->pl, name)) != NULL) {
 				//if (DUMP_ERRS || !p->do_read_term)
 				//	fprintf(stderr, "Error: module already loaded: %s, %s:%d\n", name, get_loaded(p->m, p->m->filename), p->line_num);
 				//
@@ -913,7 +915,7 @@ static bool directives(parser *p, cell *d)
 				return true;
 			}
 
-			tmp_m = module_create(p->m->pl, name);
+			tmp_m = module_create(p->pl, name);
 
 			if (!tmp_m) {
 				if (DUMP_ERRS || !p->do_read_term)
@@ -1080,7 +1082,7 @@ static bool directives(parser *p, cell *d)
 			cell *c_name = h + 1;
 
 			if (is_var(c_name)) {
-				if (((DUMP_ERRS || !p->do_read_term)) && !p->m->pl->quiet)
+				if (((DUMP_ERRS || !p->do_read_term)) && !p->pl->quiet)
 					fprintf_to_stream(p->pl, ERROR_FP, "Error: uninstantiated: %s/%d\n", dirname, c->arity);
 
 				p->error = true;
@@ -1147,7 +1149,7 @@ static bool directives(parser *p, cell *d)
 					if (!strcmp(C_STR(p, c_slash), "//"))
 						arity += 2;
 
-					if (!is_multifile_in_db(p->m->pl, mod, name, arity)) {
+					if (!is_multifile_in_db(p->pl, mod, name, arity)) {
 						if (DUMP_ERRS || !p->do_read_term)
 							fprintf_to_stream(p->pl, ERROR_FP, "Error: not multifile %s:%s/%u\n", mod, name, arity);
 
@@ -1156,7 +1158,7 @@ static bool directives(parser *p, cell *d)
 					}
 				}
 			} else {
-				if (((DUMP_ERRS || !p->do_read_term)) && !p->m->pl->quiet)
+				if (((DUMP_ERRS || !p->do_read_term)) && !p->pl->quiet)
 					fprintf_to_stream(p->pl, ERROR_FP, "Error: unknown directive: %s/%d\n", dirname, c->arity);
 
 				p->error = true;
@@ -1171,7 +1173,7 @@ static bool directives(parser *p, cell *d)
 		return true;
 
 	if (is_var(p1)) {
-		if (((DUMP_ERRS || !p->do_read_term)) && !p->m->pl->quiet)
+		if (((DUMP_ERRS || !p->do_read_term)) && !p->pl->quiet)
 			fprintf_to_stream(p->pl, ERROR_FP, "Error: uninstantiated: %s/%d\n", dirname, c->arity);
 
 		p->error = true;
@@ -1188,7 +1190,7 @@ static bool directives(parser *p, cell *d)
 			if (!is_atom(c_mod))
 				return true;
 
-			m = find_module(p->m->pl, C_STR(p, c_mod));
+			m = find_module(p->pl, C_STR(p, c_mod));
 
 			if (!m)
 				m = module_create(p->pl, C_STR(p, c_mod));
@@ -1201,7 +1203,7 @@ static bool directives(parser *p, cell *d)
 			cell *c_name = c_id + 1;
 
 			if (is_var(c_name)) {
-				if (((DUMP_ERRS || !p->do_read_term)) && !p->m->pl->quiet)
+				if (((DUMP_ERRS || !p->do_read_term)) && !p->pl->quiet)
 					fprintf_to_stream(p->pl, ERROR_FP, "Error: uninstantiated: %s/%d\n", dirname, c->arity);
 
 				p->error = true;
@@ -1209,7 +1211,7 @@ static bool directives(parser *p, cell *d)
 			}
 
 			if (!is_atom(c_name)) {
-				fprintf(stderr, "Error: predicate-indicator %s, %s:%d\n", p->m->name, get_loaded(p->m, p->m->filename), p->line_num);
+				fprintf_to_stream(p->pl, ERROR_FP, "Error: predicate-indicator %s, %s:%d\n", p->m->name, get_loaded(p->m, p->m->filename), p->line_num);
 				p->error = true;
 				return true;
 			}
@@ -1217,7 +1219,7 @@ static bool directives(parser *p, cell *d)
 			cell *c_arity = c_id + 2;
 
 			if (!is_integer(c_arity)) {
-				fprintf(stderr, "Error: predicate-indicator %s, %s:%d\n", p->m->name, get_loaded(p->m, p->m->filename), p->line_num);
+				fprintf_to_stream(p->pl, ERROR_FP, "Error: predicate-indicator %s, %s:%d\n", p->m->name, get_loaded(p->m, p->m->filename), p->line_num);
 				p->error = true;
 				return true;
 			}
@@ -1254,7 +1256,7 @@ static bool directives(parser *p, cell *d)
 				set_dynamic_in_db(m, C_STR(p, c_name), arity);
 				p->error = m->error;
 			} else {
-				if (((DUMP_ERRS || !p->do_read_term)) && !p->m->pl->quiet)
+				if (((DUMP_ERRS || !p->do_read_term)) && !p->pl->quiet)
 					fprintf_to_stream(p->pl, ERROR_FP, "Error: unknown directive: %s/%d\n", dirname, c->arity);
 
 				p->error = true;
@@ -1276,8 +1278,8 @@ static bool directives(parser *p, cell *d)
 		} else if (!strcmp(C_STR(p, p1), ",") && (p1->arity == 2))
 			p1 += 1;
 		else {
-			if (((DUMP_ERRS || !p->do_read_term)) && !p->m->pl->quiet)
-				fprintf_to_stream(p->pl, ERROR_FP, "Error: unknown directive: %s/%d\n", dirname, c->arity);
+			if (((DUMP_ERRS || !p->do_read_term)) && !p->pl->quiet)
+				fprintf_to_stream(p->pl, ERROR_FP, "Error: unknown directive2: %s/%d\n", dirname, c->arity);
 
 			p->error = true;
 			return true;
@@ -1513,7 +1515,7 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 		if (p->is_consulting && !p->do_read_term && (p->vartab.used[i] == 1) &&
 			(p->vartab.name[i][strlen(p->vartab.name[i])-1] != '_') &&
 			(*p->vartab.name[i] != '_')) {
-			if (!p->m->pl->quiet
+			if (!p->pl->quiet
 				&& !((cl->cells->val_off == g_neck_s) && cl->cells->arity == 1))
 				fprintf_to_stream(p->pl, WARN_FP, "Warning: singleton: %s, near %s:%d\n", p->vartab.name[i], get_loaded(p->m, p->m->filename), p->line_num);
 		}
@@ -2561,8 +2563,29 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 	if (!isdigit(*s))
 		return false;
 
-	if ((*s == '0') && (s[1] == '\'') && !((s[2] == '\\') && (s[3] == '\n'))
+	//if ((s[0] == '0') && (s[1] == '\''))
+	//	printf("*** %s\n", s);
+
+	if ((s[0] == '0') && (s[1] == '\'') && (s[2] == '\'') && ((s[3] == '\n') || !s[3])) {
+		if (DUMP_ERRS || !p->do_read_term)
+			fprintf(stderr, "Error: syntax error, parsing number2, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
+
+		p->error_desc = "number";
+		p->error = true;
+		return false;
+	}
+
+	if ((s[0] == '0') && (s[1] == '\'') && !((s[2] == '\\') && (s[3] == '\n'))
 		&& (!search_op(p->m, "", NULL, false) || ((s[2] == '\'') && (s[3] == '\'')))) {
+		if (!s[2] || (s[2] == '\n')) {
+			if (DUMP_ERRS || !p->do_read_term)
+				fprintf(stderr, "Error: syntax error, parsing number2, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
+
+			p->error_desc = "number";
+			p->error = true;
+			return false;
+		}
+
 		s += 2;
 		int v;
 
@@ -2588,7 +2611,11 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 				goto LOOP;
 			}
 
-			if (!*s || iscntrl(*s)) {
+			int save_ch = s[0];
+
+			v = get_escape(p, &s, &p->error, true);
+
+			if (!*s || iscntrl(*s) || (save_ch == '0')) {
 				if (DUMP_ERRS || !p->do_read_term)
 					fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, parsing number3, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
 
@@ -2597,7 +2624,6 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 				return false;
 			}
 
-			v = get_escape(p, &s, &p->error, true);
 		} else if ((*s == '\'') && s[1] == '\'') {
 			s++;
 			v = *s++;
@@ -2769,7 +2795,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 		if (DUMP_ERRS || !p->do_read_term)
 			fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, parsing number, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
 
-		p->error_desc = "number";
+		p->error_desc = "unexpected_char";
 		p->error = true;
 		return false;
 	}
@@ -3406,7 +3432,7 @@ static bool process_term(parser *p, cell *p1)
 	}
 
 	if (is_cstring(h)) {
-		pl_idx off = new_atom(p->m->pl, C_STR(p, h));
+		pl_idx off = new_atom(p->pl, C_STR(p, h));
 		if (off == ERR_IDX) {
 			p->error = true;
 			return false;
@@ -4092,7 +4118,7 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 			set_float(c, get_float(&p->v));
 		} else if (!p->is_string
 			&& (!p->is_quoted || is_func || p->is_op || p->is_var || p->is_consulting
-			|| (get_builtin(p->m->pl, SB_cstr(p->token), SB_strlen(p->token), 0, &found, NULL), found)
+			|| (get_builtin(p->pl, SB_cstr(p->token), SB_strlen(p->token), 0, &found, NULL), found)
 			|| !SB_strcmp(p->token, "[]"))
 			) {
 			if (is_func && !SB_strcmp(p->token, "."))
@@ -4101,7 +4127,7 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 			if (p->is_var)
 				c->tag = TAG_VAR;
 
-			c->val_off = new_atom(p->m->pl, SB_cstr(p->token));
+			c->val_off = new_atom(p->pl, SB_cstr(p->token));
 			ensure(c->val_off != ERR_IDX);
 		} else {
 			c->tag = TAG_CSTR;
@@ -4128,25 +4154,25 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 	return !p->error ? 1 : 0;
 }
 
-bool run(parser *p, const char *pSrc, bool dump, query **subq, unsigned int yield_time_in_ms)
+bool run(parser *p, const char *prolog_src, bool dump, query **subq, unsigned int yield_time_in_ms)
 {
-	if ((*pSrc == '.') && !pSrc[1]) {
+	if ((*prolog_src == '.') && !prolog_src[1]) {
 		fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, incomplete statement, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
 		return false;
 	}
 
-	SB(src);
+	SB(pr);
 
 	if (dump) {
-		SB_strcat(src, "true,");
+		SB_strcat(pr, "true,");
 	}
 
-	SB_sprintf(src, "%s", pSrc);
-	SB_trim_ws(src);
-	SB_trim(src, '.');
-	SB_strcat(src, ".");
+	SB_sprintf(pr, "%s", prolog_src);
+	SB_trim_ws(pr);
+	SB_trim(pr, '.');
+	SB_strcat(pr, ".");
 	p->in_body = true;
-	p->srcptr = SB_cstr(src);
+	p->srcptr = SB_cstr(pr);
 	bool ok;
 
 	while (p->srcptr && *p->srcptr) {
@@ -4158,7 +4184,7 @@ bool run(parser *p, const char *pSrc, bool dump, query **subq, unsigned int yiel
 		tokenize(p, false, false);
 
 		if (p->error) {
-			p->m->pl->error = p->error;
+			p->pl->error = p->error;
 			break;
 		}
 
@@ -4173,20 +4199,20 @@ bool run(parser *p, const char *pSrc, bool dump, query **subq, unsigned int yiel
 		if (p->error) {
 			p->pl->did_dump_vars = true;
 			p->srcptr = NULL;
-			p->m->pl->error = p->error;
-			SB_free(src);
+			p->pl->error = p->error;
+			SB_free(pr);
 			return false;
 		}
 
 		if (p->skip) {
-			p->m->pl->status = true;
+			p->pl->status = true;
 			p->srcptr = NULL;
-			SB_free(src);
+			SB_free(pr);
 			return true;
 		}
 
 		query *q = query_create(p->m);
-		check_heap_error(q, p->srcptr = NULL, SB_free(src));
+		check_heap_error(q, p->srcptr = NULL, SB_free(pr));
 
 		if (subq)
 			*subq = q;
@@ -4200,14 +4226,13 @@ bool run(parser *p, const char *pSrc, bool dump, query **subq, unsigned int yiel
 		execute(q, p->cl->cells, p->cl->num_vars);
 
 		if (q->halt) {
-			p->m->pl->halt = q->halt;
-			p->m->pl->halt_code = q->halt_code;
+			p->pl->halt = q->halt;
+			p->pl->halt_code = q->halt_code;
 		}
 
-		p->m->pl->status = q->status;
-		p->m->pl->error = q->error;
-		p->m->pl->is_redo = q->is_redo;
-
+		p->pl->status = q->status;
+		p->pl->error = q->error;
+		p->pl->is_redo = q->is_redo;
 		ok = !q->error;
 		p->m = q->st.m;
 
@@ -4231,6 +4256,6 @@ bool run(parser *p, const char *pSrc, bool dump, query **subq, unsigned int yiel
 	}
 
 	p->srcptr = NULL;
-	SB_free(src);
+	SB_free(pr);
 	return ok;
 }

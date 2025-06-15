@@ -214,7 +214,6 @@ static bool copy_vars(query *q, cell *c, bool copy_attrs, const cell *from, pl_i
 			q->tab_idx++;
 		}
 
-		c->flags |= FLAG_VAR_FRESH;
 		c->flags |= FLAG_VAR_ANON;
 		c->flags |= FLAG_VAR_LOCAL;
 		c->flags |= FLAG_VAR_VOID;
@@ -411,6 +410,7 @@ cell *copy_term_to_heap(query *q, cell *p1, pl_idx p1_ctx, bool copy_attrs)
 	return tmp2;
 }
 
+#if 0
 static cell *copy_term_to_heap_with_replacement(query *q, cell *p1, pl_idx p1_ctx, bool copy_attrs, cell *from, pl_idx from_ctx, cell *to, pl_idx to_ctx)
 {
 	if (!init_tmp_heap(q))
@@ -439,6 +439,7 @@ static cell *copy_term_to_heap_with_replacement(query *q, cell *p1, pl_idx p1_ct
 
 	return tmp2;
 }
+#endif
 
 void trim_heap(query *q)
 {

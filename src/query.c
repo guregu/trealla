@@ -305,7 +305,7 @@ const char *dump_id(const void *k, const void *v, const void *p)
 	return tmpbuf;
 }
 
-static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx l_ctx, bool allow_codes, bool *has_var, bool *is_partial)
+static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx l_ctx, bool allow_codes, bool *has_var, bool *is_partial, cell **cptr)
 {
 	*is_partial = *has_var = false;
 	size_t is_chars_list = 0;
@@ -372,7 +372,7 @@ static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx l_ctx, bool 
 		LIST_HANDLER(l2);
 
 		while (is_list(l2) && (q->st.m->flags.double_quote_chars || allow_codes)) {
-			cell *h = LIST_HEAD(l2);
+			LIST_HEAD(l2);
 			l2 = LIST_TAIL(l2);
 			RESTORE_VAR(l2, l2_ctx, l2, l2_ctx, q->vgen);
 		}
@@ -380,8 +380,8 @@ static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx l_ctx, bool 
 #endif
 
 	if (is_var(l)) {
-		is_chars_list = 0;
 		*has_var = *is_partial = true;
+		if (cptr) *cptr = l;
 	} else if (is_string(l))
 		;
 	else if (!is_interned(l) || !is_nil(l))
@@ -390,16 +390,16 @@ static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx l_ctx, bool 
 	return is_chars_list;
 }
 
-size_t scan_is_chars_list2(query *q, cell *l, pl_idx l_ctx, bool allow_codes, bool *has_var, bool *is_partial)
+size_t scan_is_chars_list2(query *q, cell *l, pl_idx l_ctx, bool allow_codes, bool *has_var, bool *is_partial, cell **cptr)
 {
 	if (++q->vgen == 0) q->vgen = 1;
-	return scan_is_chars_list_internal(q, l, l_ctx, allow_codes, has_var, is_partial);
+	return scan_is_chars_list_internal(q, l, l_ctx, allow_codes, has_var, is_partial, cptr);
 }
 
 size_t scan_is_chars_list(query *q, cell *l, pl_idx l_ctx, bool allow_codes)
 {
 	bool has_var, is_partial;
-	return scan_is_chars_list2(q, l, l_ctx, allow_codes, &has_var, &is_partial);
+	return scan_is_chars_list2(q, l, l_ctx, allow_codes, &has_var, &is_partial, NULL);
 }
 
 bool make_slice(query *q, cell *d, const cell *orig, size_t off, size_t n)
@@ -486,14 +486,14 @@ static void enter_predicate(query *q, predicate *pr)
 
 static void leave_predicate(query *q, predicate *pr)
 {
+	sl_done(q->st.iter);
+	q->st.iter = NULL;
+
 	if (!pr)
 		return;
 
 	if (!pr->is_dynamic || !pr->refcnt)
 		return;
-
-	sl_done(q->st.iter);
-	q->st.iter = NULL;
 
 	if (--pr->refcnt != 0)
 		return;
@@ -618,7 +618,7 @@ static void trim_frame(query *q, const frame *f)
 
 void undo_me(query *q)
 {
-	q->tot_retries++;
+	q->total_retries++;
 	const choice *ch = GET_CURR_CHOICE();
 
 	while (q->st.tp > ch->st.tp) {
@@ -639,7 +639,7 @@ void try_me(query *q, unsigned num_vars)
 	f->base = q->st.sp;
 	slot *e = GET_SLOT(f, 0);
 	memset(e, 0, sizeof(slot)*num_vars);
-	q->tot_matches++;
+	q->total_matches++;
 }
 
 static void push_frame(query *q)
@@ -680,7 +680,7 @@ static void reuse_frame(query *q, unsigned num_vars)
 	f->no_recov = false;
 	q->st.sp = f->base + f->actual_slots;
 	q->st.dbe->tcos++;
-	q->tot_tcos++;
+	q->total_tcos++;
 	q->st.hp = f->hp;
 	q->st.heap_num = f->heap_num;
 	trim_heap(q);
@@ -698,7 +698,7 @@ static bool commit_any_choices(const query *q, const frame *f)
 static void commit_frame(query *q)
 {
 	q->st.dbe->matched++;
-	q->tot_matched++;
+	q->total_matched++;
 
 	clause *cl = &q->st.dbe->cl;
 	frame *f = GET_CURR_FRAME();
@@ -711,15 +711,15 @@ static void commit_frame(query *q)
 
 #if 0
 	if (last_match) {
-		fprintf(stderr, "*** q->no_tco=%d, last_match=%d %s/%u, q->st.curr_frame=%u,q->st.fp=%u\n",
-			q->no_tco, last_match,
+		fprintf(stderr, "*** q->no_recov=%d, last_match=%d %s/%u, q->st.curr_frame=%u,q->st.fp=%u\n",
+			q->no_recov, last_match,
 			C_STR(q, q->st.key), q->st.key->arity,
 			q->st.curr_frame, q->st.fp
 			);
 	}
 #endif
 
-	if (!q->no_tco
+	if (!q->no_recov
 		&& last_match
 		&& (q->st.fp == (q->st.curr_frame + 1))		// At top of frame stack
 		) {
@@ -733,11 +733,11 @@ static void commit_frame(query *q)
 		cell *head = get_head(cl->cells);
 
 		fprintf(stderr,
-			"*** %s/%u tco=%d,q->no_tco=%d,last_match=%d,is_det=%d,"
+			"*** %s/%u tco=%d,q->no_recov=%d,last_match=%d,is_det=%d,"
 			"tail_call=%d/r%d,slots_ok=%d,choices=%d,"
 			"cl->num_vars=%u,f->initial_slots=%u/%u\n",
 			C_STR(q, head), head->arity,
-			tco, q->no_tco, last_match, is_det,
+			tco, q->no_recov, last_match, is_det,
 			tail_call, tail_recursive, slots_ok, choices,
 			cl->num_vars, f->initial_slots, f->actual_slots);
 #endif
@@ -1006,7 +1006,7 @@ static bool resume_frame(query *q)
 		&& (q->st.fp == (q->st.curr_frame + 1))
 		&& !resume_any_choices(q, f)
 		) {
-		q->tot_recovs++;
+		q->total_recovs++;
 		q->st.hp = f->hp;
 		q->st.heap_num = f->heap_num;
 		trim_heap(q);
@@ -1653,10 +1653,10 @@ bool start(query *q)
 		cell *save_cell = q->st.instr;
 		pl_idx save_ctx = q->st.curr_frame;
 		q->cycle_error = q->did_throw = false;
-		q->tot_goals++;
+		q->total_goals++;
 
 		if (is_builtin(q->st.instr)) {
-			q->tot_inferences++;
+			q->total_inferences++;
 			bool status;
 
 #if USE_FFI
@@ -1674,7 +1674,7 @@ bool start(query *q)
 				continue;
 			}
 
-			if (!(q->tot_goals % YIELD_INTERVAL)) {
+			if (!(q->total_goals % YIELD_INTERVAL)) {
 				q->s_cnt = 0;
 
 				if (!(q->s_cnt++ % 10000))
@@ -1696,7 +1696,7 @@ bool start(query *q)
 				if (q->yielded)
 					break;
 
-				q->tot_backtracks++;
+				q->total_backtracks++;
 				continue;
 			}
 
@@ -1709,19 +1709,19 @@ bool start(query *q)
 			if (!consultall(q, q->st.instr, q->st.curr_frame)) {
 				Trace(q, q->st.instr, q->st.curr_frame, FAIL);
 				q->retry = QUERY_RETRY;
-				q->tot_backtracks++;
+				q->total_backtracks++;
 				continue;
 			}
 
 			Trace(q, save_cell, save_ctx, EXIT);
 			proceed(q);
 		} else {
-			q->tot_inferences++;
+			q->total_inferences++;
 
 			if (!match_head(q)) {
 				Trace(q, q->st.instr, q->st.curr_frame, FAIL);
 				q->retry = QUERY_RETRY;
-				q->tot_backtracks++;
+				q->total_backtracks++;
 				continue;
 			}
 

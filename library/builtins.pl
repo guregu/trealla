@@ -1,5 +1,4 @@
 :- pragma(builtins, [once(true)]).
-:- use_module(library(iso_ext)).
 :- use_module(library(lists)).
 
 expand_term((H --> B), Out) :-
@@ -9,11 +8,11 @@ dcg_translate(TermIn, Term) :-
 	nonvar(TermIn),
 	dcg_rule(TermIn, Term).
 
-:- help(writeln(+term), [iso(false)]).
-:- help(writeln(+stream,+term), [iso(false)]).
+writeln(T) :- write(T), nl.				% SWI
+writeln(S, T) :- write(S, T), nl.		% SWI
 
-writeln(T) :- write(T), nl.
-writeln(S, T) :- write(S, T), nl.
+:- help(writeln(+term), [iso(false),deprecated(true)]).
+:- help(writeln(+stream,+term), [iso(false),deprecated(true)]).
 
 predicate_property(P, A) :-
 	nonvar(P), atom(A), !,
@@ -78,29 +77,6 @@ current_prolog_flag(P, A) :-
 	'$current_prolog_flag'(P, A).
 
 :- help(current_prolog_flag(+callable,+term), [iso(true)]).
-
-repeat_integer_(N) :-
-	N > 0.
-repeat_integer_(N0) :-
-	N0 > 0,
-	N1 is N0 - 1,
-	repeat_integer_(N1).
-
-repeat(N) :-
-	must_be(N, integer, repeat/1, _),
-	repeat_integer_(N).
-
-:- help(repeat(+integer), [iso(false)]).
-
-subsumes_term(G, S) :-
-	\+ \+ (
-	 term_variables(S, V1),
-	 G = S,
-	 term_variables(V1, V2),
-	 V2 == V1
-	).
-
-:- help(subsumes_term(+term,+term), [iso(true)]).
 
 argv(L) :- current_prolog_flag(argv, L).
 raw_argv(L) :- current_prolog_flag(raw_argv, L).
@@ -288,8 +264,6 @@ put(S,C) :- put_code(S, C).
 see(F) :- open(F, read, S), set_input(S).
 tell(F) :- open(F, write, S), set_output(S).
 append(F) :- open(F, append, S), set_output(S).
-file_exists(F) :- exists_file(F).
-directory_exists(F) :- exists_directory(F).
 
 :- help(get0(?integer), [iso(false),deprecated(true)]).
 :- help(get0(+stream,?integer), [iso(false),deprecated(true)]).
@@ -300,27 +274,9 @@ directory_exists(F) :- exists_directory(F).
 :- help(see(+filename), [iso(false),deprecated(true)]).
 :- help(tell(+filename), [iso(false),deprecated(true)]).
 :- help(append(+filename), [iso(false),deprecated(true)]).
-:- help(file_exists(+filename), [iso(false),deprecated(true)]).
-:- help(directory_exists(+filename), [iso(false),deprecated(true)]).
 
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-recorda(K, V) :- nonvar(K), nonvar(V), asserta('$record_global_key'(K,V)).
-recorda(K, V, R) :- nonvar(K), nonvar(V), asserta('$record_global_key'(K,V), R).
-recordz(K, V) :- nonvar(K), nonvar(V), assertz('$record_global_key'(K,V)).
-recordz(K, V, R) :- nonvar(K), nonvar(V), assertz('$record_global_key'(K,V), R).
-recorded(K, V) :- nonvar(K), '$record_global_key'(K,V).
-recorded(K, V, R) :- nonvar(K), clause('$record_global_key'(K,V), _, R).
-current_key(K) :- var(K), '$record_global_key'(K,_).
-
-:- help(recorda(+term,+term), [iso(false),deprecated(true)]).
-:- help(recorda(+term,+term,-ref), [iso(false),deprecated(true)]).
-:- help(recordz(+term,+term), [iso(false),deprecated(true)]).
-:- help(recordz(+term,+term,-ref), [iso(false),deprecated(true)]).
-:- help(recorded(+term,?term), [iso(false),deprecated(true)]).
-:- help(recorded(+term,?term,-ref), [iso(false),deprecated(true)]).
-:- help(current_key(-term), [iso(false),deprecated(true)]).
 
 '$portray_term'(S, T) :-
 	compound(T), !,

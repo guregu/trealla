@@ -100,7 +100,7 @@ static bool bif_clause_3(query *q)
 			break;
 
 		q->retry = QUERY_RETRY;
-		q->tot_backtracks++;
+		q->total_backtracks++;
 		retry_choice(q);
 	}
 
@@ -169,27 +169,11 @@ static bool bif_iso_clause_2(query *q)
 		}
 
 		q->retry = QUERY_RETRY;
-		q->tot_backtracks++;
+		q->total_backtracks++;
 		retry_choice(q);
 	}
 
 	return false;
-}
-
-static bool bif_sys_clause_2(query *q)
-{
-	q->access_private = true;
-	bool ok = bif_iso_clause_2(q);
-	q->access_private = false;
-	return ok;
-}
-
-static bool bif_sys_clause_3(query *q)
-{
-	q->access_private = true;
-	bool ok = bif_clause_3(q);
-	q->access_private = false;
-	return ok;
 }
 
 static void predicate_purge_dirty_list(predicate *pr)
@@ -283,7 +267,7 @@ static bool bif_iso_retractall_1(query *q)
 		}
 
 		q->retry = QUERY_RETRY;
-		q->tot_backtracks++;
+		q->total_backtracks++;
 		retry_choice(q);
 	}
 
@@ -895,6 +879,22 @@ static bool bif_instance_2(query *q)
 	return unify(q, p2, p2_ctx, r->cl.cells, q->st.curr_frame);
 }
 
+static bool bif_sys_clause_2(query *q)
+{
+	q->access_private = true;
+	bool ok = bif_iso_clause_2(q);
+	q->access_private = false;
+	return ok;
+}
+
+static bool bif_sys_clause_3(query *q)
+{
+	q->access_private = true;
+	bool ok = bif_clause_3(q);
+	q->access_private = false;
+	return ok;
+}
+
 static bool bif_sys_retract_on_backtrack_1(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
@@ -1086,7 +1086,6 @@ builtins g_database_bifs[] =
 	{"retractall", 1, bif_iso_retractall_1, "+term", true, false, BLAH},
 	{"clause", 2, bif_iso_clause_2, "+term,?term", true, false, BLAH},
 
-	{"assert", 1, bif_iso_assertz_1, "+term", false, false, BLAH},
 	{"asserta", 2, bif_asserta_2, "+term,-string", false, false, BLAH},
 	{"assertz", 2, bif_assertz_2, "+term,-string", false, false, BLAH},
 	{"erase", 1, bif_erase_1, "+string", false, false, BLAH},

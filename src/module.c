@@ -81,7 +81,6 @@ static const op_table g_ops[] =
 	{"rdiv", OP_YFX, 400},
 	{"rem", OP_YFX, 400},
 	{"mod", OP_YFX, 400},
-	{"xor", OP_YFX, 400},
 	{"<<", OP_YFX, 400},
 	{">>", OP_YFX, 400},
 	{"**", OP_XFX, 200},
@@ -372,7 +371,9 @@ predicate *create_predicate(module *m, cell *c, bool *created)
 
 	if (b = get_builtin_term(m, c, &found, &evaluable),
 		!evaluable && found && b->iso) {
-		fprintf(stderr, "Error: permission error modifying %s/%u\n", C_STR(m, c), c->arity);
+		if (m->p->is_consulting)
+			fprintf(stderr, "Error: permission error modifying %s/%u\n", C_STR(m, c), c->arity);
+
 		return NULL;
 	}
 
@@ -404,13 +405,14 @@ static void destroy_predicate(module *m, predicate *pr)
 {
 	sl_del(m->index, &pr->key);
 
-	for (db_entry *r = pr->head; r;) {
-		db_entry *save = r->next;
-		clear_clause(&r->cl);
-		free(r);
-		r = save;
+	while (pr->head) {
+		db_entry *tmp = pr->head;
+		pr->head = pr->head->next;
+		clear_clause(&tmp->cl);
+		free(tmp);
 	}
 
+	pr->head = pr->tail = NULL;
 	sl_destroy(pr->idx2);
 	sl_destroy(pr->idx);
 
@@ -488,7 +490,6 @@ void create_goal_expansion(module *m, cell *c)
 
 static int predicate_cmpkey(const void *ptr1, const void *ptr2, const void *param, void *l)
 {
-	const module *m = (const module*)param;
 	const cell *p1 = (const cell*)ptr1;
 	const cell *p2 = (const cell*)ptr2;
 
@@ -506,7 +507,6 @@ static int predicate_cmpkey(const void *ptr1, const void *ptr2, const void *para
 
 static int index_cmpkey_(const void *ptr1, const void *ptr2, const void *param, void *l)
 {
-	const module *m = (const module*)param;
 	cell *p1 = (cell*)ptr1;
 	cell *p2 = (cell*)ptr2;
 
@@ -1468,32 +1468,33 @@ unsigned get_op(module *m, const char *name, unsigned specifier)
 	return 0;
 }
 
-static bool check_not_multifile(module *m, predicate *pr, db_entry *dbe_orig)
+static bool check_not_multifile(module *m, predicate *pr, db_entry *r)
 {
 	if (pr->head
 		&& !pr->is_multifile && !pr->is_dynamic
 		&& (C_STR(m, &pr->key)[0] != '$')
 		) {
-		if ((dbe_orig->filename != pr->head->filename) || pr->is_reload) {
+		if ((r->filename != pr->head->filename) || pr->is_reload) {
 			if (pr->head->filename)
 				fprintf_to_stream(m->pl, WARN_FP, "Warning: overwriting '%s'/%u\n", C_STR(m, &pr->key), pr->key.arity);
 
 			while (pr->head) {
-				db_entry *r = pr->head;
-				pr->head = r->next;
-				clear_clause(&r->cl);
-				free(r);
+				db_entry *tmp = pr->head;
+				pr->head = pr->head->next;
+				clear_clause(&tmp->cl);
+				free(tmp);
 			}
 
-			sl_destroy(pr->idx2);
-			sl_destroy(pr->idx);
-			pr->idx2 = pr->idx = NULL;
 			pr->head = pr->tail = NULL;
 			pr->is_processed = false;
 			pr->is_reload = false;
 			pr->meta_args = NULL;
 			pr->alias = NULL;
 			pr->cnt = 0;
+			sl_destroy(pr->idx2);
+			sl_destroy(pr->idx);
+			pr->idx2 = pr->idx = NULL;
+			free(r);
 			return false;
 		}
 	}
@@ -1587,6 +1588,18 @@ static void process_cell(module *m, clause *cl, cell *c, predicate *parent, int 
 				c->flags |= FLAG_INTERNED_RECURSIVE_CALL;
 			}
 	}
+
+	bool any_vars = false;
+
+	for (unsigned i = 1; i < c->num_cells; i++) {
+		if (is_var(c+i)) {
+			any_vars = true;
+			break;
+		}
+	}
+
+	if (!any_vars && is_compound(c))
+		c->flags |= FLAG_INTERNED_GROUND;
 }
 
 void process_clause(module *m, clause *cl, predicate *parent)
@@ -1845,10 +1858,7 @@ static void assert_commit(module *m, db_entry *r, predicate *pr, bool append)
 		return;
 
 	if (!pr->idx) {
-		unsigned INDEX_THRESHHOLD =
-			(pr->is_dynamic && pr->is_multifile)
-			|| (*C_STR(m,&pr->key) == '$')
-			? 1500 : 500;
+		unsigned INDEX_THRESHHOLD = 500;
 
 		if (pr->cnt < INDEX_THRESHHOLD)
 			return;
@@ -1911,11 +1921,11 @@ db_entry *asserta_to_db(module *m, unsigned num_vars, cell *p1, bool consulting)
 			return NULL;
 
 		pr = r->owner;
-
-		if (pr->head)
-			pr->head->prev = r;
 	}
 	 while (!check_not_multifile(m, pr, r));
+
+	if (pr->head)
+		pr->head->prev = r;
 
 	r->next = pr->head;
 	pr->head = r;
@@ -1952,11 +1962,11 @@ db_entry *assertz_to_db(module *m, unsigned num_vars, cell *p1, bool consulting)
 			return NULL;
 
 		pr = r->owner;
-
-		if (pr->tail)
-			pr->tail->next = r;
 	}
 	 while (!check_not_multifile(m, pr, r));
+
+	if (pr->tail)
+		pr->tail->next = r;
 
 	r->prev = pr->tail;
 	pr->tail = r;
@@ -2027,9 +2037,9 @@ module *load_text(module *m, const char *src, const char *filename)
 
 	if (!p->error) {
 		process_db(p->m);
-		int save = p->m->pl->quiet;
-		//p->m->pl->quiet = true;
-		p->m->pl->halt = false;
+		int save = p->pl->quiet;
+		//p->pl->quiet = true;
+		p->pl->halt = false;
 		p->is_directive = true;
 
 		if (p->m->run_init) {
@@ -2039,14 +2049,14 @@ module *load_text(module *m, const char *src, const char *filename)
 			SB_sprintf(src, "forall(%s:retract(('$directive'(initialization(__G_)))), (once(__G_); format('Error: ~w~n', [__G_])))", p->m->name);
 
 			if (run(p, SB_cstr(src), false, NULL, 0))
-				p->m->pl->status = false;
+				p->pl->status = false;
 
 			SB_free(src);
 			p->m->run_init = false;
 		}
 
 		p->is_command = p->is_directive = false;
-		p->m->pl->quiet = save;
+		p->pl->quiet = save;
 	}
 
 	module *save_m = p->m;
@@ -2172,7 +2182,7 @@ module *load_fp(module *m, FILE *fp, const char *filename, bool including, bool 
 
 	if (!p->error && !p->already_loaded_error) {
 		process_db(p->m);
-		int save = p->m->pl->quiet;
+		int save = p->pl->quiet;
 		p->is_directive = true;
 
 		if (p->m->run_init && init) {
@@ -2182,14 +2192,14 @@ module *load_fp(module *m, FILE *fp, const char *filename, bool including, bool 
 			SB_sprintf(src, "forall(%s:retract(('$directive'(initialization(__G_)))), (once(__G_); format('Error: ~w~n', [__G_])))", p->m->name);
 
 			if (run(p, SB_cstr(src), false, NULL, 0))
-				p->m->pl->status = false;
+				p->pl->status = false;
 
 			SB_free(src);
 			p->m->run_init = false;
 		}
 
 		p->is_command = p->is_directive = false;
-		p->m->pl->quiet = save;
+		p->pl->quiet = save;
 	}
 
 	ok = !p->error;

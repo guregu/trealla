@@ -5,15 +5,13 @@
 		subtract/3, union/3, intersection/3, is_set/1,
 		nth1/3, nth0/3, nth1/4, nth0/4,
 		last/2, same_length/2, transpose/2,
-		sum_list/2, prod_list/2, max_list/2, min_list/2,	% SWI
-		list_sum/2, list_prod/2, list_max/2, list_min/2,	% Modern
-		list_to_conjunction/2, conjunction_to_list/2,
+		sum_list/2, max_list/2, min_list/2,	% SWI
+		list_sum/2, list_max/2, list_min/2,	% Modern
 		list_to_set/2, length/2, reverse/2,
-		exclude/3, include/3, permutation/2,
-		foldl/4, foldl/5, foldl/6, foldl/7,
-		maplist/2, maplist/3, maplist/4, maplist/5, maplist/6, maplist/7, maplist/8, maplist/9,
-		tasklist/2, tasklist/3, tasklist/4, tasklist/5, tasklist/6, tasklist/7, tasklist/8, tasklist/9,
-		flatten/2
+		exclude/3, include/3, permutation/2, flatten/2,
+		foldl/4, foldl/5, foldl/6,
+		maplist/2, maplist/3, maplist/4, maplist/5, maplist/6, maplist/7, maplist/8,
+		tasklist/2, tasklist/3, tasklist/4, tasklist/5, tasklist/6, tasklist/7, tasklist/8
 	]).
 
 reverse(Xs, Ys) :-
@@ -167,10 +165,10 @@ nth_aux(Element, [Head| Tail], Position0, Position, [Head| Rest]) :-
 	Position1 is Position0 + 1,
 	nth_aux(Element, Tail, Position1, Position, Rest).
 
-last([X|Xs], Last) :- last_(Xs, X, Last).
+last([H|T], Last) :- last_(T, H, Last).
 
 last_([], Last, Last).
-last_([X|Xs], _, Last) :- last_(Xs, X, Last).
+last_([H|T], _, Last) :- last_(T, H, Last).
 
 :- help(last(+list,-term), [iso(false)]).
 
@@ -187,27 +185,12 @@ sum_list(Xs, Sum) :-
 
 list_sum_([], Sum0, Sum) :-
 	Sum = Sum0.
-list_sum_([X|Xs], Sum0, Sum) :-
-	Sum1 is Sum0 + X,
-	list_sum_(Xs, Sum1, Sum).
+list_sum_([H|T], Sum0, Sum) :-
+	Sum1 is Sum0 + H,
+	list_sum_(T, Sum1, Sum).
 
 :- help(list_sum(+list,?integer), [iso(false), desc('Add all values of a list.')]).
 :- help(sum_list(+list,?integer), [iso(false), desc('Add all values of a list.')]).
-
-list_prod(Xs, Prod) :-
-	list_prod_(Xs, 1, Prod).
-
-prod_list(Xs, Prod) :-
-	list_prod_(Xs, 1, Prod).
-
-list_prod_([], Prod0, Prod) :-
-	Prod = Prod0.
-list_prod_([X|Xs], Prod0, Prod) :-
-	Prod1 is Prod0 * X,
-	list_prod_(Xs, Prod1, Prod).
-
-:- help(list_prod(+list,?integer), [iso(false), desc('Multiplay all values of a list.')]).
-:- help(prod_list(+list,?integer), [iso(false), desc('Multiplay all values of a list.')]).
 
 list_max([H|T], Max) :-
 	list_max_(T, H, Max).
@@ -242,25 +225,6 @@ list_min_([H|T], Min0, Min) :-
 
 :- help(list_min(+list,?integer), [iso(false), desc('Lowest value in list.')]).
 :- help(min_list(+list,?integer), [iso(false), desc('Lowest value in list.')]).
-
-list_to_conjunction(List0, T) :-
-	reverse(List0, List),
-	toconjunction_(List, true, T).
-
-toconjunction_([], In, In).
-toconjunction_([H|T], true, Out) :- !,
-	Out2 = H,
-	toconjunction_(T, Out2, Out).
-toconjunction_([H|T], In, Out) :-
-	Out2 = (H, In),
-	toconjunction_(T, Out2, Out).
-
-conjunction_to_list(T, List) :-
-	tolist_(T, List).
-
-tolist_((T1,T2), [T1|Rest]) :- !,
-	tolist_(T2, Rest).
-tolist_(T, [T|[]]).
 
 list_to_set(Ls0, Ls) :-
 		maplist(with_var, Ls0, LVs0),
@@ -390,18 +354,9 @@ foldl_([H1|T1], [H2|T2], [H3|T3], G, V0, V) :-
 	call(G, H1, H2, H3, V0, V1),
 	foldl_(T1, T2, T3, G, V1, V).
 
-foldl(G, L1, L2, L3, L4, V0, V) :-
-	foldl_(L1, L2, L3, L4, G, V0, V).
-
-foldl_([], [], [], [], _, V, V).
-foldl_([H1|T1], [H2|T2], [H3|T3], [H4|T4], G, V0, V) :-
-	call(G, H1, H2, H3, H4, V0, V1),
-	foldl_(T1, T2, T3, T4, G, V1, V).
-
 :- help(foldl(:callable,+list,+var,-var), [iso(false)]).
 :- help(foldl(:callable,+list,+list,+var,-var), [iso(false)]).
 :- help(foldl(:callable,+list,+list,+list,+var,-var), [iso(false)]).
-:- help(foldl(:callable,+list,+list,+list,+list,+var,-var), [iso(false)]).
 :- meta_predicate foldl(3, ?, ?, ?).
 :- meta_predicate foldl(4, ?, ?, ?, ?).
 :- meta_predicate foldl(5, ?, ?, ?, ?, ?).
@@ -521,7 +476,6 @@ maplist_([E1|T1], [E2|T2], [E3|T3], [E4|T4], [E5|T5], [E6|T6], [E7|T7], G) :-
 :- meta_predicate(maplist(5, ?, ?, ?, ?, ?)).
 :- meta_predicate(maplist(6, ?, ?, ?, ?, ?, ?)).
 :- meta_predicate(maplist(7, ?, ?, ?, ?, ?, ?, ?)).
-:- meta_predicate(maplist(8, ?, ?, ?, ?, ?, ?, ?, ?)).
 
 :- help(maplist(:callable,+list), [iso(false)]).
 :- help(maplist(:callable,+list,+list), [iso(false)]).

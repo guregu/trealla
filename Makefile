@@ -2,10 +2,10 @@ GIT_VERSION := "$(shell git describe --abbrev=4 --dirty --always --tags)"
 COMPILER_IS_GCC := $(shell $(CC) --version | grep -E -o 'g?cc')
 
 CFLAGS = -Isrc -I/usr/local/include -DVERSION='$(GIT_VERSION)' \
+	-funsigned-char \
 	-O3 $(OPT) -D_GNU_SOURCE \
 	-Wall -Wextra \
 	-Wno-unused-parameter \
-	-Wno-unused-function \
 	-Wno-unused-variable
 LDFLAGS = -L/usr/local/lib -lm
 
@@ -214,7 +214,7 @@ profile:
 	$(MAKE) 'OPT=$(OPT) -O0 -pg -DDEBUG'
 
 debug:
-	$(MAKE) 'OPT=$(OPT) -O0 -g -DDEBUG -fsanitize=address'
+	$(MAKE) 'OPT=$(OPT) -O0 -g3 -DDEBUG'
 
 release:
 	$(MAKE) 'OPT=$(OPT) -DNDEBUG'
@@ -354,7 +354,7 @@ src/bif_predicates.o: src/bif_predicates.c src/threads.h src/base64.h src/heap.h
  src/imath/imath.h src/imath/imrat.h src/imath/imath.h \
  src/skiplist.h src/list.h src/utf8.h src/history.h src/library.h \
  src/module.h src/parser.h src/prolog.h src/query.h src/builtins.h
-src/bif_sort.o: src/bif_sort.c src/sort_r.h src/threads.h src/base64.h src/heap.h \
+src/bif_sort.o: src/bif_sort.c src/threads.h src/base64.h src/heap.h \
  src/internal.h src/trealla.h src/cdebug.h src/stringbuf.h \
  src/imath/imath.h src/imath/imrat.h src/imath/imath.h \
  src/skiplist.h src/list.h src/utf8.h src/history.h src/library.h \

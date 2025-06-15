@@ -107,9 +107,7 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define is_strbuf(c) (is_cstr_blob(c) && !((c)->flags & FLAG_CSTR_SLICE))
 #define is_list(c) (is_iso_list(c) || is_string(c))
 #define is_nil(c) (is_interned(c) && !(c)->arity && ((c)->val_off == g_nil_s))
-#define is_fresh(c) ((c)->flags & FLAG_VAR_FRESH)
 #define is_anon(c) ((c)->flags & FLAG_VAR_ANON)
-#define is_ground(c) ((c)->flags & FLAG_INTERNED_GROUND)
 #define is_builtin(c) (is_interned(c) && (c)->flags & FLAG_INTERNED_BUILTIN)
 #define is_evaluable(c) (is_interned(c) && ((c)->flags & FLAG_INTERNED_EVALUABLE))
 #define is_tail_call(c) ((c)->flags & FLAG_INTERNED_TAIL_CALL)
@@ -118,6 +116,7 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define is_local(c) ((c)->flags & FLAG_VAR_LOCAL)
 #define is_void(c) ((c)->flags & FLAG_VAR_VOID)
 #define is_global(c) ((c)->flags & FLAG_VAR_GLOBAL)
+#define is_ground(c) ((c)->flags & FLAG_INTERNED_GROUND)
 #define is_ref(c) (is_var(c) && ((c)->flags & FLAG_VAR_REF))
 #define is_op(c) ((c)->flags & 0xE000) ? true : false
 #define is_callable(c) (is_interned(c) || (is_cstring(c) && !is_string(c)))
@@ -246,37 +245,36 @@ enum {
 };
 
 enum {
-	FLAG_INT_HANDLE=1<<0,				// used with TAG_INTEGER
-	FLAG_INT_STREAM=1<<1,				// used with TAG_INTEGER
-	FLAG_INT_THREAD=1<<2,				// used with TAG_INTEGER
-	FLAG_INT_MAP=1<<3,					// used with TAG_INTEGER
-	FLAG_INT_ALIAS=1<<4,				// used with TAG_INTEGER
-	FLAG_INT_BIG=1<<5,					// used with TAG_INTEGER
+	FLAG_INT_HANDLE=1<<0,
+	FLAG_INT_STREAM=1<<1,
+	FLAG_INT_THREAD=1<<2,
+	FLAG_INT_MAP=1<<3,
+	FLAG_INT_ALIAS=1<<4,
+	FLAG_INT_BIG=1<<5,
 
-	FLAG_CSTR_BLOB=1<<0,				// used with TAG_CSTR
-	FLAG_CSTR_SLICE=1<<1,				// used with TAG_CSTR
-	FLAG_CSTR_STRING=1<<2,				// used with TAG_CSTR	String of chars
-	FLAG_CSTR_CODES=1<<3,				// used with TAG_CSTR	String of codes
+	FLAG_CSTR_BLOB=1<<0,
+	FLAG_CSTR_SLICE=1<<1,
+	FLAG_CSTR_STRING=1<<2,				// string of chars
+	FLAG_CSTR_CODES=1<<3,				// string of codes
 
-	FLAG_VAR_ANON=1<<0,					// used with TAG_VAR
-	FLAG_VAR_FRESH=1<<1,				// used with TAG_VAR
-	FLAG_VAR_REF=1<<2,					// used with TAG_VAR
-	FLAG_VAR_CYCLIC=1<<3,				// used with TAG_VAR
-	FLAG_VAR_GLOBAL=1<<4,				// used with TAG_VAR
-	FLAG_VAR_TEMPORARY=1<<5,			// used with TAG_VAR
-	FLAG_VAR_LOCAL=1<<6,				// used with TAG_VAR
-	FLAG_VAR_VOID=1<<7,					// used with TAG_VAR
+	FLAG_VAR_ANON=1<<0,
+	FLAG_VAR_REF=1<<1,
+	FLAG_VAR_CYCLIC=1<<2,
+	FLAG_VAR_GLOBAL=1<<3,
+	FLAG_VAR_TEMPORARY=1<<4,
+	FLAG_VAR_LOCAL=1<<5,
+	FLAG_VAR_VOID=1<<6,
 
-	FLAG_HANDLE_DLL=1<<0,				// used with FLAG_HANDLE
-	FLAG_HANDLE_FUNC=1<<1,				// used with FLAG_HANDLE
+	FLAG_HANDLE_DLL=1<<0,
+	FLAG_HANDLE_FUNC=1<<1,
 
-	FLAG_BLOB_SREGEX=1<<0,				// used with TAG_BLOB
+	FLAG_BLOB_SREGEX=1<<0,
 
-	FLAG_INTERNED_GROUND=1<<0,
-	FLAG_INTERNED_TAIL_CALL=1<<1,
-	FLAG_INTERNED_RECURSIVE_CALL=1<<2,
-	FLAG_INTERNED_BUILTIN=1<<3,
-	FLAG_INTERNED_EVALUABLE=1<<4,
+	FLAG_INTERNED_TAIL_CALL=1<<0,
+	FLAG_INTERNED_RECURSIVE_CALL=1<<1,
+	FLAG_INTERNED_BUILTIN=1<<2,
+	FLAG_INTERNED_EVALUABLE=1<<3,
+	FLAG_INTERNED_GROUND=1<<4,
 
 	FLAG_MANAGED=1<<12,					// any ref-counted object
 	FLAG_END=1<<13						// DO NOT USE
@@ -505,6 +503,9 @@ struct trail_ {
 	bool is_local:1;
 };
 
+// Where *c* is the (possibly) instantiated cell in the current frame
+// Where *vgen* & *vgen2* represent the visit generation to check for cyclic terms
+
 struct slot_ {
 	cell c;
 	uint32_t vgen, vgen2;
@@ -685,8 +686,8 @@ struct query_ {
 	stringbuf sb_buf;
 	char tmpbuf[256];
 	bool ignores[MAX_IGNORES];
-	uint64_t tot_goals, tot_backtracks, tot_retries, tot_matches, tot_inferences;
-	uint64_t tot_tcos, tot_recovs, tot_matched;
+	uint64_t total_goals, total_backtracks, total_retries, total_matches, total_inferences;
+	uint64_t total_tcos, total_recovs, total_matched;
 	uint64_t step, qid, tmo_msecs, chgen, cycle_error;
 	uint64_t get_started, autofail_n, yield_at;
 	uint64_t cpu_started, time_cpu_last_started, future;
@@ -697,7 +698,7 @@ struct query_ {
 	pl_idx frames_size, slots_size, trails_size, choices_size;
 	pl_idx hw_choices, hw_frames, hw_slots, hw_trails, hw_heap_num;
 	pl_idx cp, before_hook_tp, qcnt[MAX_QUEUES], ball_ctx, cont_ctx;
-	pl_idx heap_size, tmph_size, tot_heaps, tot_heapsize;
+	pl_idx heap_size, tmph_size, total_heaps, total_heapsize;
 	pl_idx undo_lo_tp, undo_hi_tp;
 	pl_idx q_size[MAX_QUEUES], tmpq_size[MAX_QUEUES], qp[MAX_QUEUES];
 	prolog_flags flags;
@@ -722,7 +723,6 @@ struct query_ {
 	bool portray_vars:1;
 	bool status:1;
 	bool no_recov:1;
-	bool no_tco:1;
 	bool has_vars:1;
 	bool error:1;
 	bool did_throw:1;
@@ -753,8 +753,8 @@ struct query_ {
 	bool noderef:1;
 	bool double_quotes:1;
 	bool end_wait:1;
-	bool access_private:1;
 	bool did_unhandled_exception:1;
+	bool access_private:1;
 };
 
 struct parser_ {

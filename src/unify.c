@@ -66,11 +66,11 @@ static int compare_lists(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_
 	}
 
 #if USE_RATIONAL_TREES
-	if (any2) {
-		p1 = orig_p1;
-		p1_ctx = orig_p1_ctx;
-		p2 = orig_p2;
-		p2_ctx = orig_p2_ctx;
+	if (any2 && q->is_cyclic1 && q->is_cyclic2) {
+		cell *p1 = orig_p1;
+		pl_idx p1_ctx = orig_p1_ctx;
+		cell *p2 = orig_p2;
+		pl_idx p2_ctx = orig_p2_ctx;
 		unsigned cnt = 0;
 
 		while (is_iso_list(p1) && is_iso_list(p2)) {
@@ -331,17 +331,17 @@ static void set_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx
 		make_ref(&e->c, v->var_num, v_ctx);
 
 		if ((c_ctx == q->st.fp)
-			//&& (v_ctx == q->st.fp)
+			//&& (v_ctx >= q->st.curr_frame)
 			&& !is_temporary(c) && !is_void(c)
 			) {
-			q->no_tco = true;
 			q->no_recov = true;
 		}
 	} else if (is_compound(v)) {
 		make_indirect(&e->c, v, v_ctx);
 
-		if ((v_ctx >= q->st.curr_frame) && !is_ground(v)) {
-			q->no_tco = true;
+		if ((v_ctx >= q->st.curr_frame)
+			//&& !is_ground(v)
+			){
 			q->no_recov = true;
 		}
 	} else {
@@ -539,11 +539,11 @@ static bool unify_lists(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_c
 	}
 
 #if USE_RATIONAL_TREES
-	if (any2) {
-		p1 = orig_p1;
-		p1_ctx = orig_p1_ctx;
-		p2 = orig_p2;
-		p2_ctx = orig_p2_ctx;
+	if (any2 && q->is_cyclic1 && q->is_cyclic2) {
+		cell *p1 = orig_p1;
+		pl_idx p1_ctx = orig_p1_ctx;
+		cell *p2 = orig_p2;
+		pl_idx p2_ctx = orig_p2_ctx;
 		unsigned cnt = 0;
 
 		while (is_iso_list(p1) && is_iso_list(p2)) {
@@ -736,7 +736,7 @@ static bool unify_internal(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p
 bool unify(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_ctx)
 {
 	q->is_cyclic1 = q->is_cyclic2 = false;
-	q->has_vars = q->no_tco = q->no_recov = false;
+	q->has_vars = q->no_recov = false;
 	q->before_hook_tp = q->st.tp;
 	if (++q->vgen == 0) q->vgen = 1;
 	bool ok = unify_internal(q, p1, p1_ctx, p2, p2_ctx, 0);

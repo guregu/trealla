@@ -3,8 +3,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/time.h>
-#include <sys/stat.h>
 
 #include "base64.h"
 #include "module.h"
@@ -18,25 +16,8 @@
 #include "openssl/hmac.h"
 #endif
 
-#ifdef __wasi__
+#if __wasi__
 #include "wasi.h"
-#endif
-
-#ifdef _WIN32
-#include <windows.h>
-#define unsetenv(p1)
-#define setenv(p1,p2,p3) _putenv_s(p1,p2)
-#define msleep Sleep
-#define localtime_r(p1,p2) localtime(p1)
-#else
-#include <unistd.h>
-static void msleep(int ms)
-{
-	struct timespec tv = {0};
-	tv.tv_sec = (ms) / 1000;
-	tv.tv_nsec = ((ms) % 1000) * 1000 * 1000;
-	nanosleep(&tv, &tv);
-}
 #endif
 
 static pl_idx queue_used(const query *q) { return q->qp[0]; }
@@ -56,12 +37,11 @@ static bool bif_iso_findall_3(query *q)
 		if (is_iso_list(p3) && !check_list(q, p3, p3_ctx, &is_partial, NULL) && !is_partial)
 			return throw_error(q, p3, p3_ctx, "type_error", "list");
 
-		if (is_compound(p1) && (!is_iso_list(p1))) {	// Why?
-			if (create_vars(q, 16) < 0)
-				return throw_error(q, p3, p3_ctx, "resource_error", "stack");
-		}
+		check_heap_error(init_tmp_heap(q));
+		cell *tmp2 = clone_term_to_tmp(q, p2, p2_ctx);
+		check_heap_error(tmp2);
 
-		if (check_body_callable(p2))
+		if (check_body_callable(tmp2))
 			return throw_error(q, p2, p2_ctx, "type_error", "callable");
 
 		grab_queuen(q);
@@ -69,11 +49,11 @@ static bool bif_iso_findall_3(query *q)
 		if (q->st.qnum == MAX_QUEUES)
 			return throw_error(q, p2, p2_ctx, "resource_error", "max_queues");
 
-		cell *tmp = prepare_call(q, CALL_NOSKIP, p2, p2_ctx, 1+p1->num_cells+2);
+		cell *tmp = prepare_call(q, CALL_NOSKIP, tmp2, p2_ctx, 1+p1->num_cells+2);
 		check_heap_error(tmp, drop_queuen(q));
-		pl_idx num_cells = p2->num_cells;
+		pl_idx num_cells = tmp2->num_cells;
 		make_instr(tmp+num_cells++, g_sys_queue_s, bif_sys_queue_1, 1, p1->num_cells);
-		num_cells += copy_cells_by_ref(tmp+num_cells, p1, p1_ctx, p1->num_cells);
+		num_cells += dup_cells_by_ref(tmp+num_cells, p1, p1_ctx, p1->num_cells);
 		make_instr(tmp+num_cells++, g_fail_s, bif_iso_fail_0, 0, 0);
 		make_call(q, tmp+num_cells);
 		check_heap_error(push_barrier(q), drop_queuen(q));
@@ -265,7 +245,7 @@ static bool bif_iso_nonvar_1(query *q)
 static bool bif_iso_ground_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
-	return !has_vars(q, p1, p1_ctx);
+	return is_ground(p1) || !has_vars(q, p1, p1_ctx);
 }
 
 static bool bif_iso_callable_1(query *q)
@@ -575,7 +555,7 @@ static bool bif_iso_number_chars_2(query *q)
 			return ok;
 		}
 
-		if (!is_number(&p->v) || *p->srcptr) {
+		if (!is_number(&p->v) || *p->srcptr || p->error) {
 			p->srcptr = NULL;
 			SB_free(pr);
 			return throw_error(q, orig_p2, p2_ctx, "syntax_error", p->error&&p->error_desc?p->error_desc:"number");
@@ -925,6 +905,7 @@ static bool bif_hex_bytes_2(query *q)
 			cell tmp;
 			make_cstring(&tmp, tmpbuf);
 			unify(q, h11, h11_ctx, &tmp, q->st.curr_frame);
+			unshare_cell(&tmp);
 
 			unsigned n2 = n & 0xF;
 			if (n2 < 10) ch = '0' + n2;
@@ -932,9 +913,12 @@ static bool bif_hex_bytes_2(query *q)
 			put_char_utf8(tmpbuf, ch);
 			make_cstring(&tmp, tmpbuf);
 
-			if (!unify(q, h12, h12_ctx, &tmp, q->st.curr_frame))
+			if (!unify(q, h12, h12_ctx, &tmp, q->st.curr_frame)) {
+				unshare_cell(&tmp);
 				return false;
+			}
 
+			unshare_cell(&tmp);
 			p1 = LIST_TAIL(p1);
 			p1 = deref(q, p1, p1_ctx);
 			p1_ctx = q->latest_ctx;
@@ -1127,7 +1111,7 @@ static bool bif_iso_number_codes_2(query *q)
 			return ok;
 		}
 
-		if (!is_number(&p->v) || *p->srcptr) {
+		if (!is_number(&p->v) || *p->srcptr || p->error) {
 			p->srcptr = NULL;
 			SB_free(pr);
 			return throw_error(q, orig_p2, p2_ctx, "syntax_error", p->error?p->error_desc:"number");
@@ -1148,20 +1132,13 @@ static bool bif_iso_number_codes_2(query *q)
 	print_term_to_buf(q, p1, p1_ctx, 1, 0);
 	q->ignore_ops = false;
 	q->quoted = 0;
-	const char *src = SB_cstr(q->sb);
 	cell tmp;
-	make_int(&tmp, *src);
-	allocate_list(q, &tmp);
-
-	while (*++src) {
-		make_int(&tmp, *src);
-		append_list(q, &tmp);
-	}
-
-	cell *l = end_list(q);
-	check_heap_error(l);
+	make_string(&tmp, SB_cstr(q->sb));
+	tmp.flags |= FLAG_CSTR_CODES;
 	SB_free(q->sb);
-	return unify(q, p2, p2_ctx, l, q->st.curr_frame);
+	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
+	unshare_cell(&tmp);
+	return ok;
 }
 
 static bool do_sub_atom(query *q, cell *p1, cell *p2, pl_idx p2_ctx, cell *p3, pl_idx p3_ctx, cell *p4, pl_idx p4_ctx, cell *p5)
@@ -1342,6 +1319,30 @@ static bool bif_iso_sub_atom_5(query *q)
 	return bif_iso_sub_string_5(q);
 }
 
+// NOTE: this just handles the mode(S,S,+) case...
+
+static bool do_atom_concat_equal_3(query *q)
+{
+	GET_FIRST_ARG(p1,var);
+	GET_NEXT_ARG(p2,var);
+	GET_NEXT_ARG(p3,atom);
+
+	if (C_STRLEN_UTF8(p3) & 1)
+		return false;
+
+	size_t len3 = C_STRLEN(q, p3);
+	cell tmp;
+	check_heap_error(make_slice(q, &tmp, p3, 0, len3/2));
+
+	if (!unify(q, p1, p1_ctx, &tmp, q->st.curr_frame))
+		return false;
+
+	if (!unify(q, p2, p2_ctx, &tmp, q->st.curr_frame))
+		return false;
+
+	return true;
+}
+
 // NOTE: this just handles the mode(-,-,+) case...
 
 static bool do_atom_concat_3(query *q)
@@ -1350,10 +1351,18 @@ static bool do_atom_concat_3(query *q)
 		GET_FIRST_ARG(p1,var);
 		GET_NEXT_ARG(p2,var);
 		GET_NEXT_ARG(p3,atom);
+
+		if ((p1->var_ctx == p2->var_ctx) && (p1->var_num == p2->var_num))
+			return do_atom_concat_equal_3(q);
+
 		cell tmp;
 		make_atom(&tmp, g_empty_s);
-		unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
-		unify(q, p2, p2_ctx, p3, q->st.curr_frame);
+
+		if (!unify(q, p1, p1_ctx, &tmp, q->st.curr_frame))
+			return false;
+
+		if (!unify(q, p2, p2_ctx, p3, q->st.curr_frame))
+			return false;
 
 		if (C_STRLEN(q, p3))
 			check_heap_error(push_choice(q));
@@ -1892,10 +1901,7 @@ static bool bif_sys_duplicate_term_3(query *q)
 	GET_NEXT_ARG(p3,integer);
 	bool copy_attrs = get_smalluint(p3);
 
-	if (is_atomic(p1) || is_ground(p1))
-		return unify(q, p1, p1_ctx, p2, p2_ctx);
-
-	if (is_atomic(p2) || is_ground(p2))
+	if (is_atomic(p1) || is_atomic(p2))
 		return unify(q, p1, p1_ctx, p2, p2_ctx);
 
 	// You are not expected to understand this: basically we have
@@ -1976,7 +1982,7 @@ static bool bif_iso_functor_3(query *q)
 			tmp[i].num_cells = 1;
 			tmp[i].var_num = var_num++;
 			tmp[i].var_ctx = q->st.curr_frame;
-			tmp[i].flags = FLAG_VAR_REF | FLAG_VAR_FRESH | FLAG_VAR_ANON;
+			tmp[i].flags = FLAG_VAR_REF | FLAG_VAR_ANON;
 		}
 
 		bool status;
@@ -2747,6 +2753,7 @@ static bool bif_help_0(query *q)
 			fprintf(stdout, "%s/%u: %s%s%s\n", fn->name, fn->arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 	}
 
+	sl_done(iter);
 	return true;
 }
 
@@ -2857,6 +2864,7 @@ static bool bif_help_1(query *q)
 				fprintf(stdout, "%% %s/%u: %s%s%s\n", fn->name, fn->arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 		}
 
+		sl_done(iter);
 		return true;
 	}
 
@@ -2922,6 +2930,7 @@ static bool bif_help_2(query *q)
 				fprintf(stdout, "%% %s/%u: %s%s%s\n", fn->name, fn->arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 		}
 
+		sl_done(iter);
 		return true;
 	}
 
@@ -2985,6 +2994,7 @@ static bool bif_module_help_1(query *q)
 			fprintf(stdout, "%% %s/%u: %s%s%s\n", fn->name, fn->arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 	}
 
+	sl_done(iter);
 	return true;
 }
 
@@ -3016,6 +3026,7 @@ static bool bif_module_help_2(query *q)
 				fprintf(stdout, "%% %s/%u: %s%s%s\n", fn->name, fn->arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 		}
 
+		sl_done(iter);
 		return true;
 	}
 
@@ -3084,6 +3095,7 @@ static bool bif_module_help_3(query *q)
 				fprintf(stdout, "%% %s/%u: %s%s%s\n", fn->name, fn->arity, fn->name, fn->iso?" [ISO]":"", fn->evaluable?" [EVALUABLE]":"");
 		}
 
+		sl_done(iter);
 		return true;
 	}
 
@@ -3209,12 +3221,12 @@ bool bif_statistics_0(query *q)
 		"TCOs:%"PRIu64", "
 		"Frame recovs:%"PRIu64", "
 		"Queue: %u\n",
-		q->tot_inferences, q->tot_matches, q->tot_matched,
+		q->total_inferences, q->total_matches, q->total_matched,
 		q->hw_frames, q->hw_choices, q->hw_trails, q->hw_slots,
 		q->hw_heap_num,
 		q->st.fp, q->cp, q->st.tp, q->st.sp,
 		q->st.heap_num,
-		q->tot_backtracks, q->tot_retries, q->tot_tcos, q->tot_recovs,
+		q->total_backtracks, q->total_retries, q->total_tcos, q->total_recovs,
 		(unsigned)q->qcnt[q->st.qnum]
 		);
 	return true;
@@ -3309,7 +3321,6 @@ static bool bif_split_string_4(query *q)
 	int pad = peek_char_utf8(C_STR(q, p3));
 	const char *start = src, *ptr;
 	cell *l = NULL;
-	int num = 1;
 
 	if (!*start)
 		return unify(q, p4, p4_ctx, make_nil(), q->st.curr_frame);
@@ -3407,7 +3418,7 @@ static bool bif_sys_is_partial_string_1(query *q)
 		return false;
 
 	bool has_var, is_partial;
-	scan_is_chars_list2(q, p1, p1_ctx, true, &has_var, &is_partial);
+	scan_is_chars_list2(q, p1, p1_ctx, true, &has_var, &is_partial, NULL);
 	return is_partial;
 }
 
@@ -4400,7 +4411,6 @@ static bool bif_hex_chars_2(query *q)
 	}
 
 	char *src = DUP_STRING(q, p2);
-	const char *s = src;
 	mpz_t v2;
 	mp_int_init(&v2);
 	mp_int_read_cstring(&v2, 16, (char*)src, NULL);
@@ -4455,7 +4465,6 @@ static bool bif_octal_chars_2(query *q)
 	}
 
 	char *src = DUP_STRING(q, p2);
-	const char *s = src;
 	mpz_t v2;
 	mp_int_init(&v2);
 	mp_int_read_cstring(&v2, 8, (char*)src, NULL);
@@ -4901,7 +4910,9 @@ static bool bif_char_type_2(query *q)
 		put_char_utf8(tmpbuf, tolower(ch));
 		cell tmp;
 		make_string(&tmp, tmpbuf);
-		return unify(q, arg21, arg21_ctx, &tmp, q->st.curr_frame);
+		bool ok = unify(q, arg21, arg21_ctx, &tmp, q->st.curr_frame);
+		unshare_cell(&tmp);
+		return ok;
 	} else if (!CMP_STRING_TO_CSTR(q, p2, "upper") && p2->arity) {
 		cell *arg21 = deref(q, p2+1, p2_ctx);
 		pl_idx arg21_ctx = q->latest_ctx;
@@ -4909,13 +4920,25 @@ static bool bif_char_type_2(query *q)
 		put_char_utf8(tmpbuf, toupper(ch));
 		cell tmp;
 		make_string(&tmp, tmpbuf);
-		return unify(q, arg21, arg21_ctx, &tmp, q->st.curr_frame);
+		bool ok = unify(q, arg21, arg21_ctx, &tmp, q->st.curr_frame);
+		unshare_cell(&tmp);
+		return ok;
 	} else if (!CMP_STRING_TO_CSTR(q, p2, "graphic"))
-		return iswgraph(ch) && !iswalnum(ch);
-	else if (!CMP_STRING_TO_CSTR(q, p2, "graphic_token"))	// ???
-		return iswgraph(ch) && !iswalnum(ch);
-	else if (!CMP_STRING_TO_CSTR(q, p2, "ascii_graphic"))	// ???
-		return iswgraph(ch) && iswalnum(ch) && (ch < 128);
+		return (ch == '#') || (ch == '$') || (ch == '&')
+		|| (ch == '*') || (ch == '+') || (ch == '-')
+		|| (ch == '.') || (ch == '/') || (ch == ':')
+		|| (ch == '<') || (ch == '=') || (ch == '>')
+		|| (ch == '?') || (ch == '@') || (ch == '^')
+		|| (ch == '~');
+	else if (!CMP_STRING_TO_CSTR(q, p2, "graphic_token"))
+		return (ch == '#') || (ch == '$') || (ch == '&')
+		|| (ch == '*') || (ch == '+') || (ch == '-')
+		|| (ch == '.') || (ch == '/') || (ch == ':')
+		|| (ch == '<') || (ch == '=') || (ch == '>')
+		|| (ch == '?') || (ch == '@') || (ch == '^')
+		|| (ch == '~');
+	else if (!CMP_STRING_TO_CSTR(q, p2, "ascii_graphic"))
+		return iswgraph(ch) && (ch < 128);
 	else if (!CMP_STRING_TO_CSTR(q, p2, "ascii"))
 		return ch < 128;
 	else if (!CMP_STRING_TO_CSTR(q, p2, "ascii_punctuation"))
@@ -5074,13 +5097,15 @@ static bool bif_call_nth_2(query *q)
 		return throw_error(q, p2, p2_ctx, "domain_error", "not_less_than_zero");
 
 	if (is_var(p2)) {
-		cell *tmp = prepare_call(q, CALL_NOSKIP, p1, p1_ctx, 4);
+		cell *tmp = prepare_call(q, CALL_NOSKIP, p1, p1_ctx, 6);
 		pl_idx num_cells = p1->num_cells;
 		make_instr(tmp+num_cells++, g_sys_incr_s, bif_sys_incr_2, 2, 2);
 		GET_RAW_ARG(2,p2_raw);
 		tmp[num_cells] = *p2_raw;
 		tmp[num_cells++].num_cells = 1;
 		make_int(tmp+num_cells++, 0);
+		make_instr(tmp+num_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
+		make_uint(tmp+num_cells++, q->cp);
 		make_call(q, tmp+num_cells);
 		check_heap_error(push_fail_on_retry_with_barrier(q));
 		q->st.instr = tmp;
@@ -5166,11 +5191,13 @@ static bool bif_numlist_3(query *q)
 		cell tmp;
 		make_int(&tmp,  from++);
 		cell *l = append_list(q, &tmp);
-		if (!l) return false;
+		check_heap_error(l);
+		l->flags |= FLAG_INTERNED_GROUND;
 	}
 
 	cell *l = end_list(q);
 	check_heap_error(l);
+	l->flags |= FLAG_INTERNED_GROUND;
 	return unify(q, p3, p3_ctx, l, q->st.curr_frame);
 }
 
@@ -5412,7 +5439,9 @@ static bool bif_sys_det_length_rundown_2(query *q)
 		l->arity = 2;
 		l->flags = 0;
 		l++;
-		make_ref(l++, var_num++, q->st.curr_frame);
+		make_var(l, g_anon_s, var_num++);
+		l->flags |= FLAG_VAR_ANON | FLAG_VAR_VOID;
+		l++;
 	}
 
 	make_atom(l, g_nil_s);
@@ -5537,9 +5566,6 @@ static bool do_dump_term(query *q, cell *p1, pl_idx p1_ctx, bool deref, int dept
 		else if (is_var(tmp))
 			printf(", slot=%u, %s", tmp->var_num, C_STR(q, tmp));
 
-		if (is_interned(tmp) && tmp->arity)
-			printf(", ground=%d", is_ground(tmp)?1:0);
-
 		if (is_var(tmp) && deref) {
 			const frame *f = GET_FRAME(is_ref(tmp)?tmp->var_ctx:p1_ctx);
 			slot *e = GET_SLOT(f, tmp->var_num);
@@ -5554,7 +5580,7 @@ static bool do_dump_term(query *q, cell *p1, pl_idx p1_ctx, bool deref, int dept
 		printf("\n");
 	}
 
-	if (!depth) printf("Ground=%d, no_tco=%d\n", is_ground(p1)?1:0, q->no_tco?1:0);
+	if (!depth) printf("no_recov=%d\n", q->no_recov?1:0);
 	return true;
 }
 
@@ -5596,7 +5622,9 @@ static bool bif_sys_integer_in_radix_3(query *q)
 		make_string(&tmp, tmpbuf);
 	}
 
-	return unify(q, p3, p3_ctx, &tmp, q->st.curr_frame);
+	bool ok = unify(q, p3, p3_ctx, &tmp, q->st.curr_frame);
+	unshare_cell(&tmp);
+	return ok;
 }
 
 static bool bif_abort_0(query *q)
@@ -6312,6 +6340,7 @@ static void load_ops(query *q)
 		free(dst2);
 	}
 
+	sl_done(iter);
 	parser *p = parser_create(q->pl->user_m);
 	p->srcptr = SB_cstr(pr);
 	p->is_consulting = true;
