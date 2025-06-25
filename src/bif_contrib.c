@@ -82,7 +82,7 @@ static bool fn_sys_wasi_kv_get_3(query *q)
 	check_kv_error(p1, ret);
 
 	cell tmp;
-	check_heap_error(make_stringn(&tmp, (const char*)ret.val.ok.ptr, ret.val.ok.len));
+	check_memory(make_stringn(&tmp, (const char*)ret.val.ok.ptr, ret.val.ok.len));
 	return unify(q, p3, p3_ctx, &tmp, q->st.curr_frame);
 }
 
@@ -101,7 +101,7 @@ static bool fn_sys_wasi_kv_get_keys_2(query *q)
 		key_value_string_t key = ret.val.ok.ptr[i];
 		
 		cell tmp;
-		check_heap_error(make_stringn(&tmp, key.ptr, key.len));
+		check_memory(make_stringn(&tmp, key.ptr, key.len));
 
 		if (i == 0)
 			allocate_list(q, &tmp);
@@ -110,7 +110,7 @@ static bool fn_sys_wasi_kv_get_keys_2(query *q)
 	}
 
 	cell *l = end_list(q);
-	check_heap_error(l);
+	check_memory(l);
 	return unify(q, p2, p2_ctx, l, q->st.curr_frame);
 }
 
@@ -465,7 +465,7 @@ static bool fn_sys_outbound_pg_query_5(query *q)
 			outbound_pg_row_t row = ret.val.ok.rows.ptr[i];
 			cell *tmp;
 			tmp = alloc_on_heap(q, 1 + row.len*2);
-			check_heap_error(tmp);
+			check_memory(tmp);
 			pl_idx nbr_cells = 0;
 			make_instr(tmp+nbr_cells++, row_idx, NULL, row.len, row.len*2);
 			for (size_t i = 0; i < row.len; i++) {
@@ -536,7 +536,7 @@ static bool fn_sys_outbound_pg_query_5(query *q)
 				append_list(q, tmp);
 		}
 		rows = end_list(q);
-		check_heap_error(rows);
+		check_memory(rows);
 	}
 
 	// Column info.
@@ -545,7 +545,7 @@ static bool fn_sys_outbound_pg_query_5(query *q)
 		outbound_pg_column_t col = ret.val.ok.columns.ptr[i];
 		
 		cell *tmp = alloc_on_heap(q, 3);
-		check_heap_error(tmp);
+		check_memory(tmp);
 		pl_idx type_idx = 0;
 		pl_idx nbr_cells = 0;
 		make_instr(tmp+nbr_cells++, g_minus_s, NULL, 2, 2);
@@ -608,7 +608,7 @@ static bool fn_sys_outbound_pg_query_5(query *q)
 	cell tmpc;
 	if (has_cols) {
 		cols = end_list(q);
-		check_heap_error(cols);
+		check_memory(cols);
 	} else {
 		make_atom(&tmpc, g_nil_s);
 		cols = &tmpc;
@@ -789,7 +789,7 @@ static bool fn_sys_sqlite_query_5(query *q)
 			sqlite_list_value_t row = ret.val.ok.rows.ptr[i].values;
 			cell *tmp;
 			tmp = alloc_on_heap(q, 1 + row.len*2);
-			check_heap_error(tmp);
+			check_memory(tmp);
 			pl_idx nbr_cells = 0;
 			make_instr(tmp+nbr_cells++, row_idx, NULL, row.len, row.len*2);
 			for (size_t i = 0; i < row.len; i++) {
@@ -824,7 +824,7 @@ static bool fn_sys_sqlite_query_5(query *q)
 				append_list(q, tmp);
 		}
 		rows = end_list(q);
-		check_heap_error(rows);
+		check_memory(rows);
 	}
 
 	// Column info.
@@ -832,7 +832,7 @@ static bool fn_sys_sqlite_query_5(query *q)
 		sqlite_string_t col = ret.val.ok.columns.ptr[i];
 
 		cell tmp;
-		check_heap_error(make_stringn(&tmp, col.ptr, col.len));
+		check_memory(make_stringn(&tmp, col.ptr, col.len));
 
 		if (i == 0)
 			allocate_list(q, &tmp);
@@ -844,7 +844,7 @@ static bool fn_sys_sqlite_query_5(query *q)
 	cell tmpc;
 	if (ret.val.ok.columns.len) {
 		cols = end_list(q);
-		check_heap_error(cols);
+		check_memory(cols);
 	} else {
 		make_atom(&tmpc, g_nil_s);
 		cols = &tmpc;

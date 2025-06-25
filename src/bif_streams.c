@@ -7209,7 +7209,7 @@ static bool fn_sys_memory_stream_to_chars_2(query *q)
 	const char *src = SB_cstr(str->sb);
 	size_t len = SB_strlen(str->sb);
 	cell tmp;
-	check_heap_error(make_stringn(&tmp, src, len));
+	check_memory(make_stringn(&tmp, src, len));
 	// str->is_memory = false;
 	SB_free(str->sb);
 	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);

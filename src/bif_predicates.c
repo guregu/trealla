@@ -4182,9 +4182,9 @@ static bool do_urlencode_2(query *q)
 	cell tmp;
 
 	if (!is_list(p1))
-		check_heap_error(make_cstring(&tmp, dstbuf), free(dstbuf));
+		check_memory(make_cstring(&tmp, dstbuf), free(dstbuf));
 	else
-		check_heap_error(make_string(&tmp, dstbuf), free(dstbuf));
+		check_memory(make_string(&tmp, dstbuf), free(dstbuf));
 
 	free(dstbuf);
 	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
@@ -4204,9 +4204,9 @@ static bool do_urldecode_2(query *q)
 	cell tmp;
 
 	if (!is_list(p2))
-		check_heap_error(make_cstring(&tmp, dstbuf), free(dstbuf));
+		check_memory(make_cstring(&tmp, dstbuf), free(dstbuf));
 	else
-		check_heap_error(make_string(&tmp, dstbuf), free(dstbuf));
+		check_memory(make_string(&tmp, dstbuf), free(dstbuf));
 
 	free(dstbuf);
 	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
@@ -5703,7 +5703,7 @@ static bool fn_sys_host_call_2(query *q) {
 	}
 
 	cell tmp;
-	check_heap_error(make_stringn(&tmp, reply, reply_len), free(reply));
+	check_memory(make_stringn(&tmp, reply, reply_len), free(reply));
 	free(reply);
 	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 	unshare_cell(&tmp);
@@ -5725,7 +5725,7 @@ static bool fn_sys_host_resume_1(query *q) {
 	// Need to yield after a redo so the host has a chance to re-evaluate the RPC
 	if (q->retry && ++q->st.cnt % 2 != 0) {
 		// fprintf(stderr, "yielding...\n");
-		check_heap_error(push_choice(q));
+		check_memory(push_choice(q));
 		do_yield(q, 0);
 		return false;
 	}
@@ -5739,7 +5739,7 @@ static bool fn_sys_host_resume_1(query *q) {
 	}
 
 	if (status == WASM_HOST_CALL_CHOICE) {
-		check_heap_error(push_choice(q), free(reply));
+		check_memory(push_choice(q), free(reply));
 	} else if (status != WASM_HOST_CALL_OK) {
 		free(reply);
 		// TODO: throw
@@ -5747,7 +5747,7 @@ static bool fn_sys_host_resume_1(query *q) {
 	}
 
 	cell tmp;
-	check_heap_error(make_stringn(&tmp, reply, reply_len), free(reply));
+	check_memory(make_stringn(&tmp, reply, reply_len), free(reply));
 	free(reply);
 	status = unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 	unshare_cell(&tmp);
