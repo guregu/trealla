@@ -65,28 +65,6 @@ static int compare_lists(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_
 #endif
 	}
 
-#if USE_RATIONAL_TREES
-	if (any2 && q->is_cyclic1 && q->is_cyclic2) {
-		cell *p1 = orig_p1;
-		pl_idx p1_ctx = orig_p1_ctx;
-		cell *p2 = orig_p2;
-		pl_idx p2_ctx = orig_p2_ctx;
-		unsigned cnt = 0;
-
-		while (is_iso_list(p1) && is_iso_list(p2)) {
-			p1 = p1 + 1; p1 += p1->num_cells;
-			p2 = p2 + 1; p2 += p2->num_cells;
-			RESTORE_VAR(p1, p1_ctx, p1, p1_ctx, q->vgen);
-			RESTORE_VAR2(p2, p2_ctx, p2, p2_ctx, q->vgen);
-
-			if ((cnt > g_max_depth) || (cnt > 6000))
-				return true;
-
-			cnt++;
-		}
-	}
-#endif
-
 	return compare_internal(q, p1, p1_ctx, p2, p2_ctx, depth+1);
 }
 
@@ -118,9 +96,6 @@ static int compare_structs(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p
 			if (val) return val;
 		}
 
-		if (q->cycle_error > 6)
-			break;
-
 		if (e1) e1->vgen = save_vgen;
 		if (e2) e2->vgen2 = save_vgen2;
 
@@ -143,13 +118,15 @@ static int compare_structs(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p
 
 static int compare_internal(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_ctx, unsigned depth)
 {
-#if 1
-	if ((depth > g_max_depth) || (depth > 6000)) {
+	if (depth > 60) {
 		//printf("*** OOPS %s %d\n", __FILE__, __LINE__);
 		q->cycle_error++;
+
+		if (g_tpl_interrupt)
+			return false;
+
 		return 0;
 	}
-#endif
 
 	if (is_var(p1)) {
 		if (is_var(p2)) {
@@ -552,7 +529,7 @@ static bool unify_lists(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_c
 			RESTORE_VAR(p1, p1_ctx, p1, p1_ctx, q->vgen);
 			RESTORE_VAR2(p2, p2_ctx, p2, p2_ctx, q->vgen);
 
-			if ((cnt > g_max_depth) || (cnt > 6000))
+			if (cnt > 6)
 				return true;
 
 			cnt++;
@@ -591,9 +568,6 @@ static bool unify_structs(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2
 			if (!unify_internal(q, c1, c1_ctx, c2, c2_ctx, depth+1))
 				return false;
 		}
-
-		if (q->cycle_error > 6)
-			break;
 
 		if (e1) e1->vgen = save_vgen;
 		if (e2) e2->vgen2 = save_vgen2;
@@ -676,13 +650,15 @@ static const struct dispatch g_disp[] =
 
 static bool unify_internal(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_ctx, unsigned depth)
 {
-#if 1
-	if ((depth > g_max_depth) || (depth > 6000)) {
+	if (depth > 60) {
 		//printf("*** OOPS %s %d\n", __FILE__, __LINE__);
 		q->cycle_error++;
+
+		if (g_tpl_interrupt)
+			return false;
+
 		return true;
 	}
-#endif
 
 	if (is_var(p1) && is_var(p2)) {
 		if (p2_ctx > p1_ctx)
@@ -739,6 +715,18 @@ bool unify(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_ctx)
 	q->has_vars = q->no_recov = false;
 	q->before_hook_tp = q->st.tp;
 	if (++q->vgen == 0) q->vgen = 1;
+	cell *tmp = p1;
+	pl_idx tmp_ctx = p1_ctx;
+
+	if (is_var(p2)) {
+		tmp = p2;
+		tmp_ctx = p2_ctx;
+		p2 = p1;
+		p2_ctx = p1_ctx;
+		p1 = tmp;
+		p1_ctx = tmp_ctx;
+	}
+
 	bool ok = unify_internal(q, p1, p1_ctx, p2, p2_ctx, 0);
 
 	if (q->no_recov) {

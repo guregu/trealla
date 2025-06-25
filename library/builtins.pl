@@ -595,21 +595,6 @@ print_goals_(Any, [Goal|Goals]) :-
 	(Goals == [] -> true ;	write(', ')),
 	print_goals_(false, Goals).
 
-flatten_(List, FlatList) :-
-	flatten_(List, [], FlatList0),
-	!,
-	FlatList = FlatList0.
-
-flatten_(Var, Tl, [Var|Tl]) :-
-	var(Var),
-	!.
-flatten_([], Tl, Tl) :- !.
-flatten_([Hd|Tl], Tail, List) :-
-	!,
-	flatten_(Hd, FlatHeadTail, List),
-	flatten_(Tl, Tail, FlatHeadTail).
-flatten_(NonList, Tl, [NonList|Tl]).
-
 dump_attvars_([], []).
 dump_attvars_([Var|Vars], [Gs|Rest]) :-
 	copy_term(Var, Var2, Gs),
@@ -620,7 +605,7 @@ dump_attvars(Any) :-
 	'$list_attributed'(Vs0),
 	sort(Vs0, Vs),
 	dump_attvars_(Vs, Gs0),
-	flatten_(Gs0, Gs1),
+	flatten(Gs0, Gs1),
 	sort(Gs1, Gs),
 	print_goals_(Any, Gs).
 

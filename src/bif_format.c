@@ -141,7 +141,7 @@ static bool is_more_data(query *q, list_reader_t *fmt)
 		size_t save_offset = dst - tmpbuf;					\
 		tmpbuf_size += n;									\
 		tmpbuf = realloc(tmpbuf, (tmpbuf_size*=2));			\
-		check_heap_error(tmpbuf);							\
+		check_memory(tmpbuf);							\
 		dst = tmpbuf + save_offset;							\
 		tmpbuf_free = tmpbuf_size - save_offset;			\
 	}                                                       \
@@ -162,7 +162,7 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 
 	size_t tmpbuf_size = 1024*8;
 	char *tmpbuf = malloc(tmpbuf_size);
-	check_heap_error(tmpbuf);
+	check_memory(tmpbuf);
 	char *dst = tmpbuf;
 	*dst = '\0';
 	size_t tmpbuf_free = tmpbuf_size;
@@ -489,8 +489,9 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 				return throw_error(q, c, q->st.curr_frame, "type_error", "integer");
 			}
 
-			print_term_to_buf(q, c, 0, 0, false);
-			len = SB_strlen(q->sb);
+			char *tmpbuf2 = print_term_to_strbuf(q, c, 0, 0);
+			len = strlen(tmpbuf2);
+			free(tmpbuf2);
 			CHECK_BUF(len*2+1);
 			len = format_integer(dst, c, noargval?3:argval, '_', 0, 10);
 			break;
@@ -501,8 +502,9 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 				return throw_error(q, c, q->st.curr_frame, "type_error", "integer");
 			}
 
-			print_term_to_buf(q, c, 0, 0, false);
-			len = SB_strlen(q->sb);
+			tmpbuf2 = print_term_to_strbuf(q, c, 0, 0);
+			len = strlen(tmpbuf2);
+			free(tmpbuf2);
 			CHECK_BUF(len*2+1);
 			len = format_integer(dst, c, 0, ',', noargval?0:argval, 10);
 			break;
@@ -513,8 +515,9 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 				return throw_error(q, c, q->st.curr_frame, "type_error", "integer");
 			}
 
-			print_term_to_buf(q, c, 0, 0, false);
-			len = SB_strlen(q->sb);
+			tmpbuf2 = print_term_to_strbuf(q, c, 0, 0);
+			len = strlen(tmpbuf2);
+			free(tmpbuf2);
 			CHECK_BUF(len*2+1);
 			len = format_integer(dst, c, 3, ',', noargval?0:argval, 10);
 			break;
@@ -530,8 +533,9 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 				return throw_error(q, c, q->st.curr_frame, "type_error", "integer");
 			}
 
-			print_term_to_buf(q, c, 0, 0, false);
-			len = SB_strlen(q->sb);
+			tmpbuf2 = print_term_to_strbuf(q, c, 0, 0);
+			len = strlen(tmpbuf2);
+			free(tmpbuf2);
 			CHECK_BUF(len*10);
 			len = format_integer(dst, c, 0, ',', 0, !argval?8:argval);
 			break;
@@ -547,8 +551,9 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 				return throw_error(q, c, q->st.curr_frame, "type_error", "integer");
 			}
 
-			print_term_to_buf(q, c, 0, 0, false);
-			len = SB_strlen(q->sb);
+			tmpbuf2 = print_term_to_strbuf(q, c, 0, 0);
+			len = strlen(tmpbuf2);
+			free(tmpbuf2);
 			CHECK_BUF(len*10);
 			len = format_integer(dst, c, 0, ',', 0, !argval?-8:-argval);
 			break;
@@ -680,7 +685,7 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 	} else if (is_compound(str) && !CMP_STRING_TO_CSTR(q, str, "atom")) {
 		cell *c = deref(q, str+1, str_ctx);
 		cell tmp;
-		check_heap_error(make_cstringn(&tmp, tmpbuf, len), free(tmpbuf));
+		check_memory(make_cstringn(&tmp, tmpbuf, len), free(tmpbuf));
 		unify(q, c, q->latest_ctx, &tmp, q->st.curr_frame);
 		unshare_cell(&tmp);
 	} else if (is_compound(str)) {
@@ -688,7 +693,7 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 		cell tmp;
 
 		if (strlen(tmpbuf))
-			check_heap_error(make_stringn(&tmp, tmpbuf, len), free(tmpbuf));
+			check_memory(make_stringn(&tmp, tmpbuf, len), free(tmpbuf));
 		else
 			make_atom(&tmp, g_nil_s);
 

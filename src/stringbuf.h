@@ -33,7 +33,8 @@ typedef struct {
 		} else {												\
 			pr##_buf.buf = malloc((pr##_buf.buf_size += 		\
 				((len)-rem)) + 256 + 1); 						\
-			memcpy(pr##_buf.buf, pr##_buf.tmpbuf, offset+1);	\
+			if (pr##_buf.buf) 									\
+				memcpy(pr##_buf.buf, pr##_buf.tmpbuf, offset+1);\
 		}														\
 		ensure(pr##_buf.buf);									\
 		pr##_buf.dst = pr##_buf.buf + offset;					\
@@ -137,6 +138,7 @@ typedef struct {
 #define SB_putchar(pr,ch) {										\
 	SB_check(pr, 6);											\
 	pr##_buf.dst += put_char_utf8(pr##_buf.dst, ch);			\
+	*pr##_buf.dst = '\0'; 										\
 }
 
 #define SB_cstr(pr) pr##_buf.buf ? pr##_buf.buf : ""

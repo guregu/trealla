@@ -13,9 +13,9 @@ typedef struct prolog_ prolog;
 typedef struct {} pl_sub_query;
 
 EXPORT(pl_create)
-extern prolog *pl_create();
+prolog *pl_create(void);
 EXPORT(pl_destroy)
-extern void pl_destroy(prolog*);
+void pl_destroy(prolog*);
 
 EXPORT(pl_eval)
 extern bool pl_eval(prolog*, const char *expr, bool interactive);

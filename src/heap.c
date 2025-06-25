@@ -230,7 +230,7 @@ static bool copy_vars(query *q, cell *c, bool copy_attrs, const cell *from, pl_i
 				pl_idx save_tmp_hp = q->tmphp;
 				q->tmp_heap = NULL;
 				cell *tmp = copy_term_to_heap(q, e->c.val_attrs, q->st.curr_frame, false);
-				check_heap_error(tmp);
+				check_memory(tmp);
 				c->tmp_attrs = malloc(sizeof(cell)*tmp->num_cells);
 				copy_cells(c->tmp_attrs, tmp, tmp->num_cells);
 				free(q->tmp_heap);
@@ -358,11 +358,37 @@ cell *alloc_on_heap(query *q, unsigned num_cells)
 	cell *c = q->heap_pages->cells + q->st.hp;
 	q->st.hp += num_cells;
 	q->heap_pages->idx = q->st.hp;
-
-	if (q->heap_pages->idx > q->heap_pages->max_idx_used)
-		q->heap_pages->max_idx_used = q->heap_pages->idx;
-
 	return c;
+}
+
+void trim_heap(query *q)
+{
+	// q->heap_pages is a push-down stack and points to the
+	// most recent page of heap allocations...
+
+	for (page *a = q->heap_pages; a;) {
+		if (a->num <= q->st.heap_num)
+			break;
+
+		cell *c = a->cells;
+
+		for (pl_idx i = 0; i < a->idx; i++, c++)
+			unshare_cell(c);
+
+		page *save = a;
+		q->heap_pages = a = a->next;
+		free(save->cells);
+		free(save);
+	}
+
+	if (!q->heap_pages)
+		return;
+
+	while (q->heap_pages->idx > q->st.hp) {
+		cell *c = q->heap_pages->cells + --q->heap_pages->idx;
+		unshare_cell(c);
+		c->tag = TAG_EMPTY;
+	}
 }
 
 cell *clone_term_to_heap(query *q, cell *p1, pl_idx p1_ctx)
@@ -440,27 +466,6 @@ static cell *copy_term_to_heap_with_replacement(query *q, cell *p1, pl_idx p1_ct
 	return tmp2;
 }
 #endif
-
-void trim_heap(query *q)
-{
-	// q->heap_pages is a push-down stack and points to the
-	// most recent page of heap allocations...
-
-	for (page *a = q->heap_pages; a;) {
-		if (a->num <= q->st.heap_num)
-			break;
-
-		cell *c = a->cells;
-
-		for (pl_idx i = 0; i < a->idx; i++, c++)
-			unshare_cell(c);
-
-		page *save = a;
-		q->heap_pages = a = a->next;
-		free(save->cells);
-		free(save);
-	}
-}
 
 void fix_list(cell *c)
 {

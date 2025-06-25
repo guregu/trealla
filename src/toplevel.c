@@ -66,7 +66,7 @@ int check_interrupt(query *q)
 
 		if (ch == 'h') {
 			printf("Action:\n"
-				"\tENTER     abort        - abort current query\n"
+				"\tENTER,.     abort        - abort current query\n"
 				"\ta         abort        - abort current query\n"
 				"\tc         continue     - resume current query\n"
 				"\te         exit         - exit top-level\n"
@@ -105,7 +105,7 @@ int check_interrupt(query *q)
 		}
 
 #ifndef __wasi__
-		if ((ch == '\n') || (ch == 'a')) {
+		if ((ch == '\n') || (ch == 'a') || (ch == '.')) {
 			//printf(";  ... .\n");
 			printf("  ... .\n");
 			q->is_redo = true;
@@ -133,6 +133,8 @@ bool check_redo(query *q)
 {
 	if (q->in_attvar_print)
 		return true;
+
+	q->retries++;
 
 	if (q->do_dump_vars && q->cp) {
 		dump_vars(q, true);
@@ -176,10 +178,11 @@ bool check_redo(query *q)
 
 		if ((ch == 'h') || (ch == '?')) {
 			printf("Action:\n"
-				"\tENTER     abort        - abort current query\n"
+				"\tENTER,.     abort        - abort current query\n"
 				"\te         exit         - exit top-level\n"
 				"\tt         trace        - toggle tracing (creeping)\n"
 				"\t;         next         - display next solution\n"
+				"\tf         digit        - display 5 solutions\n"
 				"\t#         digit        - display # solutions\n"
 				"\ta         all          - display all solutions\n"
 				"\ts         statistics   - display stats\n"
@@ -194,14 +197,14 @@ bool check_redo(query *q)
 		printf(" ");
 #endif
 
-		if ((ch == 'a') || isdigit(ch)) {
+		if ((ch == 'a') || (ch == 'f') || isdigit(ch)) {
 			printf(" ");
 			fflush(stdout);
 			q->is_redo = true;
 			q->retry = QUERY_RETRY;
 			q->pl->did_dump_vars = false;
 			q->fail_on_retry = true;
-			q->autofail_n = isdigit(ch) ? (unsigned)ch - '0' : UINT_MAX;
+			q->autofail_n = isdigit(ch) ? (unsigned)ch - '0' : ch == 'f' ? 5-(q->retries%5) : UINT_MAX;
 			break;
 		}
 
@@ -215,7 +218,7 @@ bool check_redo(query *q)
 		}
 
 #ifndef __wasi__
-		if (ch == '\n') {
+		if ((ch == '\n') || (ch == '.')) {
 #else
 		// WASI always sends buffered input with a linebreak, so use '.' instead
 		if (ch == '.') {

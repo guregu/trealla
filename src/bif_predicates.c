@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "base64.h"
 #include "module.h"
@@ -37,9 +38,9 @@ static bool bif_iso_findall_3(query *q)
 		if (is_iso_list(p3) && !check_list(q, p3, p3_ctx, &is_partial, NULL) && !is_partial)
 			return throw_error(q, p3, p3_ctx, "type_error", "list");
 
-		check_heap_error(init_tmp_heap(q));
+		check_memory(init_tmp_heap(q));
 		cell *tmp2 = clone_term_to_tmp(q, p2, p2_ctx);
-		check_heap_error(tmp2);
+		check_memory(tmp2);
 
 		if (check_body_callable(tmp2))
 			return throw_error(q, p2, p2_ctx, "type_error", "callable");
@@ -50,13 +51,13 @@ static bool bif_iso_findall_3(query *q)
 			return throw_error(q, p2, p2_ctx, "resource_error", "max_queues");
 
 		cell *tmp = prepare_call(q, CALL_NOSKIP, tmp2, p2_ctx, 1+p1->num_cells+2);
-		check_heap_error(tmp, drop_queuen(q));
+		check_memory(tmp, drop_queuen(q));
 		pl_idx num_cells = tmp2->num_cells;
 		make_instr(tmp+num_cells++, g_sys_queue_s, bif_sys_queue_1, 1, p1->num_cells);
 		num_cells += dup_cells_by_ref(tmp+num_cells, p1, p1_ctx, p1->num_cells);
 		make_instr(tmp+num_cells++, g_fail_s, bif_iso_fail_0, 0, 0);
 		make_call(q, tmp+num_cells);
-		check_heap_error(push_barrier(q), drop_queuen(q));
+		check_memory(push_barrier(q), drop_queuen(q));
 		q->st.instr = tmp;
 		return true;
 	}
@@ -74,21 +75,21 @@ static bool bif_iso_findall_3(query *q)
 
 	// Now grab matching solutions with fresh variables for each...
 
-	check_heap_error(init_tmp_heap(q), free(solns));
+	check_memory(init_tmp_heap(q), free(solns));
 
 	for (cell *c = solns; num_cells; num_cells -= c->num_cells, c += c->num_cells) {
 		cell *tmp = alloc_on_tmp(q, 1);
-		check_heap_error(tmp, free(solns));
+		check_memory(tmp, free(solns));
 		make_instr(tmp, g_dot_s, NULL, 2, 0);
 		q->noderef = true;
 		tmp = copy_term_to_tmp(q, c, q->st.curr_frame, false);
 		q->noderef = false;
-		check_heap_error(tmp, free(solns));
+		check_memory(tmp, free(solns));
 	}
 
 	free(solns);
 	cell *l = end_list(q);
-	check_heap_error(l);
+	check_memory(l);
 	return unify(q, p3, p3_ctx, l, q->st.curr_frame);
 }
 
@@ -108,7 +109,7 @@ static bool bif_sys_unifiable_3(query *q)
 	GET_FIRST_ARG(p1,any);
 	GET_NEXT_ARG(p2,any);
 	GET_NEXT_ARG(p3,list_or_nil_or_var);
-	check_heap_error(push_choice(q));
+	check_memory(push_choice(q));
 	pl_idx save_tp = q->st.tp;
 
 	if (!unify(q, p1, p1_ctx, p2, p2_ctx) && !q->cycle_error) {
@@ -116,7 +117,7 @@ static bool bif_sys_unifiable_3(query *q)
 		return false;
 	}
 
-	check_heap_error(init_tmp_heap(q));
+	check_memory(init_tmp_heap(q));
 
 	// Go thru trail, getting the bindings...
 
@@ -127,7 +128,7 @@ static bool bif_sys_unifiable_3(query *q)
 		cell *c = deref(q, &e->c, e->c.var_ctx);
 		pl_idx c_ctx = q->latest_ctx;
 		cell *tmp = malloc(sizeof(cell)*(2+c->num_cells));
-		check_heap_error(tmp);
+		check_memory(tmp);
 		make_instr(tmp, g_unify_s, bif_iso_unify_2, 2, 1+c->num_cells);
 		SET_OP(tmp, OP_XFX);
 		cell v;
@@ -176,14 +177,14 @@ static bool bif_iso_notunifiable_2(query *q)
 	make_uint(tmp+num_cells++, q->cp);
 	make_instr(tmp+num_cells++, g_fail_s, bif_iso_fail_0, 0, 0);
 	make_call(q, tmp+num_cells);
-	check_heap_error(push_succeed_on_retry_with_barrier(q, 0));
+	check_memory(push_succeed_on_retry_with_barrier(q, 0));
 	q->st.instr = tmp;
 	return true;
 }
 
 static bool bif_iso_repeat_0(query *q)
 {
-	check_heap_error(push_choice(q));
+	check_memory(push_choice(q));
 	return true;
 }
 
@@ -336,7 +337,7 @@ static bool bif_iso_atom_chars_2(query *q)
 
 	if (is_string(p2)) {
 		cell tmp;
-		check_heap_error(make_slice(q, &tmp, p2, 0, C_STRLEN(q, p2)));
+		check_memory(make_slice(q, &tmp, p2, 0, C_STRLEN(q, p2)));
 		tmp.flags &= ~FLAG_CSTR_STRING;
 		tmp.arity = 0;
 		bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
@@ -418,7 +419,7 @@ static bool bif_iso_atom_chars_2(query *q)
 
 	const char *src = C_STR(q, p1);
 	size_t len = C_STRLEN(q, p1);
-	check_heap_error(init_tmp_heap(q));
+	check_memory(init_tmp_heap(q));
 
 	while (len) {
 		size_t n = len_char_utf8(src);
@@ -430,7 +431,7 @@ static bool bif_iso_atom_chars_2(query *q)
 	}
 
 	cell *l = end_list(q);
-	check_heap_error(l);
+	check_memory(l);
 	return unify(q, p2, p2_ctx, l, q->st.curr_frame);
 }
 
@@ -517,11 +518,10 @@ static bool bif_iso_number_chars_2(query *q)
 				return throw_error(q, head, q->latest_ctx, "type_error", "atom");
 			}
 
-			const char *src = C_STR(q, head);
-			int ch = *src;
+			int ch = peek_char_utf8(C_STR(q, head));
 
 			if (!ch)
-				return throw_error(q, head, q->latest_ctx, "type_error", "character");
+				return throw_error(q, head, q->latest_ctx, "syntax_error", "illegal_character");
 
 			SB_putchar(pr, ch);
 			cell *tail = LIST_TAIL(p2);
@@ -555,10 +555,10 @@ static bool bif_iso_number_chars_2(query *q)
 			return ok;
 		}
 
-		if (!is_number(&p->v) || *p->srcptr || p->error) {
+		if (!is_number(&p->v) || *p->srcptr || p->error || (p->cl->cidx > 1)) {
 			p->srcptr = NULL;
 			SB_free(pr);
-			return throw_error(q, orig_p2, p2_ctx, "syntax_error", p->error&&p->error_desc?p->error_desc:"number");
+			return throw_error(q, orig_p2, p2_ctx, "syntax_error", p->error&&p->error_desc?p->error_desc:"unexpected_char");
 		}
 
 		p->srcptr = NULL;
@@ -573,12 +573,12 @@ static bool bif_iso_number_chars_2(query *q)
 	q->quoted = 1;
 	q->last_thing = WAS_OTHER;
 	q->did_quote = false;
-	print_term_to_buf(q, p1, p1_ctx, 1, false);
+	char *buf = print_term_to_strbuf(q, p1, p1_ctx, 1);
 	q->ignore_ops = false;
 	q->quoted = 0;
 	cell tmp;
-	make_string(&tmp, SB_cstr(q->sb));
-	SB_free(q->sb);
+	make_string(&tmp, buf);
+	free(buf);
 	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 	unshare_cell(&tmp);
 	return ok;
@@ -929,7 +929,7 @@ static bool bif_hex_bytes_2(query *q)
 	}
 
 	LIST_HANDLER(p1);
-	check_heap_error(init_tmp_heap(q));
+	check_memory(init_tmp_heap(q));
 
 	while (is_list(p1)) {
 		cell *h = LIST_HEAD(p1);
@@ -990,7 +990,7 @@ static bool bif_hex_bytes_2(query *q)
 		return throw_error(q, p1, p1_ctx, "domain_error", "hex_encoding");
 
 	cell *l = end_list(q);
-	check_heap_error(l);
+	check_memory(l);
 	return unify(q, p2, p2_ctx, l, q->st.curr_frame);
 }
 
@@ -1114,7 +1114,7 @@ static bool bif_iso_number_codes_2(query *q)
 		if (!is_number(&p->v) || *p->srcptr || p->error) {
 			p->srcptr = NULL;
 			SB_free(pr);
-			return throw_error(q, orig_p2, p2_ctx, "syntax_error", p->error?p->error_desc:"number");
+			return throw_error(q, orig_p2, p2_ctx, "syntax_error", p->error?p->error_desc:"unexpected_char");
 		}
 
 		p->srcptr = NULL;
@@ -1129,13 +1129,13 @@ static bool bif_iso_number_codes_2(query *q)
 	q->quoted = 1;
 	q->last_thing = WAS_OTHER;
 	q->did_quote = false;
-	print_term_to_buf(q, p1, p1_ctx, 1, 0);
+	char *buf = print_term_to_strbuf(q, p1, p1_ctx, 1);
 	q->ignore_ops = false;
 	q->quoted = 0;
 	cell tmp;
-	make_string(&tmp, SB_cstr(q->sb));
+	make_string(&tmp, buf);
 	tmp.flags |= FLAG_CSTR_CODES;
-	SB_free(q->sb);
+	free(buf);
 	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 	unshare_cell(&tmp);
 	return ok;
@@ -1167,7 +1167,7 @@ static bool do_sub_atom(query *q, cell *p1, cell *p2, pl_idx p2_ctx, cell *p3, p
 	q->st.v1 = before + 1;
 
 	if (after && strstr(src2+1, s))
-		check_heap_error(push_choice(q));
+		check_memory(push_choice(q));
 
 	cell tmp;
 	make_int(&tmp, pos_at_offset(C_STR(q, p1), C_STRLEN(q, p1), before));
@@ -1208,7 +1208,7 @@ static bool bif_iso_sub_string_5(query *q)
 		fixed = true;
 
 	if (!q->retry) {
-		check_heap_error(push_choice(q));
+		check_memory(push_choice(q));
 
 		if (!is_var(p2))
 			before = get_smallint(p2);
@@ -1243,7 +1243,7 @@ static bool bif_iso_sub_string_5(query *q)
 		for (size_t j = len; j <= (len_p1 - i); j++) {
 			q->st.v1 = i;
 			q->st.v2 = j + 1;
-			check_heap_error(push_choice(q));
+			check_memory(push_choice(q));
 			cell tmp;
 			size_t before = i;
 			make_int(&tmp, before);
@@ -1272,7 +1272,7 @@ static bool bif_iso_sub_string_5(query *q)
 			size_t ipos = offset_at_pos(C_STR(q, p1), C_STRLEN(q, p1), i);
 			size_t jpos = offset_at_pos(C_STR(q, p1), C_STRLEN(q, p1), i + j);
 
-			check_heap_error(make_slice(q, &tmp, p1, ipos, jpos - ipos));
+			check_memory(make_slice(q, &tmp, p1, ipos, jpos - ipos));
 
 			if (is_atom(p5) && !CMP_STRING_TO_CSTRN(q, p5, C_STR(q, &tmp), C_STRLEN(q, &tmp))) {
 				unshare_cell(&tmp);
@@ -1332,7 +1332,7 @@ static bool do_atom_concat_equal_3(query *q)
 
 	size_t len3 = C_STRLEN(q, p3);
 	cell tmp;
-	check_heap_error(make_slice(q, &tmp, p3, 0, len3/2));
+	check_memory(make_slice(q, &tmp, p3, 0, len3/2));
 
 	if (!unify(q, p1, p1_ctx, &tmp, q->st.curr_frame))
 		return false;
@@ -1365,7 +1365,7 @@ static bool do_atom_concat_3(query *q)
 			return false;
 
 		if (C_STRLEN(q, p3))
-			check_heap_error(push_choice(q));
+			check_memory(push_choice(q));
 
 		return true;
 	}
@@ -1385,15 +1385,15 @@ static bool do_atom_concat_3(query *q)
 	GET_RAW_ARG(1,p1_raw);
 	GET_RAW_ARG(2,p2_raw);
 	cell tmp;
-	check_heap_error(make_slice(q, &tmp, p3, 0, len1+len));
+	check_memory(make_slice(q, &tmp, p3, 0, len1+len));
 	reset_var(q, p1_raw, p1_raw_ctx, &tmp, q->st.curr_frame);
 	unshare_cell(&tmp);
-	check_heap_error(make_slice(q, &tmp, p2, len, len2-len));
+	check_memory(make_slice(q, &tmp, p2, len, len2-len));
 	reset_var(q, p2_raw, p2_raw_ctx, &tmp, q->st.curr_frame);
 	unshare_cell(&tmp);
 
 	if (!done)
-		check_heap_error(push_choice(q));
+		check_memory(push_choice(q));
 
 	return true;
 }
@@ -1439,7 +1439,7 @@ static bool bif_iso_atom_concat_3(query *q)
 			return false;
 
 		cell tmp;
-		check_heap_error(make_slice(q, &tmp, p3, 0, len3-len2));
+		check_memory(make_slice(q, &tmp, p3, 0, len3-len2));
 		bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 		unshare_cell(&tmp);
 		return ok;
@@ -1456,7 +1456,7 @@ static bool bif_iso_atom_concat_3(query *q)
 			return false;
 
 		cell tmp;
-		check_heap_error(make_slice(q, &tmp, p3, len1, len3-len1));
+		check_memory(make_slice(q, &tmp, p3, len1, len3-len1));
 		bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 		unshare_cell(&tmp);
 		return ok;
@@ -1629,7 +1629,7 @@ static bool bif_iso_univ_2(query *q)
 		cell *t = LIST_TAIL(p1);
 		append_list(q, t);
 		cell *l = end_list(q);
-		check_heap_error(l);
+		check_memory(l);
 		return unify(q, p2, p2_ctx, l, p1_ctx);
 	}
 
@@ -1648,7 +1648,7 @@ static bool bif_iso_univ_2(query *q)
 		}
 
 		cell *l = end_list(q);
-		check_heap_error(l);
+		check_memory(l);
 		return unify(q, p2, p2_ctx, l, p1_ctx);
 	}
 
@@ -1660,7 +1660,7 @@ static bool bif_iso_univ_2(query *q)
 			return throw_error(q, p2, p2_ctx, "instantiation_error", "not_sufficiently_instantiated");
 
 		cell *tmp;
-		check_heap_error(init_tmp_heap(q));
+		check_memory(init_tmp_heap(q));
 		unsigned arity = 0;
 		cell *save_p2 = p2;
 		cell *l = p2;
@@ -1709,7 +1709,7 @@ static bool bif_iso_univ_2(query *q)
 		if (arity > MAX_ARITY)
 			return throw_error(q, tmp2, q->st.curr_frame, "representation_error", "max_arity");
 
-		check_heap_error(tmp = alloc_on_heap(q, num_cells));
+		check_memory(tmp = alloc_on_heap(q, num_cells));
 		dup_cells(tmp, tmp2, num_cells);
 		tmp->num_cells = num_cells;
 		tmp->arity = arity;
@@ -1758,7 +1758,7 @@ static bool bif_iso_univ_2(query *q)
 	}
 
 	cell *l = end_list(q);
-	check_heap_error(l);
+	check_memory(l);
 	return unify(q, p2, p2_ctx, l, p1_ctx);
 }
 
@@ -1814,9 +1814,9 @@ static bool bif_iso_term_variables_2(query *q)
 		return unify(q, p2, p2_ctx, make_nil(), q->st.curr_frame);
 
 	cell *tmp = do_term_variables(q, p1, p1_ctx);
-	check_heap_error(tmp);
+	check_memory(tmp);
 	cell *tmp2 = alloc_on_heap(q, tmp->num_cells);
-	check_heap_error(tmp2);
+	check_memory(tmp2);
 	dup_cells(tmp2, tmp, tmp->num_cells);
 	return unify(q, p2, p2_ctx, tmp2, q->st.curr_frame);
 }
@@ -1887,9 +1887,9 @@ static bool bif_term_singletons_2(query *q)
 		return unify(q, p2, p2_ctx, make_nil(), q->st.curr_frame);
 
 	cell *tmp = do_term_singletons(q, p1, p1_ctx);
-	check_heap_error(tmp);
+	check_memory(tmp);
 	cell *tmp2 = alloc_on_heap(q, tmp->num_cells);
-	check_heap_error(tmp2);
+	check_memory(tmp2);
 	dup_cells(tmp2, tmp, tmp->num_cells);
 	return unify(q, p2, p2_ctx, tmp2, q->st.curr_frame);
 }
@@ -1910,12 +1910,12 @@ static bool bif_sys_duplicate_term_3(query *q)
 
 	GET_FIRST_RAW_ARG(p1x,any);
 	cell *tmp = alloc_on_heap(q, 1 + p1x->num_cells + p1->num_cells);
-	check_heap_error(tmp);
+	check_memory(tmp);
 	make_instr(tmp, g_eq_s, NULL, 2, p1x->num_cells + p1->num_cells);
 	dup_cells_by_ref(tmp+1, p1x, p1x_ctx, p1x->num_cells);
 	dup_cells_by_ref(tmp+1+p1x->num_cells, p1, p1_ctx, p1->num_cells);
 	tmp = copy_term_to_heap(q, tmp, q->st.curr_frame, copy_attrs);
-	check_heap_error(tmp);
+	check_memory(tmp);
 	cell *tmpp1 = tmp + 1;
 
 	if (q->cycle_error) {
@@ -1961,11 +1961,11 @@ static bool bif_iso_functor_3(query *q)
 			return unify(q, p1, p1_ctx, p2, p2_ctx);
 
 		int var_num = create_vars(q, arity);
-		check_heap_error(var_num != -1);
+		check_memory(var_num != -1);
 		GET_FIRST_ARG(p1,any);
 		GET_NEXT_ARG(p2,any);
 		cell *tmp = alloc_on_heap(q, 1+arity);
-		check_heap_error(tmp);
+		check_memory(tmp);
 		*tmp = (cell){0};
 		tmp[0].tag = TAG_INTERNED;
 		tmp[0].arity = arity;
@@ -2072,7 +2072,7 @@ static bool search_functor(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p
 	if (!q->retry)
 		q->st.f_iter = sl_first(q->st.m->index);
 
-	check_heap_error(push_choice(q));
+	check_memory(push_choice(q));
 	predicate *pr = NULL;
 
 	while (sl_next(q->st.f_iter, (void*)&pr)) {
@@ -2309,14 +2309,6 @@ static bool bif_sys_current_prolog_flag_2(query *q)
 		cell tmp;
 		make_int(&tmp, MAX_ARITY);
 		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
-	} else if (!CMP_STRING_TO_CSTR(q, p1, "pid")) {
-		cell tmp;
-#ifndef __wasi__
-		make_int(&tmp, getpid());
-#else
-		make_int(&tmp, -1);
-#endif
-		return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 	} else if (!CMP_STRING_TO_CSTR(q, p1, "max_integer")) {
 		return false;
 	} else if (!CMP_STRING_TO_CSTR(q, p1, "min_integer")) {
@@ -2335,7 +2327,7 @@ static bool bif_sys_current_prolog_flag_2(query *q)
 		unsigned v1 = 0, v2 = 0, v3 = 0;
 		sscanf(g_version, "v%u.%u.%u", &v1, &v2, &v3);
 		cell *tmp = alloc_on_heap(q, 5);
-		check_heap_error(tmp);
+		check_memory(tmp);
 		make_atom(&tmp[0], new_atom(q->pl, "trealla"));
 		make_int(&tmp[1], v1);
 		make_int(&tmp[2], v2);
@@ -2363,7 +2355,7 @@ static bool bif_sys_current_prolog_flag_2(query *q)
 		}
 
 		cell *l = end_list(q);
-		check_heap_error(l);
+		check_memory(l);
 		return unify(q, p2, p2_ctx, l, q->st.curr_frame);
 	} else if (!CMP_STRING_TO_CSTR(q, p1, "raw_argv")) {
 		int i = 0;
@@ -2377,7 +2369,7 @@ static bool bif_sys_current_prolog_flag_2(query *q)
 		}
 
 		cell *l = end_list(q);
-		check_heap_error(l);
+		check_memory(l);
 		return unify(q, p2, p2_ctx, l, q->st.curr_frame);
 	} else if (!CMP_STRING_TO_CSTR(q, p1, "unknown")) {
 		cell tmp;
@@ -2396,7 +2388,7 @@ static bool bif_sys_current_prolog_flag_2(query *q)
 static bool answer_write_options_error(query *q, cell *c)
 {
 	cell *tmp = alloc_on_heap(q, 2+c->num_cells);
-	check_heap_error(tmp);
+	check_memory(tmp);
 	make_instr(tmp, g_plus_s, bif_iso_add_2, 2, 1+c->num_cells);
 	make_atom(tmp+1, new_atom(q->pl, "answer_write_options"));
 	dup_cells(tmp+2, c, c->num_cells);
@@ -2407,7 +2399,7 @@ static bool answer_write_options_error(query *q, cell *c)
 static bool flag_value_error(query *q, cell *p1, cell *p2)
 {
 	cell *tmp = alloc_on_heap(q, 2+p2->num_cells);
-	check_heap_error(tmp);
+	check_memory(tmp);
 	make_instr(tmp, g_plus_s, bif_iso_add_2, 2, 1+p2->num_cells);
 	make_atom(tmp+1, p1->val_off);
 	dup_cells(tmp+2, p2, p2->num_cells);
@@ -2629,10 +2621,10 @@ static bool bif_sys_list_1(query *q)
 bool bif_sys_queue_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
-	check_heap_error(init_tmp_heap(q), q->st.qnum--);
+	check_memory(init_tmp_heap(q), q->st.qnum--);
 	cell *tmp = clone_term_to_tmp(q, p1, p1_ctx);
-	check_heap_error(tmp, q->st.qnum--);
-	check_heap_error(alloc_on_queuen(q, q->st.qnum, tmp), q->st.qnum--);
+	check_memory(tmp, q->st.qnum--);
+	check_memory(alloc_on_queuen(q, q->st.qnum, tmp), q->st.qnum--);
 	return true;
 }
 
@@ -2767,7 +2759,7 @@ static bool bif_module_info_2(query *q)
 	if (!m)
 		return false;
 
-	check_heap_error(init_tmp_heap(q));
+	check_memory(init_tmp_heap(q));
 
 	for (predicate *pr = list_front(&m->predicates);
 		pr; pr = list_next(pr)) {
@@ -2783,7 +2775,7 @@ static bool bif_module_info_2(query *q)
 	}
 
 	cell *l = end_list(q);
-	check_heap_error(l);
+	check_memory(l);
 	return unify(q, p2, p2_ctx, l, q->st.curr_frame);
 }
 
@@ -2819,7 +2811,7 @@ static bool bif_source_info_2(query *q)
 	if (!pr || pr->is_dynamic)
 		return false;
 
-	check_heap_error(init_tmp_heap(q));
+	check_memory(init_tmp_heap(q));
 
 	for (db_entry *r = pr->head; r; r = r->next) {
 		cell tmp[8];
@@ -2835,7 +2827,7 @@ static bool bif_source_info_2(query *q)
 	}
 
 	cell *l = end_list(q);
-	check_heap_error(l);
+	check_memory(l);
 	return unify(q, p2, p2_ctx, l, q->st.curr_frame);
 }
 
@@ -3273,7 +3265,7 @@ static bool bif_statistics_2(query *q)
 		make_uint(&tmp, elapsed/1000);
 		append_list(q, &tmp);
 		cell *l = end_list(q);
-		check_heap_error(l);
+		check_memory(l);
 		return unify(q, p2, p2_ctx, l, q->st.curr_frame);
 	}
 
@@ -3325,7 +3317,7 @@ static bool bif_split_string_4(query *q)
 	if (!*start)
 		return unify(q, p4, p4_ctx, make_nil(), q->st.curr_frame);
 
-	check_heap_error(init_tmp_heap(q));
+	check_memory(init_tmp_heap(q));
 
 	// FIXME: sep & pad are not a single char...
 
@@ -3335,7 +3327,7 @@ static bool bif_split_string_4(query *q)
 
 		if (ptr-start) {
 			cell tmp;
-			check_heap_error(make_slice(q, &tmp, p1, start-src, ptr-start));
+			check_memory(make_slice(q, &tmp, p1, start-src, ptr-start));
 			append_list(q, &tmp);
 		}
 
@@ -3347,14 +3339,14 @@ static bool bif_split_string_4(query *q)
 			get_char_utf8(&start);
 
 		cell tmp;
-		check_heap_error(make_slice(q, &tmp, p1, start-src, C_STRLEN(q, p1)-(start-src)));
+		check_memory(make_slice(q, &tmp, p1, start-src, C_STRLEN(q, p1)-(start-src)));
 
 		if (C_STRLEN(q, p1)-(start-src))
 			append_list(q, &tmp);
 	}
 
 	l = end_list(q);
-	check_heap_error(l);
+	check_memory(l);
 	return unify(q, p4, p4_ctx, l, q->st.curr_frame);
 }
 
@@ -3495,7 +3487,7 @@ static bool bif_load_text_2(query *q)
 						fprintf(stdout, "Info: created module '%s'\n", name_s);
 
 					m = module_create(q->pl, name_s);
-					check_heap_error(m);
+					check_memory(m);
 				}
 			} else
 				return throw_error(q, c, q->latest_ctx, "domain_error", "option");
@@ -3923,7 +3915,7 @@ static bool bif_crypto_n_random_bytes_2(query *q)
 	if (n < 1)
 		return throw_error(q, p1, p1_ctx, "domain_error", "not_less_than_zero");
 
-	check_heap_error(init_tmp_heap(q));
+	check_memory(init_tmp_heap(q));
 
 	while (n--) {
 		int i = rand() % 256;
@@ -3933,7 +3925,7 @@ static bool bif_crypto_n_random_bytes_2(query *q)
 	}
 
 	cell *l = end_list(q);
-	check_heap_error(l);
+	check_memory(l);
 	return unify(q, p2, p2_ctx, l, q->st.curr_frame);
 }
 
@@ -4077,7 +4069,7 @@ static int do_b64encode_2(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2
 	const char *str = C_STR(q, p1);
 	size_t len = C_STRLEN(q, p1);
 	char *dstbuf = malloc((len*3)+1);	// BASE64 can increase length x3
-	check_heap_error(dstbuf);
+	check_memory(dstbuf);
 	b64_encode(str, len, &dstbuf, 0, 0);
 	cell tmp;
 	make_string(&tmp, dstbuf);
@@ -4092,7 +4084,7 @@ static int do_b64decode_2(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2
 	const char *str = C_STR(q, p2);
 	size_t len = C_STRLEN(q, p2);
 	char *dstbuf = malloc(len+1);
-	check_heap_error(dstbuf);
+	check_memory(dstbuf);
 	b64_decode(str, len, &dstbuf);
 	cell tmp;
 	make_string(&tmp, dstbuf);
@@ -4185,7 +4177,7 @@ static bool do_urlencode_2(query *q)
 	const char *str = C_STR(q, p1);
 	size_t len = C_STRLEN(q, p1);
 	char *dstbuf = malloc((len*3)+1);	// URL's can increase length x3
-	check_heap_error(dstbuf);
+	check_memory(dstbuf);
 	url_encode(str, len, dstbuf);
 	cell tmp;
 
@@ -4207,7 +4199,7 @@ static bool do_urldecode_2(query *q)
 	const char *str = C_STR(q, p2);
 	size_t len = C_STRLEN(q, p2);
 	char *dstbuf = malloc(len+1);
-	check_heap_error(dstbuf);
+	check_memory(dstbuf);
 	url_decode(str, dstbuf);
 	cell tmp;
 
@@ -4242,7 +4234,7 @@ static bool bif_atom_lower_2(query *q)
 	const char *src = C_STR(q, p1);
 	size_t len = substrlen_utf8(src, C_STRLEN(q, p1));
 	char *tmps = malloc((len*MAX_BYTES_PER_CODEPOINT)+1);
-	check_heap_error(tmps);
+	check_memory(tmps);
 	char *dst = tmps;
 
 	while (len--) {
@@ -4267,7 +4259,7 @@ static bool bif_atom_upper_2(query *q)
 	const char *src = C_STR(q, p1);
 	size_t len = substrlen_utf8(src, C_STRLEN(q, p1));
 	char *tmps = malloc((len*MAX_BYTES_PER_CODEPOINT)+1);
-	check_heap_error(tmps);
+	check_memory(tmps);
 	char *dst = tmps;
 
 	while (len--) {
@@ -4292,7 +4284,7 @@ static bool bif_string_lower_2(query *q)
 	const char *src = C_STR(q, p1);
 	size_t len = substrlen_utf8(src, C_STRLEN(q, p1));
 	char *tmps = malloc((len*MAX_BYTES_PER_CODEPOINT)+1);
-	check_heap_error(tmps);
+	check_memory(tmps);
 	char *dst = tmps;
 
 	while (len--) {
@@ -4317,7 +4309,7 @@ static bool bif_string_upper_2(query *q)
 	const char *src = C_STR(q, p1);
 	size_t len = substrlen_utf8(src, C_STRLEN(q, p1));
 	char *tmps = malloc((len*MAX_BYTES_PER_CODEPOINT)+1);
-	check_heap_error(tmps);
+	check_memory(tmps);
 	char *dst = tmps;
 
 	while (len--) {
@@ -4396,7 +4388,7 @@ static bool bif_hex_chars_2(query *q)
 		if (is_bigint(p1)) {
 			size_t len = mp_int_string_len(&p1->val_bigint->ival, 16) -1;
 			dst = malloc(len+10);
-			check_heap_error(dst);
+			check_memory(dst);
 			mp_int_to_string(&p1->val_bigint->ival, 16, dst, len+1);
 		} else {
 			snprintf(tmpbuf, sizeof(tmpbuf), "%"PRIx64"", (uint64_t)get_smallint(p1));
@@ -4421,7 +4413,7 @@ static bool bif_hex_chars_2(query *q)
 	if (mp_int_to_int(&v2, &val) == MP_RANGE) {
 		tmp.tag = TAG_INTEGER;
 		tmp.val_bigint = malloc(sizeof(bigint));
-		check_heap_error(tmp.val_bigint);
+		check_memory(tmp.val_bigint);
 		tmp.val_bigint->refcnt = 1;
 		mp_int_init_copy(&tmp.val_bigint->ival, &v2);
 		tmp.flags |= FLAG_INT_BIG | FLAG_MANAGED | FLAG_INT_BIG;
@@ -4450,7 +4442,7 @@ static bool bif_octal_chars_2(query *q)
 		if (is_bigint(p1)) {
 			size_t len = mp_int_string_len(&p1->val_bigint->ival, 8) -1;
 			dst = malloc(len+10);
-			check_heap_error(dst);
+			check_memory(dst);
 			mp_int_to_string(&p1->val_bigint->ival, 8, dst, len+1);
 		} else {
 			snprintf(tmpbuf, sizeof(tmpbuf), "%"PRIo64"", (uint64_t)get_smallint(p1));
@@ -4475,7 +4467,7 @@ static bool bif_octal_chars_2(query *q)
 	if (mp_int_to_int(&v2, &val) == MP_RANGE) {
 		tmp.tag = TAG_INTEGER;
 		tmp.val_bigint = malloc(sizeof(bigint));
-		check_heap_error(tmp.val_bigint);
+		check_memory(tmp.val_bigint);
 		tmp.val_bigint->refcnt = 1;
 		mp_int_init_copy(&tmp.val_bigint->ival, &v2);
 		tmp.flags |= FLAG_INT_BIG | FLAG_MANAGED;
@@ -5107,7 +5099,7 @@ static bool bif_call_nth_2(query *q)
 		make_instr(tmp+num_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 		make_uint(tmp+num_cells++, q->cp);
 		make_call(q, tmp+num_cells);
-		check_heap_error(push_fail_on_retry_with_barrier(q));
+		check_memory(push_fail_on_retry_with_barrier(q));
 		q->st.instr = tmp;
 		return true;
 	}
@@ -5121,7 +5113,7 @@ static bool bif_call_nth_2(query *q)
 	make_instr(tmp+num_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+num_cells++, q->cp);
 	make_call(q, tmp+num_cells);
-	check_heap_error(push_fail_on_retry_with_barrier(q));
+	check_memory(push_fail_on_retry_with_barrier(q));
 	q->st.instr = tmp;
 	return true;
 }
@@ -5185,18 +5177,18 @@ static bool bif_numlist_3(query *q)
 		return false;
 
 	long long cnt = (to - from) + 1;
-	check_heap_error(init_tmp_heap(q));
+	check_memory(init_tmp_heap(q));
 
 	while (cnt--) {
 		cell tmp;
 		make_int(&tmp,  from++);
 		cell *l = append_list(q, &tmp);
-		check_heap_error(l);
+		check_memory(l);
 		l->flags |= FLAG_INTERNED_GROUND;
 	}
 
 	cell *l = end_list(q);
-	check_heap_error(l);
+	check_memory(l);
 	l->flags |= FLAG_INTERNED_GROUND;
 	return unify(q, p3, p3_ctx, l, q->st.curr_frame);
 }
@@ -5223,7 +5215,7 @@ bool bif_iso_qualify_2(query *q)
 	}
 
 	cell *tmp = prepare_call(q, CALL_NOSKIP, p2, p2_ctx, 4);
-	check_heap_error(tmp);
+	check_memory(tmp);
 	pl_idx num_cells = 0;
 
 	if (!is_builtin(p2))
@@ -5234,7 +5226,7 @@ bool bif_iso_qualify_2(query *q)
 	make_instr(tmp+num_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 	make_uint(tmp+num_cells++, q->cp);
 	make_call(q, tmp+num_cells);
-	check_heap_error(push_fail_on_retry_with_barrier(q));
+	check_memory(push_fail_on_retry_with_barrier(q));
 	q->st.instr = tmp;
 	q->st.m = m;
 	return true;
@@ -5250,7 +5242,7 @@ static bool bif_current_module_1(query *q)
 			return find_module(q->pl, name) ? true : false;
 		}
 
-		check_heap_error(push_choice(q));
+		check_memory(push_choice(q));
 		module *m = q->current_m = list_front(&q->pl->modules);
 		cell tmp;
 		make_atom(&tmp, new_atom(q->pl, m->name));
@@ -5265,7 +5257,7 @@ static bool bif_current_module_1(query *q)
 	if (!m)
 		return false;
 
-	check_heap_error(push_choice(q));
+	check_memory(push_choice(q));
 	cell tmp;
 	make_atom(&tmp, new_atom(q->pl, m->name));
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
@@ -5275,7 +5267,7 @@ static bool bif_use_module_1(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 	if (!is_atom(p1) && !is_compound(p1)) return false;
-	check_heap_error(init_tmp_heap(q));
+	check_memory(init_tmp_heap(q));
 	cell *tmp = clone_term_to_tmp(q, q->st.instr, q->st.curr_frame);
 	return do_use_module_1(q->st.m, tmp);
 }
@@ -5284,7 +5276,7 @@ static bool bif_use_module_2(query *q)
 {
 	GET_FIRST_ARG(p1,any);
 	GET_NEXT_ARG(p2,list_or_nil);
-	check_heap_error(init_tmp_heap(q));
+	check_memory(init_tmp_heap(q));
 	cell *tmp = clone_term_to_tmp(q, q->st.instr, q->st.curr_frame);
 	return do_use_module_2(q->st.m, tmp);
 }
@@ -5376,7 +5368,7 @@ bool bif_sys_module_1(query *q)
 			fprintf(stdout, "Info: created module '%s'\n", name);
 
 		m = module_create(q->pl, name);
-		check_heap_error(m);
+		check_memory(m);
 	}
 
 	q->st.m = m;
@@ -5386,7 +5378,7 @@ bool bif_sys_module_1(query *q)
 static bool bif_sys_modules_1(query *q)
 {
 	GET_FIRST_ARG(p1,var);
-	check_heap_error(init_tmp_heap(q));
+	check_memory(init_tmp_heap(q));
 
 	for (module *m = list_front(&q->pl->modules);
 		m; m = list_next(m)) {
@@ -5399,7 +5391,7 @@ static bool bif_sys_modules_1(query *q)
 	}
 
 	cell *l = end_list(q);
-	check_heap_error(l);
+	check_memory(l);
 	return unify(q, p1, p1_ctx, l, q->st.curr_frame);
 }
 
@@ -5427,9 +5419,9 @@ static bool bif_sys_det_length_rundown_2(query *q)
 
 	unsigned n = get_smalluint(p2);
 	int var_num = create_vars(q, n);
-	check_heap_error(var_num != -1);
+	check_memory(var_num != -1);
 	cell *l = alloc_on_heap(q, n*2+1);
-	check_heap_error(l);
+	check_memory(l);
 	cell *save_l = l;
 
 	while (n) {
@@ -5455,7 +5447,7 @@ static bool bif_sys_memberchk_3(query *q)
 	GET_NEXT_ARG(p2,list_or_nil_or_var);
 	GET_NEXT_ARG(p3,var);
 	LIST_HANDLER(p2);
-	check_heap_error(push_choice(q));
+	check_memory(push_choice(q));
 
 	while (is_list(p2)) {
 		cell *h = LIST_HEAD(p2);
@@ -5483,6 +5475,26 @@ static bool bif_sys_memberchk_3(query *q)
 
 	unify(q, p3, p3_ctx, p2, p2_ctx);
 	return true;
+}
+
+bool bif_sys_make_string_2(query *q)
+{
+	GET_FIRST_ARG(p1,iso_list);
+	GET_NEXT_ARG(p2,var);
+	bool has_vars, is_partial;
+	size_t len = scan_is_chars_list2(q, p1, p1_ctx, true, &has_vars, &is_partial, NULL);
+
+	if (has_vars || !len)
+		return false;
+
+	char *src = chars_list_to_string(q, p1, p1_ctx);
+	check_memory(src);
+	cell tmp;
+	make_stringn(&tmp, src, len);
+	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
+	unshare_cell(&tmp);
+	free(src);
+	return ok;
 }
 
 bool bif_sys_create_var_1(query *q)
@@ -5637,7 +5649,7 @@ bool bif_sys_reset_handler_1(query *q)
 	GET_FIRST_ARG(p1,var);
 	cell tmp;
 	make_uint(&tmp, (pl_uint)q->cp);
-	check_heap_error(push_reset_handler(q));
+	check_memory(push_reset_handler(q));
 	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
 }
 
@@ -5806,9 +5818,9 @@ static bool bif_sys_countall_2(query *q)
 	GET_FIRST_ARG(p1,callable);
 	GET_NEXT_ARG(p2,var);
 
-	check_heap_error(init_tmp_heap(q));
+	check_memory(init_tmp_heap(q));
 	cell *tmp2 = clone_term_to_tmp(q, p1, p1_ctx);
-	check_heap_error(tmp2);
+	check_memory(tmp2);
 	bool status;
 
 	if (!call_check(q, tmp2, &status, false))
@@ -5818,13 +5830,13 @@ static bool bif_sys_countall_2(query *q)
 	make_uint(&n, 0);
 	reset_var(q, p2, p2_ctx, &n, q->st.curr_frame);
 	cell *tmp = prepare_call(q, CALL_NOSKIP, tmp2, q->st.curr_frame, 4);
-	check_heap_error(tmp);
+	check_memory(tmp);
 	pl_idx num_cells = tmp2->num_cells;
 	make_instr(tmp+num_cells++, g_sys_counter_s, bif_sys_counter_1, 1, 1);
 	make_ref(tmp+num_cells++, p2->var_num, p2_ctx);
 	make_instr(tmp+num_cells++, g_fail_s, bif_iso_fail_0, 0, 0);
 	make_call(q, tmp+num_cells);
-	check_heap_error(push_succeed_on_retry_with_barrier(q, 0));
+	check_memory(push_succeed_on_retry_with_barrier(q, 0));
 	q->st.instr = tmp;
 	return true;
 }
@@ -5860,7 +5872,7 @@ static bool bif_between_3(query *q)
 
 		if (get_smallint(p1) != get_smallint(p2)) {
 			q->st.cnt = get_smallint(p1);
-			check_heap_error(push_choice(q));
+			check_memory(push_choice(q));
 		}
 
 		return unify(q, p3, p3_ctx, p1, p1_ctx);
@@ -5872,7 +5884,7 @@ static bool bif_between_3(query *q)
 
 	if (cnt != get_smallint(p2)) {
 		q->st.cnt = cnt;
-		check_heap_error(push_choice(q));
+		check_memory(push_choice(q));
 	}
 
 	return unify(q, p3, p3_ctx, &tmp, q->st.curr_frame);
@@ -6250,11 +6262,6 @@ static void load_flags(query *q)
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "dialect", "trealla");
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "bounded", "false");
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %u).\n", "max_arity", MAX_ARITY);
-#ifndef __wasi__
-	SB_sprintf(pr, "'$current_prolog_flag'(%s, %u).\n", "pid", getpid());
-#else
-	SB_sprintf(pr, "'$current_prolog_flag'(%s, %u).\n", "pid", 42);
-#endif
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %u).\n", "cpu_count", g_cpu_count);
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, %s).\n", "integer_rounding_function", "toward_zero");
 	SB_sprintf(pr, "'$current_prolog_flag'(%s, [max_depth(%u),quoted(%s),double_quotes(%s)]).\n", "answer_write_options", (unsigned)q->pl->def_max_depth, q->pl->def_quoted?"true":"false", q->pl->def_double_quotes?"true":"false");
@@ -6504,6 +6511,7 @@ builtins g_other_bifs[] =
 	{"$ne", 2, bif_sys_ne_2, NULL, false, false, BLAH},
 	{"$undo", 2, bif_sys_undo_1, "+var", true, false, BLAH},
 	{"$create_var", 1, bif_sys_create_var_1, "-var", false, false, BLAH},
+	{"$make_string", 2, bif_sys_make_string_2, "+list,-string", false, false, BLAH},
 
 	{0}
 };

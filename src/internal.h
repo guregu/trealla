@@ -639,7 +639,7 @@ struct thread_ {
 struct page_ {
 	page *next;
 	cell *cells;
-	pl_idx idx, max_idx_used, page_size;
+	pl_idx idx, page_size;
 	unsigned num;
 };
 
@@ -693,7 +693,7 @@ struct query_ {
 	uint64_t cpu_started, time_cpu_last_started, future;
 	unsigned max_depth, max_eval_depth, print_idx, tab_idx, dump_var_num;
 	unsigned varno, tab0_varno, curr_engine, curr_chan, my_chan, oom;
-	unsigned s_cnt;
+	unsigned s_cnt, retries;
 	pl_idx tmphp, latest_ctx, popp, variable_names_ctx;
 	pl_idx frames_size, slots_size, trails_size, choices_size;
 	pl_idx hw_choices, hw_frames, hw_slots, hw_trails, hw_heap_num;
@@ -784,6 +784,7 @@ struct parser_ {
 	bool error, if_depth[MAX_IF_DEPTH];
 	bool was_consing:1;
 	bool was_string:1;
+	bool was_partial:1;
 	bool did_getline:1;
 	bool already_loaded_error:1;
 	bool do_read_term:1;
@@ -925,26 +926,26 @@ inline static void unshare_cell_(cell *c)
 	if (is_strbuf(c)) {
 		if (--c->val_strb->refcnt == 0) {
 			free(c->val_strb);
-			c->flags = 0;
+			c->tag = TAG_EMPTY;
 		}
 	} else if (is_bigint(c)) {
 		if (--c->val_bigint->refcnt == 0)	{
 			mp_int_clear(&c->val_bigint->ival);
 			free(c->val_bigint);
-			c->flags = 0;
+			c->tag = TAG_EMPTY;
 		}
 	} else if (is_rational(c)) {
 		if (--c->val_bigint->refcnt == 0)	{
 			mp_rat_clear(&c->val_bigint->irat);
 			free(c->val_bigint);
-			c->flags = 0;
+			c->tag = TAG_EMPTY;
 		}
 	} else if (is_blob(c)) {
 		if (--c->val_blob->refcnt == 0) {
 			free(c->val_blob->ptr2);
 			free(c->val_blob->ptr);
 			free(c->val_blob);
-			c->flags = 0;
+			c->tag = TAG_EMPTY;
 		}
 	} else if (is_dbid(c)) {
 		if (--c->val_blob->refcnt == 0) {
@@ -953,7 +954,7 @@ inline static void unshare_cell_(cell *c)
 			do_erase(m, ref);
 			free(c->val_blob->ptr2);
 			free(c->val_blob);
-			c->flags = 0;
+			c->tag = TAG_EMPTY;
 		}
 	} else if (is_kvid(c)) {
 		if (--c->val_blob->refcnt == 0) {
@@ -962,7 +963,7 @@ inline static void unshare_cell_(cell *c)
 			sl_del(m->pl->keyval, ref);
 			free(c->val_blob->ptr2);
 			free(c->val_blob);
-			c->flags = 0;
+			c->tag = TAG_EMPTY;
 		}
 	}
 }
