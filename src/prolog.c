@@ -200,7 +200,7 @@ bool pl_redo(pl_sub_query *subq)
 	if (query_redo(q))
 		return true;
 
-	// parser_destroy(q->p);
+	parser_destroy(q->p);
 	query_destroy(q);
 	return false;
 }
@@ -231,7 +231,7 @@ bool pl_done(pl_sub_query *subq)
 
 	query *q = (query*)subq;
 
-	// parser_destroy(q->p);
+	parser_destroy(q->p);
 	query_destroy(q);
 	return true;
 }
