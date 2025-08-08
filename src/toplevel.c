@@ -36,8 +36,8 @@ int check_interrupt(query *q)
 {
 #ifndef _WIN32
 	if (g_tpl_interrupt == SIGALRM) {
-		signal(SIGINT, &sigfn);
 		g_tpl_interrupt = 0;
+		signal(SIGINT, &sigfn);
 
 		if (!throw_error(q, q->st.instr, q->st.curr_frame, "time_limit_exceeded", "timed_out"))
 			q->retry = true;
@@ -46,13 +46,13 @@ int check_interrupt(query *q)
 	}
 #endif
 
-	if (!q || !q->p || !q->p->interactive) {
+	if (!q || !q->top || !q->top->interactive) {
 		q->halt = true;
 		return 1;
 	}
 
-	signal(SIGINT, &sigfn);
 	g_tpl_interrupt = 0;
+	signal(SIGINT, &sigfn);
 
 	for (;;) {
 		printf("\nAction or (h)elp: ");
@@ -157,7 +157,7 @@ bool check_redo(query *q)
 	if (q->pl->is_query)
 		return q->cp;
 
-	if (q->fail_on_retry && (q->autofail_n > 1)) {
+	if (q->pl->autofail || (q->fail_on_retry && (q->autofail_n > 1))) {
 		q->autofail_n--;
 		if (!q->silent_toplevel)
 			printf("\n; ");
@@ -345,11 +345,12 @@ void dump_vars(query *q, bool partial)
 	if (q->in_attvar_print)
 		return;
 
-	parser *p = q->p;
+	parser *p = q->top;
 	const frame *f = GET_FRAME(0);
 	q->is_dump_vars = true;
 	q->tab_idx = 0;
 	bool any = false;
+	clear_write_options(q);
 
 	// Build the ignore list for var name clashes....
 
@@ -359,9 +360,9 @@ void dump_vars(query *q, bool partial)
 	for (unsigned i = 0; i < p->num_vars; i++) {
 		int j;
 
-		if ((p->vartab.name[i][0] == '_')
-			&& isalpha(p->vartab.name[i][1])
-			&& ((j = varunformat(p->vartab.name[i]+1)) != -1))
+		if ((GET_POOL(q, p->vartab.off[i])[0] == '_')
+			&& isalpha(GET_POOL(q, p->vartab.off[i])[1])
+			&& ((j = varunformat(GET_POOL(q, p->vartab.off[i])+1)) != -1))
 			q->ignores[j] = true;
 	}
 
@@ -372,7 +373,7 @@ void dump_vars(query *q, bool partial)
 	for (unsigned i = 0; i < p->num_vars; i++) {
 		cell tmp[3];
 		make_instr(tmp, g_eq_s, NULL, 2, 2);
-		make_atom(tmp+1, new_atom(q->pl, p->vartab.name[i]));
+		make_atom(tmp+1, p->vartab.off[i]);
 		make_var(tmp+2, g_anon_s, i);
 		append_list(q, tmp);
 	}
@@ -382,16 +383,18 @@ void dump_vars(query *q, bool partial)
 
 	cell *vlist = end_list(q);
 	bool want_space = false;
+	q->variable_names = vlist;
+	q->variable_names_ctx = 0;
 	q->print_idx = 0;
 
 	for (unsigned i = 0; i < p->num_vars; i++) {
-		if (!strcmp(p->vartab.name[i], "__G_"))
+		if (!strcmp(GET_POOL(q, p->vartab.off[i]), "__G_"))
 			continue;
 
-		if (!strcmp(p->vartab.name[i], "_"))
+		if (!strcmp(GET_POOL(q, p->vartab.off[i]), "_"))
 			continue;
 
-		if (p->vartab.name[i][0] == '_')
+		if (q->pl->quiet && GET_POOL(q, p->vartab.off[i])[0] == '_')
 			continue;
 
 		slot *e = GET_SLOT(f, i);
@@ -402,13 +405,11 @@ void dump_vars(query *q, bool partial)
 		cell *c = deref(q, &e->c, 0);
 		pl_idx c_ctx = q->latest_ctx;
 
-		//printf("\n*** %s c->tag=%u, c->flags=%u\n", C_STR(q, c), c->tag, c->flags);
-
 		if (is_var(c) && is_anon(c))
 			continue;
 
 		if (is_ref(c)) {
-			if (p->vartab.name[c->var_num][0] == '_')
+			if (GET_POOL(q, p->vartab.off[c->var_num])[0] == '_')
 				continue;
 		}
 
@@ -422,14 +423,14 @@ void dump_vars(query *q, bool partial)
 			fprintf(stdout, " ");
 
 		if (is_rational(c))
-			fprintf(stdout, "%s is ", p->vartab.name[i]);
+			fprintf(stdout, "%s is ", GET_POOL(q, p->vartab.off[i]));
 		else
-			fprintf(stdout, "%s = ", p->vartab.name[i]);
+			fprintf(stdout, "%s = ", GET_POOL(q, p->vartab.off[i]));
 
 		int j = check_duplicate_result(q, i, c, c_ctx);
 
 		if ((j >= 0) && ((unsigned)j != i)) {
-			fprintf(stdout, "%s", p->vartab.name[j]);
+			fprintf(stdout, "%s", GET_POOL(q, p->vartab.off[j]));
 			any = true;
 			continue;
 		}
@@ -471,14 +472,12 @@ void dump_vars(query *q, bool partial)
 		}
 
 		if (parens) fputc('(', stdout);
-		q->variable_names = vlist;
-		q->variable_names_ctx = 0;
-		q->numbervars = true;
 		q->max_depth = q->pl->def_max_depth;
 		q->double_quotes = q->pl->def_double_quotes;
 		q->quoted = q->pl->def_quoted ? 1 : 0;
 		q->parens = parens;
 		q->dump_var_num = i;
+		q->numbervars = true;
 		e->vgen = ++q->vgen;
 
 		print_term(q, stdout, c, c_ctx, 1);
@@ -502,11 +501,12 @@ void dump_vars(query *q, bool partial)
 
 	// Print residual goals of attributed variables...
 
+	clear_write_options(q);
+	q->variable_names = vlist;
+	q->variable_names_ctx = 0;
+	q->print_idx = 0;
+
 	if (any_atts) {
-		clear_write_options(q);
-		q->variable_names = vlist;
-		q->variable_names_ctx = q->st.curr_frame;
-		q->tab_idx = 0;
 		cell p1[2];
 		make_instr(p1+0, new_atom(q->pl, "dump_attvars"), NULL, 1, 1);
 		make_atom(p1+1, any ? g_true_s : g_false_s);

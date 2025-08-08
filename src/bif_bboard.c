@@ -50,8 +50,10 @@ static bool bif_bb_b_put_2(query *q)
 	if (DO_DUMP) DUMP_TERM2("bb_b_put", tmpbuf, p2, p2_ctx, 1);
 
 	char *key = strdup(tmpbuf);
-	cell *tmp = copy_term_to_heap(q, p2, p2_ctx, true);
-	cell *val = malloc(sizeof(cell)*tmp->num_cells);
+	check_memory(init_tmp_heap(q));
+	cell *tmp = clone_term_to_tmp(q, p2, p2_ctx);
+	pl_idx num_cells = tmp->num_cells;
+	cell *val = malloc(sizeof(cell)*num_cells);
 	check_memory(val);
 	dup_cells(val, tmp, tmp->num_cells);
 
@@ -115,11 +117,11 @@ static bool bif_bb_put_2(query *q)
 
 	if (DO_DUMP) DUMP_TERM2("bb_put", tmpbuf2, p2, p2_ctx, 1);
 
-	// Note: we have to save a copy of attributes...
-
 	char *key2 = strdup(tmpbuf2);
-	cell *tmp = copy_term_to_heap(q, p2, p2_ctx, true);
-	cell *val = malloc(sizeof(cell)*tmp->num_cells);
+	check_memory(init_tmp_heap(q));
+	cell *tmp = clone_term_to_tmp(q, p2, p2_ctx);
+	pl_idx num_cells = tmp->num_cells;
+	cell *val = malloc(sizeof(cell)*num_cells);
 	check_memory(val);
 	dup_cells(val, tmp, tmp->num_cells);
 
@@ -343,11 +345,12 @@ static bool bif_bb_update_3(query *q)
 
 builtins g_bboard_bifs[] =
 {
-	{"bb_b_put", 2, bif_bb_b_put_2, ":atom,+term", false, false, BLAH},
-	{"bb_put", 2, bif_bb_put_2, ":atom,+term", false, false, BLAH},
-	{"bb_get", 2, bif_bb_get_2, ":atom,?term", false, false, BLAH},
-	{"bb_delete", 2, bif_bb_delete_2, ":atom,?term", false, false, BLAH},
-	{"bb_update", 3, bif_bb_update_3, ":atom,?term,?term", false, false, BLAH},
+	{"$bb_b_put", 2, bif_bb_b_put_2, ":atom,+term", false, false, BLAH},
+	{"$bb_put", 2, bif_bb_put_2, ":atom,+term", false, false, BLAH},
+	{"$bb_get", 2, bif_bb_get_2, ":atom,?term", false, false, BLAH},
+
+	{"$bb_update", 3, bif_bb_update_3, ":atom,?term,?term", false, false, BLAH},
+	{"$bb_delete", 2, bif_bb_delete_2, ":atom,?term", false, false, BLAH},
 
 	{0}
 };

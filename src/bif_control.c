@@ -72,6 +72,8 @@ static bool bif_sys_cleanup_if_det_1(query *q)
 
 bool call_check(query *q, cell *tmp2, bool *status, bool calln)
 {
+	cell *save_tmp2 = tmp2;
+
 	if (calln || !tmp2->arity) {
 		bool found = false;
 
@@ -93,7 +95,7 @@ bool call_check(query *q, cell *tmp2, bool *status, bool calln)
 	}
 
 	if ((tmp2->arity == 2) && is_builtin(tmp2) && (tmp2 = check_body_callable(tmp2)) != NULL) {
-		*status = throw_error(q, tmp2, q->st.curr_frame, "type_error", "callable");
+		*status = throw_error(q, save_tmp2, q->st.curr_frame, "type_error", "callable");
 		return false;
 	}
 
@@ -113,7 +115,7 @@ bool bif_call_0(query *q, cell *p1, pl_idx p1_ctx)
 			return status;
 	}
 
-	cell *tmp = prepare_call(q, CALL_NOSKIP, p1, p1_ctx, 3);
+	cell *tmp = prepare_call(q, CALL_SKIP, p1, p1_ctx, 3);
 	check_memory(tmp);
 	pl_idx num_cells = p1->num_cells;
 	make_instr(tmp+num_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
@@ -202,6 +204,24 @@ bool bif_iso_call_1(query *q)
 
 		if (!call_check(q, p1, &status, false))
 			return status;
+	} else if ((p1->val_off == g_colon_s) && (p1->arity == 2)) {
+		cell *cm = p1 + 1;
+		cm = deref(q, cm, p1_ctx);
+
+		if (!is_atom(cm) && !is_var(cm))
+			return throw_error(q, cm, p1_ctx, "type_error", "callable");
+
+		if (!is_var(cm)) {
+			module *m = find_module(q->pl, C_STR(q, cm));
+			if (m) q->st.m = m;
+		}
+
+		p1 += 2;
+		p1 = deref(q, p1, p1_ctx);
+		p1_ctx = q->latest_ctx;
+
+		if (!is_callable(p1))
+			return throw_error(q, p1, p1_ctx, "type_error", "callable");
 	}
 
 	cell *tmp = prepare_call(q, CALL_NOSKIP, p1, p1_ctx, 3);
@@ -235,6 +255,24 @@ static bool bif_iso_once_1(query *q)
 
 		if (!call_check(q, p1, &status, false))
 			return status;
+	} else if ((p1->val_off == g_colon_s) && (p1->arity == 2)) {
+		cell *cm = p1 + 1;
+		cm = deref(q, cm, p1_ctx);
+
+		if (!is_atom(cm) && !is_var(cm))
+			return throw_error(q, cm, p1_ctx, "type_error", "callable");
+
+		if (!is_var(cm)) {
+			module *m = find_module(q->pl, C_STR(q, cm));
+			if (m) q->st.m = m;
+		}
+
+		p1 += 2;
+		p1 = deref(q, p1, p1_ctx);
+		p1_ctx = q->latest_ctx;
+
+		if (!is_callable(p1))
+			return throw_error(q, p1, p1_ctx, "type_error", "callable");
 	}
 
 	cell *tmp = prepare_call(q, CALL_NOSKIP, p1, p1_ctx, 4);
@@ -265,6 +303,24 @@ static bool bif_ignore_1(query *q)
 
 		if (!call_check(q, p1, &status, false))
 			return status;
+	} else if ((p1->val_off == g_colon_s) && (p1->arity == 2)) {
+		cell *cm = p1 + 1;
+		cm = deref(q, cm, p1_ctx);
+
+		if (!is_atom(cm) && !is_var(cm))
+			return throw_error(q, cm, p1_ctx, "type_error", "callable");
+
+		if (!is_var(cm)) {
+			module *m = find_module(q->pl, C_STR(q, cm));
+			if (m) q->st.m = m;
+		}
+
+		p1 += 2;
+		p1 = deref(q, p1, p1_ctx);
+		p1_ctx = q->latest_ctx;
+
+		if (!is_callable(p1))
+			return throw_error(q, p1, p1_ctx, "type_error", "callable");
 	}
 
 	cell *tmp = prepare_call(q, CALL_NOSKIP, p1, q->st.curr_frame, 4);
@@ -720,7 +776,11 @@ bool bif_sys_match_1(query *q)
 	GET_FIRST_ARG(p1,callable);
 	q->st.instr = p1;
 	q->noskip = true;
-	return match_head(q);
+
+	if (!match_head(q))
+		return false;
+
+	return true;
 }
 
 static cell *parse_to_heap(query *q, const char *src)
@@ -763,6 +823,7 @@ static bool find_exception_handler(query *q, char *ball)
 			continue;
 
 		q->ball = parse_to_heap(q, ball);
+		check_memory(q->ball);
 		q->ball_ctx = q->st.curr_frame;
 		q->retry = QUERY_EXCEPTION;
 
@@ -810,7 +871,7 @@ static bool find_exception_handler(query *q, char *ball)
 		if (is_cyclic_term(q, e, e_ctx)) {
 			q->quoted = 1;
 			print_term(q, stdout, e, e_ctx, 0);
-		} else {
+		} else if (!is_empty(e)) {
 			q->quoted = 1;
 			print_term(q, stdout, e, e_ctx, 1);
 		}
@@ -818,9 +879,11 @@ static bool find_exception_handler(query *q, char *ball)
 		//if (!q->run_init/*!is_interned(e) || strcmp(C_STR(q, e), "error")*/)
 		//	fprintf(stdout, ")");
 
-		fprintf(stdout, ".");
-		if (!q->pl->is_query)
-			fprintf(stdout, "\n");
+		if (!is_empty(e)) {
+			fprintf(stdout, ".");
+			if (!q->pl->is_query)
+				fprintf(stdout, "\n");
+		}
 
 		q->quoted = 0;
 		fflush(stdout);
@@ -839,6 +902,7 @@ static bool bif_iso_throw_1(query *q)
 	q->parens = q->numbervars = true;
 	q->quoted = true;
 	char *ball = print_term_to_strbuf(q, p1, p1_ctx, 1);
+	check_memory(ball);
 	clear_write_options(q);
 
 	if (!find_exception_handler(q, ball)) {
@@ -852,7 +916,7 @@ static bool bif_iso_throw_1(query *q)
 
 bool throw_error3(query *q, cell *c, pl_idx c_ctx, const char *err_type, const char *expected, cell *goal)
 {
-	if (g_tpl_interrupt || q->halt || q->pl->halt)
+	if (/*g_tpl_interrupt ||*/ q->halt || q->pl->halt)
 		return false;
 
 	q->did_throw = true;
@@ -916,8 +980,8 @@ bool throw_error3(query *q, cell *c, pl_idx c_ctx, const char *err_type, const c
 		check_memory(tmp);
 		pl_idx num_cells = 0;
 		make_instr(tmp+num_cells++, g_error_s, NULL, 2, 2);
-		make_atom(tmp+num_cells++, new_atom(q->pl, err_type));
-		make_atom(tmp+num_cells, new_atom(q->pl, expected));
+		make_cstring(tmp+num_cells++, err_type);
+		make_cstring(tmp+num_cells, expected);
 	} else if (!strcmp(err_type, "type_error") && !strcmp(expected, "var")) {
 		err_type = "uninstantiation_error";
 		//printf("error(%s(%s),(%s)/%u).\n", err_type, C_STR(q, c), functor, goal->arity);
@@ -939,7 +1003,7 @@ bool throw_error3(query *q, cell *c, pl_idx c_ctx, const char *err_type, const c
 		pl_idx num_cells = 0;
 		make_instr(tmp+num_cells++, g_error_s, NULL, 2, 8);
 		make_instr(tmp+num_cells++, new_atom(q->pl, err_type), NULL, 2, 4);
-		make_atom(tmp+num_cells++, new_atom(q->pl, expected));
+		make_cstring(tmp+num_cells++, expected);
 		make_instr(tmp+num_cells, g_slash_s, NULL, 2, 2);
 		SET_OP(tmp+num_cells, OP_YFX); num_cells++;
 		tmp[num_cells] = *c;
@@ -960,7 +1024,7 @@ bool throw_error3(query *q, cell *c, pl_idx c_ctx, const char *err_type, const c
 		make_instr(tmp+num_cells++, new_atom(q->pl, err_type), NULL, 2+extra, 4+extra);
 
 		if (!extra)
-			make_atom(tmp+num_cells++, new_atom(q->pl, expected));
+			make_cstring(tmp+num_cells++, expected);
 		else {
 			char tmpbuf[1024*8];
 			strcpy(tmpbuf, expected);
@@ -969,12 +1033,12 @@ bool throw_error3(query *q, cell *c, pl_idx c_ctx, const char *err_type, const c
 			if (*ptr2) *ptr2++ = '\0';
 
 			while (ptr2) {
-				make_atom(tmp+num_cells++, new_atom(q->pl, ptr));
+				make_cstring(tmp+num_cells++, ptr);
 				ptr = ptr2;
 				ptr2 = strchr(ptr, ',');
 			}
 
-			make_atom(tmp+num_cells++, new_atom(q->pl, ptr));
+			make_cstring(tmp+num_cells++, ptr);
 		}
 
 		make_instr(tmp+num_cells, g_slash_s, NULL, 2, 2);
@@ -997,7 +1061,7 @@ bool throw_error3(query *q, cell *c, pl_idx c_ctx, const char *err_type, const c
 		make_instr(tmp+num_cells++, new_atom(q->pl, err_type), NULL, 2+extra, 4+extra);
 
 		if (!extra)
-			make_atom(tmp+num_cells++, new_atom(q->pl, expected));
+			make_cstring(tmp+num_cells++, expected);
 		else {
 			char tmpbuf[1024*8];
 			strcpy(tmpbuf, expected);
@@ -1006,12 +1070,12 @@ bool throw_error3(query *q, cell *c, pl_idx c_ctx, const char *err_type, const c
 			if (*ptr2) *ptr2++ = '\0';
 
 			while (ptr2) {
-				make_atom(tmp+num_cells++, new_atom(q->pl, ptr));
+				make_cstring(tmp+num_cells++, ptr);
 				ptr = ptr2;
 				ptr2 = strchr(ptr, ',');
 			}
 
-			make_atom(tmp+num_cells++, new_atom(q->pl, ptr));
+			make_cstring(tmp+num_cells++, ptr);
 		}
 
 		make_instr(tmp+num_cells, g_slash_s, NULL, 2, 2);
@@ -1031,7 +1095,7 @@ bool throw_error3(query *q, cell *c, pl_idx c_ctx, const char *err_type, const c
 		check_memory(tmp);
 		pl_idx num_cells = 0;
 		make_instr(tmp+num_cells++, g_error_s, NULL, 2, 4);
-		make_atom(tmp+num_cells++, new_atom(q->pl, err_type));
+		make_cstring(tmp+num_cells++,  err_type);
 		make_instr(tmp+num_cells, g_slash_s, NULL, 2, 2);
 		SET_OP(tmp+num_cells, OP_YFX); num_cells++;
 		make_atom(tmp+num_cells++, new_atom(q->pl, functor));
@@ -1043,10 +1107,10 @@ bool throw_error3(query *q, cell *c, pl_idx c_ctx, const char *err_type, const c
 		pl_idx num_cells = 0;
 		make_instr(tmp+num_cells++, g_error_s, NULL, 2, 8);
 		make_instr(tmp+num_cells++, new_atom(q->pl, err_type), NULL, 2, 4);
-		make_atom(tmp+num_cells++, new_atom(q->pl, expected));
+		make_cstring(tmp+num_cells++, expected);
 		make_instr(tmp+num_cells, g_slash_s, NULL, 2, 2);
 		SET_OP(tmp+num_cells, OP_YFX); num_cells++;
-		make_atom(tmp+num_cells++, new_atom(q->pl, C_STR(q, c)));
+		make_cstring(tmp+num_cells++, C_STR(q, c));
 		make_int(tmp+num_cells++, c->arity);
 		make_instr(tmp+num_cells, g_slash_s, NULL, 2, 2);
 		SET_OP(tmp+num_cells, OP_YFX); num_cells++;
@@ -1062,7 +1126,7 @@ bool throw_error3(query *q, cell *c, pl_idx c_ctx, const char *err_type, const c
 		pl_idx num_cells = 0;
 		make_instr(tmp+num_cells++, g_error_s, NULL, 2, 5);
 		make_instr(tmp+num_cells++, new_atom(q->pl, err_type), NULL, 1, 1);
-		make_atom(tmp+num_cells++, new_atom(q->pl, expected));
+		make_cstring(tmp+num_cells++, expected);
 		make_instr(tmp+num_cells, g_slash_s, NULL, 2, 2);
 		SET_OP(tmp+num_cells, OP_YFX); num_cells++;
 		make_atom(tmp+num_cells++, new_atom(q->pl, functor));
@@ -1076,7 +1140,7 @@ bool throw_error3(query *q, cell *c, pl_idx c_ctx, const char *err_type, const c
 		make_instr(tmp+num_cells++, new_atom(q->pl, err_type), NULL, 2+extra, 2+(c->num_cells-1)+extra);
 
 		if (!extra) {
-			make_atom(tmp+num_cells++, new_atom(q->pl, expected));
+			make_cstring(tmp+num_cells++, expected);
 		} else {
 			char tmpbuf[1024*8];
 			strcpy(tmpbuf, expected);
@@ -1085,12 +1149,12 @@ bool throw_error3(query *q, cell *c, pl_idx c_ctx, const char *err_type, const c
 			if (*ptr2) *ptr2++ = '\0';
 
 			while (ptr2) {
-				make_atom(tmp+num_cells++, new_atom(q->pl, ptr));
+				make_cstring(tmp+num_cells++, ptr);
 				ptr = ptr2;
 				ptr2 = strchr(ptr, ',');
 			}
 
-			make_atom(tmp+num_cells++, new_atom(q->pl, ptr));
+			make_cstring(tmp+num_cells++, ptr);
 		}
 
 		num_cells += dup_cells_by_ref(tmp+num_cells, c, c_ctx, c->num_cells);

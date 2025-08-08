@@ -4,7 +4,13 @@
 
 #include "query.h"
 
-typedef struct { query *q; cell *c; pl_idx c_ctx; int8_t arg; bool ascending:1; } basepair;
+typedef struct {
+	query *q;
+	cell *c;
+	pl_idx c_ctx;
+	int8_t arg;
+	bool ascending:1;
+} basepair;
 
 static int nodecmp(const void *ptr1, const void *ptr2)
 {
@@ -56,12 +62,20 @@ static cell *nodesort(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool keysor
 	basepair *base = malloc(sizeof(basepair)*cnt);
 	check_error(base);
 	LIST_HANDLER(p1);
-	size_t idx = 0;
+	size_t idx = 0, vars = 0;
 
 	while (is_list(p1)) {
 		cell *h = LIST_HEAD(p1);
 		h = deref(q, h, p1_ctx);
 		pl_idx h_ctx = q->latest_ctx;
+		base[idx].c = h;
+		base[idx].c_ctx = h_ctx;
+		base[idx].q = q;
+		base[idx].ascending = true;
+		base[idx].arg = keysort ? 1 : 0;
+
+		if (is_compound(h))
+			vars++;
 
 		if (keysort) {
 			if (!is_compound(h) || strcmp(C_STR(q, h), "-")) {
@@ -71,24 +85,27 @@ static cell *nodesort(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool keysor
 			}
 		}
 
-		base[idx].c = h;
-		base[idx].c_ctx = h_ctx;
-		base[idx].q = q;
-		base[idx].ascending = true;
-		base[idx].arg = keysort ? 1 : 0;
-		idx++;
-
 		p1 = LIST_TAIL(p1);
 		p1 = deref(q, p1, p1_ctx);
 		p1_ctx = q->latest_ctx;
+		idx++;
 	}
 
-#if (defined __APPLE__ || defined __MACH__ || defined __DARWIN__ \
-	|| defined __FreeBSD__ || defined __DragonFly__)
+#if (defined __APPLE__ || defined __MACH__ || defined __DARWIN__	\
+	|| defined __FreeBSD__ || defined __DragonFly__ 				\
+	|| defined __NetBSD__  || defined __OpenBSD__ 					\
+	)
 	mergesort(base, cnt, sizeof(basepair), (void*)nodecmp_);
 #else
 	qsort(base, cnt, sizeof(basepair), (void*)nodecmp);
 #endif
+
+	int vnbr = create_vars(q, vars);
+
+	if (vnbr < 0) {
+		free(base);
+		return NULL;
+	}
 
 	for (size_t i = 0; i < cnt; i++) {
 		if (i > 0) {
@@ -96,15 +113,12 @@ static cell *nodesort(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool keysor
 				continue;
 		}
 
-		cell *c = deref(q, base[i].c, base[i].c_ctx);
-		pl_idx c_ctx = q->latest_ctx;
+		cell *c = base[i].c;
+		pl_idx c_ctx = base[i].c_ctx;
 		cell tmp;
 
 		if (is_compound(c)) {
-			int vnbr = create_vars(q, 1);
-			if (vnbr < 0)
-				return NULL;
-			make_ref(&tmp, vnbr, q->st.curr_frame);
+			make_ref(&tmp, vnbr++, q->st.curr_frame);
 			unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 			c = &tmp;
 		}
@@ -251,7 +265,7 @@ static cell *nodesort4(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool ascen
 	basepair *base = malloc(sizeof(basepair)*cnt);
 	check_error(base);
 	LIST_HANDLER(p1);
-	size_t idx = 0;
+	size_t idx = 0, vars = 0;
 
 	while (is_list(p1)) {
 		cell *h = deref(q, LIST_HEAD(p1), p1_ctx);
@@ -261,17 +275,31 @@ static cell *nodesort4(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool ascen
 		base[idx].q = q;
 		base[idx].ascending = ascending;
 		base[idx].arg = arg;
-		idx++;
+
+		if (is_compound(h))
+			vars++;
+
 		p1 = LIST_TAIL(p1);
 		p1 = deref(q, p1, p1_ctx);
 		p1_ctx = q->latest_ctx;
+		idx++;
 	}
 
-#if defined __FreeBSD__ || __DragonFly__
+#if (defined __APPLE__ || defined __MACH__ || defined __DARWIN__	\
+	|| defined __FreeBSD__ || defined __DragonFly__ 				\
+	|| defined __NetBSD__  || defined __OpenBSD__ 					\
+	)
 	mergesort(base, cnt, sizeof(basepair), (void*)nodecmp_);
 #else
 	qsort(base, cnt, sizeof(basepair), (void*)nodecmp_);
 #endif
+
+	int vnbr = create_vars(q, vars);
+
+	if (vnbr < 0) {
+		free(base);
+		return NULL;
+	}
 
 	for (size_t i = 0; i < cnt; i++) {
 		if (i > 0) {
@@ -279,15 +307,12 @@ static cell *nodesort4(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool ascen
 				continue;
 		}
 
-		cell *c = deref(q, base[i].c, base[i].c_ctx);
-		pl_idx c_ctx = q->latest_ctx;
+		cell *c = base[i].c;
+		pl_idx c_ctx = base[i].c_ctx;
 		cell tmp;
 
 		if (is_var(c)) {
-			int vnbr = create_vars(q, 1);
-			if (vnbr < 0)
-				return NULL;
-			make_ref(&tmp, vnbr, q->st.curr_frame);
+			make_ref(&tmp, vnbr++, q->st.curr_frame);
 			unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 			c = &tmp;
 		}

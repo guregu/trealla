@@ -28,7 +28,6 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 bool do_yield(query *q, int msecs);
 void do_yield_at(query *q, unsigned int time_in_ms);
 
-bool check_trail(query *q);
 char *url_encode(const char *src, int len, char *dstbuf);
 char *url_decode(const char *src, char *dstbuf);
 bool query_redo(query *q);
@@ -79,9 +78,7 @@ void collect_vars(query *q, cell *p1, pl_idx p1_ctx);
 bool check_list(query *q, cell *p1, pl_idx p1_ctx, bool *is_partial, pl_int *skip);
 bool parse_write_params(query *q, cell *c, pl_idx c_ctx, cell **vnames, pl_idx *vnames_ctx);
 bool has_vars(query *q, cell *p1, pl_idx p1_ctx);
-bool accum_var(query *q, const cell *c, pl_idx c_ctx);
-bool do_parse_csv_line(query *q, csv *params, const char *src, cell *p2, pl_idx p2_ctx);
-void add_trail(query *q, pl_idx c_ctx, unsigned c_var_nbr, cell *attrs, bool is_local);
+void add_trail(query *q, pl_idx c_ctx, unsigned c_var_nbr, cell *attrs);
 void reset_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx);
 void undo_var(query *q, const cell *c, pl_idx c_ctx);
 bool valid_list(query *q, cell *c, pl_idx c_ctx);

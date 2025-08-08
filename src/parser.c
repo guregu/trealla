@@ -45,7 +45,7 @@ cell *list_head(cell *l, cell *tmp)
 	tmp->arity = 0;
 
 	if (is_codes(l)) {
-		tmp->tag = TAG_INTEGER;
+		tmp->tag = TAG_INT;
 		tmp->val_int = peek_char_utf8(src);
 	} else {
 		size_t char_len = len_char_utf8(src);
@@ -226,7 +226,7 @@ void make_var(cell *tmp, pl_idx off, unsigned var_num)
 void make_float(cell *tmp, pl_flt v)
 {
 	*tmp = (cell){0};
-	tmp->tag = TAG_DOUBLE;
+	tmp->tag = TAG_FLOAT;
 	tmp->num_cells = 1;
 	tmp->val_float = v;
 }
@@ -234,7 +234,7 @@ void make_float(cell *tmp, pl_flt v)
 void make_int(cell *tmp, pl_int v)
 {
 	*tmp = (cell){0};
-	tmp->tag = TAG_INTEGER;
+	tmp->tag = TAG_INT;
 	tmp->num_cells = 1;
 	set_smallint(tmp, v);
 }
@@ -242,7 +242,7 @@ void make_int(cell *tmp, pl_int v)
 void make_uint(cell *tmp, pl_uint v)
 {
 	*tmp = (cell){0};
-	tmp->tag = TAG_INTEGER;
+	tmp->tag = TAG_INT;
 	tmp->num_cells = 1;
 	set_smalluint(tmp, v);
 }
@@ -250,12 +250,12 @@ void make_uint(cell *tmp, pl_uint v)
 void make_ptr(cell *tmp, void *v)
 {
 	*tmp = (cell){0};
-	tmp->tag = TAG_INTEGER;
+	tmp->tag = TAG_INT;
 	tmp->num_cells = 1;
 	tmp->val_ptr = v;
 }
 
-void make_struct_(cell *tmp, pl_idx offset, unsigned arity, pl_idx extra_cells)
+void make_struct(cell *tmp, pl_idx offset, unsigned arity, pl_idx extra_cells)
 {
 	*tmp = (cell){0};
 	tmp->tag = TAG_INTERNED;
@@ -343,6 +343,28 @@ static cell *make_a_cell(parser *p)
 	cell *ret = p->cl->cells + p->cl->cidx++;
 	*ret = (cell){0};
 	return ret;
+}
+
+void parser_reset(parser *p)
+{
+	p->was_consing = p->was_string = p->was_partial = p->did_getline = false;
+	p->already_loaded_error = p->do_read_term = p->internal = p->one_shot = false;
+	p->start_term = p->end_of_term = p->end_of_file = p->is_directive  = false;
+	p->is_command = p->is_comment = p->is_consulting = p->is_symbol = false;
+	p->is_string = p->is_quoted = p->is_var = p->is_op = p->skip = p->last_close = false;
+	p->last_neg = p->no_fp = p->reuse= p->in_body = false;
+	p->is_number_chars = false;
+
+	SB_init(p->token);
+	memset(&p->vartab, 0, sizeof(p->vartab));
+	p->nesting_parens = p->nesting_brackets = p->nesting_braces = 0;
+	p->num_vars = 0;
+	p->start_term = true;
+	p->error = false;
+	p->dq_consing = 0;
+	p->error_desc = NULL;
+	p->cl->cidx = 0;
+	p->flags = p->m->flags;
 }
 
 void parser_destroy(parser *p)
@@ -464,6 +486,25 @@ static void do_op(parser *p, cell *c, bool make_public)
 		if (is_atom(h)) {
 			char *name = DUP_STRING(p, h);
 
+			unsigned tmp_optype = 0;
+			unsigned tmp_pri = match_op(p->m, name, &tmp_optype, p3->arity);
+
+			if (IS_INFIX(specifier) && IS_POSTFIX(tmp_optype) && (true || p->m->flags.strict_iso)) {
+				if (!p->do_read_term)
+					fprintf(stderr, "Error: permission error set op, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
+
+				free(name);
+				return;
+			}
+
+			if (IS_POSTFIX(specifier) && IS_INFIX(tmp_optype) && (true || p->m->flags.strict_iso)) {
+				if (!p->do_read_term)
+					fprintf(stderr, "Error: permission error set op, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
+
+				free(name);
+				return;
+			}
+
 			if (!set_op(p->m, name, specifier, get_smallint(p1))) {
 				if (!p->do_read_term)
 					fprintf_to_stream(p->pl, ERROR_FP, "Error: could not set op, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
@@ -490,6 +531,24 @@ static void do_op(parser *p, cell *c, bool make_public)
 
 	if (is_atom(p3) && !is_nil(p3)) {
 		char *name = DUP_STRING(p, p3);
+		unsigned tmp_optype = 0;
+		unsigned tmp_pri = match_op(p->m, name, &tmp_optype, p3->arity);
+
+		if (IS_INFIX(specifier) && IS_POSTFIX(tmp_optype) && (true || p->m->flags.strict_iso)) {
+			if (!p->do_read_term)
+				fprintf(stderr, "Error: permission error set op, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
+
+			free(name);
+			return;
+		}
+
+		if (IS_POSTFIX(specifier) && IS_INFIX(tmp_optype) && (true || p->m->flags.strict_iso)) {
+			if (!p->do_read_term)
+				fprintf(stderr, "Error: permission error set op, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
+
+			free(name);
+			return;
+		}
 
 		if (!set_op(p->m, name, specifier, get_smallint(p1))) {
 			if (!p->do_read_term)
@@ -597,28 +656,6 @@ static bool conditionals(parser *p, cell *d)
 
 	return false;
 }
-
-#if 0
-static bool make_rule(module *m, const char *src)
-{
-	parser *p = parser_create(m);
-	if (!p) return false;
-	p->flags = m->flags;
-	p->internal = true;
-	p->is_consulting = true;
-	p->one_shot = true;
-
-	tokenize(p, false, false);
-
-	if (p->error || !p->end_of_term) {
-		fprintf_to_stream(p->pl, ERROR_FP, "ERROR: make_rule: '%s'\n", src);
-		return false;
-	}
-
-	parser_destroy(p);
-	return true;
-}
-#endif
 
 static bool directives(parser *p, cell *d)
 {
@@ -813,12 +850,7 @@ static bool directives(parser *p, cell *d)
 			//	fprintf_to_stream(p->pl, ERROR_FP, "Error: module already loaded: %s, %s:%d\n", name, get_loaded(p->m, p->m->filename), p->line_num);
 			//
 			p->already_loaded_error = true;
-
-			if (tmp_m != p->m)
-				p->m->used[p->m->idx_used++] = tmp_m;
-
 			p->m = tmp_m;
-
 			return true;
 		}
 
@@ -1313,11 +1345,11 @@ static void check_first_cut(clause *cl)
 	}
 }
 
-static pl_idx get_varno(parser *p, const char *src, bool in_body)
+static pl_idx get_varno(parser *p, const char *src, bool in_body, unsigned depth)
 {
 	int anon = !strcmp(src, "_");
 	size_t offset = 0;
-	unsigned i = 0;
+	unsigned i = 0, nesting_offset = p->is_consulting ? 0 : 2;
 
 	while (p->vartab.pool[offset]) {
 		if (!strcmp(p->vartab.pool+offset, src) && !anon) {
@@ -1325,6 +1357,9 @@ static pl_idx get_varno(parser *p, const char *src, bool in_body)
 				p->vartab.in_body[i]++;
 			else
 				p->vartab.in_head[i]++;
+
+			if (depth > p->vartab.depth[i])
+				p->vartab.depth[i] = depth - nesting_offset;
 
 			return i;
 		}
@@ -1348,6 +1383,8 @@ static pl_idx get_varno(parser *p, const char *src, bool in_body)
 	else
 		p->vartab.in_head[i]++;
 
+	p->vartab.depth[i] = depth - nesting_offset;
+	p->vartab.num_vars++;
 	return i;
 }
 
@@ -1403,6 +1440,8 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 		p->num_vars = 0;
 	}
 
+	// Assign body variables first (why?)...
+
 	const cell *body = get_body(cl->cells);
 	bool in_body = p->in_body;
 
@@ -1418,15 +1457,12 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 		if (!is_var(c))
 			continue;
 
-		if (c->val_off == g_anon_s)
-			c->flags |= FLAG_VAR_ANON;
-
 		if (rebase) {
 			char tmpbuf[20];
 			snprintf(tmpbuf, sizeof(tmpbuf), "___V%u", c->var_num);
-			c->var_num = get_varno(p, tmpbuf, in_body);
+			c->var_num = get_varno(p, tmpbuf, in_body, c->var_num);
 		} else
-			c->var_num = get_varno(p, C_STR(p, c), in_body);
+			c->var_num = get_varno(p, C_STR(p, c), in_body, c->var_num);
 
 		c->var_num += start;
 
@@ -1436,13 +1472,11 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 			return;
 		}
 
-		p->vartab.name[c->var_num] = C_STR(p, c);
-
-		if (p->vartab.used[c->var_num]++ == 0) {
-			cl->num_vars++;
-			p->num_vars++;
-		}
+		p->vartab.off[c->var_num] = c->val_off;
+		p->vartab.used[c->var_num]++;
 	}
+
+	// ... then the head...
 
 	in_body = p->in_body;
 
@@ -1458,15 +1492,12 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 		if (!is_var(c))
 			continue;
 
-		if (c->val_off == g_anon_s)
-			c->flags |= FLAG_VAR_ANON;
-
 		if (rebase) {
 			char tmpbuf[20];
 			snprintf(tmpbuf, sizeof(tmpbuf), "___V%u", c->var_num);
-			c->var_num = get_varno(p, tmpbuf, in_body);
+			c->var_num = get_varno(p, tmpbuf, in_body, c->var_num);
 		} else
-			c->var_num = get_varno(p, C_STR(p, c), in_body);
+			c->var_num = get_varno(p, C_STR(p, c), in_body, c->var_num);
 
 		c->var_num += start;
 
@@ -1476,48 +1507,59 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 			return;
 		}
 
-		p->vartab.name[c->var_num] = C_STR(p, c);
-
-		if (p->vartab.used[c->var_num]++ == 0) {
-			cl->num_vars++;
-			p->num_vars++;
-		}
+		p->vartab.off[c->var_num] = c->val_off;
+		p->vartab.used[c->var_num]++;
 	}
 
-	in_body = p->in_body;
+	cl->num_vars = p->vartab.num_vars;
+	p->num_vars = p->vartab.num_vars;
+
+	// Now set flags...
 
 	for (unsigned i = 0; i < cl->cidx; i++) {
 		cell *c = cl->cells + i;
 
-		if (c == body)
-			in_body = true;
-
 		if (!is_var(c))
 			continue;
+
+		c->flags &= ~FLAG_VAR_REF;
+
+		if (c->val_off == g_anon_s)
+			c->flags |= FLAG_VAR_ANON;
 
 		unsigned var_in_head = get_in_head(p, C_STR(p, c));
 		unsigned var_in_body = get_in_body(p, C_STR(p, c));
 		unsigned occurrances = var_in_head + var_in_body;
+		bool var_is_global = is_global(c);
+
+		if (var_in_head && (p->vartab.depth[c->var_num] > 1)) {
+			var_is_global = true;
+		} else if (var_in_body && (p->vartab.depth[c->var_num] > 1)) {
+			var_is_global = true;
+		}
 
 		if (!occurrances)		// Anonymous vars weren't
 			occurrances = 1;	// counted it seems
 
-		if (var_in_body)
-			c->flags |= FLAG_VAR_LOCAL;
-		else if (!var_in_body)
-			c->flags |= FLAG_VAR_TEMPORARY;
-
-		if (occurrances == 1)
-			c->flags |= FLAG_VAR_VOID;
+		if (var_is_global) {
+			c->flags |= FLAG_VAR_GLOBAL;
+		} else {
+			if (occurrances == 1)
+				c->flags |= FLAG_VAR_VOID;
+			else if (!var_in_body)
+				c->flags |= FLAG_VAR_TEMPORARY;
+			else if (var_in_body)
+				c->flags |= FLAG_VAR_LOCAL;
+		}
 	}
 
 	for (unsigned i = 0; i < cl->num_vars; i++) {
-		if (p->is_consulting && !p->do_read_term && (p->vartab.used[i] == 1) &&
-			(p->vartab.name[i][strlen(p->vartab.name[i])-1] != '_') &&
-			(*p->vartab.name[i] != '_')) {
+		if (p->is_consulting && !p->do_read_term && (p->vartab.used[i] == 1)
+			// && (p->vartab.name[i][strlen(p->vartab.name[i])-1] != '_')
+			&& (GET_POOL(p, p->vartab.off[i])[0] != '_')) {
 			if (!p->pl->quiet
 				&& !((cl->cells->val_off == g_neck_s) && cl->cells->arity == 1))
-				fprintf_to_stream(p->pl, WARN_FP, "Warning: singleton: %s, near %s:%d\n", p->vartab.name[i], get_loaded(p->m, p->m->filename), p->line_num);
+				fprintf_to_stream(p->pl, WARN_FP, "Warning: singleton: %s, near %s:%d\n", GET_POOL(p, p->vartab.off[i]), get_loaded(p->m, p->m->filename), p->line_num);
 		}
 	}
 
@@ -1561,7 +1603,7 @@ static bool reduce(parser *p, pl_idx start_idx, bool last_op)
 			do_work = true;
 		}
 
-		bind_le = is_xfy(c) || is_fy(c) ? true : false;
+		bind_le = is_xfy(c) || is_fy(c) ? true || is_yf(c): false;
 		i++;
 	}
 
@@ -1621,7 +1663,7 @@ static bool reduce(parser *p, pl_idx start_idx, bool last_op)
 		}
 
 		if (is_prefix(c)) {
-			const cell *rhs = c + 1;
+			cell *rhs = c + 1;
 
 			if (is_infix(rhs) && !rhs->arity && (rhs->priority > c->priority)) {
 				if (!p->do_read_term)
@@ -1661,7 +1703,7 @@ static bool reduce(parser *p, pl_idx start_idx, bool last_op)
 
 		// Postfix...
 
-		const cell *rhs = c + 1;
+		cell *rhs = c + 1;
 
 		if (is_xf(rhs) && (rhs->priority == c->priority)) {
 			if (!p->do_read_term)
@@ -1734,7 +1776,7 @@ static bool reduce(parser *p, pl_idx start_idx, bool last_op)
 			return false;
 		}
 
-		const cell *lhs = p->cl->cells + last_idx;
+		cell *lhs = p->cl->cells + last_idx;
 
 		if (is_infix(lhs) && !lhs->arity) {
 			if (!p->do_read_term)
@@ -1772,6 +1814,19 @@ static bool reduce(parser *p, pl_idx start_idx, bool last_op)
 			}
 		}
 
+		c = p->cl->cells + last_idx;
+		lhs = c + 1;
+		rhs = lhs + lhs->num_cells;
+
+		if (is_var(lhs) && (c->val_off == g_eq_s)) {
+			c = rhs;
+
+			for (unsigned i = 0; i < rhs->num_cells; i++, c++) {
+				if (is_var(c))
+					c->flags |= FLAG_VAR_GLOBAL;
+			}
+		}
+
 		break;
 	}
 
@@ -1788,18 +1843,6 @@ static bool analyze(parser *p, pl_idx start_idx, bool last_op)
 	return !p->error;
 }
 
-void reset(parser *p)
-{
-	clear_clause(p->cl);
-	p->num_vars = 0;
-	p->start_term = true;
-	p->is_comment = false;
-	p->error = false;
-	p->last_close = false;
-	p->nesting_parens = p->nesting_brackets = p->nesting_braces = 0;
-	p->error_desc = NULL;
-}
-
 static bool dcg_expansion(parser *p)
 {
 	query *q = query_create(p->m);
@@ -1812,7 +1855,7 @@ static bool dcg_expansion(parser *p)
 	dup_cells(tmp+1, p->cl->cells, c->num_cells);
 	make_ref(tmp+1+c->num_cells, p->cl->num_vars, 0);
 	make_end(tmp+1+c->num_cells+1);
-	bool ok = execute(q, tmp, p->cl->num_vars+1);
+	bool ok = execute(q, tmp, p->cl->num_vars+MAX_ARITY);
 
 	if (!ok || q->abort) {
 		query_destroy(q);
@@ -2036,7 +2079,7 @@ static cell *goal_expansion(parser *p, cell *goal)
 	p->pl->in_goal_expansion = true;
 	parser *p2 = parser_create(p->m);
 	check_error(p2, query_destroy(q));
-	q->p = p2;
+	q->top = p2;
 	p2->cl->num_vars = p->cl->num_vars;
 	p2->vartab = p->vartab;
 	p2->reuse = true;
@@ -2049,6 +2092,7 @@ static cell *goal_expansion(parser *p, cell *goal)
 		parser_destroy(p2);
 		query_destroy(q);
 		p->error = true;
+		SB_free(s);
 		return goal;
 	}
 
@@ -2072,10 +2116,10 @@ static cell *goal_expansion(parser *p, cell *goal)
 	char *src = NULL;
 
 	for (unsigned i = 0; i < p2->cl->num_vars; i++) {
-		if (!p2->vartab.name[i])
+		if (!p2->vartab.off[i])
 			continue;
 
-		if (strcmp(p2->vartab.name[i], "_TermOut"))
+		if (strcmp(GET_POOL(p, p2->vartab.off[i]), "_TermOut"))
 			continue;
 
 		slot *e = GET_SLOT(f, i);
@@ -2100,7 +2144,7 @@ static cell *goal_expansion(parser *p, cell *goal)
 		return goal;
 	}
 
-	reset(p2);
+	parser_reset(p2);
 	p2->cl->num_vars = p->cl->num_vars;
 	p2->vartab = p->vartab;
 	p2->reuse = true;
@@ -2111,6 +2155,7 @@ static cell *goal_expansion(parser *p, cell *goal)
 		parser_destroy(p2);
 		query_destroy(q);
 		p->error = true;
+		free(src);
 		return goal;
 	}
 
@@ -2127,6 +2172,7 @@ static cell *goal_expansion(parser *p, cell *goal)
 	const unsigned goal_idx = goal - p->cl->cells;
 	unsigned trailing = p->cl->cidx - (goal_idx + goal->num_cells);
 	p->cl->cidx -= goal->num_cells;
+	unshare_cells(goal, goal->num_cells);
 	memmove(goal, goal + goal->num_cells, sizeof(cell)*trailing);
 
 	// make room for new goal...
@@ -2385,6 +2431,12 @@ static int get_octal(const char **srcptr)
 static int get_hex(const char **srcptr, unsigned n, bool *error)
 {
 	const char *src = *srcptr;
+
+	if (*src == '\\') {
+		*error = true;
+		return 0;
+	}
+
 	unsigned orig_n = n;
 	int v = 0;
 
@@ -2436,20 +2488,22 @@ static int get_escape(parser *p, const char **_src, bool *error, bool number)
 		&& !number) {
 		bool unicode = false;
 
-		if (ch == 'x')
+		if (ch == 'x') {
 			ch = get_hex(&src, UINT_MAX, error);
-		else if (ch == 'U') {
+		} else if (ch == 'U') {
 			ch = get_hex(&src, 8, error);
 			unicode = true;
 		} else if (ch == 'u') {
 			ch = get_hex(&src, 4, error);
 			unicode = true;
 
+#if 0
 			if (((unsigned)ch > 0xd800) && (src[0] == '\\') && (src[1] == 'u')) {
 				src += 2;
 				int ch2 = get_hex(&src, 4, error);
 				ch = (((unsigned)ch - 0xd800) * 0x400) + ((unsigned)ch2 - 0xdc00) + 0x10000;
 			}
+#endif
 		} else {
 			src--;
 			ch = get_octal(&src);
@@ -2563,9 +2617,6 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 	if (!isdigit(*s))
 		return false;
 
-	//if ((s[0] == '0') && (s[1] == '\''))
-	//	printf("*** %s\n", s);
-
 	if ((s[0] == '0') && (s[1] == '\'') && iscntrl(s[2])) {
 		if (!p->do_read_term)
 			fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, parsing number, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
@@ -2608,10 +2659,19 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 		}
 
 		s2++;
-		p->v.tag = TAG_INTEGER;
+		p->v.tag = TAG_INT;
 		set_smallint(&p->v, v);
 		*srcptr = s2;
 		return true;
+	}
+
+	if ((s[0] == '0') && (s[1] == '\'') && (s[2] == '\\') && ((s[3] == '+') || (s[3] == '-'))) {
+		if (!p->do_read_term)
+			fprintf(stderr, "Error: syntax error, parsing octal, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
+
+		p->error_desc = "number";
+		p->error = true;
+		return false;
 	}
 
 	if ((s[0] == '0') && (s[1] == '\'') && !((s[2] == '\\') && (s[3] == '\n'))
@@ -2651,10 +2711,9 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 			}
 
 			int save_ch = s[0];
+			v = get_escape(p, &s, &p->error, false);
 
-			v = get_escape(p, &s, &p->error, true);
-
-			if (((save_ch == '0')) && !iscntrl(v)) {
+			if ((((save_ch == '0')) && !iscntrl(v)) || p->error) {
 				//printf("*** *s=%d, iscntrl=%d, save_ch=%d, v=%d\n", *s, iscntrl(*s), save_ch, v);
 
 				if (!p->do_read_term)
@@ -2687,7 +2746,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 			return false;
 		}
 
-		p->v.tag = TAG_INTEGER;
+		p->v.tag = TAG_INT;
 		set_smallint(&p->v, v);
 		if (neg) set_smallint(&p->v, -get_smallint(&p->v));
 		*srcptr = s;
@@ -2717,7 +2776,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 			mp_int_clear(&v2);
 		}
 
-		p->v.tag = TAG_INTEGER;
+		p->v.tag = TAG_INT;
 		*srcptr = s;
 		return true;
 	}
@@ -2740,7 +2799,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 			mp_int_clear(&v2);
 		}
 
-		p->v.tag = TAG_INTEGER;
+		p->v.tag = TAG_INT;
 		*srcptr = s;
 		return true;
 	}
@@ -2763,7 +2822,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 			mp_int_clear(&v2);
 		}
 
-		p->v.tag = TAG_INTEGER;
+		p->v.tag = TAG_INT;
 		*srcptr = s;
 		return true;
 	}
@@ -2771,13 +2830,13 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 	read_integer(p, &v2, 10, &s);
 
 	if (p->flags.json && s && ((*s == 'e') || (*s == 'E')) && isdigit(s[1])) {
-		p->v.tag = TAG_DOUBLE;
+		p->v.tag = TAG_FLOAT;
 		errno = 0;
 		pl_flt v = strtod(tmpptr, &tmpptr);
 
 		if ((int)v && (errno == ERANGE)) {
 			if (!p->do_read_term)
-				fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, float overflow %g, %s:%d\n", v, get_loaded(p->m, p->m->filename), p->line_num);
+				fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, float op %g, %s:%d\n", v, get_loaded(p->m, p->m->filename), p->line_num);
 
 			p->error_desc = "float_overflow";
 			p->error = true;
@@ -2791,13 +2850,13 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 	}
 
 	if (s && (*s == '.') && isdigit(s[1])) {
-		p->v.tag = TAG_DOUBLE;
+		p->v.tag = TAG_FLOAT;
 		errno = 0;
 		pl_flt v = strtod(tmpptr, &tmpptr);
 
 		if ((int)v && (errno == ERANGE)) {
 			if (!p->do_read_term)
-				fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, float overflow %g, %s:%d\n", v, get_loaded(p->m, p->m->filename), p->line_num);
+				fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, float op %g, %s:%d\n", v, get_loaded(p->m, p->m->filename), p->line_num);
 
 			p->error_desc = "float_overflow";
 			p->error = true;
@@ -2824,7 +2883,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 
 	mp_int_clear(&v2);
 	int ch;
-	p->v.tag = TAG_INTEGER;
+	p->v.tag = TAG_INT;
 
 	if ((s[-1] == '.') || isspace(s[-1]))
 		s--;
@@ -2875,6 +2934,9 @@ static bool valid_float(const char *src)
 
 char *eat_space(parser *p)
 {
+	if (!*p->srcptr)
+		return p->srcptr;
+
 	p->did_getline = false;
 	const char *src = p->srcptr;
 	bool done;
@@ -3015,6 +3077,9 @@ static bool check_space_before_function(parser *p, int ch, const char *src)
 
 static bool contains_null(const char *src, size_t len)
 {
+	if (!*src)
+		return false;
+
 	for (size_t i = 0; i < len; i++) {
 		if (!*src++)
 			return true;
@@ -3039,7 +3104,6 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 	const char *src = p->srcptr;
 
 	SB_init(p->token);
-	bool neg = false;
 	p->v.tag = TAG_INTERNED;
 	p->v.flags = 0;
 	p->v.num_cells = 1;
@@ -3080,7 +3144,7 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 		SB_sprintf(p->token, "%u", ch);
 		p->srcptr = (char*)src;
 		set_smallint(&p->v, ch);
-		p->v.tag = TAG_INTEGER;
+		p->v.tag = TAG_INT;
 		p->dq_consing = -1;
 		return true;
 	}
@@ -3092,81 +3156,18 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 		return false;
 	}
 
-	// -ve numbers (note there are no explicitly +ve numbers)
-
-	bool is_neg = false;
-	const char *save_src = src;
-
-	if ((*src == '-') && last_op && !was_postfix) {
-		is_neg = true;
-		src += 1;
-	}
-
-	if ((src[0] == '\'') && (src[1] == '-') && (src[2] == '\\')) {
-		src += 2;
-		src = eat_continuation(src);
-
-		if (*src == '\'') {
-			is_neg = true;
-			src++;
-		}
-	} else if ((src[0] == '\'') && (src[1] == '\\') && (src[2] == '\n')) {
-		src++;
-		src = eat_continuation(src);
-
-		if (*src == '-') {
-			src++;
-			src = eat_continuation(src);
-
-			if (*src == '\'') {
-				is_neg = true;
-				src++;
-			}
-		} else if (!is_neg && (src[0] == '-') && (src[1] == '\'') && last_op) {
-			is_neg = true;
-			src += 2;
-		}
-	} else if (!is_neg && (*src == '\'') && (src[1] == '-') && (src[2] == '\'') && last_op) {
-		is_neg = true;
-		src += 3;
-	}
-
-
-	if (is_neg) {
-		p->srcptr = (char*)src;
-		int next_ch = peek_char_utf8(src);
-
-		if (next_ch == '/') {
-			if (!p->do_read_term)
-				fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, near %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
-
-			p->error_desc = "incomplete_statement";
-			p->error = true;
-			return false;
-		}
-
-		src = eat_space(p);
-
-		if (!src || !*src) {
-			if (!p->do_read_term)
-				fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, incomplete statement, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
-
-			p->error_desc = "incomplete_statement";
-			p->error = true;
-			return false;
-		}
-
-		if (isdigit(*src))
-			neg = true;
-		else
-			src = save_src;
-	}
-
 	// Numbers...
 
 	const char *tmpptr = src;
+	bool neg = false;
+
+	if (p->last_neg) {
+		p->last_neg = false;
+		neg = true;
+	}
 
 	if ((*src != '-') && parse_number(p, &src, neg)) {
+		if (neg) p->cl->cidx--;
 		SB_strcatn(p->token, tmpptr, src-tmpptr);
 		const char *dst = SB_cstr(p->token);
 
@@ -3204,6 +3205,8 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 		return true;
 	}
 
+	p->last_neg = false;
+
 	// Quoted...
 
 	if ((*src == '"') || (*src == '`') || (*src == '\'')) {
@@ -3227,7 +3230,9 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 			p->is_string = true;
 
 		for (;;) {
-			for (int ch; (ch = get_char_utf8(&src));) {
+			int ch = 0;
+
+			for (; *src && (ch = get_char_utf8(&src));) {
 				if (ch == '\n') {
 					if (!p->do_read_term)
 						fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, unterminated quoted atom, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
@@ -3244,10 +3249,10 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 					p->quote_char = 0;
 					break;
 				} else if (ch == p->quote_char) {
+#if 1 // Double-bar
 					const char *save_src = src;
 					p->srcptr = (char*)src;
 					src = eat_space(p);
-
 					if (*src != '|') {
 						p->quote_char = 0;
 						break;
@@ -3266,8 +3271,14 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 					src++;
 					p->srcptr = (char*)src;
 					src = eat_space(p);
+					ch = *src;
 
-					if (iswupper(*src) || (*src == '_')) {
+					if (iswalnum(ch) || (ch == '_')
+						|| (ch == '(') || ch == ')'
+						|| (ch == '[') || ch == ']'
+						|| (ch == '{') || ch == '}'
+						|| (ch == '-')
+						) {
 						src = (char*)src;
 						p->quote_char = 0;
 						char *save_src = strdup(SB_cstr(p->token));
@@ -3282,7 +3293,18 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 								if (any)
 									SB_putchar(p->token, ',');
 
-								SB_putchar(p->token, ch);
+								SB_putchar(p->token, '\'');
+
+								char *ptr = strchr(g_escapes, ch);
+
+								if (ptr) {
+									size_t n = ptr - g_escapes;
+									SB_putchar(p->token, '\\');
+									SB_putchar(p->token, g_anti_escapes[n]);
+								} else
+									SB_putchar(p->token, ch);
+
+								SB_putchar(p->token, '\'');
 								any = true;
 							}
 
@@ -3291,12 +3313,33 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 							SB_putchar(p->token, '(');
 						}
 
+						int depth = 0;
+
 						while ((ch = peek_char_utf8(src)) != 0) {
-							if (!iswalnum(ch) && (ch != '_'))
+							if (!iswalnum(ch) && (ch != '_')
+								&& !iswspace(ch)
+								&& (ch != '(') && (ch != ')')
+								&& (ch != '[') && (ch != ']')
+								&& (ch != '{') && (ch != '}')
+								&& (ch != '-') && (ch != '+')
+								&& !depth
+								)
+								break;
+
+							if ((ch == '(') || (ch == '[') || (ch == '{'))
+								depth++;
+
+							if ((ch == ')') || (ch == ']') || (ch == '}'))
+								depth--;
+
+							if (depth < 0)
 								break;
 
 							get_char_utf8(&src);
 							SB_putchar(p->token, ch);
+
+							if (!depth && ((ch == ')') || (ch == ']') || (ch == '}')))
+								break;
 						}
 
 						if (strlen(save_src)) {
@@ -3326,9 +3369,12 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 						p->quote_char = 0;
 						break;
 					}
-
 					src++;
 					continue;
+#else
+					p->quote_char = 0;
+					break;
+#endif
 				}
 
 				if (ch < ' ') {
@@ -3362,6 +3408,9 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 				}
 
 				SB_putchar(p->token, ch);
+
+				if (!*src)
+					break;
 			}
 
 			if (p->quote_char && p->fp) {
@@ -3408,11 +3457,26 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 			} else
 				p->quote_char = -1;
 
-			p->srcptr = (char*)src;
-			int ch = peek_char_utf8(src);
+			if (!src || !*src || !ch) {
+				if (!p->do_read_term)
+					fprintf(stderr, "Error: syntax error, unterminated quoted atom, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
 
-			if (!check_space_before_function(p, ch, src))
+				p->error_desc = "unterminated_quoted_atom";
+				p->error = true;
 				return false;
+			}
+
+			if (*src) {
+				p->srcptr = (char*)src;
+				ch = peek_char_utf8(src);
+
+				if (!check_space_before_function(p, ch, src))
+					return false;
+
+				if (!strcmp(SB_cstr(p->token), "-") && last_op && !was_postfix)
+					p->last_neg = true;
+			} else
+				src = NULL;
 
 			p->srcptr = (char*)src;
 			return true;
@@ -3440,10 +3504,11 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 
 		int ch_start = peek_char_utf8(SB_cstr(p->token));
 
-		if ((!p->flags.var_prefix && !p->flags.json && iswupper(ch_start)) || (ch_start == '_'))
-			p->is_var = true;
-		else if (search_op(p->m, SB_cstr(p->token), NULL, false))
-			p->is_op = true;
+		if ((!p->flags.var_prefix && !p->flags.json && iswupper(ch_start)) || (ch_start == '_')) {
+			if (!p->is_number_chars) p->is_var = true;
+		} else if (search_op(p->m, SB_cstr(p->token), NULL, false)) {
+			if (!p->is_number_chars) p->is_op = true;
+		}
 
 		p->srcptr = (char*)src;
 		int ch = peek_char_utf8(src);
@@ -3457,16 +3522,6 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 
 	ch = get_char_utf8(&src);
 	int next_ch = peek_char_utf8(src);
-
-#if 0
-	if ((ch == '.') && iswspace(next_ch)) {
-		SB_putchar(p->token, ch);
-		p->is_op = search_op(p->m, SB_cstr(p->token), NULL, false);
-		p->srcptr = (char*)src;
-		return true;
-	}
-#endif
-
 	p->srcptr = (char*)src;
 
 	if ((ch == '(') || (ch == '[') || (ch == '{') || (ch == ',')
@@ -3532,11 +3587,6 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 		if (ch_next == '%')
 			break;
 
-#if 0
-		if ((ch == '.') && iswspace(ch_next))
-			break;
-#endif
-
 		if (p->flags.json && (ch_next == '-'))
 			break;
 
@@ -3564,6 +3614,9 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 
 	if (!SB_strcmp(p->token, ".") && ch == '|')
 		p->quote_char = '\'';
+
+	if (!strcmp(SB_cstr(p->token), "-") && last_op && !was_postfix)
+		p->last_neg = true;
 
 	return true;
 }
@@ -3618,7 +3671,7 @@ static bool process_term(parser *p, cell *p1)
 		h->arity = 0;
 	}
 
-	db_entry *r;
+	rule *r;
 
 	if ((r = assertz_to_db(p->m, p->cl->num_vars, p1, consulting)) == NULL) {
 		if ((!p->do_read_term) && 0)
@@ -3645,7 +3698,7 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 	unsigned arity = 1;
 	p->depth++;
 
-	while (get_token(p, last_op, last_postfix) && !g_tpl_interrupt) {
+	while (get_token(p, last_op, last_postfix)) {
 		if (p->error && !p->do_read_term)
 			break;
 
@@ -3734,7 +3787,7 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 					if (!p1->arity && !strcmp(C_STR(p, p1), "end_of_file")) {
 						p->end_of_term = true;
 						p->end_of_file = true;
-						process_db(p->m);
+						process_module(p->m);
 						return 0;
 					}
 				}
@@ -4022,7 +4075,7 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 		if (!p->quote_char && p->start_term &&
 			(!SB_strcmp(p->token, "]") || !SB_strcmp(p->token, ")") || !SB_strcmp(p->token, "}"))) {
 			if (!p->do_read_term)
-				fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, start of db_entry expected, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
+				fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, start of rule expected, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
 
 			p->error_desc = "start_expected";
 			p->error = true;
@@ -4195,7 +4248,7 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 			}
 		}
 
-		if (priority && IS_POSTFIX(specifier) && is_arg_processing && last_op) {
+		if (priority && IS_POSTFIX(specifier) && is_arg_processing && last_op && !last_postfix) {
 			specifier = 0;
 			priority = 0;
 		}
@@ -4240,7 +4293,7 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 			save_idx = p->cl->cidx;
 		}
 
-		if (!p->is_op && !is_func && last_op && last_postfix) {
+		if (!p->is_op && !is_func && last_op && last_postfix && 0) {
 			if (!p->do_read_term)
 				fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, near '%s', operator expected postfix '%s', %s:%d\n", SB_cstr(p->token), p->save_line?p->save_line:"", get_loaded(p->m, p->m->filename), p->line_num);
 
@@ -4276,7 +4329,7 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 			c->val_bigint = p->v.val_bigint;
 		} else if (is_smallint(&p->v)) {
 			set_smallint(c, get_smallint(&p->v));
-		} else if (p->v.tag == TAG_DOUBLE) {
+		} else if (p->v.tag == TAG_FLOAT) {
 			set_float(c, get_float(&p->v));
 		} else if (!p->is_string
 			&& (!p->is_quoted || is_func || p->is_op || p->is_var || p->is_consulting
@@ -4286,11 +4339,18 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 			if (is_func && !SB_strcmp(p->token, "."))
 				c->priority = 0;
 
-			if (p->is_var)
-				c->tag = TAG_VAR;
+			// We temporarily make use of 'var_num' to hold the nesting info
+			// on the var, used for determining later if it's a global or not.
 
-			c->val_off = new_atom(p->pl, SB_cstr(p->token));
-			ensure(c->val_off != ERR_IDX);
+			if (p->is_var) {
+				c->tag = TAG_VAR;
+				c->var_num = (2*p->nesting_braces) + (2*p->nesting_brackets) + p->nesting_parens;
+			}
+
+			if (!p->is_number_chars) {
+				c->val_off = new_atom(p->pl, SB_cstr(p->token));
+				ensure(c->val_off != ERR_IDX);
+			}
 		} else {
 			c->tag = TAG_CSTR;
 			size_t toklen = SB_strlen(p->token);
@@ -4305,7 +4365,8 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 					c->arity = 2;
 				}
 
-				make_string_internal(c, SB_cstr(p->token), toklen, 0);
+				if (!p->is_number_chars)
+					make_string_internal(c, SB_cstr(p->token), toklen, 0);
 			}
 		}
 
@@ -4329,16 +4390,27 @@ bool run(parser *p, const char *prolog_src, bool dump, query **subq, unsigned in
 		SB_strcat(pr, "true,");
 	}
 
-	SB_sprintf(pr, "%s", prolog_src);
+	if (*prolog_src != '[') {
+		SB_sprintf(pr, "((%s", prolog_src);
+	} else {
+		SB_sprintf(pr, "%s", prolog_src);
+	}
+
 	SB_trim_ws(pr);
 	SB_trim(pr, '.');
-	SB_strcat(pr, ".");
+
+	if (*prolog_src != '[') {
+		SB_strcat(pr, ")).");
+	} else {
+		SB_strcat(pr, ".");
+	}
+
 	p->in_body = true;
 	p->srcptr = SB_cstr(pr);
 	bool ok;
 
 	while (p->srcptr && *p->srcptr) {
-		reset(p);
+		parser_reset(p);
 		p->line_num_start = 0;
 		p->line_num = 1;
 		p->one_shot = true;
@@ -4382,7 +4454,7 @@ bool run(parser *p, const char *prolog_src, bool dump, query **subq, unsigned in
 		if (yield_time_in_ms > 0)
 			do_yield_at(q, yield_time_in_ms);
 
-		q->p = p;
+		q->top = p;
 		q->do_dump_vars = dump;
 		q->run_init = p->m->run_init;
 		execute(q, p->cl->cells, p->cl->num_vars);
@@ -4410,7 +4482,7 @@ bool run(parser *p, const char *prolog_src, bool dump, query **subq, unsigned in
 
 	stream *str = &p->pl->streams[0];
 	if (is_file_stream(str)) {
-		str->fp = freopen(NULL, "r", str->fp);
+		fflush(str->fp);
 		free(str->data);
 		str->data = NULL;
 		str->data_len = 0;

@@ -281,7 +281,7 @@ void make(module *m)
 	m->make = false;
 }
 
-static predicate *find_predicate_(module *m, cell *c, bool abolished)
+ predicate *find_predicate(module *m, cell *c)
 {
 	cell tmp = *c;
 	tmp.tag = TAG_INTERNED;
@@ -296,7 +296,7 @@ static predicate *find_predicate_(module *m, cell *c, bool abolished)
 	predicate *pr = NULL;
 
 	while (sl_next_key(iter, (void*)&pr)) {
-		if (!pr || (pr->is_abolished && !abolished))
+		if (!pr || pr->is_abolished)
 			continue;
 
 		sl_done(iter);
@@ -305,11 +305,6 @@ static predicate *find_predicate_(module *m, cell *c, bool abolished)
 
 	sl_done(iter);
 	return NULL;
-}
-
-predicate *find_predicate(module *m, cell *c)
-{
-	return find_predicate_(m, c, false);
 }
 
 predicate *search_predicate(module *m, cell *c, bool *prebuilt)
@@ -326,23 +321,18 @@ predicate *search_predicate(module *m, cell *c, bool *prebuilt)
 		return pr;
 	}
 
-	// TODO: only do this if not use_module(name [])
-
 	for (unsigned i = 0; i < m->idx_used; i++) {
 		module *tmp_m = m->used[i];
 
+		// Only search modules if CLPZ... ???
+
+		if (strcmp(tmp_m->name, "clpz"))
+			continue;
+
 		pr = find_predicate(tmp_m, c);
 
-		if (pr) {
-			if (strcmp(tmp_m->name, "clpz")	// Hack for verify_attributes not qualifying goals
-				)
-				continue;
-
-			if (pr->is_builtin && prebuilt)
-				*prebuilt = true;
-
+		if (pr)
 			return pr;
-		}
 	}
 
 	if (m->pl->user_m) {
@@ -377,28 +367,43 @@ predicate *create_predicate(module *m, cell *c, bool *created)
 		return NULL;
 	}
 
-	predicate *pr = find_predicate_(m, c, true);
+	predicate *pr = calloc(1, sizeof(predicate));
+	ensure(pr);
+	list_push_back(&m->predicates, pr);
 
-	if (!pr) {
-		pr = calloc(1, sizeof(predicate));
-		ensure(pr);
-		list_push_back(&m->predicates, pr);
+	if (created)
+		*created = true;
 
-		if (created)
-			*created = true;
+	pr->filename = m->filename;
+	pr->m = m;
+	pr->key = *c;
+	pr->key.tag = TAG_INTERNED;
+	pr->key.num_cells = 1;
+	pr->is_noindex = m->pl->noindex || !pr->key.arity;
+	sl_set(m->index, &pr->key, pr);
+	return pr;
+}
 
-		pr->filename = m->filename;
-		pr->m = m;
-		pr->key = *c;
-		pr->key.tag = TAG_INTERNED;
-		pr->key.num_cells = 1;
-		pr->is_noindex = m->pl->noindex || !pr->key.arity;
-		sl_set(m->index, &pr->key, pr);
-		return pr;
+static void abolish_predicate(predicate *pr)
+{
+	while (pr->head) {
+		rule *tmp = pr->head;
+		pr->head = pr->head->next;
+		clear_clause(&tmp->cl);
+		free(tmp);
+		pr->cnt--;
 	}
 
-	pr->is_abolished = false;
-	return pr;
+	pr->head = pr->tail = NULL;
+	sl_destroy(pr->idx2);
+	sl_destroy(pr->idx1);
+	pr->idx1 = pr->idx2 = NULL;
+
+	if (pr->meta_args) {
+		unshare_cells(pr->meta_args, pr->meta_args->num_cells);
+		free(pr->meta_args);
+		pr->meta_args = NULL;
+	}
 }
 
 static void destroy_predicate(module *m, predicate *pr)
@@ -406,7 +411,7 @@ static void destroy_predicate(module *m, predicate *pr)
 	sl_del(m->index, &pr->key);
 
 	while (pr->head) {
-		db_entry *tmp = pr->head;
+		rule *tmp = pr->head;
 		pr->head = pr->head->next;
 		clear_clause(&tmp->cl);
 		free(tmp);
@@ -414,7 +419,7 @@ static void destroy_predicate(module *m, predicate *pr)
 
 	pr->head = pr->tail = NULL;
 	sl_destroy(pr->idx2);
-	sl_destroy(pr->idx);
+	sl_destroy(pr->idx1);
 
 	if (pr->meta_args) {
 		unshare_cells(pr->meta_args, pr->meta_args->num_cells);
@@ -648,7 +653,7 @@ int index_cmpkey(const void *ptr1, const void *ptr2, const void *param, void *l)
 	return index_cmpkey_(ptr1, ptr2, param, l);
 }
 
-db_entry *find_in_db(module *m, uuid *ref)
+rule *find_in_db(module *m, uuid *ref)
 {
 	for (module *tmp_m = list_front(&m->pl->modules);
 		tmp_m; tmp_m = list_next(tmp_m)) {
@@ -657,7 +662,7 @@ db_entry *find_in_db(module *m, uuid *ref)
 			if (!pr->is_dynamic)
 				continue;
 
-			for (db_entry *r = pr->head ; r; r = r->next) {
+			for (rule *r = pr->head ; r; r = r->next) {
 				if (r->dbgen_retracted)
 					continue;
 
@@ -670,8 +675,50 @@ db_entry *find_in_db(module *m, uuid *ref)
 	return NULL;
 }
 
+static void purge_properties(predicate *pr)
+{
+	cell tmp;
+	make_atom(&tmp, new_atom(pr->m->pl, "$predicate_property"));
+	tmp.arity = 3;
+	predicate *pr2 = find_predicate(pr->m, &tmp);
+	if (!pr2) return;
+
+	for (rule *r = pr2->head ; r; ) {
+		cell *f = r->cl.cells;
+		cell *p1 = f + 1;
+		cell *p2 = p1 + p1->num_cells;
+
+		if ((pr->key.arity != p2->arity) || (pr->key.val_off != p2->val_off)) {
+			r = r->next;
+			continue;
+		}
+
+
+		r->dbgen_retracted = ++pr->m->pl->dbgen;
+		pr2->cnt--;
+		rule *save = r;
+		r = r->next;
+
+		if (!pr2->refcnt) {
+			if (save->prev)
+				save->prev->next = save->next;
+			else
+				pr->head = save->next;
+
+			if (save->next)
+				save->next->prev = save->prev;
+			else
+				pr->tail = save->next;
+
+			clear_clause(&save->cl);
+			free(save);
+		}
+	}
+}
+
 void push_property(module *m, const char *name, unsigned arity, const char *type)
 {
+	//printf("*** PUSH %s/%u\n", name, arity);
 	char tmpbuf[1024];
 	format_property(m, tmpbuf, sizeof(tmpbuf), name, arity, type, false);
 	parser *p = parser_create(m);
@@ -680,6 +727,51 @@ void push_property(module *m, const char *name, unsigned arity, const char *type
 	p->internal = true;
 	tokenize(p, false, false);
 	parser_destroy(p);
+}
+
+void clear_property(module *m, const char *name, unsigned arity)
+{
+	cell tmp;
+	make_atom(&tmp, new_atom(m->pl, "$predicate_property"));
+	tmp.arity = 3;
+	predicate *pr = find_predicate(m, &tmp);
+	if (!pr) return;
+
+	for (rule *r = pr->head; r;) {
+		cell *p0 = r->cl.cells;
+		cell *p1 = p0 + 1;
+		cell *p2 = p1 + p1->num_cells;
+
+		if (strcmp(C_STR(m, p2), name)) {
+			r = r->next;
+			continue;
+		}
+
+		if (p2->arity != arity) {
+			r = r->next;
+			continue;
+		}
+
+		rule *save = r;
+		r = r->next;
+
+		if (pr->refcnt)
+			retract_from_db(m, save);
+		else {
+			predicate_delink(pr, save);
+			cell *c = get_head(save->cl.cells);
+
+			if (pr->key.arity > 1) {
+				cell *arg1 = FIRST_ARG(c);
+				cell *arg2 = NEXT_ARG(arg1);
+				sl_rem(pr->idx2, arg2, save);
+			}
+
+			sl_rem(pr->idx1, c, save);
+			clear_clause(&save->cl);
+			free(save);
+		}
+	}
 }
 
 void push_template(module *m, const char *name, unsigned arity, const builtins *ptr)
@@ -818,8 +910,19 @@ static bool do_use_module(module *curr_m, cell *c, module **mptr)
 		module *m;
 
 		if ((m = find_module(curr_m->pl, name)) != NULL) {
-			if (m != curr_m)
-				curr_m->used[curr_m->idx_used++] = m;
+			if (m != curr_m) {
+				bool found = false;
+
+				for (unsigned i = 0; i < curr_m->idx_used; i++) {
+					if (curr_m->used[i] == m) {
+						found = true;
+						break;
+					}
+				}
+
+				if (!found)
+					curr_m->used[curr_m->idx_used++] = m;
+			}
 
 			*mptr = m;
 			return true;
@@ -922,20 +1025,14 @@ static bool do_import_predicate(module *curr_m, module *m, predicate *pr, cell *
 		// TODO: need to improve this...
 		&& strcmp(curr_m->name, "wasm")				// Hack???
 		&& !pr->m->prebuilt
+		&& 0
 		) {
-
-#if 0
-		if (!strcmp(pr->m->name, "format")			// Hack???
-			|| !strcmp(pr->m->name, "charsio")		// Hack???
-			)
-			return true;
-#endif
-
 		fprintf_to_stream(curr_m->pl, ERROR_FP, "Error: permission to import failed: %s:%s/%u from %s, see %s\n", curr_m->name, C_STR(curr_m, as), as->arity, pr->m->name, get_loaded(m, tmp_pr->filename));
 		m->error = true;
 		return false;
 	}
 
+	clear_property(curr_m, C_STR(m, &pr->key), pr->key.arity);
 	predicate *pr2 = create_predicate(curr_m, as, NULL);
 	pr2->alias = pr;
 	char tmpbuf[1024];
@@ -1468,7 +1565,7 @@ unsigned get_op(module *m, const char *name, unsigned specifier)
 	return 0;
 }
 
-static bool check_not_multifile(module *m, predicate *pr, db_entry *r)
+static bool check_not_multifile(module *m, predicate *pr, rule *r)
 {
 	if (pr->head
 		&& !pr->is_multifile && !pr->is_dynamic
@@ -1479,7 +1576,7 @@ static bool check_not_multifile(module *m, predicate *pr, db_entry *r)
 				fprintf_to_stream(m->pl, WARN_FP, "Warning: overwriting '%s'/%u\n", C_STR(m, &pr->key), pr->key.arity);
 
 			while (pr->head) {
-				db_entry *tmp = pr->head;
+				rule *tmp = pr->head;
 				pr->head = pr->head->next;
 				clear_clause(&tmp->cl);
 				free(tmp);
@@ -1492,8 +1589,8 @@ static bool check_not_multifile(module *m, predicate *pr, db_entry *r)
 			pr->alias = NULL;
 			pr->cnt = 0;
 			sl_destroy(pr->idx2);
-			sl_destroy(pr->idx);
-			pr->idx2 = pr->idx = NULL;
+			sl_destroy(pr->idx1);
+			pr->idx2 = pr->idx1 = NULL;
 			free(r);
 			return false;
 		}
@@ -1525,13 +1622,13 @@ static void check_goal_expansion(module *m, cell *p1)
 	create_goal_expansion(m, arg1);
 }
 
-static void check_unique(module *m, db_entry *dbe_orig)
+static void check_unique(module *m, rule *r_orig)
 {
-	cell *head = get_head(dbe_orig->cl.cells);
+	cell *head = get_head(r_orig->cl.cells);
 	bool matched = false;
-	dbe_orig->cl.is_unique = false;
+	r_orig->cl.is_unique = false;
 
-	for (db_entry *r = dbe_orig->next; r; r = r->next) {
+	for (rule *r = r_orig->next; r; r = r->next) {
 		if (r->dbgen_retracted)
 			continue;
 
@@ -1544,7 +1641,7 @@ static void check_unique(module *m, db_entry *dbe_orig)
 	}
 
 	if (!matched)
-		dbe_orig->cl.is_unique = true;
+		r_orig->cl.is_unique = true;
 }
 
 static void process_cell(module *m, clause *cl, cell *c, predicate *parent, int last_was_colon, bool is_directive)
@@ -1577,7 +1674,6 @@ static void process_cell(module *m, clause *cl, cell *c, predicate *parent, int 
 	}
 
 	if (!is_directive
-		&& is_interned(c)
 		&& ((c+c->num_cells) >= (body + cl->cidx-1))
 		) {
 			c->flags |= FLAG_INTERNED_TAIL_CALL;
@@ -1619,13 +1715,13 @@ void process_clause(module *m, clause *cl, predicate *parent)
 
 		// Don't want to match on module qualified predicates
 
-		//if (c->val_off == g_colon_s) {
-		//	process_cell(m, cl, c, parent, 0, is_directive);
-		//	last_was_colon = 3;
-		//} else {
-		//	last_was_colon--;
-		process_cell(m, cl, c, parent, last_was_colon, is_directive);
-		//}
+		if (c->val_off == g_colon_s) {
+			process_cell(m, cl, c, parent, 0, is_directive);
+			last_was_colon = 3;
+		} else {
+			last_was_colon--;
+			process_cell(m, cl, c, parent, last_was_colon, is_directive);
+		}
 	}
 }
 
@@ -1636,14 +1732,14 @@ static void process_predicate(predicate *pr)
 
 	pr->is_processed = true;
 
-	for (db_entry *r = pr->head; r; r = r->next) {
+	for (rule *r = pr->head; r; r = r->next) {
 		process_clause(pr->m, &r->cl, pr);
 	}
 
-	if (pr->is_dynamic || pr->idx)
+	if (pr->is_dynamic || pr->idx1)
 		return;
 
-	for (db_entry *r = pr->head; r; r = r->next) {
+	for (rule *r = pr->head; r; r = r->next) {
 		check_unique(pr->m, r);
 
 		if (pr->m->pl->opt) {
@@ -1655,7 +1751,7 @@ static void process_predicate(predicate *pr)
 	}
 }
 
-void process_db(module *m)
+void process_module(module *m)
 {
 	for (predicate *pr = list_front(&m->predicates);
 		pr; pr = list_next(pr)) {
@@ -1675,9 +1771,9 @@ bool module_dump_term(module* m, cell *p1)
 				tmp->tag == TAG_VAR ? "var" :
 				tmp->tag == TAG_INTERNED ? "interned" :
 				tmp->tag == TAG_CSTR ? "cstr" :
-				tmp->tag == TAG_INTEGER ? "integer" :
-				tmp->tag == TAG_DOUBLE ? "float" :
-				tmp->tag == TAG_RATIONAL ? "rational" :
+				tmp->tag == TAG_INT ? "integer" :
+				tmp->tag == TAG_FLOAT ? "float" :
+				tmp->tag == TAG_RAT ? "rational" :
 				tmp->tag == TAG_INDIRECT ? "indirect" :
 				tmp->tag == TAG_BLOB ? "blob" :
 				tmp->tag == TAG_DBID ? "dbid" :
@@ -1686,7 +1782,7 @@ bool module_dump_term(module* m, cell *p1)
 			),
 			tmp->num_cells, tmp->arity);
 
-		if ((tmp->tag == TAG_INTEGER) && !is_managed(tmp))
+		if ((tmp->tag == TAG_INT) && !is_managed(tmp))
 			printf(", %lld", (long long)tmp->val_int);
 
 		if (tmp->tag == TAG_INTERNED)
@@ -1706,7 +1802,7 @@ bool module_dump_term(module* m, cell *p1)
 	return true;
 }
 
-static db_entry *assert_begin(module *m, unsigned num_vars, cell *p1, bool consulting)
+static rule *assert_begin(module *m, unsigned num_vars, cell *p1, bool consulting)
 {
 	bool is_dirty = false;
 	cell *c = p1;
@@ -1805,6 +1901,8 @@ static db_entry *assert_begin(module *m, unsigned num_vars, cell *p1, bool consu
 			if (is_check_directive(p1))
 				pr->is_check_directive = true;
 
+			clear_property(m, C_STR(m, c), c->arity);
+
 			if (!consulting) {
 				push_property(m, C_STR(m, c), c->arity, "dynamic");
 				pr->is_dynamic = true;
@@ -1828,8 +1926,8 @@ static db_entry *assert_begin(module *m, unsigned num_vars, cell *p1, bool consu
 	if (m->prebuilt)
 		pr->is_builtin = true;
 
-	size_t dbe_size = sizeof(db_entry) + (sizeof(cell) * (p1->num_cells+1));
-	db_entry *r = calloc(1, dbe_size);
+	size_t dbe_size = sizeof(rule) + (sizeof(cell) * (p1->num_cells+1));
+	rule *r = calloc(1, dbe_size);
 	ensure(r);
 	copy_cells(r->cl.cells, p1, p1->num_cells);
 	r->cl.cells[p1->num_cells] = (cell){0};
@@ -1843,7 +1941,7 @@ static db_entry *assert_begin(module *m, unsigned num_vars, cell *p1, bool consu
 	return r;
 }
 
-static void assert_commit(module *m, db_entry *r, predicate *pr, bool append)
+static void assert_commit(module *m, rule *r, predicate *pr, bool append)
 {
 	if (pr->db_id)
 		r->db_id = append ? pr->db_id : -pr->db_id;
@@ -1857,27 +1955,27 @@ static void assert_commit(module *m, db_entry *r, predicate *pr, bool append)
 	if (pr->is_noindex)
 		return;
 
-	if (!pr->idx) {
+	if (!pr->idx1) {
 		unsigned INDEX_THRESHHOLD = 500;
 
 		if (pr->cnt < INDEX_THRESHHOLD)
 			return;
 
-		pr->idx = sl_create(index_cmpkey, NULL, m);
-		ensure(pr->idx);
+		pr->idx1 = sl_create(index_cmpkey, NULL, m);
+		ensure(pr->idx1);
 
 		if (pr->key.arity > 1) {
 			pr->idx2 = sl_create(index_cmpkey, NULL, m);
 			ensure(pr->idx2);
 		}
 
-		for (db_entry *cl2 = pr->head; cl2; cl2 = cl2->next) {
+		for (rule *cl2 = pr->head; cl2; cl2 = cl2->next) {
 			cell *c = get_head(cl2->cl.cells);
 
 			if (cl2->dbgen_retracted)
 				continue;
 
-			sl_set(pr->idx, c, cl2);
+			sl_set(pr->idx1, c, cl2);
 
 			if (pr->idx2) {
 				cell *arg1 = FIRST_ARG(c);
@@ -1897,22 +1995,22 @@ static void assert_commit(module *m, db_entry *r, predicate *pr, bool append)
 		pr->is_var_in_first_arg = true;
 
 	if (!append) {
-		sl_set(pr->idx, c, r);
+		sl_set(pr->idx1, c, r);
 
 		if (pr->idx2 && arg2)
 			sl_set(pr->idx2, arg2, r);
 	} else {
-		sl_set(pr->idx, c, r);
+		sl_set(pr->idx1, c, r);
 
 		if (pr->idx2 && arg2)
 			sl_set(pr->idx2, arg2, r);
 	}
 }
 
-db_entry *asserta_to_db(module *m, unsigned num_vars, cell *p1, bool consulting)
+rule *asserta_to_db(module *m, unsigned num_vars, cell *p1, bool consulting)
 {
 	predicate *pr;
-	db_entry *r;
+	rule *r;
 
 	do {
 		r = assert_begin(m, num_vars, p1, consulting);
@@ -1935,7 +2033,7 @@ db_entry *asserta_to_db(module *m, unsigned num_vars, cell *p1, bool consulting)
 
 	assert_commit(m, r, pr, false);
 
-	if (!consulting && !pr->idx)
+	if (!consulting && !pr->idx1)
 		pr->is_processed = false;
 
 	if (pr->is_multifile && !pr->is_dynamic) {
@@ -1950,10 +2048,10 @@ db_entry *asserta_to_db(module *m, unsigned num_vars, cell *p1, bool consulting)
 	return r;
 }
 
-db_entry *assertz_to_db(module *m, unsigned num_vars, cell *p1, bool consulting)
+rule *assertz_to_db(module *m, unsigned num_vars, cell *p1, bool consulting)
 {
 	predicate *pr;
-	db_entry *r;
+	rule *r;
 
 	do {
 		r = assert_begin(m, num_vars, p1, consulting);
@@ -1976,7 +2074,7 @@ db_entry *assertz_to_db(module *m, unsigned num_vars, cell *p1, bool consulting)
 
 	assert_commit(m, r, pr, true);
 
-	if (!consulting && !pr->idx)
+	if (!consulting && !pr->idx1)
 		pr->is_processed = false;
 
 	if (pr->is_multifile && !pr->is_dynamic) {
@@ -1991,7 +2089,7 @@ db_entry *assertz_to_db(module *m, unsigned num_vars, cell *p1, bool consulting)
 	return r;
 }
 
-static bool remove_from_predicate(module *m, predicate *pr, db_entry *r)
+static bool remove_from_predicate(module *m, predicate *pr, rule *r)
 {
 	if (r->dbgen_retracted)
 		return false;
@@ -2002,7 +2100,7 @@ static bool remove_from_predicate(module *m, predicate *pr, db_entry *r)
 	return true;
 }
 
-void retract_from_db(module *m, db_entry *r)
+void retract_from_db(module *m, rule *r)
 {
 	predicate *pr = r->owner;
 
@@ -2010,9 +2108,9 @@ void retract_from_db(module *m, db_entry *r)
 		list_push_back(&pr->dirty, r);
 }
 
-db_entry *erase_from_db(module *m, uuid *ref)
+rule *erase_from_db(module *m, uuid *ref)
 {
-	db_entry *r = find_in_db(m, ref);
+	rule *r = find_in_db(m, ref);
 	if (!r) return 0;
 	retract_from_db(m, r);
 	return r;
@@ -2036,7 +2134,7 @@ module *load_text(module *m, const char *src, const char *filename)
 	}
 
 	if (!p->error) {
-		process_db(p->m);
+		process_module(p->m);
 		int save = p->pl->quiet;
 		//p->pl->quiet = true;
 		p->pl->halt = false;
@@ -2067,35 +2165,20 @@ module *load_text(module *m, const char *src, const char *filename)
 
 static bool unload_realfile(module *m, const char *filename)
 {
-	for (predicate *pr = list_front(&m->predicates);
-		pr; pr = list_next(pr)) {
-		if (pr->filename && strcmp(pr->filename, filename))
+	for (predicate *pr = list_front(&m->predicates); pr; ) {
+		if (pr->filename && strcmp(pr->filename, filename)) {
+			pr = list_next(pr);
 			continue;
-
-		for (db_entry *r = pr->head; r; r = r->next) {
-			if (r->dbgen_retracted)
-				continue;
-
-			if (r->filename && !strcmp(r->filename, filename)) {
-				if (!remove_from_predicate(m, pr, r))
-					continue;
-
-				list_push_back(&pr->dirty, r);
-				pr->is_processed = false;
-			}
 		}
 
-		sl_destroy(pr->idx2);
-		sl_destroy(pr->idx);
-		pr->idx2 = pr->idx = NULL;
+		purge_properties(pr);
 
-		if (!pr->cnt) {
-			if (!pr->is_multifile && !pr->is_dynamic)
-				pr->is_abolished = true;
-		} else
-			process_db(m);
+		if (!pr->refcnt)
+			abolish_predicate(pr);
+		else
+			pr->is_abolished = true;
 
-		//list_remove(&m->predicates, pr);
+		pr = list_next(pr);
 	}
 
 	set_unloaded(m, filename);
@@ -2171,6 +2254,9 @@ module *load_fp(module *m, FILE *fp, const char *filename, bool including, bool 
 	}
 	 while (ok && !p->already_loaded_error && !g_tpl_interrupt);
 
+	if (g_tpl_interrupt)
+		return NULL;
+
 	if (!p->error && !p->already_loaded_error && !p->end_of_term && p->cl->cidx) {
 		if (!p->do_read_term)
 			fprintf_to_stream(p->pl, ERROR_FP, "Error: syntax error, incomplete statement, %s:%d\n", filename, p->line_num);
@@ -2181,7 +2267,7 @@ module *load_fp(module *m, FILE *fp, const char *filename, bool including, bool 
 	module *save_m = p->m;
 
 	if (!p->error && !p->already_loaded_error) {
-		process_db(p->m);
+		process_module(p->m);
 		int save = p->pl->quiet;
 		p->is_directive = true;
 
@@ -2425,7 +2511,7 @@ static void module_save_fp(module *m, FILE *fp, int canonical, int dq)
 		if (pr->is_builtin)
 			continue;
 
-		for (db_entry *r = pr->head; r; r = r->next) {
+		for (rule *r = pr->head; r; r = r->next) {
 			if (r->dbgen_retracted)
 				continue;
 
@@ -2534,7 +2620,7 @@ module *module_create(prolog *pl, const char *name)
 	parser *p = parser_create(m);
 	if (p) {
 		p->is_consulting = true;
-		process_db(p->m);
+		process_module(p->m);
 		parser_destroy(p);
 	}
 

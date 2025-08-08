@@ -1,5 +1,4 @@
-:- meta_predicate(countall(0,?)).
-:- help(countall(:callable,?integer), [iso(true)]).
+:- help(subsumes_term(+term,+term), [iso(true)]).
 
 subsumes_term(G, S) :-
 	\+ \+ (
@@ -9,9 +8,11 @@ subsumes_term(G, S) :-
 	 V2 == V1
 	).
 
-:- help(subsumes_term(+term,+term), [iso(true)]).
+:- meta_predicate(countall(0,?)).
+:- help(countall(:callable,?integer), [iso(true)]).
 
 countall(_, N) :-
+	can_be(N, integer, countall/2, _),
 	integer(N),
 	(N >= 0 -> true; throw(error(domain_error(not_less_than_zero, N), countall/2))),
 	fail.
@@ -73,15 +74,11 @@ cfor(I0,J0,K) :-
 
 :- help(variant(+term,+term), [iso(false)]).
 
-% definition taken from the SWI-Prolog documentation
-variant(Term1, Term2) :-
-	% avoid trouble in any shared variables
-	copy_term(Term1, Term1Copy),
-	copy_term(Term2, Term2Copy),
-	% ground and compare the term copies
-	numbervars(Term1Copy, 0, N),
-	numbervars(Term2Copy, 0, N),
-	Term1Copy == Term2Copy.
+variant(X,Y) :-
+	\+ \+ ( copy_term(X,XC),
+		subsumes_term(XC,Y),
+		subsumes_term(Y,XC)
+	).
 
 :- help(call_det(:callable,?boolean), [iso(false)]).
 :- meta_predicate(call_det(0,?)).
@@ -133,4 +130,31 @@ not(_).
 term_variables(P1, P2, P3) :-
 	term_variables(P1, P4),
 	append(P4, P3, P2).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+
+bb_put(Key, Value) :-
+	copy_term(Value, NewValue, Gs),
+	'$bb_put'(Key, NewValue-Gs).
+
+bb_b_put(Key, Value) :-
+	copy_term(Value, NewValue, Gs),
+	'$bb_b_put'(Key, NewValue-Gs).
+
+bb_get(Key, OldValue) :-
+	'$bb_get'(Key, OldValue-Gs),
+	maplist(call, Gs).
+
+bb_update(Key, OldValue, Value) :-
+	copy_term(Value, _, Gs),
+	'$bb_update'(Key, OldValue-OldGs, Value-Gs),
+	maplist(call, OldGs).
+
+bb_delete(Key, OldValue) :-
+	'$bb_delete'(Key, OldValue-OldGs),
+	maplist(call, OldGs).
+
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 

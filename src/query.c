@@ -1,7 +1,6 @@
 #include <stdlib.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <signal.h>
 #include <string.h>
 #include <time.h>
 
@@ -24,7 +23,7 @@ static void msleep(int ms)
 }
 #endif
 
-#define Trace(p1,p2,p3,p4) { q->step++; if (q->trace /*&& !consulting*/) trace_call(p1,p2,p3,p4); }
+#define Trace(p1,p2,p3,p4) if (q->trace /*&& !consulting*/) trace_call(p1,p2,p3,p4)
 
 #define DEBUG_MATCH if (0)
 
@@ -188,25 +187,6 @@ void check_pressure(query *q)
 #endif
 }
 
-bool check_trail(query *q)
-{
-	if (q->st.tp > q->hw_trails)
-		q->hw_trails = q->st.tp;
-
-	if (q->st.tp < q->trails_size)
-		return true;
-
-	pl_idx new_trailssize = alloc_grow(q, (void**)&q->trails, sizeof(trail), q->st.tp, q->trails_size*2, false);
-
-	if (!new_trailssize) {
-		q->oom = q->error = true;
-		return false;
-	}
-
-	q->trails_size = new_trailssize;
-	return true;
-}
-
 static bool check_choice(query *q)
 {
 	if (q->cp > q->hw_choices)
@@ -215,7 +195,7 @@ static bool check_choice(query *q)
 	if (q->cp < q->choices_size)
 		return true;
 
-	pl_idx new_choicessize = alloc_grow(q, (void**)&q->choices, sizeof(choice), q->cp, q->choices_size*2, false);
+	pl_idx new_choicessize = alloc_grow(q, (void**)&q->choices, sizeof(choice), q->cp, q->choices_size*3/2, false);
 
 	if (!new_choicessize) {
 		q->oom = q->error = true;
@@ -234,7 +214,7 @@ static bool check_frame(query *q)
 	if (q->st.fp < q->frames_size)
 		return true;
 
-	pl_idx new_framessize = alloc_grow(q, (void**)&q->frames, sizeof(frame), q->st.fp, q->frames_size*2, false);
+	pl_idx new_framessize = alloc_grow(q, (void**)&q->frames, sizeof(frame), q->st.fp, q->frames_size*3/2, false);
 
 	if (!new_framessize) {
 		q->oom = q->error = true;
@@ -257,7 +237,7 @@ bool check_slot(query *q, unsigned cnt)
 	if (num < q->slots_size)
 		return true;
 
-	pl_idx new_slotssize = alloc_grow(q, (void**)&q->slots, sizeof(slot), num, num*2, false);
+	pl_idx new_slotssize = alloc_grow(q, (void**)&q->slots, sizeof(slot), num, num*3/2, false);
 
 	if (!new_slotssize) {
 		q->oom = q->error = true;
@@ -353,19 +333,13 @@ static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx l_ctx, bool 
 		if (e) e->vgen = save_vgen;
 		l = LIST_TAIL(l);
 
-#if USE_RATIONAL_TREES
 		both = 0;
 		DEREF_VAR(any2, both, save_vgen, e, e->vgen, l, l_ctx, q->vgen);
 
 		if (both)
 			return 0;
-#else
-		l = deref(q, l, l_ctx);
-		l_ctx = q->latest_ctx;
-#endif
 	}
 
-#if USE_RATIONAL_TREES
 	if (any2) {
 		cell *l2 = save_l;
 		pl_idx l2_ctx = save_l_ctx;
@@ -377,13 +351,12 @@ static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx l_ctx, bool 
 			RESTORE_VAR(l2, l2_ctx, l2, l2_ctx, q->vgen);
 		}
 	}
-#endif
 
 	if (is_var(l)) {
 		*has_var = *is_partial = true;
 		if (cptr) *cptr = l;
-	} else if (is_string(l))
-		;
+	} else if ((is_interned(l) || is_string(l) || is_number(l)) && !is_nil(l))
+		*is_partial = true;
 	else if (!is_interned(l) || !is_nil(l))
 		is_chars_list = 0;
 
@@ -438,16 +411,21 @@ int create_vars(query *q, unsigned cnt)
 		return -1;
 	}
 
+	if (!check_slot(q, cnt)) {
+		q->error = true;
+		return -1;
+	}
+
 	unsigned var_num = f->actual_slots;
 
-	if ((f->base + f->initial_slots) >= q->st.sp) {
+	if (!f->op && ((f->base + f->initial_slots) == q->st.sp)) {
 		f->initial_slots += cnt;
-	} else if (!f->overflow) {
-		f->overflow = q->st.sp;
-	} else if ((f->overflow + (f->actual_slots - f->initial_slots)) == q->st.sp) {
+	} else if (!f->op) {
+		f->op = q->st.sp;
+	} else if ((f->op + (f->actual_slots - f->initial_slots)) == q->st.sp) {
 	} else {
-		pl_idx save_overflow = f->overflow;
-		f->overflow = q->st.sp;
+		pl_idx save_overflow = f->op;
+		f->op = q->st.sp;
 		pl_idx cnt2 = f->actual_slots - f->initial_slots;
 
 		if (!check_slot(q, cnt2)) {
@@ -455,13 +433,8 @@ int create_vars(query *q, unsigned cnt)
 			return -1;
 		}
 
-		memmove(q->slots+f->overflow, q->slots+save_overflow, sizeof(slot)*cnt2);
+		memmove(q->slots+f->op, q->slots+save_overflow, sizeof(slot)*cnt2);
 		q->st.sp += cnt2;
-	}
-
-	if (!check_slot(q, cnt)) {
-		q->error = true;
-		return -1;
 	}
 
 	for (unsigned i = 0; i < cnt; i++) {
@@ -506,7 +479,7 @@ static void leave_predicate(query *q, predicate *pr)
 	module_lock(pr->m);
 
 	if (pr->is_abolished) {
-		db_entry *r;
+		rule *r;
 
 		while ((r = list_pop_front(&pr->dirty)) != NULL) {
 			predicate_delink(pr, r);
@@ -524,12 +497,12 @@ static void leave_predicate(query *q, predicate *pr)
 	// query dirty-list. They will be freed up at end of the query.
 	// FIXME: this is a memory drain.
 
-	db_entry *r;
+	rule *r;
 
 	while ((r = list_pop_front(&pr->dirty)) != NULL) {
 		predicate_delink(pr, r);
 
-		if (pr->idx && pr->cnt) {
+		if (pr->idx1 && pr->cnt) {
 			cell *c = get_head(r->cl.cells);
 
 			if (pr->key.arity > 1) {
@@ -538,7 +511,7 @@ static void leave_predicate(query *q, predicate *pr)
 				sl_rem(pr->idx2, arg2, r);
 			}
 
-			sl_rem(pr->idx, c, r);
+			sl_rem(pr->idx1, c, r);
 
 			if (true) {
 				r->cl.is_deleted = true;
@@ -553,10 +526,10 @@ static void leave_predicate(query *q, predicate *pr)
 		}
 	}
 
-	if (pr->idx && !pr->cnt) {
+	if (pr->idx1 && !pr->cnt) {
 		sl_destroy(pr->idx2);
-		sl_destroy(pr->idx);
-		pr->idx = pr->idx2 = NULL;
+		sl_destroy(pr->idx1);
+		pr->idx1 = pr->idx2 = NULL;
 	}
 
 	module_unlock(pr->m);
@@ -579,23 +552,6 @@ static void trim_trail(query *q)
 		const trail *tr = q->trails + q->st.tp - 1;
 
 		if (tr->var_ctx != q->st.curr_frame)
-			break;
-
-		q->st.tp--;
-	}
-}
-
-static void trim_locals(query *q)
-{
-	// Local vars can be discarded...
-
-	while (q->st.tp) {
-		trail *tr = q->trails + q->st.tp - 1;
-
-		if (tr->var_ctx < q->st.curr_frame)
-			break;
-
-		if (!tr->is_local)
 			break;
 
 		q->st.tp--;
@@ -645,13 +601,26 @@ void try_me(query *q, unsigned num_vars)
 static void push_frame(query *q)
 {
 	frame *f = GET_NEW_FRAME();
-	f->overflow = 0;
+	const frame *curr_f = GET_CURR_FRAME();
+	const cell *next_cell = q->st.instr + q->st.instr->num_cells;
+
+	// Avoid long chains of useless returns...
+
+	if (q->pl->opt && is_end(next_cell) && !next_cell->ret_instr
+		&& (curr_f->prev != (pl_idx)-1)
+		) {
+		f->prev = curr_f->prev;
+		f->instr = curr_f->instr;
+	} else {
+		f->prev = q->st.curr_frame;
+		f->instr = q->st.instr;
+	}
+
+	f->op = 0;
 	f->no_recov = q->no_recov;
 	f->chgen = ++q->chgen;
 	f->hp = q->st.hp;
 	f->heap_num = q->st.heap_num;
-	f->prev = q->st.curr_frame;
-	f->instr = q->st.instr;
 	q->st.sp += f->actual_slots;
 	q->st.curr_frame = q->st.fp++;
 }
@@ -704,7 +673,7 @@ static void commit_frame(query *q)
 	frame *f = GET_CURR_FRAME();
 	f->m = q->st.m;
 
-	db_entry *save_dbe = q->st.dbe;
+	rule *save_dbe = q->st.dbe;
 	bool is_det = !q->has_vars && cl->is_unique;
 	bool last_match = is_det || cl->is_first_cut || !has_next_key(q);
 	bool tco = false;
@@ -764,6 +733,7 @@ static void commit_frame(query *q)
 	}
 
 	q->st.instr = cl->alt ? cl->alt : get_body(cl->cells);
+	if (!q->st.instr) q->st.instr = cl->cells + (cl->cidx-1);
 	q->st.iter = NULL;
 }
 
@@ -787,7 +757,7 @@ void stash_frame(query *q, const clause *cl, bool last_match)
 		f->prev = q->st.curr_frame;
 		f->instr = NULL;
 		f->chgen = chgen;
-		f->overflow = 0;
+		f->op = 0;
 		q->st.sp += num_vars;
 		q->st.fp++;
 	}
@@ -809,7 +779,7 @@ int retry_choice(query *q)
 		f->initial_slots = ch->initial_slots;
 		f->actual_slots = ch->actual_slots;
 		f->no_recov = ch->no_recov;
-		f->overflow = ch->overflow;
+		f->op = ch->op;
 		f->base = ch->base;
 
 		if (ch->reset)
@@ -858,7 +828,7 @@ bool push_choice(query *q)
 	ch->initial_slots = f->initial_slots;
 	ch->actual_slots = f->actual_slots;
 	ch->no_recov = f->no_recov;
-	ch->overflow = f->overflow;
+	ch->op = f->op;
 	ch->base = f->base;
 
 	ch->catchme_retry =
@@ -1010,7 +980,6 @@ static bool resume_frame(query *q)
 		q->st.hp = f->hp;
 		q->st.heap_num = f->heap_num;
 		trim_heap(q);
-		trim_locals(q);
 		trim_frame(q, f);
 	}
 
@@ -1033,18 +1002,16 @@ static void proceed(query *q)
 	if (!is_end(q->st.instr))
 		return;
 
-	cell *tmp = q->st.instr;
-
-	if (tmp->ret_instr) {
+	if (q->st.instr->ret_instr) {
 		frame *f = GET_CURR_FRAME();
-		f->chgen = tmp->chgen;
-		q->st.m = q->pl->modmap[tmp->mid];
+		f->chgen = q->st.instr->chgen;
+		q->st.m = q->pl->modmap[q->st.instr->mid];
 	}
 
-	q->st.instr = tmp->ret_instr;
+	q->st.instr = q->st.instr->ret_instr;
 }
 
-static bool can_view(query *q, uint64_t dbgen, const db_entry *r)
+static bool can_view(query *q, uint64_t dbgen, const rule *r)
 {
 	if (r->cl.is_deleted)
 		return false;
@@ -1060,17 +1027,23 @@ static bool can_view(query *q, uint64_t dbgen, const db_entry *r)
 
 static void setup_key(query *q)
 {
-	cell *save_arg1 = FIRST_ARG(q->st.key);
+	cell *save_arg1 = FIRST_ARG(q->st.key), *save_arg2 = NULL;
 	cell *arg1 = deref(q, save_arg1, q->st.key_ctx);
-	cell *arg2 = NULL;
-
-	if (q->st.key->arity > 1)
-		arg2 = deref(q, NEXT_ARG(save_arg1), q->st.key_ctx);
 
 	q->st.karg1_is_ground = !is_var(arg1);
-	q->st.karg2_is_ground = arg2 && !is_var(arg2);
 	q->st.karg1_is_atomic = is_atomic(arg1);
-	q->st.karg2_is_atomic = arg2 && is_atomic(arg2);
+
+	if (q->st.key->arity > 1) {
+		cell *arg2 = deref(q, save_arg2 = NEXT_ARG(save_arg1), q->st.key_ctx);
+		q->st.karg2_is_ground = arg2 && !is_var(arg2);
+		q->st.karg2_is_atomic = arg2 && is_atomic(arg2);
+	}
+
+	if (q->st.key->arity > 2) {
+		cell *arg3 = deref(q, NEXT_ARG(save_arg2), q->st.key_ctx);
+		q->st.karg3_is_ground = arg3 && !is_var(arg3);
+		q->st.karg3_is_atomic = arg3 && is_atomic(arg3);
+	}
 }
 
 static void next_key(query *q)
@@ -1104,10 +1077,13 @@ bool has_next_key(query *q)
 
 		if ((q->st.key->arity == 2) && q->st.karg1_is_atomic && q->st.karg2_is_atomic)
 			return false;
+
+		if ((q->st.key->arity == 3) && q->st.karg1_is_atomic && q->st.karg2_is_atomic && q->st.karg3_is_atomic)
+			return false;
 	}
 
-	const cell *karg1 = NULL, *karg2 = NULL;
-	cell *save_arg1 = FIRST_ARG(q->st.key);
+	cell *karg1 = FIRST_ARG(q->st.key), *karg2 = NULL, *karg3 = NULL;
+	cell *save_arg1 = karg1;
 
 	if (q->st.karg1_is_ground)
 		karg1 = deref(q, save_arg1, q->st.key_ctx);
@@ -1115,9 +1091,12 @@ bool has_next_key(query *q)
 	if (q->st.karg2_is_ground)
 		karg2 = deref(q, NEXT_ARG(save_arg1), q->st.key_ctx);
 
+	if (q->st.karg3_is_ground)
+		karg3 = deref(q, NEXT_ARG(NEXT_ARG(save_arg1)), q->st.key_ctx);
+
 	//DUMP_TERM("key ", q->st.key, q->st.key_ctx, 1);
 
-	for (db_entry *next = q->st.dbe->next; next; next = next->next) {
+	for (rule *next = q->st.dbe->next; next; next = next->next) {
 		cell *dkey = next->cl.cells;
 
 		if ((dkey->val_off == g_neck_s) && (dkey->arity == 2))
@@ -1132,6 +1111,11 @@ bool has_next_key(query *q)
 
 		if (karg2) {
 			if (index_cmpkey(karg2, NEXT_ARG(FIRST_ARG(dkey)), q->st.m, NULL) != 0)
+				continue;
+		}
+
+		if (karg3) {
+			if (index_cmpkey(karg3, NEXT_ARG(NEXT_ARG(FIRST_ARG(dkey))), q->st.m, NULL) != 0)
 				continue;
 		}
 
@@ -1180,12 +1164,12 @@ static bool expand_meta_predicate(query *q, predicate *pr)
 static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 {
 	q->st.iter = NULL;
-	q->st.karg1_is_ground = q->st.karg2_is_ground = false;
-	q->st.karg1_is_atomic = q->st.karg2_is_atomic = false;
+	q->st.karg1_is_ground = q->st.karg2_is_ground = q->st.karg3_is_ground = false;
+	q->st.karg1_is_atomic = q->st.karg2_is_atomic = q->st.karg3_is_atomic = false;
 	q->st.key = key;
 	q->st.key_ctx = key_ctx;
 
-	if (!pr->idx) {
+	if (!pr->idx1) {
 		q->st.dbe = pr->head;
 
 		if (key->arity) {
@@ -1213,7 +1197,7 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 	}
 
 	cell *arg1 = key->arity ? FIRST_ARG(key) : NULL;
-	skiplist *idx = pr->idx;
+	skiplist *idx = pr->idx1;
 
 	if (arg1 && (is_var(arg1) || pr->is_var_in_first_arg)) {
 		if (!pr->idx2) {
@@ -1250,7 +1234,7 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 	// the results and return them sorted as an iterator...
 
 	skiplist *tmp_idx = NULL;
-	const db_entry *r;
+	const rule *r;
 
 	while (sl_next_key(iter, (void*)&r)) {
 #if DEBUGIDX
@@ -1296,6 +1280,9 @@ bool match_rule(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract)
 			pr = c->match;
 		else if (is_cstring(c))
 			convert_to_literal(q->st.m, c);
+
+		if (pr && pr->is_abolished)
+			pr = search_predicate(q->st.m, c, NULL);
 
 		if (!pr || is_evaluable(c) || is_builtin(c)) {
 			pr = search_predicate(q->st.m, c, NULL);
@@ -1396,6 +1383,9 @@ bool match_clause(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract
 		else if (is_cstring(c))
 			convert_to_literal(q->st.m, c);
 
+		if (pr && pr->is_abolished)
+			pr = search_predicate(q->st.m, c, NULL);
+
 		if (!pr || is_evaluable(c) || is_builtin(c)) {
 			pr = search_predicate(q->st.m, c, NULL);
 
@@ -1484,6 +1474,9 @@ bool match_head(query *q)
 		else if (is_cstring(c)) {
 			convert_to_literal(q->st.m, c);
 		}
+
+		if (pr && pr->is_abolished)
+			pr = search_predicate(q->st.m, c, NULL);
 
 		if (!pr || is_evaluable(c) || is_builtin(c)) {
 			pr = search_predicate(q->st.m, c, NULL);
@@ -1739,7 +1732,7 @@ bool start(query *q)
 				continue;
 			}
 
-			if (q->p && !q->run_init && any_outstanding_choices(q)) {
+			if (q->top && !q->run_init && any_outstanding_choices(q)) {
 				if (!check_redo(q))
 					break;
 
@@ -1763,87 +1756,6 @@ bool start(query *q)
 		dump_vars(q, false);
 
 	return true;
-}
-
-#ifdef _WIN32
-
-#define MS_PER_SEC      1000ULL     // MS = milliseconds
-#define US_PER_MS       1000ULL     // US = microseconds
-#define HNS_PER_US      10ULL       // HNS = hundred-nanoseconds (e.g., 1 hns = 100 ns)
-#define NS_PER_US       1000ULL
-
-#define HNS_PER_SEC     (MS_PER_SEC * US_PER_MS * HNS_PER_US)
-#define NS_PER_HNS      (100ULL)    // NS = nanoseconds
-#define NS_PER_SEC      (MS_PER_SEC * US_PER_MS * NS_PER_US)
-
-static int clock_gettime_monotonic(struct timespec *tv)
-{
-	static LARGE_INTEGER ticksPerSec = {0};
-	LARGE_INTEGER ticks;
-	double seconds;
-
-	if (!ticksPerSec.QuadPart) {
-		QueryPerformanceFrequency(&ticksPerSec);
-		if (!ticksPerSec.QuadPart) {
-			errno = ENOTSUP;
-			return -1;
-		}
-	}
-
-	QueryPerformanceCounter(&ticks);
-	seconds = (double) ticks.QuadPart / (double) ticksPerSec.QuadPart;
-	tv->tv_sec = (time_t)seconds;
-	tv->tv_nsec = (long)((ULONGLONG)(seconds * NS_PER_SEC) % NS_PER_SEC);
-	return 0;
-}
-
-static int clock_gettime_realtime(struct timespec *tv)
-{
-	FILETIME ft;
-	ULARGE_INTEGER hnsTime;
-	GetSystemTimeAsFileTime(&ft);
-	hnsTime.LowPart = ft.dwLowDateTime;
-	hnsTime.HighPart = ft.dwHighDateTime;
-
-	// To get POSIX Epoch as baseline, subtract the number of hns intervals from Jan 1, 1601 to Jan 1, 1970.
-	hnsTime.QuadPart -= (11644473600ULL * HNS_PER_SEC);
-
-	// modulus by hns intervals per second first, then convert to ns, as not to lose resolution
-	tv->tv_nsec = (long) ((hnsTime.QuadPart % HNS_PER_SEC) * NS_PER_HNS);
-	tv->tv_sec = (long) (hnsTime.QuadPart / HNS_PER_SEC);
-	return 0;
-}
-
-static int my_clock_gettime(clockid_t type, struct timespec *tp)
-{
-	if (type == CLOCK_MONOTONIC)
-		return clock_gettime_monotonic(tp);
-	else if (type == CLOCK_REALTIME)
-		return clock_gettime_realtime(tp);
-
-    errno = ENOTSUP;
-    return -1;
-}
-#else
-#define my_clock_gettime clock_gettime
-#endif
-
-uint64_t cpu_time_in_usec(void)
-{
-	struct timespec now = {0};
-#ifdef CLOCK_PROCESS_CPUTIME_ID
-	my_clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &now);
-#else
-	my_clock_gettime(CLOCK_MONOTONIC, &now);
-#endif
-	return (uint64_t)(now.tv_sec * 1000 * 1000) + (now.tv_nsec / 1000);
-}
-
-uint64_t get_time_in_usec(void)
-{
-	struct timespec now = {0};
-	my_clock_gettime(CLOCK_REALTIME, &now);
-	return (uint64_t)(now.tv_sec * 1000 * 1000) + (now.tv_nsec / 1000);
 }
 
 bool execute(query *q, cell *cells, unsigned num_vars)
@@ -1873,7 +1785,7 @@ bool execute(query *q, cell *cells, unsigned num_vars)
 static void query_purge_dirty_list(query *q)
 {
 	unsigned cnt = 0;
-	db_entry *r;
+	rule *r;
 
 	while ((r = list_pop_front(&q->dirty)) != NULL) {
 		clear_clause(&r->cl);
@@ -1892,13 +1804,13 @@ void query_destroy(query *q)
 
 	q->done = true;
 
-	for (page *a = q->heap_pages; a;) {
+	for (heap_page *a = q->heap_pages; a;) {
 		cell *c = a->cells;
 
 		for (pl_idx i = 0; i < a->idx; i++, c++)
 			unshare_cell(c);
 
-		page *save = a;
+		heap_page *save = a;
 		a = a->next;
 		free(save->cells);
 		free(save);
@@ -1925,26 +1837,10 @@ void query_destroy(query *q)
 		q->tasks = task;
 	}
 
-#if 0
-	module *m = find_module(q->pl, "concurrent");
-
-	if (m) {
-		module_lock(m);
-		predicate *pr = find_functor(m, "$future", 1);
-
-		if (pr) {
-			for (db_entry *r = pr->head; r; r = r->next) {
-				retract_from_db(r);
-			}
-		}
-
-		module_unlock(m);
-	}
-#endif
-
 	mp_int_clear(&q->tmp_ival);
 	mp_rat_clear(&q->tmp_irat);
 	query_purge_dirty_list(q);
+	parser_destroy(q->p);
 	free(q->trails);
 	free(q->choices);
 	free(q->slots);
@@ -1959,6 +1855,7 @@ query *query_create(module *m)
 	static pl_atomic uint64_t g_query_id = 0;
 	query *q = calloc(1, sizeof(query));
 	ensure(q);
+	q->p = parser_create(m);
 	q->flags.occurs_check = false;
 	q->qid = g_query_id++;
 	q->pl = m->pl;
@@ -1971,6 +1868,7 @@ query *query_create(module *m)
 	q->ops_dirty = true;
 	q->double_quotes = false;
 	q->max_depth = m->pl->def_max_depth;
+	q->vgen = 1;
 	mp_int_init(&q->tmp_ival);
 	mp_rat_init(&q->tmp_irat);
 
@@ -2007,7 +1905,7 @@ query *query_create_subquery(query *q, cell *instr)
 	if (!task) return NULL;
 	task->parent = q;
 	task->st.fp = 1;
-	task->p = q->p;
+	task->top = q->top;
 
 	cell *tmp = prepare_call(task, false, instr, q->st.curr_frame, 1);
 	pl_idx num_cells = tmp->num_cells;

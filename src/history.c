@@ -5,11 +5,19 @@
 #include <string.h>
 #include <unistd.h>
 
-#ifdef USE_ISOCLINE
+#if defined(USE_ISOCLINE)
 #include "isocline/include/isocline.h"
 #endif
 
-#if !defined(USE_ISOCLINE) && !defined(__wasi__)
+#if defined(USE_EDITLINE) && !defined(__wasi__)
+#include <histedit.h>
+#include <editline/readline.h>
+#if defined __NetBSD__
+#include <editline/history.h>
+#endif
+#endif
+
+#if !defined(USE_ISOCLINE) && !defined(USE_EDITLINE) && !defined(__wasi__)
 #include <readline/readline.h>
 #include <readline/history.h>
 #endif

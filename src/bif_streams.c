@@ -30,6 +30,7 @@
 #endif
 #endif
 
+#include "history.h"
 #include "module.h"
 #include "network.h"
 #include "parser.h"
@@ -467,7 +468,7 @@ int get_stream(query *q, cell *p1)
 		return n;
 	}
 
-	if (p1->tag != TAG_INTEGER)
+	if (p1->tag != TAG_INT)
 		return -1;
 
 	if (!(p1->flags & FLAG_INT_STREAM))
@@ -850,8 +851,8 @@ static void clear_streams_properties(query *q)
 	predicate *pr = find_predicate(q->st.m, &tmp);
 
 	if (pr) {
-		for (db_entry *r = pr->head; r;) {
-			db_entry *save = r;
+		for (rule *r = pr->head; r;) {
+			rule *save = r;
 			r = r->next;
 			retract_from_db(pr->m, save);
 		}
@@ -2072,9 +2073,9 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 		check_memory(str->p);
 		str->p->flags = q->st.m->flags;
 		str->p->fp = str->fp;
-		if (q->p) str->p->no_fp = q->p->no_fp;
+		if (q->top) str->p->no_fp = q->top->no_fp;
 	} else
-		reset(str->p);
+		parser_reset(str->p);
 
 	str->p->do_read_term = true;
 	str->p->one_shot = true;
@@ -2876,7 +2877,6 @@ bool parse_write_params(query *q, cell *c, pl_idx c_ctx, cell **vnames, pl_idx *
 
 			c1 = LIST_TAIL(c1);
 
-#if USE_RATIONAL_TREES
 			both = 0;
 			DEREF_VAR(any2, both, save_vgen, e, e->vgen, c1, c1_ctx, q->vgen);
 
@@ -2884,11 +2884,6 @@ bool parse_write_params(query *q, cell *c, pl_idx c_ctx, cell **vnames, pl_idx *
 				throw_error(q, c, c_ctx, "domain_error", "write_option");
 				return false;
 			}
-#else
-			c1 = LIST_TAIL(c1);
-			c1 = deref(q, c1, c1_ctx);
-			c1_ctx = q->latest_ctx;
-#endif
 		}
 
 		if (is_var(c1)) {
@@ -4272,7 +4267,7 @@ static bool bif_sys_read_term_from_chars_4(query *q)
 	str->p = parser_create(q->st.m);
 	str->p->flags = q->st.m->flags;
 	str->p->fp = str->fp;
-	reset(str->p);
+	parser_reset(str->p);
 	str->p->srcptr = src;
 
 	if (!src || !*src) {
@@ -4367,7 +4362,7 @@ static bool bif_read_term_from_chars_3(query *q)
 	str->p = parser_create(q->st.m);
 	str->p->flags = q->st.m->flags;
 	str->p->fp = str->fp;
-	reset(str->p);
+	parser_reset(str->p);
 	char *save_src = src;
 	str->p->srcptr = src;
 
@@ -6949,7 +6944,7 @@ static bool bif_bflush_1(query *q)
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
 	stream *str = &q->pl->streams[n];
-	str->fp = freopen(NULL, "r", str->fp);
+	fflush(str->fp);
 	free(str->data);
 	str->data = NULL;
 	str->data_len = 0;
@@ -6983,6 +6978,20 @@ static bool bif_bwrite_2(query *q)
 	}
 
 	return true;
+}
+
+static bool bif_sys_readline_2(query *q)
+{
+	GET_FIRST_ARG(p1,string);
+	GET_NEXT_ARG(p2,var);
+	int n = q->pl->current_output;
+	stream *str = &q->pl->streams[n];
+	char *s = history_readline_eol(q->pl, C_STR(q, p1), '.');
+	if (!s) return false;
+	cell tmp;
+	make_string(&tmp, s);
+	free(s);
+	return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
 }
 
 static bool bif_sys_put_chars_1(query *q)
@@ -7676,14 +7685,13 @@ builtins g_streams_bifs[] =
 	{"alias", 2, bif_alias_2, "+blob,+atom", false, false, BLAH},
 
 	{"$stream_to_file", 2, bif_sys_stream_to_file_2, "+stream,-integer", false, false, BLAH},
-
 	{"$capture_output", 0, bif_sys_capture_output_0, NULL, false, false, BLAH},
 	{"$capture_output_to_chars", 1, bif_sys_capture_output_to_chars_1, "-string", false, false, BLAH},
 	{"$capture_output_to_atom", 1, bif_sys_capture_output_to_atom_1, "-atom", false, false, BLAH},
-
 	{"$capture_error", 0, bif_sys_capture_error_0, NULL, false, false, BLAH},
 	{"$capture_error_to_chars", 1, bif_sys_capture_error_to_chars_1, "-string", false, false, BLAH},
 	{"$capture_error_to_atom", 1, bif_sys_capture_error_to_atom_1, "-atom", false, false, BLAH},
+	{"$readline", 2, bif_sys_readline_2, "+string,-string", false, false, BLAH},
 
 	{"$memory_stream_create", 2, fn_sys_memory_stream_create_2, "-stream,+options", false, false, BLAH},
 	{"$memory_stream_to_chars", 2, fn_sys_memory_stream_to_chars_2, "+stream,-string", false, false, BLAH},

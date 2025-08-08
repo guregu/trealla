@@ -245,35 +245,26 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		return;
 	}
 
-#if 0    // see issue #806
 	if (((*src)->val_off == g_colon_s) && ((*src)->arity == 2) && !is_var((c))
 		) {
 		unsigned var_num1 = cl->num_vars++;
-		unsigned var_num2 = cl->num_vars++;
 		*src += 1;
 		make_instr((*dst)++, g_sys_module_s, bif_sys_module_1, 1, 1);
 		make_var((*dst)++, g_anon_s, var_num1);
 		make_instr((*dst)++, g_sys_module_s, bif_sys_module_1, 1, (*src)->num_cells);
 		copy_term(dst, src);										// Arg1
-		make_instr((*dst)++, g_sys_fail_on_retry_s, bif_sys_fail_on_retry_1, 1, 1);
-		make_var((*dst)++, g_anon_s, var_num2);
 		make_instr((*dst)++, g_sys_call_check_s, bif_sys_call_check_1, 1, (*src)->num_cells);
 		*dst += copy_cells(*dst, *src, (*src)->num_cells);			// Arg2
 		copy_term(dst, src);										// Arg2
 		make_instr((*dst)++, g_sys_module_s, bif_sys_module_1, 1, 1);
 		make_var((*dst)++, g_anon_s, var_num1);
-		make_instr((*dst)++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
-		make_var((*dst)++, g_anon_s, var_num2);
 		return;
 	}
-#endif
 
 #if 0
-	if (!is_builtin(*src) && !is_var(c)) {
-		cell *save_dst = *dst;
-		make_instr((*dst)++, g_sys_match_s, bif_sys_match_1, 1, 0);
+	if (!is_builtin(*src)) {
+		make_instr((*dst)++, g_sys_match_s, bif_sys_match_1, 1, (*src)->num_cells);
 		copy_term(dst, src);
-		save_dst->num_cells = *dst - save_dst;
 		return;
 	}
 #endif

@@ -1,7 +1,5 @@
 #!/bin/sh
 
-# set -e
-
 TPL=./tpl
 
 TMP=tmp.out
@@ -19,14 +17,14 @@ do
 			cmd="$TPL -q -f -g halt "
 			;;
 		*.sh)
-			cmd="env TPL=$TPL sh"
+			cmd="env TPL=$TPL bash"
 			;;
 		*)
 			continue
 	esac
 
 	echo "Running $source ..."
-	$cmd "$source" >$TMP
+	timeout 30 $cmd "$source" >$TMP
 	diff -a --strip-trailing-cr "${source%.*}.expected" $TMP
 	if [ $? -eq 0 ]
 	then

@@ -48,7 +48,7 @@ static bool bif_clause_3(query *q)
 		if (!is_var(p3)) {
 			uuid u;
 			uuid_from_buf(C_STR(q, p3), &u);
-			db_entry *r = find_in_db(q->st.m, &u);
+			rule *r = find_in_db(q->st.m, &u);
 
 			if (!r || (!u.u1 && !u.u2))
 				break;
@@ -107,7 +107,7 @@ static bool bif_clause_3(query *q)
 	return false;
 }
 
-static void db_log(query *q, db_entry *r, enum log_type l)
+static void db_log(query *q, rule *r, enum log_type l)
 {
 	FILE *fp = q->pl->logfp;
 
@@ -179,7 +179,7 @@ static bool bif_iso_clause_2(query *q)
 static void predicate_purge_dirty_list(predicate *pr)
 {
 	unsigned cnt = 0;
-	db_entry *r;
+	rule *r;
 
 	while ((r = list_pop_front(&pr->dirty)) != NULL) {
 		predicate_delink(pr, r);
@@ -218,7 +218,7 @@ bool do_retract(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract)
 	if (!match || q->did_throw)
 		return match;
 
-	db_entry *r = q->st.dbe;
+	rule *r = q->st.dbe;
 	db_log(q, r, LOG_ERASE);
 	retract_from_db(r->owner->m, r);
 	bool last_match = (is_retract == DO_RETRACT) && !has_next_key(q);
@@ -283,21 +283,21 @@ bool do_abolish(query *q, cell *c_orig, cell *c_pi, bool hard)
 	if (!pr->is_dynamic)
 		return throw_error(q, c_orig, q->st.curr_frame, "permission_error", "modify,static_procedure");
 
-	for (db_entry *r = pr->head; r; r = r->next)
+	for (rule *r = pr->head; r; r = r->next)
 		retract_from_db(r->owner->m, r);
 
-	if (pr->idx && !pr->refcnt) {
+	if (pr->idx1 && !pr->refcnt) {
 		predicate_purge_dirty_list(pr);
 	} else {
-		db_entry *r;
+		rule *r;
 
 		while ((r = list_pop_front(&pr->dirty)) != NULL)
 			list_push_back(&q->dirty, r);
 	}
 
 	sl_destroy(pr->idx2);
-	sl_destroy(pr->idx);
-	pr->idx = pr->idx2 = NULL;
+	sl_destroy(pr->idx1);
+	pr->idx1 = pr->idx2 = NULL;
 	pr->is_processed = false;
 	pr->head = pr->tail = NULL;
 	pr->cnt = 0;
@@ -364,59 +364,6 @@ static bool bif_iso_abolish_1(query *q)
 	return ok;
 }
 
-static unsigned count_non_anons(uint8_t *mask, unsigned bit)
-{
-	unsigned bits = 0;
-
-	for (unsigned i = 0; i < bit; i++) {
-		if (mask[i] > 1)
-			bits++;
-	}
-
-	return bits;
-}
-
-static void term_assign_vars(parser *p)
-{
-	pl_idx num_cells = p->cl->cidx;
-	assign_vars(p, 0, true);
-	memset(p->vartab.vars, 0, sizeof(p->vartab.vars));
-
-	for (pl_idx i = 0; i < num_cells; i++) {
-		cell *c = p->cl->cells+i;
-
-		if (!is_var(c))
-			continue;
-
-		assert(c->var_num < MAX_VARS);
-		p->vartab.vars[c->var_num]++;
-	}
-
-	for (pl_idx i = 0; i < num_cells; i++) {
-		cell *c = p->cl->cells+i;
-
-		if (!is_var(c))
-			continue;
-
-		unsigned var_num = count_non_anons(p->vartab.vars, c->var_num);
-
-		char ch = 'A';
-		ch += var_num % 26;
-		unsigned n = var_num / 26;
-		char tmpbuf[80];
-
-		if (p->vartab.vars[c->var_num] == 1)
-			snprintf(tmpbuf, sizeof(tmpbuf), "%s", "_");
-		else if (var_num < 26)
-			snprintf(tmpbuf, sizeof(tmpbuf), "%c", ch);
-		else
-			snprintf(tmpbuf, sizeof(tmpbuf), "%c%d", ch, n);
-
-		c->val_off = new_atom(p->m->pl, tmpbuf);
-		c->flags = 0;
-	}
-}
-
 static bool bif_iso_asserta_1(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
@@ -456,12 +403,12 @@ static bool bif_iso_asserta_1(query *q)
 	}
 
 	p->cl->cidx = dup_cells(p->cl->cells, tmp, num_cells);
-	term_assign_vars(p);
+	assign_vars(p, 0, true);
 	term_to_body(p);
 	cell *h = get_head(p->cl->cells);
 
 	prolog_lock(q->pl);
-	db_entry *r = asserta_to_db(q->st.m, p->cl->num_vars, p->cl->cells, 0);
+	rule *r = asserta_to_db(q->st.m, p->cl->num_vars, p->cl->cells, 0);
 	prolog_unlock(q->pl);
 
 	p->cl->cidx = 0;
@@ -512,12 +459,12 @@ static bool bif_iso_assertz_1(query *q)
 	}
 
 	p->cl->cidx = dup_cells(p->cl->cells, tmp, num_cells);
-	term_assign_vars(p);
+	assign_vars(p, 0, true);
 	term_to_body(p);
 	cell *h = get_head(p->cl->cells);
 
 	prolog_lock(q->pl);
-	db_entry *r = assertz_to_db(q->st.m, p->cl->num_vars, p->cl->cells, false);
+	rule *r = assertz_to_db(q->st.m, p->cl->num_vars, p->cl->cells, false);
 	prolog_unlock(q->pl);
 
 	p->cl->cidx = 0;
@@ -576,12 +523,12 @@ static bool do_asserta_2(query *q)
 	}
 
 	p->cl->cidx = dup_cells(p->cl->cells, tmp, num_cells);
-	term_assign_vars(p);
+	assign_vars(p, 0, true);
 	term_to_body(p);
 	cell *h = get_head(p->cl->cells);
 
 	prolog_lock(q->pl);
-	db_entry *r = asserta_to_db(q->st.m, p->cl->num_vars, p->cl->cells, 0);
+	rule *r = asserta_to_db(q->st.m, p->cl->num_vars, p->cl->cells, 0);
 	prolog_unlock(q->pl);
 
 	p->cl->cidx = 0;
@@ -668,12 +615,12 @@ static bool do_assertz_2(query *q)
 	}
 
 	p->cl->cidx = dup_cells(p->cl->cells, tmp, num_cells);
-	term_assign_vars(p);
+	assign_vars(p, 0, true);
 	term_to_body(p);
 	cell *h = get_head(p->cl->cells);
 
 	prolog_lock(q->pl);
-	db_entry *r = assertz_to_db(q->st.m, p->cl->num_vars, p->cl->cells, false);
+	rule *r = assertz_to_db(q->st.m, p->cl->num_vars, p->cl->cells, false);
 	prolog_unlock(q->pl);
 
 	p->cl->cidx = 0;
@@ -729,7 +676,7 @@ void save_db(FILE *fp, query *q, int logging)
 		if (src[0] == '$')
 			continue;
 
-		for (db_entry *r = pr->head; r; r = r->next) {
+		for (rule *r = pr->head; r; r = r->next) {
 			if (r->dbgen_retracted)
 				continue;
 
@@ -874,7 +821,7 @@ static bool bif_instance_2(query *q)
 	GET_NEXT_ARG(p2,any);
 	uuid u;
 	uuid_from_buf(C_STR(q, p1), &u);
-	db_entry *r = find_in_db(q->st.m, &u);
+	rule *r = find_in_db(q->st.m, &u);
 	check_memory(r);
 	return unify(q, p2, p2_ctx, r->cl.cells, q->st.curr_frame);
 }
@@ -910,6 +857,77 @@ static bool bif_sys_retract_on_backtrack_1(query *q)
 	return unify(q, &c, q->st.curr_frame, &v, q->st.curr_frame);
 }
 
+static bool do_dump_term(query *q, cell *p1, pl_idx p1_ctx, bool deref, int depth)
+{
+	if (!depth) {
+		const frame *f = GET_CURR_FRAME();
+		printf("f=%u, f->initial_slots=%u, f->actual_slots=%u\n", q->st.curr_frame, f->initial_slots, f->actual_slots);
+	}
+
+	cell *tmp = p1;
+
+	if (depth > 1)
+		return true;
+
+	for (unsigned i = 0; i < p1->num_cells; i++, tmp++) {
+		if (depth) printf("  ");
+
+		printf("[%02u] tag=%10s, num_cells=%u, arity=%u",
+			i,
+			(
+				(tmp->tag == TAG_VAR && is_ref(tmp))? "var_ref" :
+				tmp->tag == TAG_VAR ? "var" :
+				tmp->tag == TAG_INTERNED ? "interned" :
+				tmp->tag == TAG_CSTR ? "cstr" :
+				tmp->tag == TAG_INT ? "integer" :
+				tmp->tag == TAG_FLOAT ? "float" :
+				tmp->tag == TAG_RAT ? "rational" :
+				tmp->tag == TAG_INDIRECT ? "indirect" :
+				tmp->tag == TAG_BLOB ? "blob" :
+				tmp->tag == TAG_DBID ? "dbid" :
+				tmp->tag == TAG_KVID ? "kvid" :
+				"other"
+			),
+			tmp->num_cells, tmp->arity);
+
+		if ((tmp->tag == TAG_INT) && !is_managed(tmp))
+			printf(", %lld", (long long)tmp->val_int);
+
+		if (tmp->arity && (tmp->tag == TAG_INTERNED))
+			printf(", ground=%u", is_ground(tmp)?1:0);
+
+		if (tmp->tag == TAG_INTERNED)
+			printf(", '%s'", C_STR(q, tmp));
+
+		if (is_var(tmp))
+			printf(", global=%d, void=%d, local=%d, temp=%d, anon=%d",
+				is_global(tmp)?1:0, is_void(tmp)?1:0,
+				is_local(tmp)?1:0, is_temporary(tmp)?1:0,
+				is_anon(tmp)?1:0);
+
+		if (is_ref(tmp))
+			printf(", slot=%u, ctx=%u", tmp->var_num, tmp->var_ctx);
+		else if (is_var(tmp))
+			printf(", slot=%u, %s", tmp->var_num, C_STR(q, tmp));
+
+		if (is_var(tmp) && deref) {
+			const frame *f = GET_FRAME(is_ref(tmp)?tmp->var_ctx:p1_ctx);
+			slot *e = GET_SLOT(f, tmp->var_num);
+
+			if (e->c.val_attrs) {
+				printf("\n");
+				do_dump_term(q, e->c.val_attrs, q->st.curr_frame, deref, depth+1);
+				continue;
+			}
+		}
+
+		printf("\n");
+	}
+
+	if (!depth) printf("no_recov=%d\n", q->no_recov?1:0);
+	return true;
+}
+
 static bool bif_listing_0(query *q)
 {
 	int n = q->pl->current_output;
@@ -918,7 +936,7 @@ static bool bif_listing_0(query *q)
 	return true;
 }
 
-static bool save_name(FILE *fp, query *q, pl_idx name, unsigned arity, bool alt)
+static bool save_name(FILE *fp, query *q, pl_idx name, unsigned arity, bool alt, bool dump)
 {
 	module *m = q->st.dbe ? q->st.dbe->owner->m : q->st.m;
 	q->listing = true;
@@ -937,7 +955,7 @@ static bool save_name(FILE *fp, query *q, pl_idx name, unsigned arity, bool alt)
 
 		any = true;
 
-		for (db_entry *r = pr->head; r; r = r->next) {
+		for (rule *r = pr->head; r; r = r->next) {
 			if (r->dbgen_retracted)
 				continue;
 
@@ -949,20 +967,21 @@ static bool save_name(FILE *fp, query *q, pl_idx name, unsigned arity, bool alt)
 			if (alt) {
 				print_term(q, fp, get_head(r->cl.cells), 0, 0);
 				printf(":-\n");
-			}
 
-			if (alt && r->cl.alt) {
-				cell *c = r->cl.alt;
+				if (r->cl.alt) {
+					cell *c = r->cl.alt;
 
-				while (!is_end(c)) {
-					printf("  ");
-					print_term(q, fp, c, 0, 0);
-					c += c->num_cells;
-					printf("\n");
-				}
-			} else if (alt)
-				fprintf(fp, "  true\n");
-			else {
+					while (!is_end(c)) {
+						printf("  ");
+						print_term(q, fp, c, 0, 0);
+						c += c->num_cells;
+						printf("\n");
+					}
+				} else
+					fprintf(fp, "  true\n");
+			} else if (dump) {
+				do_dump_term(q, r->cl.cells, 0, 0, 0);
+			} else {
 				print_term(q, fp, r->cl.cells, 0, 0);
 				fprintf(fp, ".\n");
 			}
@@ -1021,7 +1040,7 @@ static bool bif_listing_1(query *q)
 
 	int n = q->pl->current_output;
 	stream *str = &q->pl->streams[n];
-	return save_name(str->fp, q, name, arity, false);
+	return save_name(str->fp, q, name, arity, false, false);
 }
 
 static bool bif_sys_xlisting_1(query *q)
@@ -1072,7 +1091,70 @@ static bool bif_sys_xlisting_1(query *q)
 
 	int n = q->pl->current_output;
 	stream *str = &q->pl->streams[n];
-	save_name(str->fp, q, name, arity, true);
+	save_name(str->fp, q, name, arity, true, false);
+	fprintf(str->fp, "\n");
+	return true;
+}
+
+static bool bif_sys_dump_term_2(query *q)
+{
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,atom);
+	GET_FIRST_RAW_ARG(p1x,any);
+	bool deref = p2->val_off == g_true_s;
+	p1 = deref ? p1 : p1x;
+	return do_dump_term(q, p1, p1_ctx, deref, 0);
+}
+
+static bool bif_sys_dlisting_1(query *q)
+{
+	GET_FIRST_ARG(p1,callable);
+	pl_idx name = p1->val_off;
+	unsigned arity = -1;
+
+	if (p1->val_off == g_colon_s) {
+		p1 = p1 + 1;
+		cell *cm = deref(q, p1, p1_ctx);
+		module *m = find_module(q->pl, C_STR(q, cm));
+
+		if (!m)
+			return throw_error(q, cm, p1_ctx, "existence_error", "module");
+
+		p1 += p1->num_cells;
+	}
+
+	if (p1->arity) {
+		if (CMP_STRING_TO_CSTR(q, p1, "/") && CMP_STRING_TO_CSTR(q, p1, "//"))
+			return throw_error(q, p1, p1_ctx, "type_error", "predicate_indicator");
+
+		cell *p2 = p1 + 1;
+
+		if (!is_atom(p2))
+			return throw_error(q, p2, p1_ctx, "type_error", "atom");
+
+		cell *p3 = p2 + p2->num_cells;
+
+		if (!is_integer(p3))
+			return throw_error(q, p3, p1_ctx, "type_error", "integer");
+
+		name = new_atom(q->pl, C_STR(q, p2));
+		arity = get_smallint(p3);
+
+		if (!CMP_STRING_TO_CSTR(q, p1, "//"))
+			arity += 2;
+	}
+
+	cell tmp;
+	make_atom(&tmp, name);
+	tmp.arity = arity;
+	bool found;
+
+	if (get_builtin_term(q->st.m, &tmp, &found, NULL), found)
+		return throw_error(q, &tmp, p1_ctx, "permission_error", "access,private_procedure");
+
+	int n = q->pl->current_output;
+	stream *str = &q->pl->streams[n];
+	save_name(str->fp, q, name, arity, false, true);
 	fprintf(str->fp, "\n");
 	return true;
 }
@@ -1095,7 +1177,10 @@ builtins g_database_bifs[] =
 
 	{"listing", 0, bif_listing_0, NULL, false, false, BLAH},
 	{"listing", 1, bif_listing_1, "+predicate_indicator", false, false, BLAH},
+
 	{"$xlisting", 1, bif_sys_xlisting_1, "+predicate_indicator", false, false, BLAH},
+	{"$dlisting", 1, bif_sys_dlisting_1, "+predicate_indicator", false, false, BLAH},
+	{"$dump_term", 2, bif_sys_dump_term_2, "+term,+bool", false, false, BLAH},
 
 	{"$clause", 2, bif_sys_clause_2, "?term,?term", false, false, BLAH},
 	{"$clause", 3, bif_sys_clause_3, "?term,?term,-string", false, false, BLAH},

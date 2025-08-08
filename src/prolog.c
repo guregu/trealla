@@ -87,14 +87,16 @@ static pl_idx add_to_global_atoms(const char *name)
 
 	while ((offset+len+1+1) >= s_global_atoms_size) {
 		size_t nbytes = (size_t)s_global_atoms_size * 3 / 2;
-		char *tmp = realloc(g_global_atoms, nbytes);
+		void *tmp = realloc(g_global_atoms, nbytes);
 		if (!tmp) return ERR_IDX;
 		g_global_atoms = tmp;
 		memset(g_global_atoms + s_global_atoms_size, 0, nbytes - s_global_atoms_size);
 		s_global_atoms_size = nbytes;
 	}
 
-	if ((offset + len + 1) >= UINT32_MAX)
+	const size_t s_lim = 1024*1024*1024;
+
+	if ((offset + len + 1) >= s_lim)
 		return ERR_IDX;
 
 	memcpy(g_global_atoms + offset, name, len+1);
@@ -142,6 +144,7 @@ bool did_dump_vars(prolog *pl) { return pl->did_dump_vars; }
 int get_halt_code(prolog *pl) { return pl->halt_code; }
 
 void set_trace(prolog *pl) { pl->trace = true; }
+void set_autofail(prolog *pl) { pl->autofail = true; }
 void set_quiet(prolog *pl) { pl->quiet = true; }
 void set_opt(prolog *pl, int level) { pl->opt = level; }
 
@@ -617,7 +620,7 @@ static bool g_init(prolog *pl)
 	bool error = false;
 
 	init_lock(&g_symtab_guard);
-	g_global_atoms = calloc(1, s_global_atoms_size);
+	g_global_atoms = calloc(s_global_atoms_size, 1);
 	s_global_atoms_offset = 0;
 
 	CHECK_SENTINEL(g_symtab = sl_create((void*)fake_strcmp, (void*)keyfree, NULL), NULL);
@@ -706,7 +709,7 @@ static bool g_init(prolog *pl)
 #if !defined(_WIN32) && !defined(__wasi__) && !defined(__ANDROID__)
 	struct rlimit rlp;
 	getrlimit(RLIMIT_STACK, &rlp);
-	g_max_depth = (rlp.rlim_cur - 1024) / 1024;
+	g_max_depth = rlp.rlim_cur / 1024;
 #endif
 
 	return error;
@@ -882,7 +885,6 @@ prolog *pl_create()
 	set_multifile_in_db(pl->user_m, "$predicate_property", 3);
 	set_multifile_in_db(pl->user_m, "portray", 1);
 
-	set_dynamic_in_db(pl->user_m, "$record_key", 2);
 	set_dynamic_in_db(pl->user_m, "$op", 3);
 	set_dynamic_in_db(pl->user_m, "$predicate_property", 3);
 	set_dynamic_in_db(pl->user_m, "$current_prolog_flag", 2);
@@ -896,10 +898,9 @@ prolog *pl_create()
 	// Load some common libraries...
 
 	for (library *lib = g_libs; lib->name; lib++) {
-		if (!strcmp(lib->name, "builtins")			// Always need this
-			|| !strcmp(lib->name, "dcgs")			// Common
+		if (!strcmp(lib->name, "builtins")
 			|| !strcmp(lib->name, "iso_ext")		// Common
-			|| !strcmp(lib->name, "freeze")			// Common
+			|| !strcmp(lib->name, "freeze")			// Common (TODO: removed on upstream?)
 #ifdef __wasi__
 			|| !strcmp(lib->name, "wasm")			// Needed for WASM toplevel
 			|| !strcmp(lib->name, "pseudojson")		// Likewise
@@ -913,8 +914,8 @@ prolog *pl_create()
 #ifdef WASI_TARGET_SPIN
 			|| !strcmp(lib->name, "spin")
 #endif
-			|| !strcmp(lib->name, "dif")			// Common
 			|| !strcmp(lib->name, "lists")			// Common
+			|| !strcmp(lib->name, "dif")			// ???
 			) {
 			size_t len = *lib->len;
 			char *src = malloc(len+1);

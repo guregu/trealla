@@ -22,10 +22,6 @@
 #include <unistd.h>
 #endif
 
-#ifndef USE_RATIONAL_TREES
-#define USE_RATIONAL_TREES 1
-#endif
-
 typedef double pl_flt;
 typedef intmax_t pl_int;
 typedef uintmax_t pl_uint;
@@ -82,9 +78,9 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define is_var(c) ((c)->tag == TAG_VAR)
 #define is_interned(c) ((c)->tag == TAG_INTERNED)
 #define is_cstring(c) ((c)->tag == TAG_CSTR)
-#define is_integer(c) ((c)->tag == TAG_INTEGER)
-#define is_float(c) ((c)->tag == TAG_DOUBLE)
-#define is_rational(c) ((c)->tag == TAG_RATIONAL)
+#define is_integer(c) ((c)->tag == TAG_INT)
+#define is_float(c) ((c)->tag == TAG_FLOAT)
+#define is_rational(c) ((c)->tag == TAG_RAT)
 #define is_indirect(c) ((c)->tag == TAG_INDIRECT)
 #define is_dbid(c) ((c)->tag == TAG_DBID)
 #define is_kvid(c) ((c)->tag == TAG_KVID)
@@ -234,9 +230,9 @@ enum {
 	TAG_VAR=1,
 	TAG_INTERNED=2,
 	TAG_CSTR=3,
-	TAG_INTEGER=4,
-	TAG_DOUBLE=5,
-	TAG_RATIONAL=6,
+	TAG_INT=4,
+	TAG_FLOAT=5,
+	TAG_RAT=6,
 	TAG_INDIRECT=7,
 	TAG_BLOB=8,
 	TAG_DBID=9,
@@ -294,6 +290,8 @@ enum {
 #define IS_PREFIX(op) (((op) == OP_FX) || ((op) == OP_FY))
 #define IS_POSTFIX(op) (((op) == OP_XF) || ((op) == OP_YF))
 #define IS_INFIX(op) (((op) == OP_XFX) || ((op) == OP_XFY) || ((op) == OP_YFX))
+#define IS_XF(op) ((op) == OP_XF)
+#define IS_YF(op) ((op) == OP_YF)
 
 #define is_prefix(c) IS_PREFIX(GET_OP(c))
 #define is_postfix(c) IS_POSTFIX(GET_OP(c))
@@ -315,13 +313,13 @@ enum {
 typedef struct module_ module;
 typedef struct query_ query;
 typedef struct predicate_ predicate;
-typedef struct db_entry_ db_entry;
+typedef struct rule_ rule;
 typedef struct cell_ cell;
 typedef struct clause_ clause;
 typedef struct trail_ trail;
 typedef struct frame_ frame;
 typedef struct parser_ parser;
-typedef struct page_ page;
+typedef struct heap_page_ heap_page;
 typedef struct stream_ stream;
 typedef struct slot_ slot;
 typedef struct choice_ choice;
@@ -423,10 +421,10 @@ struct clause_ {
 	cell cells[];						// 'num_allocated_cells'
 };
 
-struct db_entry_ {
+struct rule_ {
 	lnode hdr;							// must be first
 	predicate *owner;
-	db_entry *prev, *next;
+	rule *prev, *next;
 	const char *filename;
 	uuid u;
 	uint64_t db_id, matched, attempted, tcos;
@@ -435,12 +433,14 @@ struct db_entry_ {
 	clause cl;
 };
 
+// Note: use head/tail as an entry can't be on two intrusive lists
+
 struct predicate_ {
 	lnode hdr;							// must be first
 	predicate *alias;
-	db_entry *head, *tail;
+	rule *head, *tail;
 	module *m;
-	skiplist *idx, *idx2;
+	skiplist *idx1, *idx2;
 	const char *filename;
 	cell *meta_args;
 	list dirty;
@@ -500,7 +500,6 @@ typedef struct {
 struct trail_ {
 	cell *attrs;
 	pl_idx var_ctx, var_num;
-	bool is_local:1;
 };
 
 // Where *c* is the (possibly) instantiated cell in the current frame
@@ -515,14 +514,14 @@ struct slot_ {
 // Where *initial_slots* is the number allocated
 // Where *actual_slots* is the number allocated+created
 // Where *base* is the offset to first slot in use
-// Where *overflow* is where new slots are created (actual_slots > initial_slots)
+// Where *op* is the offset to first overflow slot in use
 // Where *chgen* is the choice generation that created this frame
 
 struct frame_ {
 	cell *instr;
 	module *m;
 	uint64_t dbgen, chgen;
-	pl_idx prev, base, overflow, hp, heap_num;
+	pl_idx prev, base, op, hp, heap_num;
 	unsigned initial_slots, actual_slots;
 	bool no_recov:1;
 };
@@ -530,12 +529,17 @@ struct frame_ {
 struct run_state_ {
 	predicate *pr;
 	cell *instr;
-	db_entry *dbe;
+	rule *dbe;
 	sliter *iter, *f_iter;
 	module *m;
 
 	union {
-		struct { cell *key; pl_idx key_ctx; bool karg1_is_ground:1, karg2_is_ground:1, karg1_is_atomic:1, karg2_is_atomic:1;};
+		struct {
+			cell *key;
+			pl_idx key_ctx;
+			bool karg1_is_ground:1, karg2_is_ground:1, karg3_is_ground:1,
+			karg1_is_atomic:1, karg2_is_atomic:1, karg3_is_atomic:1;
+		};
 		struct { uint64_t uv1, uv2; };
 		struct { int64_t v1, v2; };
 		int64_t cnt;
@@ -549,7 +553,7 @@ struct run_state_ {
 struct choice_ {
 	run_state st;
 	uint64_t gen, chgen, dbgen;
-	pl_idx base, overflow, initial_slots, actual_slots, skip;
+	pl_idx base, op, initial_slots, actual_slots, skip;
 	bool catchme_retry:1;
 	bool catchme_exception:1;
 	bool barrier:1;
@@ -636,8 +640,8 @@ struct thread_ {
 	bool is_mutex_only:1;
 };
 
-struct page_ {
-	page *next;
+struct heap_page_ {
+	heap_page *next;
 	cell *cells;
 	pl_idx idx, page_size;
 	unsigned num;
@@ -666,14 +670,14 @@ struct query_ {
 	query *prev, *next, *parent;
 	module *current_m;
 	prolog *pl;
-	parser *p;
+	parser *top, *p;
 	frame *frames;
 	slot *slots;
 	choice *choices;
 	trail *trails;
 	cell *tmp_heap, *last_arg, *variable_names, *ball, *cont, *suspect;
 	cell *queue[MAX_QUEUES], *tmpq[MAX_QUEUES];
-	page *heap_pages;
+	heap_page *heap_pages;
 	slot *save_e;
 	query *tasks;
 	skiplist *vars;
@@ -692,7 +696,7 @@ struct query_ {
 	uint64_t get_started, autofail_n, yield_at;
 	uint64_t cpu_started, time_cpu_last_started, future;
 	unsigned max_depth, max_eval_depth, print_idx, tab_idx, dump_var_num;
-	unsigned varno, tab0_varno, curr_engine, curr_chan, my_chan, oom;
+	unsigned varno, tab0_varno, curr_engine, curr_chan, my_chan;
 	unsigned s_cnt, retries;
 	pl_idx tmphp, latest_ctx, popp, variable_names_ctx;
 	pl_idx frames_size, slots_size, trails_size, choices_size;
@@ -708,6 +712,7 @@ struct query_ {
 	int8_t halt_code;
 	int8_t quoted;
 	enum { WAS_OTHER, WAS_SPACE, WAS_COMMA, WAS_SYMBOL } last_thing;
+	bool oom:1;
 	bool thread_signal:1;
 	bool done:1;
 	bool noskip:1;
@@ -761,10 +766,12 @@ struct parser_ {
 	struct {
 		char pool[MAX_VAR_POOL_SIZE];
 		unsigned used[MAX_VARS];
-		const char *name[MAX_VARS];
+		unsigned depth[MAX_VARS];
 		unsigned in_body[MAX_VARS];
 		unsigned in_head[MAX_VARS];
+		pl_idx off[MAX_VARS];
 		uint8_t vars[MAX_VARS];
+		unsigned num_vars;
 	} vartab;
 
 	prolog *pl;
@@ -804,10 +811,12 @@ struct parser_ {
 	bool is_op:1;
 	bool skip:1;
 	bool last_close:1;
+	bool last_neg:1;
 	bool no_fp:1;
 	bool reuse:1;
 	bool interactive:1;
 	bool in_body:1;
+	bool is_number_chars:1;
 };
 
 typedef struct loaded_file_ loaded_file;
@@ -884,6 +893,7 @@ struct prolog_ {
 	bool status:1;
 	bool error:1;
 	bool did_dump_vars:1;
+	bool autofail:1;
 	bool quiet:1;
 	bool noindex:1;
 	bool iso_only:1;
@@ -938,7 +948,7 @@ inline static void unshare_cell_(cell *c)
 		if (--c->val_bigint->refcnt == 0)	{
 			mp_rat_clear(&c->val_bigint->irat);
 			free(c->val_bigint);
-			c->tag = TAG_EMPTY;
+			c->flags = 0;
 		}
 	} else if (is_blob(c)) {
 		if (--c->val_blob->refcnt == 0) {
@@ -1054,7 +1064,7 @@ inline static void init_cell(cell *c)
 	c->val_attrs = NULL;
 }
 
-inline static void predicate_delink(predicate *pr, db_entry *r)
+inline static void predicate_delink(predicate *pr, rule *r)
 {
 	if (r->prev) r->prev->next = r->next;
 	if (r->next) r->next->prev = r->prev;
@@ -1100,3 +1110,5 @@ int get_named_stream(prolog *pl, const char *name, size_t len);
 #define ERROR_FP stdout
 #define fprintf_to_stream(pl, fp, fmt, ...) fprintf(fp, fmt, __VA_ARGS__)
 #endif
+#define ensure(cond, ...) if (!(cond)) { printf("Error: no memory %s %d\n", __FILE__, __LINE__); abort(); }
+

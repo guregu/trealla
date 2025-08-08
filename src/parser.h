@@ -6,7 +6,7 @@ parser *parser_create(module *m);
 void parser_destroy(parser *p);
 
 unsigned tokenize(parser *p, bool args, bool consing);
-void reset(parser *p);
+void parser_reset(parser *p);
 void term_to_body(parser *p);
 cell *check_body_callable(cell *c);
 bool run(parser *p, const char *src, bool dump, query **subq, unsigned int yield_time_in_ms);
@@ -45,13 +45,13 @@ bool do_register_struct(module *m, query *q, void *handle, const char *symbol, c
 int do_dlclose(void *handle);
 #endif
 
-void make_struct_(cell *tmp, pl_idx offset, unsigned arity, pl_idx extra_cells);
+void make_struct(cell *tmp, pl_idx offset, unsigned arity, pl_idx extra_cells);
 
 #define make_instr(tmp, offset, fn, arity, extra_cells) { \
 	cell *tmp_make = tmp; \
-	make_struct_(tmp_make, offset, arity, extra_cells); \
+	make_struct(tmp_make, offset, arity, extra_cells); \
 	\
-	if (fn != NULL) { \
+	if ((void*)fn != NULL) { \
 		static builtins *s_fn_ptr_##fn = NULL; \
 		if (!s_fn_ptr_##fn) \
 			s_fn_ptr_##fn = get_fn_ptr(fn); \

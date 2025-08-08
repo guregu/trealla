@@ -42,8 +42,8 @@ void *g_tpl = NULL;
 
 void sigfn(int s)
 {
-	signal(SIGINT, &sigfn);
 	g_tpl_interrupt = s;
+	signal(SIGINT, &sigfn);
 }
 
 #ifndef __wasi__
@@ -231,6 +231,9 @@ int main(int ac, char *av[], char * envp[])
 			daemon = 1;
 		else if (!strcmp(av[i], "--emulatewasm"))
 			emulate = true;
+		else if (!strcmp(av[i], "--autofail")) {
+			set_autofail(pl);
+		}
 	}
 
 #ifndef __wasi__
@@ -363,9 +366,10 @@ int main(int ac, char *av[], char * envp[])
 		fprintf(stdout, "  -t, --trace\t\t- trace mode\n");
 		fprintf(stdout, "  -d, --daemon\t\t- daemonize\n");
 		fprintf(stdout, "  -w, --watchdog\t- create watchdog\n");
+		fprintf(stdout, "  --autofail\t\t- autofail queries\n");
 		fprintf(stdout, "  --consult\t\t- consult from STDIN\n");
 		fprintf(stdout, "  --log file\t\t- enable log file\n");
-		fprintf(stdout, "  --restore file\t\t- reload log file\n");
+		//fprintf(stdout, "  --restore file\t\t- reload log file\n");
 	}
 
 	if (version) {

@@ -79,6 +79,8 @@ EXPORT(set_noindex)
 extern void set_noindex(prolog*);
 EXPORT(set_opt)
 extern void set_opt(prolog*, int onoff);
+EXPORT(set_autofail)
+void set_autofail(prolog*);
 
 void convert_path(char *filename);
 

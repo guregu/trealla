@@ -4,6 +4,7 @@ COMPILER_IS_GCC := $(shell $(CC) --version | grep -E -o 'g?cc')
 CFLAGS = -Isrc -I/usr/local/include -DVERSION='$(GIT_VERSION)' \
 	-O3 $(OPT) -D_GNU_SOURCE \
 	-Wall -Wextra \
+	-Wno-unused-but-set-variable \
 	-Wno-unused-parameter \
 	-Wno-unused-variable
 LDFLAGS = -L/usr/local/lib -lm
@@ -48,13 +49,20 @@ endif
 ifdef WIN
 ISOCLINE = 1
 # CC = x86_64-w64-mingw32-gcc
+ifndef NOFFI
+endif
 endif
 
 ifdef ISOCLINE
 CFLAGS += -DUSE_ISOCLINE=1
 else
+ifdef EDITLINE
+CFLAGS += -DUSE_EDITLINE=1
+LDFLAGS += -ledit
+else
 ifndef WASI
 LDFLAGS += -lreadline
+endif
 endif
 endif
 
@@ -66,10 +74,6 @@ endif
 ifndef NOSSL
 CFLAGS += -DUSE_OPENSSL=1 -I/usr/local/opt/openssl/include
 LDFLAGS += -L/usr/local/opt/openssl/lib -lssl -lcrypto
-endif
-
-ifdef NORATIONAL_TREES
-CFLAGS += -DUSE_RATIONAL_TREES=0
 endif
 
 ifndef NOTHREADS
