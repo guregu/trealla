@@ -506,7 +506,7 @@ void dump_vars(query *q, bool partial)
 	q->variable_names_ctx = 0;
 	q->print_idx = 0;
 
-	if (any_atts) {
+	if (any_atts && !q->silent_toplevel) {
 		cell p1[2];
 		make_instr(p1+0, new_atom(q->pl, "dump_attvars"), NULL, 1, 1);
 		make_atom(p1+1, any ? g_true_s : g_false_s);

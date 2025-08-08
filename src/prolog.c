@@ -187,6 +187,7 @@ bool pl_query(prolog *pl, const char *s, pl_sub_query **subq, unsigned int yield
 	// TODO: do we still need this?
 	if (!ok) {
 		parser_destroy(pl->p);
+		pl->p = NULL;
 	}
 	return ok;
 }
