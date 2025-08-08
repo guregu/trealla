@@ -187,7 +187,6 @@ bool pl_query(prolog *pl, const char *s, pl_sub_query **subq, unsigned int yield
 	// TODO: do we still need this?
 	if (!ok) {
 		parser_destroy(pl->p);
-		pl->p = NULL;
 	}
 	return ok;
 }
@@ -203,7 +202,7 @@ bool pl_redo(pl_sub_query *subq)
 	if (query_redo(q))
 		return true;
 
-	parser_destroy(q->p);
+	parser_destroy(q->top);
 	query_destroy(q);
 	return false;
 }
@@ -234,7 +233,7 @@ bool pl_done(pl_sub_query *subq)
 
 	query *q = (query*)subq;
 
-	parser_destroy(q->p);
+	parser_destroy(q->top);
 	query_destroy(q);
 	return true;
 }
@@ -773,7 +772,8 @@ void pl_destroy(prolog *pl)
 		free(str->data);
 	}
 
-	parser_destroy(pl->p);
+	if (pl->p)
+		parser_destroy(pl->p);
 
 	if (!--g_tpl_count)
 		g_destroy();

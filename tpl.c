@@ -412,14 +412,14 @@ int main(int ac, char *av[], char * envp[])
 		if (!emulate) {
 			pl_eval(pl, src, true);
 		} else {
-			pl_sub_query *subq;
+			pl_sub_query *subq = NULL;
 			char *out, *err;
 			int32_t out_len, err_len;
 			pl_capture(pl);
 			bool ok = pl_query(pl, src, &subq, 0);
 			do {
 				pl_capture_read(pl, &out, &out_len, &err, &err_len);
-				printf("stdout: %.*s\nstderr: %.*s\n", out_len, out, err_len, err);
+				printf("\nstdout: %.*s\nstderr: %.*s\n", out_len, out, err_len, err);
 				if (subq)
 					printf("status: %s\nok: %d\n", get_status(pl) ? "true" : "false", ok);
 				pl_capture_reset(pl);

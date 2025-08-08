@@ -1840,7 +1840,12 @@ void query_destroy(query *q)
 	mp_int_clear(&q->tmp_ival);
 	mp_rat_clear(&q->tmp_irat);
 	query_purge_dirty_list(q);
-	parser_destroy(q->p);
+	if (q->p) {
+		if (q->pl->p == q->p) {
+			q->pl->p = NULL;
+		}
+		parser_destroy(q->p);
+	}
 	free(q->trails);
 	free(q->choices);
 	free(q->slots);
