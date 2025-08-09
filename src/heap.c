@@ -162,6 +162,10 @@ static cell *clone_term_to_tmp_internal(query *q, cell *p1, pl_idx p1_ctx, unsig
 
 		tmp = get_tmp_heap(q, save_idx);
 		tmp->num_cells = tmp_heap_used(q) - save_idx;
+
+		if (!q->has_vars)
+			tmp->flags |= FLAG_INTERNED_GROUND;
+
 		return tmp;
 	}
 
@@ -185,6 +189,10 @@ static cell *clone_term_to_tmp_internal(query *q, cell *p1, pl_idx p1_ctx, unsig
 
 	tmp = get_tmp_heap(q, save_idx);
 	tmp->num_cells = tmp_heap_used(q) - save_idx;
+
+	if (!q->has_vars)
+		tmp->flags |= FLAG_INTERNED_GROUND;
+
 	return tmp;
 }
 
@@ -199,7 +207,6 @@ cell *clone_term_to_tmp(query *q, cell *p1, pl_idx p1_ctx)
 
 cell *append_to_tmp(query *q, cell *p1, pl_idx p1_ctx)
 {
-	q->has_vars = false;
 	cell *tmp = alloc_on_tmp(q, p1->num_cells);
 	if (!tmp) return NULL;
 	copy_cells_by_ref(tmp, p1, p1_ctx, p1->num_cells);
@@ -262,7 +269,6 @@ static bool copy_vars(query *q, cell *c, bool copy_attrs, const cell *from, pl_i
 unsigned rebase_term(query *q, cell *c, unsigned start_nbr)
 {
 	q->vars = sl_create(NULL, NULL, NULL);
-	q->has_vars = false;
 	q->varno = start_nbr;
 	q->tab_idx = 0;
 
@@ -462,7 +468,6 @@ cell *allocate_list(query *q, const cell *c)
 	if (!init_tmp_heap(q))
 		return NULL;
 
-	q->has_vars = false;
 	append_list(q, c);
 	return get_tmp_heap(q, 0);
 }
@@ -533,7 +538,6 @@ cell *allocate_structure(query *q, const char *functor, const cell *c)
 	if (!init_tmp_heap(q))
 		return NULL;
 
-	q->has_vars = false;
 	cell *tmp = alloc_on_tmp(q, 1);
 	if (!tmp) return NULL;
 	tmp->tag = TAG_INTERNED;

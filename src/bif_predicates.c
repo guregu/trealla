@@ -1719,6 +1719,7 @@ static bool bif_iso_univ_2(query *q)
 	cell tmp = *p1;
 	tmp.num_cells = 1;
 	tmp.arity = 0;
+	tmp.flags = 0;
 
 	if (is_builtin(p1)) {
 		tmp.flags &= ~FLAG_INTERNED_BUILTIN;
@@ -1788,7 +1789,7 @@ static bool bif_iso_term_variables_2(query *q)
 	if (is_iso_list(p2) && !check_list(q, p2, p2_ctx, &is_partial, NULL) && !is_partial)
 		return throw_error(q, p2, p2_ctx, "type_error", "list");
 
-	if (!is_var(p1) && (!is_compound(p1) /*|| is_ground(p1)*/))
+	if (!is_var(p1) && (!is_compound(p1) || is_ground(p1)))
 		return unify(q, p2, p2_ctx, make_nil(), q->st.curr_frame);
 
 	cell *tmp = do_term_variables(q, p1, p1_ctx);
@@ -1897,12 +1898,6 @@ static bool bif_sys_duplicate_term_3(query *q)
 	cell *tmpp1 = tmp + 1;
 	cell *tmpp2 = tmpp1 + tmpp1->num_cells;
 
-	if (!q->has_vars && is_compound(tmpp1))
-		tmpp1->flags |= FLAG_INTERNED_GROUND;
-
-	if (!q->has_vars && is_compound(tmpp2))
-		tmpp2->flags |= FLAG_INTERNED_GROUND;
-
 	if (q->cycle_error) {
 		if (!unify(q, tmpp1, q->st.curr_frame, tmpp2, q->st.curr_frame))
 			return false;
@@ -1925,10 +1920,6 @@ static bool bif_sys_clone_term_2(query *q)
 
 	cell *tmp = clone_term_to_heap(q, p1, p1_ctx);
 	check_memory(tmp);
-
-	if (!q->has_vars && is_compound(tmp))
-		tmp->flags |= FLAG_INTERNED_GROUND;
-
 	return unify(q, p2, p2_ctx, tmp, q->st.curr_frame);
 }
 
@@ -2005,12 +1996,12 @@ static bool bif_iso_functor_3(query *q)
 	cell tmp = *p1;
 	tmp.num_cells = 1;
 	tmp.arity = 0;
+	tmp.flags = 0;
 	CLR_OP(&tmp);
 
 	if (is_string(p1)) {
 		tmp.tag = TAG_INTERNED;
 		tmp.val_off = g_dot_s;
-		tmp.flags = 0;
 	}
 
 	if (!unify(q, p2, p2_ctx, &tmp, q->st.curr_frame))
