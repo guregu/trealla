@@ -4565,10 +4565,12 @@ static bool bif_string_1(query *q)
 
 	bool save_flag = q->st.m->flags.double_quote_chars;
 	q->st.m->flags.double_quote_chars = true;
+	bool has_var = false;
+	bool is_partial = false;
 	bool ok = is_string(p1) || is_nil(p1) ||
-		(scan_is_chars_list(q, p1, p1_ctx, false) > 0);
+		(scan_is_chars_list2(q, p1, p1_ctx, false, &has_var, &is_partial, NULL) > 0);
 	q->st.m->flags.double_quote_chars = save_flag;
-	return ok;
+	return ok && !is_partial;
 }
 
 static bool bif_uuid_1(query *q)
