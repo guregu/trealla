@@ -251,14 +251,24 @@ inline static cell *get_first_arg0(query *q, cell *p0)
 inline static cell *get_first_raw_arg(query *q)
 {
 	q->last_arg = q->st.instr + 1;
-	q->latest_ctx = q->st.curr_frame;
+
+	if (is_ref(q->last_arg))
+		q->latest_ctx = q->last_arg->var_ctx;
+	else
+		q->latest_ctx = q->st.curr_frame;
+
 	return q->last_arg;
 }
 
 inline static cell *get_first_raw_arg0(query *q, cell *p0)
 {
 	q->last_arg = p0 + 1;
-	q->latest_ctx = q->st.curr_frame;
+
+	if (is_ref(q->last_arg))
+		q->latest_ctx = q->last_arg->var_ctx;
+	else
+		q->latest_ctx = q->st.curr_frame;
+
 	return q->last_arg;
 }
 
@@ -271,7 +281,12 @@ inline static cell *get_next_arg(query *q)
 inline static cell *get_next_raw_arg(query *q)
 {
 	q->last_arg += q->last_arg->num_cells;
-	q->latest_ctx = q->st.curr_frame;
+
+	if (is_ref(q->last_arg))
+		q->latest_ctx = q->last_arg->var_ctx;
+	else
+		q->latest_ctx = q->st.curr_frame;
+
 	return q->last_arg;
 }
 
@@ -282,11 +297,15 @@ inline static cell *get_raw_arg(query *q, int n)
 	for (int i = 1; i < n; i++)
 		c += c->num_cells;
 
-	q->latest_ctx = q->st.curr_frame;
+	if (is_ref(c))
+		q->latest_ctx = c->var_ctx;
+	else
+		q->latest_ctx = q->st.curr_frame;
+
 	return c;
 }
 
-#define check_memory(expr, ...) \
+#define checked(expr, ...) \
 	CHECK_SENTINEL(expr, 0, __VA_ARGS__; \
 	return throw_error(q, q->st.instr, q->st.curr_frame, "resource_error", "memory"))
 

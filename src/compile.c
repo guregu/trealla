@@ -13,6 +13,27 @@ static void copy_term(cell **dst, cell **src)
 	*src += n;
 }
 
+static void calln_check(module *m, cell *p1)
+{
+	bool found = false;
+
+	if ((p1->match = search_predicate(m, p1, NULL)) != NULL) {
+		p1->flags &= ~FLAG_INTERNED_BUILTIN;
+	} else if ((p1->bif_ptr = get_builtin_term(m, p1, &found, NULL)), found) {
+		p1->flags |= FLAG_INTERNED_BUILTIN;
+
+		if (p1->arity <= 2) {
+			const char *functor = C_STR(m, p1);
+			unsigned specifier;
+
+			if (search_op(m, functor, &specifier, false))
+				SET_OP(p1, specifier);
+		}
+	} else {
+		p1->flags &= ~FLAG_INTERNED_BUILTIN;
+	}
+}
+
 static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 {
 	if (((*src)->val_off == g_conjunction_s) && ((*src)->arity == 2)) {
@@ -155,6 +176,29 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_instr((*dst)++, g_sys_call_check_s, bif_sys_call_check_1, 1, (*src)->num_cells);
 		*dst += copy_cells(*dst, *src, (*src)->num_cells);
 		compile_term(pr, cl, dst, src);								// Arg1
+		make_instr((*dst)++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
+		make_var((*dst)++, g_anon_s, var_num);
+		return;
+	}
+
+	if (((*src)->val_off == g_call_s) && ((*src)->arity > 1) && !is_var(c)) {
+		unsigned var_num = cl->num_vars++;
+		unsigned arity = (*src)->arity - 1;
+		unsigned save_num_cells = (*src)->num_cells;
+		*src += 1;
+		make_instr((*dst)++, g_sys_fail_on_retry_s, bif_sys_fail_on_retry_1, 1, 1);
+		make_var((*dst)++, g_anon_s, var_num);
+		make_instr((*dst)++, g_sys_call_check_s, bif_sys_call_check_1, 1, save_num_cells-1);
+		cell *save_dst = *dst;
+		copy_term(dst, src);										// Functor
+		save_dst->arity += arity;
+
+		while (arity--)
+			copy_term(dst, src);									// Args
+
+		save_dst->num_cells = *dst - save_dst;
+		calln_check(pr->m, save_dst);
+		*dst += copy_cells(*dst, save_dst, save_dst->num_cells);
 		make_instr((*dst)++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 		make_var((*dst)++, g_anon_s, var_num);
 		return;

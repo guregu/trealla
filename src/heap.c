@@ -253,7 +253,7 @@ static bool copy_vars(query *q, cell *c, bool copy_attrs, const cell *from, pl_i
 				pl_idx save_tmp_hp = q->tmphp;
 				q->tmp_heap = NULL;
 				cell *tmp = copy_term_to_heap(q, e->c.val_attrs, q->st.curr_frame, false);
-				check_memory(tmp);
+				checked(tmp);
 				c->tmp_attrs = malloc(sizeof(cell)*tmp->num_cells);
 				copy_cells(c->tmp_attrs, tmp, tmp->num_cells);
 				free(q->tmp_heap);
@@ -399,6 +399,7 @@ void trim_heap(query *q)
 		cell *c = q->heap_pages->cells + --q->heap_pages->idx;
 		unshare_cell(c);
 		c->tag = TAG_EMPTY;
+		c->val_attrs = NULL;
 	}
 }
 
@@ -441,6 +442,35 @@ cell *copy_term_to_heap(query *q, cell *p1, pl_idx p1_ctx, bool copy_attrs)
 			if (!tmp3) return NULL;
 			dup_cells(tmp3, c->tmp_attrs, c->tmp_attrs->num_cells);
 			e->c.val_attrs = tmp3;
+			free(c->tmp_attrs);
+			c->tmp_attrs = NULL;
+		}
+	}
+
+	return tmp2;
+}
+
+cell *copy_term_to_heap_with_replacement(query *q, cell *p1, pl_idx p1_ctx, bool copy_attrs, cell *from, pl_idx from_ctx, cell *to, pl_idx to_ctx)
+{
+	if (!init_tmp_heap(q))
+		return NULL;
+
+	cell *tmp = copy_term_to_tmp_with_replacement(q, p1, p1_ctx, copy_attrs, from, from_ctx, to, to_ctx);
+	if (!tmp) return tmp;
+	cell *tmp2 = alloc_on_heap(q, tmp->num_cells);
+	if (!tmp2) return NULL;
+	dup_cells(tmp2, tmp, tmp->num_cells);
+
+	if (!copy_attrs)
+		return tmp2;
+
+	cell *c = tmp2;
+
+	for (pl_idx i = 0; i < tmp2->num_cells; i++, c++) {
+		if (is_var(c) && c->tmp_attrs) {
+			const frame *f = GET_FRAME(c->var_ctx);
+			slot *e = GET_SLOT(f, c->var_num);
+			e->c.val_attrs = clone_term_to_heap(q, c->tmp_attrs, q->st.curr_frame);
 			free(c->tmp_attrs);
 			c->tmp_attrs = NULL;
 		}

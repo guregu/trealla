@@ -95,6 +95,15 @@ static void trace_call(query *q, cell *c, pl_idx c_ctx, box_t box)
 		return;
 #endif
 
+#if 0
+	if (!is_builtin(c)) {
+		predicate *pr = find_predicate(q->st.m, c);
+
+		if (pr && !pr->is_public)
+			return;
+	}
+#endif
+
 	if (box == CALL)
 		box = q->retry?REDO:CALL;
 
@@ -336,11 +345,13 @@ static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx l_ctx, bool 
 		both = 0;
 		DEREF_VAR(any2, both, save_vgen, e, e->vgen, l, l_ctx, q->vgen);
 
-		if (both)
-			return 0;
+		if (both) {
+			*is_partial = true;
+			break;
+		}
 	}
 
-	if (any2) {
+	if (any2 && !*is_partial) {
 		cell *l2 = save_l;
 		pl_idx l2_ctx = save_l_ctx;
 		LIST_HANDLER(l2);
@@ -814,7 +825,7 @@ int retry_choice(query *q)
 
 bool push_choice(query *q)
 {
-	check_memory(check_choice(q));
+	checked(check_choice(q));
 	const frame *f = GET_CURR_FRAME();
 	choice *ch = GET_CHOICE(q->cp++);
 	ch->skip = 0;
@@ -841,7 +852,7 @@ bool push_choice(query *q)
 
 bool push_succeed_on_retry(query *q, pl_idx skip)
 {
-	check_memory(push_choice(q));
+	checked(push_choice(q));
 	choice *ch = GET_CURR_CHOICE();
 	ch->succeed_on_retry = true;
 	ch->skip = skip;
@@ -853,7 +864,7 @@ bool push_succeed_on_retry(query *q, pl_idx skip)
 
 bool push_barrier(query *q)
 {
-	check_memory(push_choice(q));
+	checked(push_choice(q));
 	choice *ch = GET_CURR_CHOICE();
 	frame *f = GET_CURR_FRAME();
 	ch->gen = f->chgen = ++q->chgen;
@@ -865,7 +876,7 @@ bool push_succeed_on_retry_with_barrier(query *q, pl_idx skip)
 {
 	frame *f = GET_CURR_FRAME();
 	f->no_recov = true;				// FIXME: memory waste
-	check_memory(push_barrier(q));
+	checked(push_barrier(q));
 	choice *ch = GET_CURR_CHOICE();
 	ch->succeed_on_retry = true;
 	ch->skip = skip;
@@ -874,7 +885,7 @@ bool push_succeed_on_retry_with_barrier(query *q, pl_idx skip)
 
 bool push_fail_on_retry_with_barrier(query *q)
 {
-	check_memory(push_barrier(q));
+	checked(push_barrier(q));
 	choice *ch = GET_CURR_CHOICE();
 	ch->fail_on_retry = true;
 	return true;
@@ -882,7 +893,7 @@ bool push_fail_on_retry_with_barrier(query *q)
 
 bool push_reset_handler(query *q)
 {
-	check_memory(push_fail_on_retry_with_barrier(q));
+	checked(push_fail_on_retry_with_barrier(q));
 	choice *ch = GET_CURR_CHOICE();
 	ch->reset = true;
 	return true;
@@ -890,7 +901,7 @@ bool push_reset_handler(query *q)
 
 bool push_catcher(query *q, enum q_retry retry)
 {
-	check_memory(push_barrier(q));
+	checked(push_barrier(q));
 	choice *ch = GET_CURR_CHOICE();
 
 	if (retry == QUERY_RETRY)
@@ -1130,7 +1141,7 @@ static bool expand_meta_predicate(query *q, predicate *pr)
 {
 	unsigned arity = q->st.key->arity;
 	cell *tmp = alloc_on_heap(q, q->st.key->num_cells*3);	// alloc max possible
-	check_memory(tmp);
+	checked(tmp);
 	cell *save_tmp = tmp;
 	tmp += copy_cells(tmp, q->st.key, 1);
 
@@ -1191,7 +1202,7 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 		key = q->st.key;
 		key_ctx = q->st.curr_frame;
 	} else {
-		check_memory(init_tmp_heap(q));
+		checked(init_tmp_heap(q));
 		key = clone_term_to_tmp(q, key, key_ctx);
 		key_ctx = q->st.curr_frame;
 	}
@@ -1320,9 +1331,9 @@ bool match_rule(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract)
 		return false;
 	}
 
-	check_memory(check_slot(q, MAX_ARITY));
-	check_memory(check_frame(q));
-	check_memory(push_choice(q));
+	checked(check_slot(q, MAX_ARITY));
+	checked(check_frame(q));
+	checked(push_choice(q));
 	const frame *f = GET_FRAME(q->st.curr_frame);
 	cell *p1_body = deref(q, get_logical_body(p1), p1_ctx);
 	cell *orig_p1 = p1;
@@ -1431,9 +1442,9 @@ bool match_clause(query *q, cell *p1, pl_idx p1_ctx, enum clause_type is_retract
 		return false;
 	}
 
-	check_memory(check_slot(q, MAX_ARITY));
-	check_memory(check_frame(q));
-	check_memory(push_choice(q));
+	checked(check_slot(q, MAX_ARITY));
+	checked(check_frame(q));
+	checked(push_choice(q));
 	const frame *f = GET_FRAME(q->st.curr_frame);
 
 	for (; q->st.dbe; q->st.dbe = q->st.dbe->next) {
@@ -1513,9 +1524,9 @@ bool match_head(query *q)
 		return false;
 	}
 
-	check_memory(check_slot(q, MAX_ARITY));
-	check_memory(check_frame(q));
-	check_memory(push_choice(q));
+	checked(check_slot(q, MAX_ARITY));
+	checked(check_frame(q));
+	checked(push_choice(q));
 	const frame *f = GET_CURR_FRAME();
 
 	for (; q->st.dbe; next_key(q)) {
