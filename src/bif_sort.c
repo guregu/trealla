@@ -311,7 +311,7 @@ static cell *nodesort4(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool ascen
 		pl_idx c_ctx = base[i].c_ctx;
 		cell tmp;
 
-		if (is_var(c)) {
+		if (is_compound(c)) {
 			make_ref(&tmp, vnbr++, q->st.curr_frame);
 			unify(q, c, c_ctx, &tmp, q->st.curr_frame);
 			c = &tmp;
@@ -392,11 +392,11 @@ static bool bif_sort_4(query *q)
 
 builtins g_sort_bifs[] =
 {
-	{"sort", 2, bif_iso_sort_2, "+list,?list", true, false, BLAH},
-	{"msort", 2, bif_iso_msort_2, "+list,?list", true, false, BLAH},
-	{"keysort", 2, bif_iso_keysort_2, "+list,?list", true, false, BLAH},
+	{"$sort", 2, bif_iso_sort_2, "+list,?list", true, false, BLAH},
+	{"$msort", 2, bif_iso_msort_2, "+list,?list", true, false, BLAH},
+	{"$keysort", 2, bif_iso_keysort_2, "+list,?list", true, false, BLAH},
 
-	{"sort", 4, bif_sort_4, "+integer,+atom,+list,?list", false, false, BLAH},
+	{"$sort", 4, bif_sort_4, "+integer,+atom,+list,?list", false, false, BLAH},
 
 	{0}
 };

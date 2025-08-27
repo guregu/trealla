@@ -449,7 +449,7 @@ int create_vars(query *q, unsigned cnt)
 	}
 
 	for (unsigned i = 0; i < cnt; i++) {
-		slot *e = GET_SLOT(f, f->actual_slots + i);
+		slot *e = get_slot(q, f, f->actual_slots + i);
 		memset(e, 0, sizeof(slot));
 	}
 
@@ -572,7 +572,7 @@ static void trim_trail(query *q)
 static void trim_frame(query *q, const frame *f)
 {
 	for (unsigned i = 0; i < f->actual_slots; i++) {
-		slot *e = GET_SLOT(f, i);
+		slot *e = get_slot(q, f, i);
 		cell *c = &e->c;
 		unshare_cell(c);
 		c->tag = TAG_EMPTY;
@@ -585,13 +585,17 @@ static void trim_frame(query *q, const frame *f)
 
 void undo_me(query *q)
 {
+	if (!q->cp)
+		return;
+
 	q->total_retries++;
+
 	const choice *ch = GET_CURR_CHOICE();
 
 	while (q->st.tp > ch->st.tp) {
 		const trail *tr = q->trails + --q->st.tp;
 		const frame *f = GET_FRAME(tr->var_ctx);
-		slot *e = GET_SLOT(f, tr->var_num);
+		slot *e = get_slot(q, f, tr->var_num);
 		cell *c = &e->c;
 		unshare_cell(c);
 		c->tag = TAG_EMPTY;
@@ -604,7 +608,7 @@ void try_me(query *q, unsigned num_vars)
 	frame *f = GET_NEW_FRAME();
 	f->initial_slots = f->actual_slots = num_vars;
 	f->base = q->st.sp;
-	slot *e = GET_SLOT(f, 0);
+	slot *e = get_slot(q, f, 0);
 	memset(e, 0, sizeof(slot)*num_vars);
 	q->total_matches++;
 }
@@ -648,8 +652,8 @@ static void reuse_frame(query *q, unsigned num_vars)
 
 	frame *f = GET_CURR_FRAME();
 	const frame *newf = GET_FRAME(q->st.fp);
-	const slot *from = GET_SLOT(newf, 0);
-	slot *to = GET_SLOT(f, 0);
+	const slot *from = get_slot(q, newf, 0);
+	slot *to = get_slot(q, f, 0);
 
 	for (pl_idx i = 0; i < num_vars; i++) {
 		unshare_cell(&to->c);
@@ -1885,6 +1889,9 @@ query *query_create(module *m)
 	q->double_quotes = false;
 	q->max_depth = m->pl->def_max_depth;
 	q->vgen = 1;
+	q->dump_var_num = -1;
+	q->dump_var_ctx = -1;
+
 	mp_int_init(&q->tmp_ival);
 	mp_rat_init(&q->tmp_irat);
 
@@ -1917,23 +1924,23 @@ query *query_create(module *m)
 
 query *query_create_subquery(query *q, cell *instr)
 {
-	query *task = query_create(q->st.m);
-	if (!task) return NULL;
-	task->parent = q;
-	task->st.fp = 1;
-	task->top = q->top;
+	query *subq = query_create(q->st.m);
+	if (!subq) return NULL;
+	subq->parent = q;
+	subq->st.fp = 1;
+	subq->top = q->top;
 
-	cell *tmp = prepare_call(task, false, instr, q->st.curr_frame, 1);
+	cell *tmp = prepare_call(subq, false, instr, q->st.curr_frame, 1);
 	pl_idx num_cells = tmp->num_cells;
 	make_end(tmp+num_cells);
-	task->st.instr = tmp;
+	subq->st.instr = tmp;
 
 	frame *fsrc = GET_FRAME(q->st.curr_frame);
-	frame *fdst = task->frames;
+	frame *fdst = subq->frames;
 	fdst->initial_slots = fdst->actual_slots = fsrc->actual_slots;
 	fdst->dbgen = ++q->pl->dbgen;
-	task->st.sp = fdst->actual_slots;
-	return task;
+	subq->st.sp = fdst->actual_slots;
+	return subq;
 }
 
 query *query_create_task(query *q, cell *instr)

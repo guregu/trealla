@@ -124,7 +124,7 @@ static bool bif_sys_unifiable_3(query *q)
 	while (save_tp < q->st.tp) {
 		const trail *tr = q->trails + save_tp;
 		const frame *f = GET_FRAME(tr->var_ctx);
-		slot *e = GET_SLOT(f, tr->var_num);
+		slot *e = get_slot(q, f, tr->var_num);
 		cell *c = deref(q, &e->c, e->c.var_ctx);
 		pl_idx c_ctx = q->latest_ctx;
 		cell *tmp = malloc(sizeof(cell)*(2+c->num_cells));
@@ -1871,55 +1871,18 @@ static bool bif_term_singletons_2(query *q)
 	return unify(q, p2, p2_ctx, tmp2, q->st.curr_frame);
 }
 
-#if 1
-static bool bif_sys_duplicate_term_3(query *q)
+static bool do_copy_term(query *q, bool copy_attrs)
 {
-	GET_FIRST_ARG(p1,any);
-	GET_NEXT_ARG(p2,any);
-	GET_NEXT_ARG(p3,integer);
-	bool copy_attrs = get_smalluint(p3);
-
-	if (is_atomic(p1) || is_atomic(p2))
-		return unify(q, p1, p1_ctx, p2, p2_ctx);
-
-	// You are not expected to understand this: basically we have
-	// to make sure the p1 variables get copied along with the
-	// deref'd values and they get linked.
-
-	GET_FIRST_RAW_ARG(p1x,any);
-	cell *tmp = alloc_on_heap(q, 1 + p1x->num_cells + p1->num_cells);
-	checked(tmp);
-	make_instr(tmp, g_eq_s, NULL, 2, p1x->num_cells + p1->num_cells);
-	dup_cells_by_ref(tmp+1, p1x, p1x_ctx, p1x->num_cells);
-	dup_cells_by_ref(tmp+1+p1x->num_cells, p1, p1_ctx, p1->num_cells);
-	tmp = copy_term_to_heap(q, tmp, q->st.curr_frame, copy_attrs);
-	checked(tmp);
-	cell *tmpp1 = tmp + 1;
-	cell *tmpp2 = tmpp1 + tmpp1->num_cells;
-
-	if (q->cycle_error) {
-		if (!unify(q, tmpp1, q->st.curr_frame, tmpp2, q->st.curr_frame))
-			return false;
-	}
-
-	// Reget as slots may have reallocated...
-
-	GET_FIRST_ARG(p1xx,any);
-	GET_NEXT_ARG(p2xx,any);
-	return unify(q, p2xx, p2xx_ctx, tmpp1, q->st.curr_frame);
-}
-#else
-static bool bif_iso_copy_term_2(query *q)
-{
-	GET_FIRST_ARG(p1,any);
-	GET_NEXT_ARG(p2,any);
-	bool copy_attrs = true;
-
-	if (is_atomic(p1) || is_atomic(p2))
-		return unify(q, p1, p1_ctx, p2, p2_ctx);
-
 	GET_FIRST_RAW_ARG(p1x,any);
 	GET_NEXT_RAW_ARG(p2x,any);
+	q->dump_var_num = is_var(p1x) ? p1x->var_num : -1;
+	q->dump_var_ctx = is_var(p1x) ? p1x_ctx : -1;
+	GET_FIRST_ARG(p1,any);
+	GET_NEXT_ARG(p2,any);
+
+	if (is_atomic(p1) || is_atomic(p2))
+		return unify(q, p1, p1_ctx, p2, p2_ctx);
+
 	cell *tmp;
 
 	if (is_var(p1x) && is_var(p2x))
@@ -1927,39 +1890,25 @@ static bool bif_iso_copy_term_2(query *q)
 	else
 		tmp = copy_term_to_heap(q, p1, p1_ctx, copy_attrs);
 
+	q->dump_var_num = -1;
+	q->dump_var_ctx = -1;
+
 	// Reget as slots may have reallocated...
 
 	checked(tmp);
-	GET_FIRST_ARG(p1xx,any);
-	GET_NEXT_ARG(p2xx,any);
-	return unify(q, p2xx, p2xx_ctx, tmp, q->st.curr_frame);
+	return unify(q, p2, p2_ctx, tmp, q->st.curr_frame);
+}
+
+static bool bif_iso_copy_term_2(query *q)
+{
+	return do_copy_term(q, true);
 }
 
 static bool bif_iso_copy_term_nat_2(query *q)
 {
-	GET_FIRST_ARG(p1,any);
-	GET_NEXT_ARG(p2,any);
-	bool copy_attrs = false;
-
-	if (is_atomic(p1) || is_atomic(p2))
-		return unify(q, p1, p1_ctx, p2, p2_ctx);
-
-	GET_FIRST_RAW_ARG(p1x,any);
-	GET_NEXT_RAW_ARG(p2x,any);
-	cell *tmp;
-
-	if (is_var(p1x) && is_var(p2x))
-		tmp = copy_term_to_heap_with_replacement(q, p1, p1_ctx, copy_attrs, p1x, p1x_ctx, p2x, p2x_ctx);
-	else
-		tmp = copy_term_to_heap(q, p1, p1_ctx, copy_attrs);
-
-	// Reget as slots may have reallocated...
-
-	GET_FIRST_ARG(p1xx,any);
-	GET_NEXT_ARG(p2xx,any);
-	return unify(q, p2xx, p2xx_ctx, tmp, q->st.curr_frame);
+	return do_copy_term(q, false);
 }
-#endif
+
 
 static bool bif_sys_clone_term_2(query *q)
 {
@@ -3247,7 +3196,8 @@ bool bif_statistics_0(query *q)
 		"choices %u, "
 		"trails %u, "
 		"slots %u, "
-		"heap %u.\n"
+		"heap %u, "
+		"deref %u.\n"
 		"Active frames %u, "
 		"choices %u, "
 		"trails %u, "
@@ -3260,7 +3210,7 @@ bool bif_statistics_0(query *q)
 		"Queue: %u\n",
 		q->total_inferences, q->total_matches, q->total_matched,
 		q->hw_frames, q->hw_choices, q->hw_trails, q->hw_slots,
-		q->hw_heap_num,
+		q->hw_heap_num, q->hw_deref,
 		q->st.fp, q->cp, q->st.tp, q->st.sp,
 		q->st.heap_num,
 		q->total_backtracks, q->total_retries, q->total_tcos, q->total_recovs,
@@ -5582,7 +5532,7 @@ bool bif_sys_create_var_1(query *q)
 
 	unsigned var_num = create_vars(q, 1);
 	const frame *f = GET_FRAME(p1_ctx);
-	slot *e = GET_SLOT(f, p1->var_num);
+	slot *e = get_slot(q, f, p1->var_num);
 	cell tmp;
 	make_var(&tmp, g_anon_s, var_num);
 	e->c = tmp;
@@ -6381,8 +6331,8 @@ builtins g_iso_bifs[] =
 	{"number_codes", 2, bif_iso_number_codes_2, "?number,?list", true, false, BLAH},
 	{"arg", 3, bif_iso_arg_3, "+integer,+term,?term", true, false, BLAH},
 	{"functor", 3, bif_iso_functor_3, "?term,?atom,?integer", true, false, BLAH},
-	//{"copy_term", 2, bif_iso_copy_term_2, "+term,?term", true, false, BLAH},
-	//{"copy_term_nat", 2, bif_iso_copy_term_nat_2, "+term,?term", false, false, BLAH},
+	{"copy_term", 2, bif_iso_copy_term_2, "+term,?term", true, false, BLAH},
+	{"copy_term_nat", 2, bif_iso_copy_term_nat_2, "+term,?term", false, false, BLAH},
 	{"term_variables", 2, bif_iso_term_variables_2, "+term,-list", true, false, BLAH},
 	{"atom_length", 2, bif_iso_atom_length_2, "?list,?integer", true, false, BLAH},
 	{"atom_concat", 3, bif_iso_atom_concat_3, "+atom,+atom,?atom", true, false, BLAH},
@@ -6473,7 +6423,6 @@ builtins g_other_bifs[] =
 	{"crypto_data_hash", 3, bif_crypto_data_hash_3, "?string,?string,?list", false, false, BLAH},
 #endif
 
-	{"$duplicate_term", 3, bif_sys_duplicate_term_3, "+term,?term,+integer", true, false, BLAH},
 	{"$clone_term", 2, bif_sys_clone_term_2, "+term,?term", false, false, BLAH},
 	{"$module", 1, bif_sys_module_1, "?atom", false, false, BLAH},
 	{"$modules", 1, bif_sys_modules_1, "-list", false, false, BLAH},

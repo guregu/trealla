@@ -16,7 +16,7 @@ static int compare_lists(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_
 		cell *c1 = p1 + 1, *c2 = p2 + 1;
 		pl_idx c1_ctx = p1_ctx, c2_ctx = p2_ctx;
 		slot *e1 = NULL, *e2 = NULL;
-		uint32_t save_vgen = 0, save_vgen2 = 0;
+		uint32_t save_vgen, save_vgen2;
 		int both = 0;
 
 		DEREF_VAR(any1, both, save_vgen, e1, e1->vgen, c1, c1_ctx, q->vgen);
@@ -65,7 +65,7 @@ static int compare_structs(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p
 		cell *c1 = p1, *c2 = p2;
 		pl_idx c1_ctx = p1_ctx, c2_ctx = p2_ctx;
 		slot *e1 = NULL, *e2 = NULL;
-		uint32_t save_vgen = 0, save_vgen2 = 0;
+		uint32_t save_vgen, save_vgen2;
 		int both = 0;
 
 		DEREF_VAR(any, both, save_vgen, e1, e1->vgen, c1, c1_ctx, q->vgen);
@@ -90,11 +90,6 @@ static int compare_internal(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx 
 {
 	if (depth > 30) {
 		//printf("*** OOPS %s %d\n", __FILE__, __LINE__);
-		q->cycle_error++;
-
-		//if (g_tpl_interrupt)
-		//	return false;
-
 		return 0;
 	}
 
@@ -283,7 +278,7 @@ void add_trail(query *q, pl_idx c_ctx, unsigned c_var_nbr, cell *attrs)
 static void set_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx)
 {
 	const frame *f = GET_FRAME(c_ctx);
-	slot *e = GET_SLOT(f, c->var_num);
+	slot *e = get_slot(q, f, c->var_num);
 	cell *c_attrs = is_empty(&e->c) ? e->c.val_attrs : NULL;
 
 	if (is_managed(v) || (c_ctx != q->st.fp))
@@ -318,7 +313,7 @@ static void set_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx
 void reset_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx)
 {
 	const frame *f = GET_FRAME(c_ctx);
-	slot *e = GET_SLOT(f, c->var_num);
+	slot *e = get_slot(q, f, c->var_num);
 	share_cell(v);
 	unshare_cell(&e->c);
 	e->c = *v;
@@ -327,7 +322,7 @@ void reset_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx)
 void undo_var(query *q, const cell *c, pl_idx c_ctx)
 {
 	const frame *f = GET_FRAME(c_ctx);
-	slot *e = GET_SLOT(f, c->var_num);
+	slot *e = get_slot(q, f, c->var_num);
 	unshare_cell(&e->c);
 	e->c.tag = TAG_EMPTY;
 	e->c.val_attrs = NULL;
@@ -446,7 +441,7 @@ static bool unify_lists(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_c
 		cell *c1 = p1 + 1, *c2 = p2 + 1;
 		pl_idx c1_ctx = p1_ctx, c2_ctx = p2_ctx;
 		slot *e1 = NULL, *e2 = NULL;
-		uint32_t save_vgen = 0, save_vgen2 = 0;
+		uint32_t save_vgen, save_vgen2;
 		int both = 0;
 
 		DEREF_VAR(any1, both, save_vgen, e1, e1->vgen, c1, c1_ctx, q->vgen);
@@ -466,9 +461,6 @@ static bool unify_lists(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_c
 
 		DEREF_VAR(any2, both1, save_vgen, e1, e1->vgen, p1, p1_ctx, q->vgen);
 		DEREF_VAR(any2, both2, save_vgen2, e2, e2->vgen2, p2, p2_ctx, q->vgen);
-
-		if (both1 && both2)
-			break;
 
 		if (both1)
 			q->is_cyclic1++;
@@ -498,7 +490,7 @@ static bool unify_structs(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2
 		pl_idx c1_ctx = p1_ctx, c2_ctx = p2_ctx;
 		cell *c1 = p1, *c2 = p2;
 		slot *e1 = NULL, *e2 = NULL;
-		uint32_t save_vgen = 0, save_vgen2 = 0;
+		uint32_t save_vgen, save_vgen2;
 		bool any = false;
 		int both = 0;
 
@@ -585,13 +577,15 @@ static const struct dispatch g_disp[] =
 
 static bool unify_internal(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_ctx, unsigned depth)
 {
-	if (depth > 30) {
+	if ((q->is_cyclic1 || q->is_cyclic2)) {
+		if (depth > 12) {
+			//printf("*** OOPS %s %d\n", __FILE__, __LINE__);
+			q->cycle_error++;
+			return true;
+		}
+	} else if (depth > 30) {
 		//printf("*** OOPS %s %d\n", __FILE__, __LINE__);
 		q->cycle_error++;
-
-		//if (g_tpl_interrupt)
-		//	return false;
-
 		return true;
 	}
 

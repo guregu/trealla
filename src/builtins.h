@@ -6,7 +6,6 @@
 #include <time.h>
 
 #include "internal.h"
-#include "cdebug.h"
 #include "heap.h"
 
 #define MAX_FFI 1000
@@ -147,14 +146,11 @@ inline static cell *take_queuen(query *q)
 #define GET_CURR_FRAME() GET_FRAME(q->st.curr_frame)
 #define GET_NEW_FRAME() GET_FRAME(q->st.fp)
 
-#define GET_SLOT(f,var_num) get_slot(q, f, var_num)
-
 inline static slot *get_slot(const query *q, const frame *f, unsigned var_num)
 {
-	if (var_num < f->initial_slots)
-		return q->slots + f->base + var_num;
-
-	return q->slots + f->op + (var_num - f->initial_slots);
+	return var_num < f->initial_slots
+		? q->slots + f->base + var_num
+		: q->slots + f->op + (var_num - f->initial_slots);
 }
 
 inline static cell *deref(query *q, cell *c, pl_idx c_ctx)
@@ -173,18 +169,23 @@ inline static cell *deref(query *q, cell *c, pl_idx c_ctx)
 		c_ctx = c->var_ctx;
 
 	const frame *f = GET_FRAME(c_ctx);
-	slot *e = GET_SLOT(f, c->var_num);
+	slot *e = get_slot(q, f, c->var_num);
+	unsigned derefs = 1;
 
 	while (is_var(&e->c)) {
 		c_ctx = e->c.var_ctx;
 		c = &e->c;
+		derefs++;
 
 		if (is_ref(c))
 			c_ctx = c->var_ctx;
 
 		f = GET_FRAME(c_ctx);
-		e = GET_SLOT(f, c->var_num);
+		e = get_slot(q, f, c->var_num);
 	}
+
+	if (derefs > q->hw_deref)
+		q->hw_deref = derefs;
 
 	if (is_indirect(&e->c)) {
 		q->latest_ctx = e->c.var_ctx;
@@ -305,6 +306,11 @@ inline static cell *get_raw_arg(query *q, int n)
 	return c;
 }
 
+#define CHECK_SENTINEL(expr, err_sentinel, ...) CHECK_SENTINEL_((expr), err_sentinel, ## __VA_ARGS__, error=true)
+#define CHECK_SENTINEL_(expr, err_sentinel, on_error, ...) do { if((expr) == err_sentinel){on_error;}} while (0)
+
+#define check_error(expr, ...) CHECK_SENTINEL(expr, 0, __VA_ARGS__; return 0)
+
 #define checked(expr, ...) \
 	CHECK_SENTINEL(expr, 0, __VA_ARGS__; \
 	return throw_error(q, q->st.instr, q->st.curr_frame, "resource_error", "memory"))
@@ -320,7 +326,7 @@ inline static cell *get_raw_arg(query *q, int n)
 			tmp_cc_ctx = cc->var_ctx;								\
 																	\
 		const frame *f = GET_FRAME(tmp_cc_ctx);						\
-		ee = GET_SLOT(f, cc->var_num);								\
+		ee = get_slot(q, f, cc->var_num);								\
 		svg = evgen;												\
 																	\
 		if (evgen == qvgen) {										\
@@ -343,7 +349,7 @@ inline static cell *get_raw_arg(query *q, int n)
 			tmp_cc_ctx = cc->var_ctx;								\
 																	\
 		const frame *f = GET_FRAME(tmp_cc_ctx);						\
-		ee = GET_SLOT(f, cc->var_num);								\
+		ee = get_slot(q, f, cc->var_num);								\
 		svg = evgen;												\
 																	\
 		if (evgen == qvgen) {										\
@@ -362,7 +368,7 @@ inline static cell *get_raw_arg(query *q, int n)
 			cc_ctx = cc->var_ctx;									\
 																	\
 		const frame *f = GET_FRAME(cc_ctx);							\
-		slot *e = GET_SLOT(f, cc->var_num);							\
+		slot *e = get_slot(q, f, cc->var_num);							\
 		e->vgen = 0;												\
 		p = deref(q, cc, cc_ctx);									\
 		p_ctx = q->latest_ctx;										\
@@ -374,7 +380,7 @@ inline static cell *get_raw_arg(query *q, int n)
 			cc_ctx = cc->var_ctx;									\
 																	\
 		const frame *f = GET_FRAME(cc_ctx);							\
-		slot *e = GET_SLOT(f, cc->var_num);							\
+		slot *e = get_slot(q, f, cc->var_num);							\
 		e->vgen2 = 0;												\
 		p = deref(q, cc, cc_ctx);									\
 		p_ctx = q->latest_ctx;										\
@@ -386,7 +392,7 @@ inline static cell *get_raw_arg(query *q, int n)
 			cc_ctx = cc->var_ctx;									\
 																	\
 		const frame *f = GET_FRAME(cc_ctx);							\
-		slot *e = GET_SLOT(f, cc->var_num);							\
+		slot *e = get_slot(q, f, cc->var_num);							\
 		if (e->vgen == qvgen) any = true;							\
 		e->vgen = 0;												\
 		p = deref(q, cc, cc_ctx);									\

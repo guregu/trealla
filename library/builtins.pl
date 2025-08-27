@@ -154,15 +154,17 @@ collect_goals_([V|T], GsIn, GsOut) :-
 	collect_goals_(V, Ls, GsIn, GsOut2),
 	collect_goals_(T, GsOut2, GsOut).
 
-:- help(copy_term(+term,?term), [iso(true)]).
+sort(A, B) :-
+	'$sort'(A, B).
 
-copy_term(Term, Copy) :-
-	'$duplicate_term'(Term, Copy, 1).
+msort(A, B) :-
+	'$msort'(A, B).
 
-:- help(copy_term_nat(+term,?term), [iso(false)]).
+keysort(A, B) :-
+	'$keysort'(A, B).
 
-copy_term_nat(Term, Copy) :-
-	'$duplicate_term'(Term, Copy, 0).
+sort(A, B, C, D) :-
+	'$sort'(A, B, C, D).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
@@ -331,9 +333,6 @@ samsort(L, R) :- msort(L, R).
 :- help(atomic_list_concat(+list,+atomic), [iso(false)]).
 
 atomic_list_concat(L, Atom) :- atomic_list_concat(L, '', Atom).
-
-partial_string(S, P) :- append(S, _, P).
-partial_string(S, P, V) :- append(S, V, P).
 
 :- help(chars_base64(+atom,?atom,+list), [iso(false)]).
 

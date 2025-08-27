@@ -459,7 +459,7 @@ static void print_variable(query *q, cell *c, pl_idx c_ctx, bool running)
 {
 	const frame *f = GET_FRAME(running ? c_ctx : 0);
 	pl_idx slot_nbr = running ?
-		((pl_idx)(GET_SLOT(f, c->var_num)-q->slots))
+		((pl_idx)(get_slot(q, f, c->var_num)-q->slots))
 		: (pl_idx)c->var_num;
 
 	if (q->varnames && !is_anon(c) && running && !q->cycle_error && (c_ctx == 0)) {
@@ -518,7 +518,7 @@ static bool dump_variable(query *q, cell *c, pl_idx c_ctx, bool running)
 
 		const frame *f = GET_FRAME(running ? v_ctx : 0);
 		pl_idx slot_nbr = running ?
-			((pl_idx)(GET_SLOT(f, v->var_num)-q->slots))
+			((pl_idx)(get_slot(q, f, v->var_num)-q->slots))
 			: (pl_idx)c->var_num;
 
 		if (is_var(v) && (v->var_num == c->var_num) && (v_ctx == c_ctx)) {
@@ -652,9 +652,8 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 			print_variable(q, save_head, c_ctx, 0);
 			q->last_thing = WAS_OTHER;
 		} else if (has_visited(visited, head, head_ctx)) {
-			if (q->portray_vars || q->do_dump_vars) {
+			if ((q->portray_vars || q->do_dump_vars) && (q->dump_var_num != (size_t)(void*)-1)) {
 				SB_sprintf(q->sb, "%s", GET_POOL(q, q->top->vartab.off[q->dump_var_num]));
-				//SB_sprintf(q->sb, "%s", C_STR(q, save_head));
 			} else {
 				SB_sprintf(q->sb, "%s", "...");
 			}
@@ -728,6 +727,8 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 			break;
 		}
 
+		bool has_vars = false, is_partial = false;
+
 		if (is_interned(tail) && !is_compound(tail)) {
 			const char *src = C_STR(q, tail);
 
@@ -737,7 +738,8 @@ static void print_iso_list(query *q, cell *c, pl_idx c_ctx, int running, bool co
 			}
 		} else if (q->st.m->flags.double_quote_chars && running
 			&& !q->ignore_ops && possible_chars
-			&& (scan_is_chars_list(q, tail, tail_ctx, false) > 0))
+			&& (scan_is_chars_list2(q, tail, tail_ctx, false, &has_vars, &is_partial, NULL) > 0)
+			&& !is_partial)
 			{
 			char *tmp_src = chars_list_to_string(q, tail, tail_ctx);
 
