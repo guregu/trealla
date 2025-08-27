@@ -6,7 +6,6 @@
 #include <ctype.h>
 #include <unistd.h>
 
-#include "cdebug.h"
 #include "trealla.h"
 #include "prolog.h"
 #include "spin-http.h"
