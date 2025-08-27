@@ -601,8 +601,10 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 				q->numbervars = false;
 				q->quoted = 0;
 
+#ifdef isatty
 				if (isatty(fileno(str2->fp)))
 					fflush(str2->fp);
+#endif
 			} else {
 				int n = get_stream(q, str);
 				stream *str2 = &q->pl->streams[n];
@@ -612,8 +614,10 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 				q->numbervars = false;
 				q->quoted = 0;
 
+#ifdef isatty
 				if (isatty(fileno(str2->fp)))
 					fflush(str2->fp);
+#endif
 			}
 
 			break;
