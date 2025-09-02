@@ -204,6 +204,7 @@ static bool check_choice(query *q)
 	if (q->cp < q->choices_size)
 		return true;
 
+	q->realloc_choices++;
 	pl_idx new_choicessize = alloc_grow(q, (void**)&q->choices, sizeof(choice), q->cp, q->choices_size*3/2, false);
 
 	if (!new_choicessize) {
@@ -223,6 +224,7 @@ static bool check_frame(query *q)
 	if (q->st.fp < q->frames_size)
 		return true;
 
+	q->realloc_frames++;
 	pl_idx new_framessize = alloc_grow(q, (void**)&q->frames, sizeof(frame), q->st.fp, q->frames_size*3/2, false);
 
 	if (!new_framessize) {
@@ -246,6 +248,7 @@ bool check_slot(query *q, unsigned cnt)
 	if (num < q->slots_size)
 		return true;
 
+	q->realloc_slots++;
 	pl_idx new_slotssize = alloc_grow(q, (void**)&q->slots, sizeof(slot), num, num*3/2, false);
 
 	if (!new_slotssize) {
@@ -487,27 +490,10 @@ static void leave_predicate(query *q, predicate *pr)
 	if (!list_count(&pr->dirty))
 		return;
 
-	module_lock(pr->m);
-
-	if (pr->is_abolished) {
-		rule *r;
-
-		while ((r = list_pop_front(&pr->dirty)) != NULL) {
-			predicate_delink(pr, r);
-			clear_clause(&r->cl);
-			free(r);
-		}
-
-		module_unlock(pr->m);
+	if (pr->is_abolished)
 		return;
-	}
 
-	// Just because this predicate is no longer in use doesn't
-	// mean there are no shared references to terms contained
-	// within. So move items on the predicate dirty-list to the
-	// query dirty-list. They will be freed up at end of the query.
-	// FIXME: this is a memory drain.
-
+	module_lock(pr->m);
 	rule *r;
 
 	while ((r = list_pop_front(&pr->dirty)) != NULL) {
@@ -515,25 +501,28 @@ static void leave_predicate(query *q, predicate *pr)
 
 		if (pr->idx1 && pr->cnt) {
 			cell *c = get_head(r->cl.cells);
+			sl_rem(pr->idx1, c, r);
 
-			if (pr->key.arity > 1) {
+			if (pr->idx2 && (pr->key.arity > 1)) {
 				cell *arg1 = FIRST_ARG(c);
 				cell *arg2 = NEXT_ARG(arg1);
 				sl_rem(pr->idx2, arg2, r);
 			}
+		}
 
-			sl_rem(pr->idx1, c, r);
+		// Just because this predicate is no longer in use doesn't
+		// mean there are no shared references to terms contained
+		// within. So move items on the predicate dirty-list to the
+		// query dirty-list. They will be freed up at end of the query.
+		// FIXME: this is a memory drain, should a retracted term be
+		// copied to the heap?.
 
-			if (true) {
-				r->cl.is_deleted = true;
-				list_push_back(&q->dirty, r);
-			} else {
-				clear_clause(&r->cl);
-				free(r);
-			}
-		} else {
+		if (true) {
 			r->cl.is_deleted = true;
 			list_push_back(&q->dirty, r);
+		} else {
+			clear_clause(&r->cl);
+			free(r);
 		}
 	}
 
@@ -1231,12 +1220,6 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 		idx = pr->idx2;
 	}
 
-#define DEBUGIDX 0
-
-#if DEBUGIDX
-	DUMP_TERM("search, term = ", key, key_ctx);
-#endif
-
 	q->st.dbe = NULL;
 	sliter *iter;
 
@@ -1252,24 +1235,18 @@ static bool find_key(query *q, predicate *pr, cell *key, pl_idx key_ctx)
 	const rule *r;
 
 	while (sl_next_key(iter, (void*)&r)) {
-#if DEBUGIDX
-		DUMP_TERM("   got, key = ", r->cl.cells, q->st.curr_frame);
-#endif
-
 		if (!tmp_idx) {
 			tmp_idx = sl_create(NULL, NULL, NULL);
 			sl_set_tmp(tmp_idx);
 		}
 
-		sl_set(tmp_idx, (void*)(size_t)r->db_id, (void*)r);
+		sl_app(tmp_idx, (void*)(size_t)r->db_id, (void*)r);
 	}
 
 	sl_done(iter);
 
 	if (!tmp_idx)
 		return false;
-
-	//sl_dump(tmp_idx, dump_id, q);
 
 	iter = sl_first(tmp_idx);
 

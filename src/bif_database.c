@@ -258,6 +258,9 @@ static bool bif_iso_retractall_1(query *q)
 		return true;
 	}
 
+	if (!pr->cnt)
+		return true;
+
 	prolog_lock(q->pl);
 
 	while (do_retract(q, p1, p1_ctx, DO_RETRACTALL)) {
@@ -269,6 +272,16 @@ static bool bif_iso_retractall_1(query *q)
 		q->retry = QUERY_RETRY;
 		q->total_backtracks++;
 		retry_choice(q);
+	}
+
+	if (!pr->refcnt) {
+		predicate_purge_dirty_list(pr);
+
+		if (!pr->cnt) {
+			sl_destroy(pr->idx2);
+			sl_destroy(pr->idx1);
+			pr->idx1 = pr->idx2 = NULL;
+		}
 	}
 
 	prolog_unlock(q->pl);
@@ -286,7 +299,7 @@ bool do_abolish(query *q, cell *c_orig, cell *c_pi, bool hard)
 	for (rule *r = pr->head; r; r = r->next)
 		retract_from_db(r->owner->m, r);
 
-	if (pr->idx1 && !pr->refcnt) {
+	if (!pr->refcnt) {
 		predicate_purge_dirty_list(pr);
 	} else {
 		rule *r;
