@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <fenv.h>
 #include <float.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -2844,6 +2845,9 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 		}
 
 		set_float(&p->v, neg?-v:v);
+#ifdef FE_INVALID
+		feclearexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW);
+#endif
 		*srcptr = tmpptr;
 		mp_int_clear(&v2);
 		return true;
@@ -2864,6 +2868,9 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 		}
 
 		set_float(&p->v, neg?-v:v);
+#ifdef FE_INVALID
+		feclearexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW);
+#endif
 		*srcptr = tmpptr;
 		mp_int_clear(&v2);
 		return true;
@@ -4331,6 +4338,9 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 			set_smallint(c, get_smallint(&p->v));
 		} else if (p->v.tag == TAG_FLOAT) {
 			set_float(c, get_float(&p->v));
+#ifdef FE_INVALID
+			feclearexcept(FE_INVALID | FE_DIVBYZERO | FE_OVERFLOW | FE_UNDERFLOW);
+#endif
 		} else if (!p->is_string
 			&& (!p->is_quoted || is_func || p->is_op || p->is_var || p->is_consulting
 			|| (get_builtin(p->pl, SB_cstr(p->token), SB_strlen(p->token), 0, &found, NULL), found)
