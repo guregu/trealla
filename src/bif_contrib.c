@@ -43,7 +43,7 @@ static bool fn_sys_wasi_kv_open_2(query *q)
 
 	COMPONENT(key_value_string) kv_name;
 	COMPONENT(key_value_expected_store_error) ret;
-	
+
 	key_value_string_dup(&kv_name, C_STR(q, p1));
 
 	key_value_open(&kv_name, &ret);
@@ -99,7 +99,7 @@ static bool fn_sys_wasi_kv_get_keys_2(query *q)
 
 	for (size_t i = 0; i < ret.val.ok.len; i++) {
 		key_value_string_t key = ret.val.ok.ptr[i];
-		
+
 		cell tmp;
 		checked(make_stringn(&tmp, key.ptr, key.len));
 
@@ -328,7 +328,7 @@ static bool fn_sys_wasi_outbound_http_5(query *q)
 			COMPONENT_DUP_STR(msg, ret.val.err.val.other_error);				\
 			break; 																\
 		} 																		\
-		cell *tmp = alloc_on_heap(q, 3); 										\
+		cell *tmp = alloc_heap(q, 3); 										\
 		make_instr(tmp, g_error_s, NULL, 2, 2); 								\
 		make_atom(tmp+1, kind);													\
 		make_string(tmp+2, msg); 												\
@@ -464,7 +464,7 @@ static bool fn_sys_outbound_pg_query_5(query *q)
 		for (size_t i = 0; i < ret.val.ok.rows.len; i++) {
 			outbound_pg_row_t row = ret.val.ok.rows.ptr[i];
 			cell *tmp;
-			tmp = alloc_on_heap(q, 1 + row.len*2);
+			tmp = alloc_heap(q, 1 + row.len*2);
 			checked(tmp);
 			pl_idx nbr_cells = 0;
 			make_instr(tmp+nbr_cells++, row_idx, NULL, row.len, row.len*2);
@@ -543,8 +543,8 @@ static bool fn_sys_outbound_pg_query_5(query *q)
 	bool has_cols = false;
 	for (size_t i = 0; i < ret.val.ok.columns.len; i++) {
 		outbound_pg_column_t col = ret.val.ok.columns.ptr[i];
-		
-		cell *tmp = alloc_on_heap(q, 3);
+
+		cell *tmp = alloc_heap(q, 3);
 		checked(tmp);
 		pl_idx type_idx = 0;
 		pl_idx nbr_cells = 0;
@@ -645,7 +645,7 @@ static bool fn_sys_outbound_pg_execute_4(query *q)
 	outbound_pg_execute(&address, &statement, &params, &ret);
 	check_pg_error(p4, ret);
 
-	cell *tmp = alloc_on_heap(q, 2);
+	cell *tmp = alloc_heap(q, 2);
 	make_instr(tmp, g_true_s, NULL, 1, 1);
 	make_uint(tmp+1, ret.val.ok);
 	return unify(q, p4, p4_ctx, tmp, q->st.curr_frame);
@@ -735,7 +735,7 @@ static bool fn_sys_sqlite_open_2(query *q)
 
 	COMPONENT(sqlite_string) conn_name;
 	COMPONENT(sqlite_expected_connection_error) ret;
-	
+
 	sqlite_string_dup(&conn_name, C_STR(q, p1));
 
 	sqlite_open(&conn_name, &ret);
@@ -788,7 +788,7 @@ static bool fn_sys_sqlite_query_5(query *q)
 		for (size_t i = 0; i < ret.val.ok.rows.len; i++) {
 			sqlite_list_value_t row = ret.val.ok.rows.ptr[i].values;
 			cell *tmp;
-			tmp = alloc_on_heap(q, 1 + row.len*2);
+			tmp = alloc_heap(q, 1 + row.len*2);
 			checked(tmp);
 			pl_idx nbr_cells = 0;
 			make_instr(tmp+nbr_cells++, row_idx, NULL, row.len, row.len*2);
