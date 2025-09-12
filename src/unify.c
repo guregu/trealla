@@ -296,14 +296,16 @@ static void set_var(query *q, const cell *c, pl_idx c_ctx, cell *v, pl_idx v_ctx
 			&& !is_temporary(c) && !is_void(c)
 			) {
 			q->no_recov = true;
+			q->total_no_recovs++;
 		}
 	} else if (is_compound(v)) {
 		make_indirect(&e->c, v, v_ctx);
 
 		if ((v_ctx >= q->st.curr_frame)
-			//&& !is_ground(v)
+			&& !is_ground(v)
 			){
 			q->no_recov = true;
+			q->total_no_recovs++;
 		}
 	} else {
 		e->c = *v;
@@ -578,18 +580,6 @@ static const struct dispatch g_disp[] =
 
 static bool unify_internal(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_ctx, unsigned depth)
 {
-	if ((q->is_cyclic1 || q->is_cyclic2)) {
-		if (depth > 12) {
-			//printf("*** OOPS %s %d\n", __FILE__, __LINE__);
-			q->cycle_error++;
-			return true;
-		}
-	} else if (depth > 30) {
-		//printf("*** OOPS %s %d\n", __FILE__, __LINE__);
-		q->cycle_error++;
-		return true;
-	}
-
 	if (is_var(p1) && is_var(p2)) {
 		if (p2_ctx > p1_ctx)
 			set_var(q, p2, p2_ctx, p1, p1_ctx);
@@ -634,6 +624,18 @@ static bool unify_internal(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p
 			return unify_string_to_list(q, p2, p2_ctx, p1, p1_ctx, depth);
 
 		return false;
+	}
+
+	if ((q->is_cyclic1 || q->is_cyclic2)) {
+		if (depth > 12) {
+			//printf("*** OOPS %s %d\n", __FILE__, __LINE__);
+			q->cycle_error++;
+			return true;
+		}
+	} else if (depth > 30) {
+		//printf("*** OOPS %s %d\n", __FILE__, __LINE__);
+		q->cycle_error++;
+		return true;
 	}
 
 	return g_disp[p1->tag].fn(q, p1, p1_ctx, p2, p2_ctx, depth);

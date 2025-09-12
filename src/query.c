@@ -170,28 +170,28 @@ void check_pressure(query *q)
 #if TRACE_MEM
 		printf("*** q->st.tp=%u, q->trails_size=%u\n", (unsigned)q->st.tp, (unsigned)q->trails_size);
 #endif
-		q->trails_size = alloc_grow(q, (void**)&q->trails, sizeof(trail), q->st.tp, q->st.tp*3/2, false);
+		q->trails_size = alloc_grow(q, (void**)&q->trails, sizeof(trail), q->st.tp, q->st.tp*5/4, false);
 	}
 
 	if (q->choices_size > (INITIAL_NBR_CHOICES*PRESSURE_FACTOR)) {
 #if TRACE_MEM
 		printf("*** q->st.cp=%u, q->choices_size=%u\n", (unsigned)q->cp, (unsigned)q->choices_size);
 #endif
-		q->choices_size = alloc_grow(q, (void**)&q->choices, sizeof(choice), q->cp, q->cp*3/2, false);
+		q->choices_size = alloc_grow(q, (void**)&q->choices, sizeof(choice), q->cp, q->cp*5/4, false);
 	}
 
 	if (q->frames_size > (INITIAL_NBR_FRAMES*PRESSURE_FACTOR)) {
 #if TRACE_MEM
 		printf("*** q->st.fp=%u, q->frames_size=%u\n", (unsigned)q->st.fp, (unsigned)q->frames_size);
 #endif
-		q->frames_size = alloc_grow(q, (void**)&q->frames, sizeof(frame), q->st.fp, q->st.fp*3/2, false);
+		q->frames_size = alloc_grow(q, (void**)&q->frames, sizeof(frame), q->st.fp, q->st.fp*5/4, false);
 	}
 
 	if (q->slots_size > (INITIAL_NBR_SLOTS*PRESSURE_FACTOR)) {
 #if TRACE_MEM
 		printf("*** q->st.sp=%u, q->slots_size=%u\n", (unsigned)q->st.sp, (unsigned)q->slots_size);
 #endif
-		q->slots_size = alloc_grow(q, (void**)&q->slots, sizeof(slot), q->st.sp, q->st.sp*3/2, false);
+		q->slots_size = alloc_grow(q, (void**)&q->slots, sizeof(slot), q->st.sp, q->st.sp*5/4, false);
 	}
 #endif
 }
@@ -205,7 +205,7 @@ static bool check_choice(query *q)
 		return true;
 
 	q->realloc_choices++;
-	pl_idx new_choicessize = alloc_grow(q, (void**)&q->choices, sizeof(choice), q->cp, q->choices_size*3/2, false);
+	pl_idx new_choicessize = alloc_grow(q, (void**)&q->choices, sizeof(choice), q->cp, q->choices_size*5/4, false);
 
 	if (!new_choicessize) {
 		q->oom = q->error = true;
@@ -225,7 +225,7 @@ static bool check_frame(query *q)
 		return true;
 
 	q->realloc_frames++;
-	pl_idx new_framessize = alloc_grow(q, (void**)&q->frames, sizeof(frame), q->st.fp, q->frames_size*3/2, false);
+	pl_idx new_framessize = alloc_grow(q, (void**)&q->frames, sizeof(frame), q->st.fp, q->frames_size*5/4, false);
 
 	if (!new_framessize) {
 		q->oom = q->error = true;
@@ -249,7 +249,7 @@ bool check_slot(query *q, unsigned cnt)
 		return true;
 
 	q->realloc_slots++;
-	pl_idx new_slotssize = alloc_grow(q, (void**)&q->slots, sizeof(slot), num, num*3/2, false);
+	pl_idx new_slotssize = alloc_grow(q, (void**)&q->slots, sizeof(slot), num, num*5/4, false);
 
 	if (!new_slotssize) {
 		q->oom = q->error = true;
@@ -282,7 +282,7 @@ void make_call_redo(query *q, cell *tmp)
 cell *prepare_call(query *q, bool noskip, cell *p1, pl_idx p1_ctx, unsigned extras)
 {
 	unsigned num_cells = p1->num_cells + extras;
-	cell *tmp = alloc_on_heap(q, num_cells);
+	cell *tmp = alloc_heap(q, num_cells);
 	if (!tmp) return NULL;
 	q->noskip = noskip;
 	dup_cells_by_ref(tmp, p1, p1_ctx, p1->num_cells);
@@ -344,12 +344,14 @@ static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx l_ctx, bool 
 
 		if (e) e->vgen = save_vgen;
 		l = LIST_TAIL(l);
+		cell *lsave = l;
 
 		both = 0;
 		DEREF_VAR(any2, both, save_vgen, e, e->vgen, l, l_ctx, q->vgen);
 
 		if (both) {
 			*is_partial = true;
+			save_l = lsave;
 			break;
 		}
 	}
@@ -369,9 +371,10 @@ static size_t scan_is_chars_list_internal(query *q, cell *l, pl_idx l_ctx, bool 
 	if (is_var(l)) {
 		*has_var = *is_partial = true;
 		if (cptr) *cptr = l;
-	} else if ((is_interned(l) || is_string(l) || is_number(l)) && !is_nil(l))
+	} else if ((is_interned(l) || is_string(l) || is_number(l)) && !is_nil(l)) {
 		*is_partial = true;
-	else if (!is_interned(l) || !is_nil(l))
+		if (cptr) *cptr = save_l;
+	} else if (!is_interned(l) || !is_nil(l))
 		is_chars_list = 0;
 
 	return is_chars_list;
@@ -451,11 +454,8 @@ int create_vars(query *q, unsigned cnt)
 		q->st.sp += cnt2;
 	}
 
-	for (unsigned i = 0; i < cnt; i++) {
-		slot *e = get_slot(q, f, f->actual_slots + i);
-		memset(e, 0, sizeof(slot));
-	}
-
+	slot *e = get_slot(q, f, f->actual_slots);
+	memset(e, 0, sizeof(slot)*cnt);
 	q->st.sp += cnt;
 	f->actual_slots += cnt;
 	return var_num;
@@ -473,11 +473,11 @@ static void enter_predicate(query *q, predicate *pr)
 
 static void leave_predicate(query *q, predicate *pr)
 {
-	sl_done(q->st.iter);
-	q->st.iter = NULL;
-
 	if (!pr)
 		return;
+
+	sl_done(q->st.iter);
+	q->st.iter = NULL;
 
 	if (!pr->is_dynamic || !pr->refcnt)
 		return;
@@ -485,13 +485,13 @@ static void leave_predicate(query *q, predicate *pr)
 	if (--pr->refcnt != 0)
 		return;
 
-	// Predicate is no longer being used
-
 	if (!list_count(&pr->dirty))
 		return;
 
 	if (pr->is_abolished)
 		return;
+
+	// Predicate is no longer being used
 
 	module_lock(pr->m);
 	rule *r;
@@ -597,8 +597,12 @@ void try_me(query *q, unsigned num_vars)
 	frame *f = GET_NEW_FRAME();
 	f->initial_slots = f->actual_slots = num_vars;
 	f->base = q->st.sp;
-	slot *e = get_slot(q, f, 0);
-	memset(e, 0, sizeof(slot)*num_vars);
+
+	if (num_vars) {
+		slot *e = get_slot(q, f, 0);
+		memset(e, 0, sizeof(slot)*num_vars);
+	}
+
 	q->total_matches++;
 }
 
@@ -747,7 +751,6 @@ void stash_frame(query *q, const clause *cl, bool last_match)
 	unsigned num_vars = cl->num_vars;
 
 	if (last_match) {
-		Trace(q, get_head(q->st.dbe->cl.cells), q->st.curr_frame, EXIT);
 		leave_predicate(q, q->st.pr);
 		drop_choice(q);
 	} else {
@@ -1133,7 +1136,7 @@ bool has_next_key(query *q)
 static bool expand_meta_predicate(query *q, predicate *pr)
 {
 	unsigned arity = q->st.key->arity;
-	cell *tmp = alloc_on_heap(q, q->st.key->num_cells*3);	// alloc max possible
+	cell *tmp = alloc_heap(q, q->st.key->num_cells*3);	// alloc max possible
 	checked(tmp);
 	cell *save_tmp = tmp;
 	tmp += copy_cells(tmp, q->st.key, 1);
@@ -1796,13 +1799,13 @@ void query_destroy(query *q)
 
 	q->done = true;
 
-	for (heap_page *a = q->heap_pages; a;) {
+	for (page *a = q->heap_pages; a;) {
 		cell *c = a->cells;
 
 		for (pl_idx i = 0; i < a->idx; i++, c++)
 			unshare_cell(c);
 
-		heap_page *save = a;
+		page *save = a;
 		a = a->next;
 		free(save->cells);
 		free(save);

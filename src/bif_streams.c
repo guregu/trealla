@@ -614,7 +614,7 @@ static void add_stream_properties(query *q, int n)
 
 static bool del_stream_properties(query *q, int n)
 {
-	cell *tmp = alloc_on_heap(q, 3);
+	cell *tmp = alloc_heap(q, 3);
 	checked(tmp);
 	make_atom(tmp+0, g_sys_stream_property_s);
 	make_int(tmp+1, n);
@@ -2331,7 +2331,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 
 		if (cnt) {
 			checked(init_tmp_heap(q));
-			cell *tmp = alloc_on_tmp(q, (cnt*2)+1);
+			cell *tmp = alloc_tmp(q, (cnt*2)+1);
 			checked(tmp);
 			unsigned done = 0;
 
@@ -2350,7 +2350,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 			tmp[0].num_cells = idx;
 
 			cell *save = tmp;
-			tmp = alloc_on_heap(q, idx);
+			tmp = alloc_heap(q, idx);
 			checked(tmp);
 			dup_cells(tmp, save, idx);
 			tmp->num_cells = idx;
@@ -2375,7 +2375,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 		}
 
 		if (cnt) {
-			cell *tmp = alloc_on_tmp(q, (cnt*4)+1);
+			cell *tmp = alloc_tmp(q, (cnt*4)+1);
 			checked(tmp);
 			unsigned done = 0;
 
@@ -2402,7 +2402,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 			tmp[0].num_cells = idx;
 
 			cell *save = tmp;
-			tmp = alloc_on_heap(q, idx);
+			tmp = alloc_heap(q, idx);
 			checked(tmp);
 			dup_cells(tmp, save, idx);
 			tmp->num_cells = idx;
@@ -2430,7 +2430,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 		}
 
 		if (cnt) {
-			cell *tmp = alloc_on_tmp(q, (cnt*4)+1);
+			cell *tmp = alloc_tmp(q, (cnt*4)+1);
 			checked(tmp);
 			unsigned done = 0;
 
@@ -2460,7 +2460,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 			tmp[0].num_cells = idx;
 
 			cell *save = tmp;
-			tmp = alloc_on_heap(q, idx);
+			tmp = alloc_heap(q, idx);
 			checked(tmp);
 			dup_cells(tmp, save, idx);
 			tmp->num_cells = idx;
@@ -2472,7 +2472,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_idx p1_ctx, cell *p2, pl_i
 		}
 	}
 
-	cell *tmp = alloc_on_heap(q, str->p->cl->cidx-1);
+	cell *tmp = alloc_heap(q, str->p->cl->cidx-1);
 	checked(tmp);
 	dup_cells(tmp, str->p->cl->cells, str->p->cl->cidx-1);
 	bool ok = unify(q, p1, p1_ctx, tmp, q->st.curr_frame);
@@ -6562,7 +6562,7 @@ static bool do_parse_url(query *q, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_
 		append_list(q, tmp);
 
 		cell *l = end_list(q);
-		cell *tmp2 = alloc_on_heap(q, 1 + l->num_cells);
+		cell *tmp2 = alloc_heap(q, 1 + l->num_cells);
 		make_instr(tmp2, new_atom(q->pl, "search"), NULL, 1, l->num_cells);
 		dup_cells(tmp2+1, l, l->num_cells);
 		allocate_list(q, tmp2);
