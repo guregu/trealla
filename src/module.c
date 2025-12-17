@@ -36,18 +36,18 @@ static const op_table g_ops[] =
 	{"*->", OP_XFY, 1050},
 	{",", OP_XFY, 1000},
 
-	{"public", OP_FX, 1150},
-	{"discontiguous", OP_FX, 1150},
-	{"multifile", OP_FX, 1150},
+	//{"public", OP_FX, 1150},
+	//{"discontiguous", OP_FX, 1150},
+	//{"multifile", OP_FX, 1150},
 	//{"op", OP_FX, 1150},
 	//{"table", OP_FX, 1150},
-	{"dynamic", OP_FX, 1150},
-	{"initialization", OP_FX, 1150},
+	//{"dynamic", OP_FX, 1150},
+	//{"initialization", OP_FX, 1150},
 	//{"set_prolog_flag", OP_FX, 1150},
 	//{"module", OP_FX, 1150},
 	//{"use_module", OP_FX, 1150},
-	{"ensure_loaded", OP_FX, 1150},
-	{"meta_predicate", OP_FX, 1150},
+	//{"ensure_loaded", OP_FX, 1150},
+	//{"meta_predicate", OP_FX, 1150},
 
 	{"\\+", OP_FY, 900},
 	{"as", OP_XFX, 700},
@@ -1225,7 +1225,7 @@ static const char *dump_key(const void *k, const void *v, const void *p)
 }
 #endif
 
-bool set_op(module *m, const char *name, unsigned specifier, unsigned priority)
+static bool set_op_internal(module *m, const char *name, unsigned specifier, unsigned priority)
 {
 	sliter *iter = sl_find_key(m->ops, name);
 	op_table *ptr;
@@ -1250,6 +1250,7 @@ bool set_op(module *m, const char *name, unsigned specifier, unsigned priority)
 		ptr->priority = priority;
 		ptr->specifier = specifier;
 		sl_done(iter);
+		m->user_ops = true;
 		return true;
 	}
 
@@ -1276,6 +1277,7 @@ bool set_op(module *m, const char *name, unsigned specifier, unsigned priority)
 		ptr->priority = priority;
 		ptr->specifier = specifier;
 		sl_done(iter);
+		m->user_ops = true;
 		return true;
 	}
 
@@ -1287,6 +1289,22 @@ bool set_op(module *m, const char *name, unsigned specifier, unsigned priority)
 	tmp->specifier = specifier;
 	m->user_ops = true;
 	sl_app(m->ops, tmp->name, tmp);
+	return true;
+}
+
+bool set_op(module *m, const char *name, unsigned specifier, unsigned priority)
+{
+	set_op_internal(m, name, specifier, priority);
+
+	for (unsigned i = 0; i < m->idx_used; i++) {
+		module *tmp_m = m->used[i];
+
+		if ((m == tmp_m) || !tmp_m->user_ops)
+			continue;
+
+		set_op_internal(tmp_m, name, specifier, priority);
+	}
+
 	return true;
 }
 
@@ -1399,6 +1417,9 @@ unsigned search_op(module *m, const char *name, unsigned *specifier, bool prefer
 			return priority;
 	}
 
+	if (specifier)
+		*specifier = 0;
+
 	return 0;
 }
 
@@ -1502,6 +1523,9 @@ unsigned match_op(module *m, const char *name, unsigned *specifier, unsigned ari
 		if (priority)
 			return priority;
 	}
+
+	if (specifier)
+		*specifier = 0;
 
 	return 0;
 }
@@ -1772,7 +1796,7 @@ bool module_dump_term(module* m, cell *p1)
 				tmp->tag == TAG_CSTR ? "cstr" :
 				tmp->tag == TAG_INT ? "integer" :
 				tmp->tag == TAG_FLOAT ? "float" :
-				tmp->tag == TAG_RAT ? "rational" :
+				tmp->tag == TAG_RATIONAL ? "rational" :
 				tmp->tag == TAG_INDIRECT ? "indirect" :
 				tmp->tag == TAG_BLOB ? "blob" :
 				tmp->tag == TAG_DBID ? "dbid" :
@@ -1791,7 +1815,7 @@ bool module_dump_term(module* m, cell *p1)
 			printf(", local=%d, temp=%d, anon=%d", is_local(tmp), is_temporary(tmp), is_anon(tmp));
 
 		if (is_ref(tmp))
-			printf(", slot=%u, ctx=%u", tmp->var_num, tmp->var_ctx);
+			printf(", slot=%u, ctx=%u", tmp->var_num, tmp->val_ctx);
 		else if (is_var(tmp))
 			printf(", slot=%u, %s", tmp->var_num, C_STR(q, tmp));
 
@@ -1924,6 +1948,9 @@ static rule *assert_begin(module *m, unsigned num_vars, cell *p1, bool consultin
 
 	if (m->prebuilt)
 		pr->is_builtin = true;
+
+	if (num_vars > pr->max_vars)
+		pr->max_vars = num_vars;
 
 	size_t dbe_size = sizeof(rule) + (sizeof(cell) * (p1->num_cells+1));
 	rule *r = calloc(1, dbe_size);
@@ -2500,7 +2527,7 @@ module *load_file(module *m, const char *filename, bool including, bool init)
 static void module_save_fp(module *m, FILE *fp, int canonical, int dq)
 {
 	(void) dq;
-	pl_idx ctx = 0;
+	pl_ctx ctx = 0;
 	query q = (query){0};
 	q.pl = m->pl;
 	q.st.m = m;

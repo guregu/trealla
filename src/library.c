@@ -91,6 +91,10 @@ extern unsigned int library_time_pl_len;
 extern unsigned char library_spin_pl[];
 extern unsigned int library_spin_pl_len;
 #endif
+#ifdef USE_MAIN
+extern unsigned char main_pl[];
+extern unsigned int main_pl_len;
+#endif
 
 library g_libs[] = {
 	 {"abnf", library_abnf_pl, &library_abnf_pl_len},
@@ -140,6 +144,10 @@ library g_libs[] = {
 	 {"wasm_generic", library_wasm_generic_pl, &library_wasm_generic_pl_len},
 	 {"wasm_js", library_wasm_js_pl, &library_wasm_js_pl_len},
 	 {"when", library_when_pl, &library_when_pl_len},
+
+#ifdef USE_MAIN
+	 {"main", main_pl, &main_pl_len},
+#endif
 
 	 {0}
 };

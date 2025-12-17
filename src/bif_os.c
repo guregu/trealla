@@ -135,7 +135,7 @@ static bool bif_shell_2(query *q)
 	free(filename);
 	cell tmp;
 	make_int(&tmp, status);
-	return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
+	return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 }
 #else
 static bool bif_shell_1(query *q)
@@ -168,7 +168,7 @@ static bool bif_getenv_2(query *q)
 	else
 		make_cstring(&tmp, value);
 
-	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
+	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 	unshare_cell(&tmp);
 	return ok;
 }
@@ -216,8 +216,8 @@ static bool bif_sleep_1(query *q)
 
 	while ((ms > 0) && !q->halt) {
 		CHECK_INTERRUPT();
-		msleep(ms > 10 ? 10 : ms);
-		ms -= 10;
+		msleep(100);
+		ms -= 100;
 	}
 
 	return true;
@@ -237,33 +237,40 @@ static bool bif_now_1(query *q)
 	pl_int secs = get_time_in_usec() / 1000 / 1000;
 	cell tmp;
 	make_int(&tmp, secs);
-	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
+	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 }
 
 static bool bif_get_time_1(query *q)
 {
 	GET_FIRST_ARG(p1,var);
-	double v = ((double)get_time_in_usec()-q->get_started) / 1000 / 1000;
+	pl_int us = get_time_in_usec();
+	double secs = us / 1000 / 1000;
+	double v = us - (secs * 1000 * 1000);
+	double frac = v / 1000 / 1000;
 	cell tmp;
-	make_float(&tmp, (double)v);
-	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
-}
-
-static bool bif_cpu_time_1(query *q)
-{
-	GET_FIRST_ARG(p1,var);
-	double v = ((double)cpu_time_in_usec()-q->cpu_started) / 1000 / 1000;
-	cell tmp;
-	make_float(&tmp, (pl_flt)v);
-	return unify (q, p1, p1_ctx, &tmp, q->st.curr_frame);
+	make_float(&tmp, secs + frac);
+	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 }
 
 static bool bif_wall_time_1(query *q)
 {
 	GET_FIRST_ARG(p1,var);
+	pl_int us = get_time_in_usec() - q->get_started;
+	double secs = us / 1000 / 1000;
+	double v = us - (secs * 1000 * 1000);
+	double frac = v / 1000 / 1000;
 	cell tmp;
-	make_int(&tmp, time(NULL));
-	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
+	make_float(&tmp, secs + frac);
+	return unify (q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+}
+
+static bool bif_cpu_time_1(query *q)
+{
+	GET_FIRST_ARG(p1,var);
+	double v = ((double)cpu_time_in_usec() - q->cpu_started) / 1000 / 1000;
+	cell tmp;
+	make_float(&tmp, (pl_flt)v);
+	return unify (q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 }
 
 static bool bif_date_time_7(query *q)
@@ -281,19 +288,19 @@ static bool bif_date_time_7(query *q)
 	localtime_r((const time_t*)&cur_time.tv_sec, &tm);
 	cell tmp;
 	make_int(&tmp, tm.tm_year+1900);
-	unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
+	unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 	make_int(&tmp, tm.tm_mon+1);
-	unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
+	unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 	make_int(&tmp, tm.tm_mday);
-	unify(q, p3, p3_ctx, &tmp, q->st.curr_frame);
+	unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
 	make_int(&tmp, tm.tm_hour);
-	unify(q, p4, p4_ctx, &tmp, q->st.curr_frame);
+	unify(q, p4, p4_ctx, &tmp, q->st.cur_ctx);
 	make_int(&tmp, tm.tm_min);
-	unify(q, p5, p5_ctx, &tmp, q->st.curr_frame);
+	unify(q, p5, p5_ctx, &tmp, q->st.cur_ctx);
 	make_int(&tmp, tm.tm_sec);
-	unify(q, p6, p6_ctx, &tmp, q->st.curr_frame);
+	unify(q, p6, p6_ctx, &tmp, q->st.cur_ctx);
 	make_int(&tmp, cur_time.tv_usec/1000);
-	unify(q, p7, p7_ctx, &tmp, q->st.curr_frame);
+	unify(q, p7, p7_ctx, &tmp, q->st.cur_ctx);
 	return true;
 }
 
@@ -310,17 +317,17 @@ static bool bif_date_time_6(query *q)
 	localtime_r(&now, &tm);
 	cell tmp;
 	make_int(&tmp, tm.tm_year+1900);
-	unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
+	unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 	make_int(&tmp, tm.tm_mon+1);
-	unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
+	unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 	make_int(&tmp, tm.tm_mday);
-	unify(q, p3, p3_ctx, &tmp, q->st.curr_frame);
+	unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
 	make_int(&tmp, tm.tm_hour);
-	unify(q, p4, p4_ctx, &tmp, q->st.curr_frame);
+	unify(q, p4, p4_ctx, &tmp, q->st.cur_ctx);
 	make_int(&tmp, tm.tm_min);
-	unify(q, p5, p5_ctx, &tmp, q->st.curr_frame);
+	unify(q, p5, p5_ctx, &tmp, q->st.cur_ctx);
 	make_int(&tmp, tm.tm_sec);
-	unify(q, p6, p6_ctx, &tmp, q->st.curr_frame);
+	unify(q, p6, p6_ctx, &tmp, q->st.cur_ctx);
 	return true;
 }
 
@@ -443,13 +450,13 @@ static bool bif_get_unbuffered_code_1(query *q)
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.curr_frame, "permission_error", "input,binary_stream");
+		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,binary_stream");
 	}
 
 	if (str->at_end_of_file && (str->eof_action == eof_action_error)) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.curr_frame, "permission_error", "input,past_end_of_stream");
+		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,past_end_of_stream");
 	}
 
 	int ch = history_getch_fd(fileno(str->fp));
@@ -473,7 +480,7 @@ static bool bif_get_unbuffered_code_1(query *q)
 
 		cell tmp;
 		make_int(&tmp, -1);
-		return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
+		return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 	}
 
 	str->ungetch = 0;
@@ -483,7 +490,7 @@ static bool bif_get_unbuffered_code_1(query *q)
 
 	cell tmp;
 	make_int(&tmp, ch);
-	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
+	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 }
 
 static bool bif_get_unbuffered_char_1(query *q)
@@ -501,13 +508,13 @@ static bool bif_get_unbuffered_char_1(query *q)
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.curr_frame, "permission_error", "input,binary_stream");
+		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,binary_stream");
 	}
 
 	if (str->at_end_of_file && (str->eof_action == eof_action_error)) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.curr_frame, "permission_error", "input,past_end_of_stream");
+		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,past_end_of_stream");
 	}
 
 	int ch = history_getch_fd(fileno(str->fp));
@@ -531,7 +538,7 @@ static bool bif_get_unbuffered_char_1(query *q)
 
 		cell tmp;
 		make_atom(&tmp, g_eof_s);
-		return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
+		return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 	}
 
 	str->ungetch = 0;
@@ -542,14 +549,14 @@ static bool bif_get_unbuffered_char_1(query *q)
 	if (ch == -1) {
 		cell tmp;
 		make_atom(&tmp, g_eof_s);
-		return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
+		return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 	}
 
 	char tmpbuf[80];
 	n = put_char_utf8(tmpbuf, ch);
 	cell tmp;
 	make_smalln(&tmp, tmpbuf, n);
-	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
+	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 }
 
 builtins g_os_bifs[] =
@@ -565,7 +572,7 @@ builtins g_os_bifs[] =
 	{"now", 0, bif_now_0, NULL, false, false, BLAH},
 	{"now", 1, bif_now_1, "-integer", false, false, BLAH},
 	{"time", 1, bif_time_1, ":callable", false, false, BLAH},
-	{"get_time", 1, bif_get_time_1, "-integer", false, false, BLAH},
+	{"get_time", 1, bif_get_time_1, "-float", false, false, BLAH},
 	{"cpu_time", 1, bif_cpu_time_1, "-integer", false, false, BLAH},
 	{"wall_time", 1, bif_wall_time_1, "-integer", false, false, BLAH},
 	{"date_time", 6, bif_date_time_6, "-integer,-integer,-integer,-integer,-integer,-integer", false, false, BLAH},

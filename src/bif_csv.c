@@ -4,7 +4,7 @@
 #include "module.h"
 #include "query.h"
 
-bool do_parse_csv_line(query *q, parser *p, csv *params, const char *src, cell *p2, pl_idx p2_ctx)
+bool do_parse_csv_line(query *q, parser *p, csv *params, const char *src, cell *p2, pl_ctx p2_ctx)
 {
 	bool quoted = false, was_quoted = false, first = true, was_sep = false;
 	unsigned chars = 0, args = 0;
@@ -97,9 +97,9 @@ bool do_parse_csv_line(query *q, parser *p, csv *params, const char *src, cell *
 				cell tmp;
 				int vnbr = create_vars(q, 1);
 				checked(vnbr != -1);
-				make_ref(&tmp, vnbr, q->st.curr_frame);
+				make_ref(&tmp, vnbr, q->st.cur_ctx);
 				checked(make_stringn(&tmpc, SB_cstr(pr), SB_strlen(pr)));
-				unify(q, &tmpc, q->st.curr_frame, &tmp, q->st.curr_frame);
+				unify(q, &tmpc, q->st.cur_ctx, &tmp, q->st.cur_ctx);
 				unshare_cell(&tmpc);
 			} else
 				make_atom(&tmpc, g_nil_s);
@@ -107,9 +107,9 @@ bool do_parse_csv_line(query *q, parser *p, csv *params, const char *src, cell *
 			cell tmp;
 			int vnbr = create_vars(q, 1);
 			checked(vnbr != -1);
-			make_ref(&tmp, vnbr, q->st.curr_frame);
+			make_ref(&tmp, vnbr, q->st.cur_ctx);
 			checked(make_cstringn(&tmpc, SB_cstr(pr), SB_strlen(pr)));
-			unify(q, &tmpc, q->st.curr_frame, &tmp, q->st.curr_frame);
+			unify(q, &tmpc, q->st.cur_ctx, &tmp, q->st.cur_ctx);
 			unshare_cell(&tmpc);
 		}
 
@@ -146,9 +146,9 @@ bool do_parse_csv_line(query *q, parser *p, csv *params, const char *src, cell *
 				cell tmp;
 				int vnbr = create_vars(q, 1);
 				checked(vnbr != -1);
-				make_ref(&tmp, vnbr, q->st.curr_frame);
+				make_ref(&tmp, vnbr, q->st.cur_ctx);
 				checked(make_stringn(&tmpc, SB_cstr(pr), SB_strlen(pr)));
-				unify(q, &tmpc, q->st.curr_frame, &tmp, q->st.curr_frame);
+				unify(q, &tmpc, q->st.cur_ctx, &tmp, q->st.cur_ctx);
 				unshare_cell(&tmpc);
 			} else
 				make_atom(&tmpc, g_nil_s);
@@ -156,9 +156,9 @@ bool do_parse_csv_line(query *q, parser *p, csv *params, const char *src, cell *
 			cell tmp;
 			int vnbr = create_vars(q, 1);
 			checked(vnbr != -1);
-			make_ref(&tmp, vnbr, q->st.curr_frame);
+			make_ref(&tmp, vnbr, q->st.cur_ctx);
 			checked(make_cstringn(&tmpc, SB_cstr(pr), SB_strlen(pr)));
-			unify(q, &tmpc, q->st.curr_frame, &tmp, q->st.curr_frame);
+			unify(q, &tmpc, q->st.cur_ctx, &tmp, q->st.cur_ctx);
 			unshare_cell(&tmpc);
 		}
 
@@ -184,24 +184,24 @@ bool do_parse_csv_line(query *q, parser *p, csv *params, const char *src, cell *
 	if ((params->arity > 0) && (args != params->arity)) {
 		cell tmp;
 		make_int(&tmp, params->arity);
-		return throw_error(q, &tmp, q->st.curr_frame, "domain_error", "row_arity");
+		return throw_error(q, &tmp, q->st.cur_ctx, "domain_error", "row_arity");
 	}
 
 	cell *l = params->functor ? end_structure(q) : end_list(q);
 	checked(l);
 
 	if (p2)
-		return unify(q, p2, p2_ctx, l, q->st.curr_frame);
+		return unify(q, p2, p2_ctx, l, q->st.cur_ctx);
 
 	bool found = false, evaluable = false;
 
 	if (get_builtin_term(q->st.m, l, &found, &evaluable), found && !evaluable) {
 		if (!GET_OP(l))
-			return throw_error(q, l, q->st.curr_frame, "permission_error", "modify,static_procedure");
+			return throw_error(q, l, q->st.cur_ctx, "permission_error", "modify,static_procedure");
 	}
 
 	if (!assertz_to_db(q->st.m, 0, l, false))
-		return throw_error(q, l, q->st.curr_frame, "permission_error", "modify_static_procedure");
+		return throw_error(q, l, q->st.cur_ctx, "permission_error", "modify_static_procedure");
 
 	return true;
 }
@@ -369,14 +369,14 @@ bool bif_parse_csv_file_2(query *q)
 	return true;
 }
 
-static bool do_write_csv_line(query *q, parser* p, csv *params, cell *l, pl_idx l_ctx)
+static bool do_write_csv_line(query *q, parser* p, csv *params, cell *l, pl_ctx l_ctx)
 {
 	LIST_HANDLER(l);
 
 	while (is_list(l)) {
 		cell *h = LIST_HEAD(l);
 		h = deref(q,h,l_ctx);
-		pl_idx h_ctx = q->latest_ctx;
+		pl_ctx h_ctx = q->latest_ctx;
 
 		char *dst = print_term_to_strbuf(q, h, h_ctx, 1);
 		size_t len = strlen(dst);
@@ -464,7 +464,7 @@ bool bif_write_csv_file_3(query *q)
 	while (is_list(p2)) {
 		cell *h = LIST_HEAD(p2);
 		h = deref(q,h,p2_ctx);
-		pl_idx h_ctx = q->latest_ctx;
+		pl_ctx h_ctx = q->latest_ctx;
 
 		if (!is_list_or_nil(h))
 			return throw_error(q, h, h_ctx, "type_error", "list");

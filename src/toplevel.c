@@ -11,7 +11,7 @@ static void show_goals(query *q, int num)
 {
 	frame *f = GET_CURR_FRAME();
 	cell *c = q->st.instr;
-	pl_idx c_ctx = q->st.curr_frame;
+	pl_ctx c_ctx = q->st.cur_ctx;
 
 	while (c && num--) {
 		printf(" [%llu] ", (long long unsigned)c_ctx);
@@ -23,7 +23,7 @@ static void show_goals(query *q, int num)
 		q->quoted = false;
 		printf("\n");
 
-		if (f->prev == (pl_idx)-1)
+		if (f->prev == CTX_NUL)
 			break;
 
 		c = f->instr;
@@ -39,7 +39,7 @@ int check_interrupt(query *q)
 		g_tpl_interrupt = 0;
 		signal(SIGINT, &sigfn);
 
-		if (!throw_error(q, q->st.instr, q->st.curr_frame, "time_limit_exceeded", "timed_out"))
+		if (!throw_error(q, q->st.instr, q->st.cur_ctx, "time_limit_exceeded", "timed_out"))
 			q->retry = true;
 
 		return 0;
@@ -264,7 +264,7 @@ typedef struct item_ item;
 
 struct item_ {
 	cell *c;
-	pl_idx c_ctx;
+	pl_ctx c_ctx;
 	int num;
 	item *next;
 };
@@ -280,7 +280,7 @@ static void	clear_results()
 	}
 }
 
-static void add_result(int num, cell *c, pl_idx c_ctx)
+static void add_result(int num, cell *c, pl_ctx c_ctx)
 {
 	item *ptr = malloc(sizeof(item));
 	ensure(ptr);
@@ -291,7 +291,7 @@ static void add_result(int num, cell *c, pl_idx c_ctx)
 	g_items = ptr;
 }
 
-static int check_duplicate_result(query *q, int num, cell *c, pl_idx c_ctx)
+static int check_duplicate_result(query *q, int num, cell *c, pl_ctx c_ctx)
 {
 	return -1;
 
@@ -403,7 +403,7 @@ void dump_vars(query *q, bool partial)
 			continue;
 
 		cell *c = deref(q, &e->c, 0);
-		pl_idx c_ctx = q->latest_ctx;
+		pl_ctx c_ctx = q->latest_ctx;
 
 		if (is_var(c) && is_anon(c))
 			continue;
@@ -439,7 +439,7 @@ void dump_vars(query *q, bool partial)
 		want_space = false;
 
 		if (is_compound(c)) {
-			unsigned pri = search_op(q->st.m, C_STR(q, c), NULL, c->arity);
+			unsigned pri = match_op(q->st.m, C_STR(q, c), NULL, c->arity);
 
 			if (pri >= 700)
 				parens = true;
@@ -449,7 +449,7 @@ void dump_vars(query *q, bool partial)
 			&& !is_string(c)
 			//&& C_STRLEN(q, c)
 			&& !is_nil(c)) {
-			if (search_op(q->st.m, C_STR(q, c), NULL, false)
+			if (match_op(q->st.m, C_STR(q, c), NULL, false)
 				//&& !needs_quoting(q->st.m, C_STR(q, c), C_STRLEN(q, c))
 				)
 				parens = true;
@@ -510,7 +510,7 @@ void dump_vars(query *q, bool partial)
 		cell p1[2];
 		make_instr(p1+0, new_atom(q->pl, "dump_attvars"), NULL, 1, 1);
 		make_atom(p1+1, any ? g_true_s : g_false_s);
-		cell *tmp = prepare_call(q, CALL_SKIP, p1, q->st.curr_frame, 1);
+		cell *tmp = prepare_call(q, CALL_SKIP, p1, q->st.cur_ctx, 1);
 		pl_idx num_cells = 2;
 		make_end(tmp+num_cells);
 		q->st.instr = tmp;

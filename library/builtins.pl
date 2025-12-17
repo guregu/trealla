@@ -17,6 +17,11 @@ writeln(S, T) :- write(S, T), nl.		% SWI
 
 :- help(predicate_property(+callable,+term), [iso(true)]).
 
+read_from_chars(Cs, T) :-
+    read_term_from_chars(Cs, T, []).
+
+:- help(read_from_chars(+chars,?term), [iso(false)]).
+
 predicate_property(P, A) :-
 	nonvar(P), atom(A), !,
 	must_be(P, callable, predicate_property/2, _),
@@ -133,7 +138,7 @@ call_residue_vars(G, Ls) :-
 :- help(copy_term(+term,?term,-list), [iso(false)]).
 
 copy_term(Term, Copy, Gs) :-
-	copy_term(Term, Copy),
+	duplicate_term_(Term, Copy),
 	term_attributed_variables(Copy, Vs),
 	collect_goals_(Vs, [], Gs).
 
@@ -154,17 +159,51 @@ collect_goals_([V|T], GsIn, GsOut) :-
 	collect_goals_(V, Ls, GsIn, GsOut2),
 	collect_goals_(T, GsOut2, GsOut).
 
+% Debugging...
+
+print_goals_(_, []).
+print_goals_(Any, [Goal|Goals]) :-
+	(Any -> write(', ') ; true),
+	write(Goal),
+	(Goals == [] -> true ;	write(', ')),
+	print_goals_(false, Goals).
+
+dump_attvars_([], []).
+dump_attvars_([Var|Vars], [Gs|Rest]) :-
+	term_attributed_variables(Var, Vs),
+	collect_goals_(Vs, [], Gs),
+	dump_attvars_(Vars, Rest).
+
+dump_attvars(Any) :-
+	'$list_attributed'(0, Vs0),
+	sort(Vs0, Vs),
+	dump_attvars_(Vs, Gs0),
+	flatten(Gs0, Gs1),
+	sort(Gs1, Gs),
+	print_goals_(Any, Gs).
+
 sort(A, B) :-
 	'$sort'(A, B).
+
+:- help(sort(+term,?term), [iso(true)]).
 
 msort(A, B) :-
 	'$msort'(A, B).
 
+:- help(msort(+term,?term), [iso(true)]).
+
 keysort(A, B) :-
 	'$keysort'(A, B).
 
+:- help(keysort(+term,?term), [iso(true)]).
+
 sort(A, B, C, D) :-
 	'$sort'(A, B, C, D).
+
+:- help(sort(+term,+atom,+list,?term), [iso(false)]).
+
+duplicate_term_(X, Y) :-
+	'$duplicate_term'(X, Y).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
@@ -547,29 +586,6 @@ current_op(A, B, C) :-
 
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-% Debugging...
-
-print_goals_(_, []).
-print_goals_(Any, [Goal|Goals]) :-
-	(Any -> write(', ') ; true),
-	write(Goal),
-	(Goals == [] -> true ;	write(', ')),
-	print_goals_(false, Goals).
-
-dump_attvars_([], []).
-dump_attvars_([Var|Vars], [Gs|Rest]) :-
-	term_attributed_variables(Var, Vs),
-	collect_goals_(Vs, [], Gs),
-	dump_attvars_(Vars, Rest).
-
-dump_attvars(Any) :-
-	'$list_attributed'(0, Vs0),
-	sort(Vs0, Vs),
-	dump_attvars_(Vs, Gs0),
-	flatten(Gs0, Gs1),
-	sort(Gs1, Gs),
-	print_goals_(Any, Gs).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %

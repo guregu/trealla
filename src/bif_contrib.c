@@ -52,7 +52,7 @@ static bool fn_sys_wasi_kv_open_2(query *q)
 	cell tmp;
 	make_int(&tmp, ret.val.ok);
 	tmp.flags |= FLAG_INT_HANDLE;
-	return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
+	return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 }
 
 static bool fn_sys_wasi_kv_close_1(query *q)
@@ -83,7 +83,7 @@ static bool fn_sys_wasi_kv_get_3(query *q)
 
 	cell tmp;
 	checked(make_stringn(&tmp, (const char*)ret.val.ok.ptr, ret.val.ok.len));
-	return unify(q, p3, p3_ctx, &tmp, q->st.curr_frame);
+	return unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
 }
 
 static bool fn_sys_wasi_kv_get_keys_2(query *q)
@@ -111,7 +111,7 @@ static bool fn_sys_wasi_kv_get_keys_2(query *q)
 
 	cell *l = end_list(q);
 	checked(l);
-	return unify(q, p2, p2_ctx, l, q->st.curr_frame);
+	return unify(q, p2, p2_ctx, l, q->st.cur_ctx);
 }
 
 static bool fn_sys_wasi_kv_exists_2(query *q)
@@ -195,13 +195,13 @@ static bool fn_sys_wasi_outbound_http_5(query *q)
 	stream *resp_hdr_str = &q->pl->streams[get_stream(q, p5)];
 
 	if (!is_map_stream(req_str))
-		return throw_error(q, p2, q->st.curr_frame, "type_error", "not_a_map");
+		return throw_error(q, p2, q->st.cur_ctx, "type_error", "not_a_map");
 	if (!is_map_stream(req_hdr_str))
-		return throw_error(q, p3, q->st.curr_frame, "type_error", "not_a_map");
+		return throw_error(q, p3, q->st.cur_ctx, "type_error", "not_a_map");
 	if (!is_map_stream(resp_str))
-		return throw_error(q, p4, q->st.curr_frame, "type_error", "not_a_map");
+		return throw_error(q, p4, q->st.cur_ctx, "type_error", "not_a_map");
 	if (!is_map_stream(resp_hdr_str))
-		return throw_error(q, p5, q->st.curr_frame, "type_error", "not_a_map");
+		return throw_error(q, p5, q->st.cur_ctx, "type_error", "not_a_map");
 
 	COMPONENT(wasi_outbound_http_request) request = {0};
 	COMPONENT(wasi_outbound_http_response) response;
@@ -214,7 +214,7 @@ static bool fn_sys_wasi_outbound_http_5(query *q)
 	const char *tmpstr;
 	if (sl_get(req_str->keyval, "method", (const void **)&tmpstr)) {
 		if (!spin_http_method_lookup(tmpstr, &request.method))
-			return throw_error(q, p2, q->st.curr_frame, "domain_error", "http_method");
+			return throw_error(q, p2, q->st.cur_ctx, "domain_error", "http_method");
 	}
 
 	// Request body
@@ -332,7 +332,7 @@ static bool fn_sys_wasi_outbound_http_5(query *q)
 		make_instr(tmp, g_error_s, NULL, 2, 2); 								\
 		make_atom(tmp+1, kind);													\
 		make_string(tmp+2, msg); 												\
-		bool ok = unify(q, p, p##_ctx, tmp, q->st.curr_frame);					\
+		bool ok = unify(q, p, p##_ctx, tmp, q->st.cur_ctx);					\
 		free(msg); 																\
 		return ok; 																\
 	}
@@ -614,8 +614,8 @@ static bool fn_sys_outbound_pg_query_5(query *q)
 		cols = &tmpc;
 	}
 
-	bool ok1 = unify(q, p4, p4_ctx, rows, q->st.curr_frame);
-	bool ok2 = unify(q, p5, p5_ctx, cols, q->st.curr_frame);
+	bool ok1 = unify(q, p4, p4_ctx, rows, q->st.cur_ctx);
+	bool ok2 = unify(q, p5, p5_ctx, cols, q->st.cur_ctx);
 	return ok1 && ok2;
 }
 
@@ -648,7 +648,7 @@ static bool fn_sys_outbound_pg_execute_4(query *q)
 	cell *tmp = alloc_heap(q, 2);
 	make_instr(tmp, g_true_s, NULL, 1, 1);
 	make_uint(tmp+1, ret.val.ok);
-	return unify(q, p4, p4_ctx, tmp, q->st.curr_frame);
+	return unify(q, p4, p4_ctx, tmp, q->st.cur_ctx);
 }
 
 #define check_sqlite_error(p, ret) {														\
@@ -744,7 +744,7 @@ static bool fn_sys_sqlite_open_2(query *q)
 	cell tmp;
 	make_int(&tmp, ret.val.ok);
 	tmp.flags |= FLAG_INT_HANDLE;
-	return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
+	return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 }
 
 static bool fn_sys_sqlite_close_1(query *q)
@@ -850,8 +850,8 @@ static bool fn_sys_sqlite_query_5(query *q)
 		cols = &tmpc;
 	}
 
-	bool ok1 = unify(q, p4, p4_ctx, rows, q->st.curr_frame);
-	bool ok2 = unify(q, p5, p5_ctx, cols, q->st.curr_frame);
+	bool ok1 = unify(q, p4, p4_ctx, rows, q->st.cur_ctx);
+	bool ok2 = unify(q, p5, p5_ctx, cols, q->st.cur_ctx);
 	return ok1 && ok2;
 }
 #endif

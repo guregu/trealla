@@ -117,7 +117,7 @@ static bool bif_sys_dlopen_3(query *q)
 	cell tmp;
 	make_uint(&tmp, (pl_int)(size_t)handle);
 	tmp.flags |= FLAG_INT_HANDLE | FLAG_HANDLE_DLL;
-	return unify(q, p3, p3_ctx, &tmp, q->st.curr_frame);
+	return unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
 }
 
 static bool bif_sys_dlsym_3(query *q)
@@ -136,7 +136,7 @@ static bool bif_sys_dlsym_3(query *q)
 	cell tmp;
 	make_uint(&tmp, (pl_int)(size_t)ptr);
 	tmp.flags |= FLAG_INT_HANDLE;
-	return unify(q, p3, p3_ctx, &tmp, q->st.curr_frame);
+	return unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
 }
 
 int do_dlclose(void *handle)
@@ -213,7 +213,7 @@ static void register_ffi(prolog *pl, const char *name, unsigned arity, void *fn,
 	uint8_t arg_types[MAX_FFI_ARGS], ret_type = 0;
 	LIST_HANDLER(l);
 	cell *l = p3;
-	pl_idx l_ctx = p3_ctx;
+	pl_ctx l_ctx = p3_ctx;
 	int idx = 0;
 
 	while (is_iso_list(l) && (idx < MAX_FFI_ARGS)) {
@@ -315,7 +315,7 @@ static void register_ffi(prolog *pl, const char *name, unsigned arity, void *fn,
 	return true;
 }
 
-bool do_register_struct(module *m, query *q, void *handle, const char *symbol, cell *l, pl_idx l_ctx, const char *ret)
+bool do_register_struct(module *m, query *q, void *handle, const char *symbol, cell *l, pl_ctx l_ctx, const char *ret)
 {
 	uint8_t arg_types[MAX_FFI_ARGS];
 	const char *arg_names[MAX_FFI_ARGS];
@@ -435,7 +435,7 @@ bool do_register_struct(module *m, query *q, void *handle, const char *symbol, c
 	return true;
 }
 
-bool do_register_predicate(module *m, query *q, void *handle, const char *symbol, cell *l, pl_idx l_ctx, const char *ret)
+bool do_register_predicate(module *m, query *q, void *handle, const char *symbol, cell *l, pl_ctx l_ctx, const char *ret)
 {
 	void *func = dlsym(handle, symbol);
 	if (!func) return false;
@@ -646,7 +646,7 @@ bool wrap_ffi_function(query *q, builtins *ptr)
 	START_FUNCTION(q);
 	GET_FIRST_ARG(p1, any);
 	cell *c = p1;
-	pl_idx c_ctx = p1_ctx;
+	pl_ctx c_ctx = p1_ctx;
 
 	ffi_cif cif = {0};
 	ffi_type *arg_types[MAX_FFI_ARGS];
@@ -1049,7 +1049,7 @@ static bool handle_struct1(query *q, foreign_struct *sptr, nested_elements *nest
 	return true;
 }
 
-static void handle_struct2(query *q, nested_elements *nested, unsigned *pdepth, unsigned cnt, uint8_t *bytes, size_t *boff, cell *h, pl_idx h_ctx, void **arg_values, unsigned *p_pos)
+static void handle_struct2(query *q, nested_elements *nested, unsigned *pdepth, unsigned cnt, uint8_t *bytes, size_t *boff, cell *h, pl_ctx h_ctx, void **arg_values, unsigned *p_pos)
 {
 	size_t bytes_offset = *boff, depth = *pdepth++;
 	unsigned pos = *p_pos;
@@ -1109,7 +1109,7 @@ static void handle_struct2(query *q, nested_elements *nested, unsigned *pdepth, 
 		bytes_offset += sizeof(void*);
 	} else {
 		cell *l = h;
-		pl_idx l_ctx = h_ctx;
+		pl_ctx l_ctx = h_ctx;
 		int cnt = 0;
 		LIST_HANDLER(l);
 		size_t bytes_offset_start = bytes_offset;
@@ -1117,7 +1117,7 @@ static void handle_struct2(query *q, nested_elements *nested, unsigned *pdepth, 
 		while (is_iso_list(l)) {
 			cell *h = LIST_HEAD(l);
 			h = deref(q, h, l_ctx);
-			pl_idx h_ctx = q->latest_ctx;
+			pl_ctx h_ctx = q->latest_ctx;
 
 			if (cnt > 0) {
 				handle_struct2(q, nested, pdepth, cnt, bytes, &bytes_offset, h, h_ctx, arg_values, &pos);
@@ -1140,7 +1140,7 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 {
 	GET_FIRST_ARG(p1, any);
 	cell *c = p1;
-	pl_idx c_ctx = p1_ctx;
+	pl_ctx c_ctx = p1_ctx;
 
 	nested_elements nested[MAX_FFI_ARGS] = {0};
 	ffi_type *arg_types[MAX_FFI_ARGS] = {0};
@@ -1303,7 +1303,7 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 			arg_types[i] = &ffi_type_pointer;
 		else if (ptr->types[i] == FFI_TAG_STRUCT) {
 			cell *l = c;
-			pl_idx l_ctx = c_ctx;
+			pl_ctx l_ctx = c_ctx;
 			const char *name = "invalid";
 			LIST_HANDLER(l);
 
@@ -1490,7 +1490,7 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 			pos++;
 		} else if (ptr->types[i] == FFI_TAG_STRUCT) {
 			cell *l = c;
-			pl_idx l_ctx = c_ctx;
+			pl_ctx l_ctx = c_ctx;
 			int cnt = 0;
 			LIST_HANDLER(l);
 			size_t bytes_offset_start = bytes_offset;
@@ -1498,7 +1498,7 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 			while (is_iso_list(l)) {
 				cell *h = LIST_HEAD(l);
 				h = deref(q, h, l_ctx);
-				pl_idx h_ctx = q->latest_ctx;
+				pl_ctx h_ctx = q->latest_ctx;
 
 				if (cnt > 0) {
 					handle_struct2(q, nested, &pdepth, cnt, bytes, &bytes_offset, h, h_ctx, arg_values, &pos);
@@ -1673,79 +1673,79 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 
 			if (ptr->types[i] == MARK_OUT(FFI_TAG_UINT8)) {
 				make_int(&tmp, cells[i].val_ffi_uint8);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.curr_frame);
+				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
 				if (ok != true) return ok;
 			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_UINT16)) {
 				make_int(&tmp, cells[i].val_ffi_uint16);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.curr_frame);
+				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
 				if (ok != true) return ok;
 			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_UINT32)) {
 				make_int(&tmp, cells[i].val_ffi_uint32);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.curr_frame);
+				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
 				if (ok != true) return ok;
 			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_UINT64)) {
 				make_int(&tmp, cells[i].val_ffi_uint64);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.curr_frame);
+				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
 				if (ok != true) return ok;
 			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_UINT)) {
 				make_int(&tmp, cells[i].val_ffi_uint);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.curr_frame);
+				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
 				if (ok != true) return ok;
 			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_USHORT)) {
 				make_int(&tmp, cells[i].val_ffi_ushort);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.curr_frame);
+				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
 				if (ok != true) return ok;
 			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_ULONG)) {
 				make_int(&tmp, cells[i].val_ffi_ulong);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.curr_frame);
+				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
 				if (ok != true) return ok;
 			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_SINT8)) {
 				make_int(&tmp, cells[i].val_ffi_sint);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.curr_frame);
+				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
 				if (ok != true) return ok;
 			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_SINT16)) {
 				make_int(&tmp, cells[i].val_ffi_sint16);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.curr_frame);
+				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
 				if (ok != true) return ok;
 			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_SINT32)) {
 				make_int(&tmp, cells[i].val_ffi_sint32);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.curr_frame);
+				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
 				if (ok != true) return ok;
 			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_SINT64)) {
 				make_int(&tmp, cells[i].val_ffi_sint64);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.curr_frame);
+				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
 				if (ok != true) return ok;
 			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_SINT)) {
 				make_int(&tmp, cells[i].val_ffi_sint);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.curr_frame);
+				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
 				if (ok != true) return ok;
 			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_SHORT)) {
 				make_int(&tmp, cells[i].val_ffi_sshort);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.curr_frame);
+				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
 				if (ok != true) return ok;
 			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_LONG)) {
 				make_int(&tmp, cells[i].val_ffi_slong);
-				bool ok = unify (q, c, c_ctx, &tmp, q->st.curr_frame);
+				bool ok = unify (q, c, c_ctx, &tmp, q->st.cur_ctx);
 				if (ok != true) return ok;
 			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_FP32)) {
 				make_float(&tmp, cells[i].val_ffi_float);
-				bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+				bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 				if (ok != true) return ok;
 			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_FP64)) {
 				make_float(&tmp, cells[i].val_ffi_double);
-				bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+				bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 				if (ok != true) return ok;
 			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_PTR)) {
 				make_ptr(&tmp, cells[i].val_ffi_pointer);
-				bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+				bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 				if (ok != true) return ok;
 			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_C_STR)) {
 				checked(make_cstring(&tmp, cells[i].val_ffi_pointer));
-				bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+				bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 				if (ok != true) return ok;
 			} else if (ptr->types[i] == MARK_OUT(FFI_TAG_C_CSTR)) {
 				checked(make_cstring(&tmp, cells[i].val_ffi_pointer));
-				bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+				bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 				if (ok != true) return ok;
 			}
 		}
@@ -1759,80 +1759,80 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 
 	if (ptr->ret_type == FFI_TAG_UINT8) {
 		make_int(&tmp, r.val_ffi_uint8);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 		if (ok != true) return ok;
 	} else if (ptr->ret_type == FFI_TAG_UINT16) {
 		make_int(&tmp, r.val_ffi_uint16);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 		if (ok != true) return ok;
 	} else if (ptr->ret_type == FFI_TAG_UINT32) {
 		make_int(&tmp, r.val_ffi_uint32);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 		if (ok != true) return ok;
 	} else if (ptr->ret_type == FFI_TAG_UINT64) {
 		make_int(&tmp, r.val_ffi_uint64);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 		if (ok != true) return ok;
 	} else if (ptr->ret_type == FFI_TAG_UINT) {
 		make_int(&tmp, r.val_ffi_uint);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 		if (ok != true) return ok;
 	} else if (ptr->ret_type == FFI_TAG_USHORT) {
 		make_int(&tmp, r.val_ffi_ushort);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 		if (ok != true) return ok;
 	} else if (ptr->ret_type == FFI_TAG_ULONG) {
 		make_int(&tmp, r.val_ffi_ulong);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 		if (ok != true) return ok;
 	} else if (ptr->ret_type == FFI_TAG_SINT8) {
 		make_int(&tmp, r.val_ffi_sint8);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 		if (ok != true) return ok;
 	} else if (ptr->ret_type == FFI_TAG_SINT16) {
 		make_int(&tmp, r.val_ffi_sint16);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 		if (ok != true) return ok;
 	} else if (ptr->ret_type == FFI_TAG_SINT32) {
 		make_int(&tmp, r.val_ffi_sint32);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 		if (ok != true) return ok;
 	} else if (ptr->ret_type == FFI_TAG_SINT64) {
 		make_int(&tmp, r.val_ffi_sint64);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 		if (ok != true) return ok;
 	} else if (ptr->ret_type == FFI_TAG_SINT) {
 		make_int(&tmp, r.val_ffi_sint);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 		if (ok != true) return ok;
 	} else if (ptr->ret_type == FFI_TAG_SHORT) {
 		make_int(&tmp, r.val_ffi_sshort);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 		if (ok != true) return ok;
 	} else if (ptr->ret_type == FFI_TAG_LONG) {
 		make_int(&tmp, r.val_ffi_slong);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 		if (ok != true) return ok;
 	} else if (ptr->ret_type == FFI_TAG_FP32) {
 		make_float(&tmp, r.val_ffi_float);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 		if (ok != true) return ok;
 	} else if (ptr->ret_type == FFI_TAG_FP64) {
 		make_float(&tmp, r.val_ffi_double);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 		if (ok != true) return ok;
 	} else if (ptr->ret_type == FFI_TAG_PTR) {
 		make_ptr(&tmp, r.val_ffi_pointer);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 		if (ok != true) return ok;
 	} else if (ptr->ret_type == FFI_TAG_C_STR) {
 		checked(make_cstring(&tmp, r.val_ffi_pointer));
 		free(r.val_ffi_pointer);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 		if (ok != true) return ok;
 	} else if (ptr->ret_type == FFI_TAG_C_CSTR) {
 		checked(make_cstring(&tmp, r.val_ffi_pointer));
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 		if (ok != true) return ok;
 	} else if (ptr->ret_type == FFI_TAG_STRUCT) {
 		ffi_type *p = ffi_ret_type;
@@ -1898,7 +1898,7 @@ bool wrap_ffi_predicate(query *q, builtins *ptr)
 			cnt++;
 		}
 
-		if (!unify(q, c, c_ctx, end_list(q), q->st.curr_frame))
+		if (!unify(q, c, c_ctx, end_list(q), q->st.cur_ctx))
 			return false;
 	}
 
@@ -2026,7 +2026,7 @@ static bool bif_sys_struct_to_pointer_2(query *q)
 
 	cell tmp;
 	make_uint(&tmp, (size_t)(void*)ptr);
-	return unify(q, p2, p2_ctx, &tmp, q->st.curr_frame);
+	return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 }
 #endif
 

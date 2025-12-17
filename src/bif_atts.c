@@ -32,16 +32,16 @@ static bool bif_attribute_3(query *q)
 	if (!found) return false;
 	cell tmp;
 	make_atom(&tmp, new_atom(q->pl, m_name));
-	return unify(q, p1, p1_ctx, &tmp, q->st.curr_frame);
+	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 }
 
-static bool do_put_atts(query *q, cell *attr, pl_idx attr_ctx, bool is_minus)
+static bool do_put_atts(query *q, cell *attr, pl_ctx attr_ctx, bool is_minus)
 {
 	GET_FIRST_ARG(p1,var);
 	const frame *f = GET_FRAME(p1_ctx);
 	slot *e = get_slot(q, f, p1->var_num);
-	cell *c = deref(q, &e->c, e->c.var_ctx);
-	pl_idx c_ctx = q->latest_ctx;
+	cell *c = deref(q, &e->c, e->c.val_ctx);
+	pl_ctx c_ctx = q->latest_ctx;
 
 	if (!c->val_attrs && is_minus)
 		return true;
@@ -50,7 +50,6 @@ static bool do_put_atts(query *q, cell *attr, pl_idx attr_ctx, bool is_minus)
 		attr++;
 
 	add_trail(q, p1_ctx, p1->var_num, c->val_attrs);
-
 	unsigned a_arity = attr->arity;
 	bool found;
 	const char *m_name = find_attribute(q, attr, a_arity, &found);
@@ -79,15 +78,15 @@ static bool do_put_atts(query *q, cell *attr, pl_idx attr_ctx, bool is_minus)
 
 	if (c->val_attrs) {
 		cell *l = c->val_attrs;
-		pl_idx l_ctx = c_ctx;
+		pl_ctx l_ctx = c_ctx;
 		LIST_HANDLER(l);
 
 		while (is_iso_list(l)) {
 			cell *h = LIST_HEAD(l);
 			h = deref(q, h, l_ctx);
-			pl_idx h_ctx = q->latest_ctx;
+			pl_ctx h_ctx = q->latest_ctx;
 			cell *h1 = deref(q, h+1, h_ctx);
-			pl_idx h1_ctx = q->latest_ctx;
+			pl_ctx h1_ctx = q->latest_ctx;
 
 			if (CMP_STRING_TO_CSTR(q, h, m_name)
 				|| CMP_STRING_TO_STRING(q, h1, attr)
@@ -129,7 +128,7 @@ static bool bif_put_atts_2(query *q)
 		while (is_iso_list(p2)) {
 			cell *attr = LIST_HEAD(p2);
 			attr = deref(q, attr, p2_ctx);
-			pl_idx attr_ctx = q->latest_ctx;
+			pl_ctx attr_ctx = q->latest_ctx;
 
 			if (!do_put_atts(q, attr, attr_ctx, is_minus))
 				return false;
@@ -154,8 +153,8 @@ static bool bif_get_atts_2(query *q)
 	GET_NEXT_ARG(p2,callable_or_var);
 	const frame *f = GET_FRAME(p1_ctx);
 	slot *e = get_slot(q, f, p1->var_num);
-	cell *c = deref(q, &e->c, e->c.var_ctx);
-	pl_idx c_ctx = q->latest_ctx;
+	cell *c = deref(q, &e->c, e->c.val_ctx);
+	pl_ctx c_ctx = q->latest_ctx;
 	bool is_minus = !is_var(p2) && (p2->val_off == g_minus_s) && (p2->arity == 1);
 
 	if (!c->val_attrs)
@@ -163,7 +162,7 @@ static bool bif_get_atts_2(query *q)
 
 	if (is_var(p2)) {
 		cell *l = c->val_attrs;
-		pl_idx l_ctx = c_ctx;
+		pl_ctx l_ctx = c_ctx;
 		init_tmp_heap(q);
 		LIST_HANDLER(l);
 
@@ -186,7 +185,7 @@ static bool bif_get_atts_2(query *q)
 		if (is_nil(l))
 			return false;
 
-		return unify(q, p2, p2_ctx, l, q->st.curr_frame);
+		return unify(q, p2, p2_ctx, l, q->st.cur_ctx);
 	}
 
 	cell *attr = p2;
@@ -199,15 +198,15 @@ static bool bif_get_atts_2(query *q)
 	const char *m_name = find_attribute(q, attr, a_arity, &found);
 	if (!found) return false;
 	cell *l = c->val_attrs;
-	pl_idx l_ctx = c_ctx;
+	pl_ctx l_ctx = c_ctx;
 	LIST_HANDLER(l);
 
 	while (is_iso_list(l)) {
 		cell *h = LIST_HEAD(l);
 		h = deref(q, h, l_ctx);
-		pl_idx h_ctx = q->latest_ctx;
+		pl_ctx h_ctx = q->latest_ctx;
 		cell *h1 = deref(q, h+1, h_ctx);
-		pl_idx h1_ctx = q->latest_ctx;
+		pl_ctx h1_ctx = q->latest_ctx;
 
 		if (!CMP_STRING_TO_CSTR(q, h, m_name)
 			&& !CMP_STRING_TO_STRING(q, h1, attr)
@@ -226,41 +225,14 @@ static bool bif_get_atts_2(query *q)
 	return is_minus ? true : false;
 }
 
-#if 0
-static bool check_occurs(unsigned var_num, pl_idx var_ctx, cell *c, pl_idx c_ctx)
-{
-	bool any = false;
-
-	for (unsigned num_cells = c->num_cells; num_cells--; c++) {
-		if (!is_var(c))
-			continue;
-
-		pl_idx ctx = c_ctx;
-
-		if (is_ref(c))
-			ctx = c->var_ctx;
-
-		if (var_num != c->var_num)
-			continue;
-
-		if (var_ctx != ctx)
-			continue;
-
-		any = true;
-	}
-
-	return !any;
-}
-#endif
-
 bool any_attributed(query *q)
 {
-	for (unsigned j = 0; j < q->st.fp; j++) {
+	for (unsigned j = 0; j < q->st.new_fp; j++) {
 		const frame *f = GET_FRAME(j);
 
 		for (unsigned i = 0; i < f->actual_slots; i++) {
 			slot *e = get_slot(q, f, i);
-			cell *c = deref(q, &e->c, e->c.var_ctx);
+			cell *c = deref(q, &e->c, e->c.val_ctx);
 
 			if (!is_empty(c) || !c->val_attrs)
 				continue;
@@ -290,15 +262,6 @@ bool any_attributed(query *q)
 	return false;
 }
 
-static bool bif_sys_mark_start_1(query * q)
-{
-	GET_FIRST_ARG(p1,var);
-	cell mark;
-	make_uint(&mark, q->st.tp);
-	unify(q, p1, p1_ctx, &mark, q->st.curr_frame);
-	return true;
-}
-
 static bool bif_sys_list_attributed_2(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
@@ -308,10 +271,10 @@ static bool bif_sys_list_attributed_2(query *q)
 
 	for (unsigned j = mark; j < q->st.tp; j++) {
 		const trail *tr = q->trails + j;
-		const frame *f = GET_FRAME(tr->var_ctx);
+		const frame *f = GET_FRAME(tr->val_ctx);
 		slot *e = get_slot(q, f, tr->var_num);
-		cell *c = deref(q, &e->c, e->c.var_ctx);
-		pl_idx c_ctx = q->latest_ctx;
+		cell *c = deref(q, &e->c, e->c.val_ctx);
+		pl_ctx c_ctx = q->latest_ctx;
 
 		if (!is_empty(c) || !c->val_attrs)
 			continue;
@@ -320,7 +283,7 @@ static bool bif_sys_list_attributed_2(query *q)
 		//	continue;
 
 		cell tmp;
-		make_ref(&tmp, tr->var_num, tr->var_ctx);
+		make_ref(&tmp, tr->var_num, tr->val_ctx);
 		append_list(q, &tmp);
 
 		if (!is_compound(c->val_attrs))
@@ -331,9 +294,9 @@ static bool bif_sys_list_attributed_2(query *q)
 		for (unsigned k = 0; k < q->tab_idx; k++) {
 			const frame *f = GET_FRAME(q->pl->tabs[k].ctx);
 			slot *e = get_slot(q, f, q->pl->tabs[k].var_num);
-			cell *v = &e->c;
+			cell *c = deref(q, &e->c, e->c.val_ctx);
 
-			if (!v->val_attrs)
+			if (!c->val_attrs)
 				continue;
 
 			//if (!q->pl->tabs[k].ctx)
@@ -347,7 +310,7 @@ static bool bif_sys_list_attributed_2(query *q)
 
 	cell *l = end_list(q);
 	checked(l);
-	return unify(q, p2, p2_ctx, l, 0);
+	return unify(q, p2, p2_ctx, l, q->st.cur_ctx);
 }
 
 static bool bif_sys_attributed_var_1(query *q)
@@ -355,14 +318,14 @@ static bool bif_sys_attributed_var_1(query *q)
 	GET_FIRST_ARG(p1,var);
 	const frame *f = GET_FRAME(p1_ctx);
 	slot *e = get_slot(q, f, p1->var_num);
-	cell *c = deref(q, &e->c, e->c.var_ctx);
-	pl_idx c_ctx = q->latest_ctx;
+	cell *c = deref(q, &e->c, e->c.val_ctx);
+	pl_ctx c_ctx = q->latest_ctx;
 
 	if (!c->val_attrs)
 		return false;
 
 	cell *l = c->val_attrs;
-	pl_idx l_ctx = c_ctx;
+	pl_ctx l_ctx = c_ctx;
 	init_tmp_heap(q);
 	LIST_HANDLER(l);
 
@@ -399,21 +362,21 @@ typedef struct {
 	slot e[];
 } bind_state;
 
-static void set_occurs(unsigned var_num, pl_idx var_ctx, cell *c, pl_idx c_ctx)
+static void set_occurs(unsigned var_num, pl_ctx val_ctx, cell *c, pl_ctx c_ctx)
 {
 	for (unsigned num_cells = c->num_cells; num_cells--; c++) {
 		if (!is_var(c))
 			continue;
 
-		pl_idx ctx = c_ctx;
+		pl_ctx ctx = c_ctx;
 
 		if (is_ref(c))
-			ctx = c->var_ctx;
+			ctx = c->val_ctx;
 
 		if (var_num != c->var_num)
 			continue;
 
-		if (var_ctx != ctx)
+		if (val_ctx != ctx)
 			continue;
 
 		c->flags |= FLAG_VAR_CYCLIC;
@@ -426,7 +389,7 @@ static bool bif_sys_undo_trail_2(query *q)
 	GET_NEXT_ARG(p2,var);
 
 	if (q->undo_hi_tp == q->undo_lo_tp) {
-		unify(q, p1, p1_ctx, make_nil(), q->st.curr_frame);
+		unify(q, p1, p1_ctx, make_nil(), q->st.cur_ctx);
 		return true;
 	}
 
@@ -440,14 +403,14 @@ static bool bif_sys_undo_trail_2(query *q)
 
 	for (pl_idx i = q->undo_lo_tp, j = 0; i < q->undo_hi_tp; i++, j++) {
 		const trail *tr = q->trails + i;
-		const frame *f = GET_FRAME(tr->var_ctx);
+		const frame *f = GET_FRAME(tr->val_ctx);
 		slot *e = get_slot(q, f, tr->var_num);
 		save->e[j].c = e->c;
-		cell *c = deref(q, &e->c, e->c.var_ctx);
-		pl_idx c_ctx = q->latest_ctx;
-		set_occurs(tr->var_num, tr->var_ctx, c, c_ctx);
+		cell *c = deref(q, &e->c, e->c.val_ctx);
+		pl_ctx c_ctx = q->latest_ctx;
+		set_occurs(tr->var_num, tr->val_ctx, c, c_ctx);
 		cell lhs, rhs;
-		make_ref(&lhs, tr->var_num, tr->var_ctx);
+		make_ref(&lhs, tr->var_num, tr->val_ctx);
 
 		if (is_compound(c))
 			make_indirect(&rhs, c, c_ctx);
@@ -466,10 +429,10 @@ static bool bif_sys_undo_trail_2(query *q)
 
 	cell *tmp = end_list(q);
 	checked(tmp, free(save));
-	unify(q, p1, p1_ctx, tmp, q->st.curr_frame);
+	unify(q, p1, p1_ctx, tmp, q->st.cur_ctx);
 	cell tmp2;
 	make_blob(&tmp2, &save->b);
-	unify(q, p2, p2_ctx, &tmp2, q->st.curr_frame);
+	unify(q, p2, p2_ctx, &tmp2, q->st.cur_ctx);
 	return true;
 }
 
@@ -480,11 +443,20 @@ static bool bif_sys_redo_trail_1(query * q)
 
 	for (pl_idx i = save->lo_tp, j = 0; i < save->hi_tp; i++, j++) {
 		const trail *tr = q->trails + i;
-		const frame *f = GET_FRAME(tr->var_ctx);
+		const frame *f = GET_FRAME(tr->val_ctx);
 		slot *e = get_slot(q, f, tr->var_num);
 		e->c = save->e[j].c;
 	}
 
+	return true;
+}
+
+static bool bif_sys_mark_start_1(query * q)
+{
+	GET_FIRST_ARG(p1,var);
+	cell mark;
+	make_uint(&mark, q->st.tp);
+	unify(q, p1, p1_ctx, &mark, q->st.cur_ctx);
 	return true;
 }
 

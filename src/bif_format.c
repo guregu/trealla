@@ -64,7 +64,7 @@ static int format_integer(char *dst, cell *c, int grouping, int sep, int decimal
 
 typedef struct {
 	cell *p;
-	pl_idx p_ctx;
+	pl_ctx p_ctx;
 	const char *srcbuf;
 	const char *src;
 	size_t srclen;
@@ -98,7 +98,7 @@ static int get_next_char(query *q, list_reader_t *fmt)
 	return ch;
 }
 
-static cell *get_next_cell(query *q, list_reader_t *fmt, bool *is_var, pl_idx *ctx)
+static cell *get_next_cell(query *q, list_reader_t *fmt, bool *is_var, pl_ctx *ctx)
 {
 	*is_var = false;
 
@@ -149,7 +149,7 @@ static bool is_more_data(query *q, list_reader_t *fmt)
 	tmpbuf_free -= len;										\
 }
 
-bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cell *p2, pl_idx p2_ctx)
+bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx)
 {
 	list_reader_t fmt1 = {0}, fmt2 = {0};
 	list_reader_t save_fmt1 = {0}, save_fmt2 = {0};
@@ -187,7 +187,7 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 		}
 
 		ch = get_next_char(q, &fmt1);
-		pl_idx c_ctx = p2_ctx;
+		pl_ctx c_ctx = p2_ctx;
 
 		if (ch == '*') {
 			bool is_var;
@@ -200,7 +200,7 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 
 			if (!c || !is_integer(c)) {
 				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_frame, "type_error", "integer");
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}
 
 			argval = get_smallint(c);
@@ -339,7 +339,7 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 		}
 
 		if (!p2 || !is_list(p2))
-			return throw_error(q, make_nil(), q->st.curr_frame, "domain_error", "non_empty_list");
+			return throw_error(q, make_nil(), q->st.cur_ctx, "domain_error", "non_empty_list");
 
 		bool is_var;
 		cell *c = get_next_cell(q, &fmt2, &is_var, &c_ctx);
@@ -358,7 +358,7 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 
 		if ((ch == 'a') && !is_atom(c)) {
 			free(tmpbuf);
-			return throw_error(q, c, q->st.curr_frame, "type_error", "atom");
+			return throw_error(q, c, q->st.cur_ctx, "type_error", "atom");
 		}
 
 		switch(ch) {
@@ -402,7 +402,7 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 		case 'c':
 			if (!is_integer(c)) {
 				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_frame, "type_error", "integer");
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}
 
 			while (argval-- > 1) {
@@ -419,7 +419,7 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 		case 'E':
 			if (!is_float(c) && !is_smallint(c)) {
 				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_frame, "type_error", "float");
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "float");
 			}
 
 			len = argval < 4096 ? 4096 : argval;
@@ -445,7 +445,7 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 		case 'G':
 			if (!is_float(c) && !is_smallint(c)) {
 				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_frame, "type_error", "float");
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "float");
 			}
 
 			len = argval < 4096 ? 4096 : argval;
@@ -470,7 +470,7 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 		case 'f':
 			if (!is_float(c) && !is_smallint(c)) {
 				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_frame, "type_error", "float");
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "float");
 			}
 
 			len = argval < 4096 ? 4096 : argval;
@@ -487,7 +487,7 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 		case 'I':
 			if (!is_integer(c)) {
 				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_frame, "type_error", "integer");
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}
 
 			char *tmpbuf2 = print_term_to_strbuf(q, c, 0, 0);
@@ -500,7 +500,7 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 		case 'd':
 			if (!is_integer(c)) {
 				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_frame, "type_error", "integer");
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}
 
 			tmpbuf2 = print_term_to_strbuf(q, c, 0, 0);
@@ -513,7 +513,7 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 		case 'D':
 			if (!is_integer(c)) {
 				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_frame, "type_error", "integer");
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}
 
 			tmpbuf2 = print_term_to_strbuf(q, c, 0, 0);
@@ -531,7 +531,7 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 
 			if (!is_integer(c)) {
 				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_frame, "type_error", "integer");
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}
 
 			tmpbuf2 = print_term_to_strbuf(q, c, 0, 0);
@@ -549,7 +549,7 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 
 			if (!is_integer(c)) {
 				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_frame, "type_error", "integer");
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}
 
 			tmpbuf2 = print_term_to_strbuf(q, c, 0, 0);
@@ -574,13 +574,13 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 					make_instr(p1+0, new_atom(q->pl, "$portray"), NULL, 2, 1+c->num_cells);
 					p1[1] = *str;
 					dup_cells_by_ref(p1+2, c, c_ctx, c->num_cells);
-					tmp = prepare_call(q, CALL_SKIP, p1, q->st.curr_frame, 1);
+					tmp = prepare_call(q, CALL_SKIP, p1, q->st.cur_ctx, 1);
 					num_cells = p1->num_cells;
 				} else {
 					cell p1[1+c->num_cells];
 					make_instr(p1+0, new_atom(q->pl, "$portray"), NULL, 1, c->num_cells);
 					dup_cells_by_ref(p1+1, c, c_ctx, c->num_cells);
-					tmp = prepare_call(q, CALL_SKIP, p1, q->st.curr_frame, 1);
+					tmp = prepare_call(q, CALL_SKIP, p1, q->st.cur_ctx, 1);
 					num_cells = p1->num_cells;
 				}
 
@@ -657,7 +657,7 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 
 			if (q->cycle_error) {
 				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_frame, "resource_error", "cyclic");
+				return throw_error(q, c, q->st.cur_ctx, "resource_error", "cyclic");
 			}
 
 			len = strlen(tmpbuf2);
@@ -671,7 +671,7 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 
 		default:
 			free(tmpbuf);
-			return throw_error(q, c, q->st.curr_frame, "existence_error", "format_character");
+			return throw_error(q, c, q->st.cur_ctx, "existence_error", "format_character");
 		}
 
 		dst += len;
@@ -682,7 +682,7 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 
 	if (fmt2.p) {
 		cell *save_l = fmt2.p;
-		pl_idx save_l_ctx = fmt2.p_ctx, c_ctx;
+		pl_ctx save_l_ctx = fmt2.p_ctx, c_ctx;
 		bool is_var;
 		cell *c = get_next_cell(q, &fmt2, &is_var, &c_ctx);
 
@@ -724,7 +724,7 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 		cell *c = deref(q, str+1, str_ctx);
 		cell tmp;
 		checked(make_cstringn(&tmp, tmpbuf, len), free(tmpbuf));
-		unify(q, c, q->latest_ctx, &tmp, q->st.curr_frame);
+		unify(q, c, q->latest_ctx, &tmp, q->st.cur_ctx);
 		unshare_cell(&tmp);
 	} else if (is_compound(str)) {
 		cell *c = deref(q, str+1, str_ctx);
@@ -735,7 +735,7 @@ bool do_format(query *q, cell *str, pl_idx str_ctx, cell *p1, pl_idx p1_ctx, cel
 		else
 			make_atom(&tmp, g_nil_s);
 
-		unify(q, c, q->latest_ctx, &tmp, q->st.curr_frame);
+		unify(q, c, q->latest_ctx, &tmp, q->st.cur_ctx);
 		unshare_cell(&tmp);
 	} else if (is_stream(str)) {
 		int n = get_stream(q, str);
@@ -777,10 +777,10 @@ static bool bif_format_1(query *q)
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.curr_frame, "permission_error", "output,binary_stream");
+		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "output,binary_stream");
 	}
 
-	return do_format(q, NULL, 0, p1, p1_ctx, NULL, q->st.curr_frame);
+	return do_format(q, NULL, 0, p1, p1_ctx, NULL, q->st.cur_ctx);
 }
 
 static bool bif_format_2(query *q)
@@ -793,7 +793,7 @@ static bool bif_format_2(query *q)
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.curr_frame, "permission_error", "output,binary_stream");
+		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "output,binary_stream");
 	}
 
 	if (is_nil(p1)) {

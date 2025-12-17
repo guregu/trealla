@@ -7,7 +7,7 @@
 typedef struct {
 	query *q;
 	cell *c;
-	pl_idx c_ctx;
+	pl_ctx c_ctx;
 	int8_t arg;
 	bool ascending:1;
 } basepair;
@@ -20,7 +20,7 @@ static int nodecmp(const void *ptr1, const void *ptr2)
 	query *q = cp1->q;
 	int arg = cp1->arg;
 	cell *p1 = cp1->c, *p2 = cp2->c;
-	pl_idx p1_ctx = cp1->c_ctx, p2_ctx = cp2->c_ctx;
+	pl_ctx p1_ctx = cp1->c_ctx, p2_ctx = cp2->c_ctx;
 
 	if ((p1->arity >= arg) && (arg > 0)) {
 		p1 = p1 + 1;
@@ -50,10 +50,10 @@ static int nodecmp_(const void *ptr1, const void *ptr2, const void *data)
 	return nodecmp(ptr1, ptr2);
 }
 
-static cell *nodesort(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool keysort, bool *status)
+static cell *nodesort(query *q, cell *p1, pl_ctx p1_ctx, bool dedup, bool keysort, bool *status)
 {
 	pl_int max = PL_INT_MAX, skip = 0;
-	pl_idx tmp_ctx = p1_ctx;
+	pl_ctx tmp_ctx = p1_ctx;
 	cell tmp = {0};
 
 	skip_max_list(q, p1, &tmp_ctx, max, &skip, &tmp);
@@ -67,7 +67,7 @@ static cell *nodesort(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool keysor
 	while (is_list(p1)) {
 		cell *h = LIST_HEAD(p1);
 		h = deref(q, h, p1_ctx);
-		pl_idx h_ctx = q->latest_ctx;
+		pl_ctx h_ctx = q->latest_ctx;
 		base[idx].c = h;
 		base[idx].c_ctx = h_ctx;
 		base[idx].q = q;
@@ -114,12 +114,12 @@ static cell *nodesort(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool keysor
 		}
 
 		cell *c = base[i].c;
-		pl_idx c_ctx = base[i].c_ctx;
+		pl_ctx c_ctx = base[i].c_ctx;
 		cell tmp;
 
 		if (is_compound(c)) {
-			make_ref(&tmp, vnbr++, q->st.curr_frame);
-			unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+			make_ref(&tmp, vnbr++, q->st.cur_ctx);
+			unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 			c = &tmp;
 		}
 
@@ -151,7 +151,7 @@ static bool bif_iso_sort_2(query *q)
 		return throw_error(q, p2, p2_ctx, "type_error", "list");
 
 	if (is_nil(p1))
-		return unify(q, p2, p2_ctx, make_nil(), q->st.curr_frame);
+		return unify(q, p2, p2_ctx, make_nil(), q->st.cur_ctx);
 
 	if (!is_list_or_nil(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "list");
@@ -193,7 +193,7 @@ static bool bif_iso_msort_2(query *q)
 		return throw_error(q, p2, p2_ctx, "type_error", "list");
 
 	if (is_nil(p1))
-		return unify(q, p2, p2_ctx, make_nil(), q->st.curr_frame);
+		return unify(q, p2, p2_ctx, make_nil(), q->st.cur_ctx);
 
 	if (!is_list_or_nil(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "list");
@@ -238,7 +238,7 @@ static bool bif_iso_keysort_2(query *q)
 		LIST_HANDLER(p2);
 		cell *tmp_h = LIST_HEAD(p2);
 		tmp_h = deref(q, tmp_h, p2_ctx);
-		pl_idx tmp_h_ctx = q->latest_ctx;
+		pl_ctx tmp_h_ctx = q->latest_ctx;
 		LIST_TAIL(p2);
 
 		if (!is_var(tmp_h) && (!is_compound(tmp_h) || strcmp(C_STR(q, tmp_h), "-")))
@@ -246,7 +246,7 @@ static bool bif_iso_keysort_2(query *q)
 	}
 
 	if (is_nil(p1))
-		return unify(q, p2, p2_ctx, make_nil(), q->st.curr_frame);
+		return unify(q, p2, p2_ctx, make_nil(), q->st.cur_ctx);
 
 	if (skip1 && skip2 && (skip2 > skip1))
 		return false;
@@ -259,10 +259,10 @@ static bool bif_iso_keysort_2(query *q)
 	return unify(q, p2x, p2x_ctx, l, p1x_ctx);
 }
 
-static cell *nodesort4(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool ascending, int arg, bool *status)
+static cell *nodesort4(query *q, cell *p1, pl_ctx p1_ctx, bool dedup, bool ascending, int arg, bool *status)
 {
 	pl_int max = PL_INT_MAX, skip = 0;
-	pl_idx tmp_ctx = p1_ctx;
+	pl_ctx tmp_ctx = p1_ctx;
 	cell tmp = {0};
 
 	skip_max_list(q, p1, &tmp_ctx, max, &skip, &tmp);
@@ -275,7 +275,7 @@ static cell *nodesort4(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool ascen
 
 	while (is_list(p1)) {
 		cell *h = deref(q, LIST_HEAD(p1), p1_ctx);
-		pl_idx h_ctx = q->latest_ctx;
+		pl_ctx h_ctx = q->latest_ctx;
 		base[idx].c = h;
 		base[idx].c_ctx = h_ctx;
 		base[idx].q = q;
@@ -314,12 +314,12 @@ static cell *nodesort4(query *q, cell *p1, pl_idx p1_ctx, bool dedup, bool ascen
 		}
 
 		cell *c = base[i].c;
-		pl_idx c_ctx = base[i].c_ctx;
+		pl_ctx c_ctx = base[i].c_ctx;
 		cell tmp;
 
 		if (is_compound(c)) {
-			make_ref(&tmp, vnbr++, q->st.curr_frame);
-			unify(q, c, c_ctx, &tmp, q->st.curr_frame);
+			make_ref(&tmp, vnbr++, q->st.cur_ctx);
+			unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
 			c = &tmp;
 		}
 
@@ -377,7 +377,7 @@ static bool bif_sort_4(query *q)
 		LIST_HANDLER(p4);
 		cell *tmp_h = LIST_HEAD(p4);
 		tmp_h = deref(q, tmp_h, p4_ctx);
-		pl_idx tmp_h_ctx = q->latest_ctx;
+		pl_ctx tmp_h_ctx = q->latest_ctx;
 		LIST_TAIL(p4);
 
 		if (!is_var(tmp_h) && (!is_compound(tmp_h) || strcmp(C_STR(q, tmp_h), "-")))
@@ -385,7 +385,7 @@ static bool bif_sort_4(query *q)
 	}
 
 	if (is_nil(p3))
-		return unify(q, p4, p4_ctx, make_nil(), q->st.curr_frame);
+		return unify(q, p4, p4_ctx, make_nil(), q->st.cur_ctx);
 
 	if (skip1 && skip2 && (skip2 > skip1))
 		return false;
@@ -397,7 +397,7 @@ static bool bif_sort_4(query *q)
 	GET_NEXT_ARG(p2x,list_or_nil_or_var);
 	GET_NEXT_ARG(p3x,list_or_nil);
 	GET_NEXT_ARG(p4x,list_or_nil_or_var);
-	return unify(q, p4x, p4x_ctx, l, q->st.curr_frame);
+	return unify(q, p4x, p4x_ctx, l, q->st.cur_ctx);
 }
 
 builtins g_sort_bifs[] =

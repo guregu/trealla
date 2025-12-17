@@ -13,7 +13,7 @@ Interned
         +----------+---------+----------+---------+
     0   |   tag    |  arity  |       flags        |    CELL 1
         +----------+---------+----------+---------+
-    4   |                 nbr_cells               |
+    4   |                 num_cells               |
         +----------+---------+----------+---------+
     8   |                                         |
         |               - UNUSED -                |
@@ -27,7 +27,7 @@ Interned
 
 Where *tag* is TAG_INTERNED.
 Where *arity* is always 0.
-Where *nbr_cells* is always 1.
+Where *num_cells* is always 1.
 Where *val_off* is a byte-offset into the symbol table.
 
 Two interned cells will unify if their *val_off* is the same.
@@ -41,7 +41,7 @@ Var
         +----------+---------+----------+---------+
     0   |   tag    |  arity  |       flags        |    CELL 1
         +----------+---------+----------+---------+
-    4   |                 nbr_cells               |
+    4   |                 num_cells               |
         +----------+---------+----------+---------+
     8   |                                         |
         |               - UNUSED -                |
@@ -56,9 +56,10 @@ Var
 Where *tag* is TAG_VAR.
 Where *arity* is always 0.
 Where *flags* is 0.
-Where *nbr_cells* is always 1.
+Where *num_cells* is always 1.
 Where *val_off* is a byte_offset into the symbol table.
 Where *var_nbr* is the index into the current context
+and refers to a *slot*.
 
 A variable will usually only be found in asserted database rules.
 Such a variable, when matched, will have an implied context. For
@@ -73,13 +74,13 @@ Ref
         +----------+---------+----------+---------+
     0   |   tag    |  arity  |       flags        |    CELL 1
         +----------+---------+----------+---------+
-    4   |                 nbr_cells               |
+    4   |                 num_cells               |
         +----------+---------+----------+---------+
     8   |                                         |
         |               - UNUSED -                |
    12   |                                         |
         +----------+---------+----------+---------+
-   16   |                 var_ctx                 |
+   16   |                 val_ctx                 |
         +----------+---------+----------+---------+
    20   |       var_nbr      |      - UNUSED -    |
         +----------+---------+----------+---------+
@@ -87,9 +88,9 @@ Ref
 
 Where *tag* is TAG_VAR.
 Where *arity* is always 0.
-Where *flags* is FLAG_REF
-Where *nbr_cells* is always 1.
-Where *var_ctx* is the context (or environment)
+Where *flags* is FLAG_VAR_REF
+Where *num_cells* is always 1.
+Where *val_ctx* is the context (actually a *frame* number)
 Where *var_nbr* is the index into the specified context
 
 A reference is a variable with an explicit context. They are
@@ -103,7 +104,7 @@ Integer
         +----------+---------+----------+---------+
     0   |   tag    |  arity  |       flags        |    CELL 1
         +----------+---------+----------+---------+
-    4   |                 nbr_cells               |
+    4   |                 num_cells               |
         +----------+---------+----------+---------+
     8   |                                         |
         +                 val_int                 +
@@ -115,9 +116,10 @@ Integer
         +----------+---------+----------+---------+
 ```
 
-Where *tag* is TAG_RATIONAL.
+Where *tag* is TAG_INT.
 Where *arity* is always 0.
-Where *nbr_cells* is always 1.
+Where *flags* is 0.
+Where *num_cells* is always 1.
 Where *val_int* is a signed 64-bit integer.
 
 
@@ -128,7 +130,7 @@ Bigint
         +----------+---------+----------+---------+
     0   |   tag    |  arity  |       flags        |    CELL 1
         +----------+---------+----------+---------+
-    4   |                 nbr_cells               |
+    4   |                 num_cells               |
         +----------+---------+----------+---------+
     8   |                                         |
         +               val_bigint                +
@@ -140,9 +142,10 @@ Bigint
         +----------+---------+----------+---------+
 ```
 
-Where *tag* is TAG_RATIONAL.
+Where *tag* is TAG_INT.
 Where *arity* is always 0.
-Where *nbr_cells* is always 1.
+Where *flags* is FLAG_INT_BIG.
+Where *num_cells* is always 1.
 Where *val_bigint* is a pointer.
 
 
@@ -153,7 +156,7 @@ Double
         +----------+---------+----------+---------+
     0   |   tag    |  arity  |       flags        |    CELL 1
         +----------+---------+----------+---------+
-    4   |                 nbr_cells               |
+    4   |                 num_cells               |
         +----------+---------+----------+---------+
     8   |                                         |
         +                val_float                +
@@ -167,7 +170,8 @@ Double
 
 Where *tag* is TAG_DOUBLE.
 Where *arity* is always 0
-Where *nbr_cells* is always 1.
+Where *flags* is 0.
+Where *num_cells* is always 1.
 Where *val_real* is a floating point *double*.
 
 
@@ -180,7 +184,7 @@ A small string < 16 bytes.
         +----------+---------+----------+---------+
     0   |   tag    |  arity  |       flags        |    CELL 1
         +----------+---------+----------+---------+
-    4   |                 nbr_cells               |
+    4   |                 num_cells               |
         +----------+---------+----------+---------+
     8   |  chr_len |                              |
         +----------+                              +
@@ -194,7 +198,8 @@ A small string < 16 bytes.
 
 Where *tag* is TAG_CSTRING.
 Where *arity* is always 0.
-Where *nbr_cells* is always 1.
+Where *flags* is 0.
+Where *num_cells* is always 1.
 Where *chr_len* is the number of bytes (0-14) in *val_chr*.
 Where *val_chr* is up to 14 bytes of UTF-8 chars, NULL-terminated.
 
@@ -208,7 +213,7 @@ Static BLOB
         +----------+---------+----------+---------+
     0   |   tag    |  arity  |       flags        |    CELL 1
         +----------+---------+----------+---------+
-    4   |                 nbr_cells               |
+    4   |                 num_cells               |
         +----------+---------+----------+---------+
     8   |                                         |
         +                 val_str                 +
@@ -223,7 +228,7 @@ Static BLOB
 Where *tag* is TAG_CSTRING.
 Where *arity* is always 0.
 Where *flags* is FLAG_BLOB | FLAG2_STATIC.
-Where *nbr_cells* is always 1.
+Where *num_cells* is always 1.
 Where *val_str* is a pointer to a slice of UTF-8 chars.
 Where *len_str* is the length of the slice in bytes.
 
@@ -241,7 +246,7 @@ A ref-counted string buffer.
         +----------+---------+----------+---------+
     0   |   tag    |  arity  |       flags        |    CELL 1
         +----------+---------+----------+---------+
-    4   |                 nbr_cells               |
+    4   |                 num_cells               |
         +----------+---------+----------+---------+
     8   |                                         |
         +               val_strbuf                +
@@ -256,7 +261,7 @@ A ref-counted string buffer.
 Where *tag* is TAG_CSTRING.
 Where *arity* is always 0.
 Where *flags* is FLAG_BLOB.
-Where *nbr_cells* is always 1.
+Where *num_cells* is always 1.
 Where *val_strbuf* is a pointer to a strbuf object.
 Where *strbuf_off* is the byte offset into a slice of a strbuf.
 Where *strbuf_len* is the length of the slice.
@@ -281,7 +286,7 @@ Compound
         +----------+---------+----------+---------+
     0   |   tag    |  arity  |       flags        |    CELL 1
         +----------+---------+----------+---------+
-    4   |                 nbr_cells               |
+    4   |                 num_cells               |
         +----------+---------+----------+---------+
     8   |                                         |
         +               - UNUSED -                +
@@ -296,9 +301,10 @@ Compound
 
 Where *tag* is TAG_LITERAL.
 Where *arity* is > 0.
-Where *nbr_cells* is > 1 and includes the args.
+Where *flags* is 0.
+Where *num_cells* is > 1 and includes the args.
 Where *val_off* is a byte-offset into the symbol table of the functor name.
-Where args are the following cells (see *nbr_cells*).
+Where args are the following cells (see *num_cells*).
 
 The first cell is the functor, the args follow based on arity. Compounds
 can be nested to arbirary depth.
@@ -313,7 +319,7 @@ A list is just a special instance of a compound.
         +----------+---------+----------+---------+
     0   |   tag    |  arity  |       flags        |    CELL 1
         +----------+---------+----------+---------+
-    4   |                 nbr_cells               |
+    4   |                 num_cells               |
         +----------+---------+----------+---------+
     8   |                                         |
         +               - UNUSED -                +
@@ -328,9 +334,10 @@ A list is just a special instance of a compound.
 
 Where *tag* is TAG_LITERAL.
 Where *arity* is always 2.
-Where *nbr_cells* is > 1 and includes head & tail args.
+Where *flags* is 0.
+Where *num_cells* is > 1 and includes head & tail args.
 Where *val_off* is a byte-offset into the symbol table to the functor name '.'.
-Where args are the following cells (see *nbr_cells*).
+Where args are the following cells (see *num_cells*).
 Where the tail arg is usually a list.
 Where the final tail arg is usually the atom *[]*.
 
@@ -344,8 +351,8 @@ frame. It also contains a count of the number of variables that make up
 the frame. If a frame expands (creates new variables) the slots *may*
 become discontiguous if it's not the top frame.
 
-The frame plus it's slots constitute a working context for a set of
-goals. Choices can back-track to a given context.
+The frame plus it's slots constitute a working context (or *environment*)
+for a set of goals. Choices can back-track to a given context.
 
 Since only index numbers are used to refer to frames (a *ctx* number)
 the frame space can be easily resized.
@@ -372,7 +379,7 @@ pointers (if any) may need to be refreshed after creating new variables
 (eg. in length/2, copy_term/2 etc) as possibly the slot space was
 reallocated.
 
-A collection of slots constitute an environment and belong to a frame.
+A collection of slots constitute an *environment* and belong to a frame.
 
 
 Choices
@@ -395,12 +402,8 @@ One of the most important properties of a choice point is the choice
 generation signifiying when it was created. A cut will drop choice
 points with a generation more recent than the frame it originated in.
 
-A barrier temporarily updates the frame choice generation to create
-a pseudo frame to block cuts, this is used by call/n and friends. When
-a barrier is dropped the frame choice generation is restored to its
-prior value.
-
-Catchers are another ball game.
+A barrier temporarily creates a choice to block cuts, this is used by
+call/n and friends. When a barrier is dropped the choice is dropped.
 
 
 Trail

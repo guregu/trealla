@@ -26,6 +26,7 @@ typedef double pl_flt;
 typedef intmax_t pl_int;
 typedef uintmax_t pl_uint;
 typedef uint32_t pl_idx;
+typedef uint32_t pl_ctx;
 
 #define PL_INT_MAX INTMAX_MAX
 #define PL_INT_MIN INTMAX_MIN
@@ -54,6 +55,7 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 // Sentinel Value
 #define ERR_IDX (~(pl_idx)0)
 #define IDX_MAX (ERR_IDX-1)
+#define CTX_NUL (ERR_IDX-1)
 
 #define MAX_SMALL_STRING ((sizeof(void*)*2)-1)
 #define MAX_VAR_POOL_SIZE 16000
@@ -80,7 +82,7 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define is_cstring(c) ((c)->tag == TAG_CSTR)
 #define is_integer(c) ((c)->tag == TAG_INT)
 #define is_float(c) ((c)->tag == TAG_FLOAT)
-#define is_rational(c) ((c)->tag == TAG_RAT)
+#define is_rational(c) ((c)->tag == TAG_RATIONAL)
 #define is_indirect(c) ((c)->tag == TAG_INDIRECT)
 #define is_dbid(c) ((c)->tag == TAG_DBID)
 #define is_kvid(c) ((c)->tag == TAG_KVID)
@@ -232,7 +234,7 @@ enum {
 	TAG_CSTR=3,
 	TAG_INT=4,
 	TAG_FLOAT=5,
-	TAG_RAT=6,
+	TAG_RATIONAL=6,
 	TAG_INDIRECT=7,
 	TAG_BLOB=8,
 	TAG_DBID=9,
@@ -342,15 +344,13 @@ struct cell_ {
 	uint16_t flags;
 
 	union {
-		uint32_t num_cells;			// number of cells
-		uint32_t mid;				// used with TAG_EMPTY so not counted
+		uint32_t num_cells;				// number of cells
+		uint32_t mid;					// used with TAG_EMPTY
 	};
 
 	// 2 * 8 = 16 bytes.
 
 	union {
-
-		// Proper types...
 
 		pl_uint val_uint;
 		pl_int val_int;
@@ -380,22 +380,16 @@ struct cell_ {
 				predicate *match;		// used with TAG_INTERNED
 				builtins *bif_ptr;		// used with TAG_INTERNED
 				cell *tmp_attrs;		// used with TAG_VAR in copy_term
+				cell *val_ptr;			// used with TAG_INDIRECT
+				cell *val_attrs;		// used with TAG_EMPTY in slot
 			};
 
-			pl_idx var_num;				// used with TAG_VAR
+			uint32_t var_num;			// used with TAG_VAR
 
 			union {
-				uint32_t val_off;		// used with TAG_VAR & TAG_INTERNED
-				pl_idx var_ctx;			// used with TAG_VAR & FLAG_VAR_REF
+				uint32_t val_off;		// used with TAG_INTERNED / TAG_VAR -FLAG_VAR_REF
+				pl_ctx val_ctx;			// used with TAG_INDIRECT / TAG_VAR +FLAG_VAR_REF
 			};
-		};
-
-		struct {
-			cell *val_ptr;				// used with TAG_INDIRECT
-		};
-
-		struct {
-			cell *val_attrs;			// used with TAG_EMPTY in slot
 		};
 
 		struct {
@@ -446,6 +440,7 @@ struct predicate_ {
 	list dirty;
 	cell key;
 	pl_refcnt refcnt, cnt, db_id;
+	unsigned max_vars;
 	bool is_reload:1;
 	bool is_builtin:1;
 	bool is_public:1;
@@ -499,7 +494,8 @@ typedef struct {
 
 struct trail_ {
 	cell *attrs;
-	pl_idx var_ctx, var_num;
+	pl_ctx val_ctx;
+	uint32_t var_num;
 };
 
 // Where *c* is the (possibly) instantiated cell in the current frame
@@ -521,8 +517,9 @@ struct frame_ {
 	cell *instr;
 	module *m;
 	uint64_t dbgen, chgen;
-	pl_idx prev, base, op, hp, heap_num;
-	unsigned initial_slots, actual_slots;
+	pl_ctx prev;
+	pl_idx base, op, hp, heap_num, frame_size;
+	unsigned initial_slots, actual_slots, max_vars;
 	bool no_recov:1;
 };
 
@@ -530,13 +527,13 @@ struct run_state_ {
 	predicate *pr;
 	cell *instr;
 	rule *dbe;
-	sliter *iter, *f_iter;
+	sliter *iter, *tmp_iter;
 	module *m;
 
 	union {
 		struct {
 			cell *key;
-			pl_idx key_ctx;
+			pl_ctx key_ctx;
 			bool karg1_is_ground:1, karg2_is_ground:1, karg3_is_ground:1,
 			karg1_is_atomic:1, karg2_is_atomic:1, karg3_is_atomic:1;
 		};
@@ -546,7 +543,8 @@ struct run_state_ {
 	};
 
 	uint64_t timer_started;
-	pl_idx curr_frame, fp, hp, cp, tp, sp, heap_num;
+	pl_ctx cur_ctx;
+	pl_idx new_fp, hp, cp, tp, sp, heap_num;
 	uint8_t qnum;
 };
 
@@ -613,7 +611,6 @@ struct stream_ {
 	bool is_alias:1;
 };
 
-typedef struct msg_ msg;
 typedef struct thread_ thread;
 
 struct thread_ {
@@ -644,7 +641,7 @@ struct page_ {
 	page *next;
 	union {
 		cell *cells;
-		slot *slots;
+		frame *frames;
 	};
 	pl_idx idx, page_size;
 	unsigned num;
@@ -701,11 +698,12 @@ struct query_ {
 	unsigned realloc_frames, realloc_choices, realloc_slots, realloc_trails;
 	unsigned max_depth, max_eval_depth, print_idx, tab_idx, dump_var_num;
 	unsigned varno, tab0_varno, curr_engine, curr_chan, my_chan;
-	unsigned s_cnt, retries;
-	pl_idx tmphp, latest_ctx, popp, variable_names_ctx, dump_var_ctx;
+	unsigned s_cnt, retries, popp;
+	pl_ctx latest_ctx, variable_names_ctx, dump_var_ctx, ball_ctx, cont_ctx;
+	pl_idx tmphp;
 	pl_idx frames_size, slots_size, trails_size, choices_size;
 	pl_idx hw_choices, hw_frames, hw_slots, hw_trails, hw_heap_num, hw_deref;
-	pl_idx cp, before_hook_tp, qcnt[MAX_QUEUES], ball_ctx, cont_ctx;
+	pl_idx cp, before_hook_tp, qcnt[MAX_QUEUES];
 	pl_idx heap_size, tmph_size, total_heaps, total_heapsize;
 	pl_idx undo_lo_tp, undo_hi_tp;
 	pl_idx q_size[MAX_QUEUES], tmpq_size[MAX_QUEUES], qp[MAX_QUEUES];
@@ -785,13 +783,13 @@ struct parser_ {
 	cell v;
 	stringbuf token_buf;
 	prolog_flags flags;
+	query *q;
 	char *save_line, *srcptr, *error_desc;
 	size_t token_size, n_line, pos_start;
 	unsigned line_num, line_num_start;
 	unsigned depth, read_term_slots, num_vars;
 	unsigned nesting_parens, nesting_braces, nesting_brackets;
 	int quote_char, entered;
-	int8_t dq_consing;
 	bool error, if_depth[MAX_IF_DEPTH];
 	bool was_consing:1;
 	bool was_string:1;
@@ -864,7 +862,8 @@ struct module_ {
 };
 
 typedef struct {
-	pl_idx ctx, val_off;
+	pl_ctx ctx;
+	pl_idx val_off;
 	unsigned var_num, cnt;
 	bool is_anon;
 } var_item;
@@ -994,14 +993,14 @@ inline static pl_idx copy_cells(cell *dst, const cell *src, pl_idx num_cells)
 	return num_cells;
 }
 
-inline static pl_idx copy_cells_by_ref(cell *dst, const cell *src, pl_idx src_ctx, pl_idx num_cells)
+inline static pl_idx copy_cells_by_ref(cell *dst, const cell *src, pl_ctx src_ctx, pl_idx num_cells)
 {
 	for (pl_idx i = 0; i < num_cells; i++, src++, dst++) {
 		*dst = *src;
 
 		if (is_var(dst) && !is_ref(dst)) {
 			dst->flags |= FLAG_VAR_REF;
-			dst->var_ctx = src_ctx;
+			dst->val_ctx = src_ctx;
 		}
 	}
 
@@ -1018,7 +1017,7 @@ inline static pl_idx dup_cells(cell *dst, const cell *src, pl_idx num_cells)
 	return num_cells;
 }
 
-inline static pl_idx dup_cells_by_ref(cell *dst, const cell *src, pl_idx src_ctx, pl_idx num_cells)
+inline static pl_idx dup_cells_by_ref(cell *dst, const cell *src, pl_ctx src_ctx, pl_idx num_cells)
 {
 	for (pl_idx i = 0; i < num_cells; i++, src++, dst++) {
 		*dst = *src;
@@ -1026,7 +1025,7 @@ inline static pl_idx dup_cells_by_ref(cell *dst, const cell *src, pl_idx src_ctx
 
 		if (is_var(dst) && !is_ref(dst)) {
 			dst->flags |= FLAG_VAR_REF;
-			dst->var_ctx = src_ctx;
+			dst->val_ctx = src_ctx;
 		}
 	}
 
