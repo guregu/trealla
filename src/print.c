@@ -1712,16 +1712,18 @@ bool print_term_to_stream(query *q, stream *str, cell *c, pl_ctx c_ctx, int runn
 	while (len) {
 		size_t nbytes = net_write(src, len, str);
 
-		if (str->fp && feof(str->fp)) {
-			q->error = true;
-			SB_free(q->sb);
-			return false;
-		}
+		if (is_file_stream(str)) {
+			if (str->fp && feof(str->fp)) {
+				q->error = true;
+				SB_free(q->sb);
+				return false;
+			}
 
-		if (ferror(str->fp)) {
-			SB_free(q->sb);
-			stream_close(q, str->n);
-			return throw_error(q, q->st.instr,q->st.cur_ctx, "existence_error", "closed_stream");
+			if (ferror(str->fp)) {
+				SB_free(q->sb);
+				stream_close(q, str->n);
+				return throw_error(q, q->st.instr,q->st.cur_ctx, "existence_error", "closed_stream");
+			}
 		}
 
 		len -= nbytes;

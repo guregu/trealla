@@ -182,13 +182,6 @@ bool pl_query(prolog *pl, const char *s, pl_sub_query **subq, unsigned int yield
 	pl->is_query = true;
 	bool ok = run(pl->p, s, true, (query**)subq, yield_time_in_ms);
 	if (get_status(pl)) pl->m = pl->p->m;
-	// NOTE: this is one of the few places this fork diverges from upstream
-	// in that we keep the parser around for the lifetime of the query.
-	// TODO: do we still need this?
-	if (!ok) {
-		parser_destroy(pl->p);
-		pl->p = NULL;
-	}
 	return ok;
 }
 
