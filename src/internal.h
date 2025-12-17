@@ -539,6 +539,7 @@ struct run_state_ {
 		};
 		struct { uint64_t uv1, uv2; };
 		struct { int64_t v1, v2; };
+		struct { cell *c; pl_ctx c_ctx; };
 		int64_t cnt;
 	};
 
@@ -587,7 +588,7 @@ struct stream_ {
 	};
 
 	size_t data_len, alloc_nbytes;
-	int ungetch, srclen, chan;
+	int ungetch, srclen, chan, n;
 	unsigned rows, cols;
 	uint8_t level, eof_action;
 	bool ignore:1;
@@ -819,6 +820,7 @@ struct parser_ {
 	bool interactive:1;
 	bool in_body:1;
 	bool is_number_chars:1;
+	bool double_bar:1;
 };
 
 typedef struct loaded_file_ loaded_file;
@@ -1048,6 +1050,7 @@ uint64_t get_time_in_usec(void);
 uint64_t cpu_time_in_usec(void);
 char *relative_to(const char *basefile, const char *relfile);
 size_t sprint_int(char *dst, size_t size, pl_int n, int base);
+int format_integer(char *dst, cell *c, int grouping, int sep, int decimals, int radix);
 const char *dump_key(const void *k, const void *v, const void *p);
 
 extern unsigned g_max_depth;

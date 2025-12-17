@@ -42,7 +42,7 @@ static void clear_visited(visit *visited, visit *save_visited)
 	}
 }
 
-cell *string_to_chars_list(query *q, cell *p, pl_ctx p_ctx)
+cell *string_to_chars_list(query *q, cell *p)
 {
 	LIST_HANDLER(p);
 	init_tmp_heap(q);
@@ -230,8 +230,6 @@ static bool has_spaces(const char *src, int srclen)
 
 char *formatted(const char *src, int srclen, bool dq, bool json)
 {
-	extern const char *g_escapes;
-	extern const char *g_anti_escapes;
 	SB(sb);
 
 	while (srclen > 0) {
@@ -1637,6 +1635,12 @@ bool print_canonical_to_stream(query *q, stream *str, cell *c, pl_ctx c_ctx, int
 			return false;
 		}
 
+		if (ferror(str->fp)) {
+			SB_free(q->sb);
+			stream_close(q, str->n);
+			return throw_error(q, q->st.instr,q->st.cur_ctx, "existence_error", "closed_stream");
+		}
+
 		len -= nbytes;
 		src += nbytes;
 	}
@@ -1666,6 +1670,11 @@ bool print_canonical(query *q, FILE *fp, cell *c, pl_ctx c_ctx, int running)
 			q->error = true;
 			SB_free(q->sb);
 			return false;
+		}
+
+		if (ferror(fp)) {
+			SB_free(q->sb);
+			return throw_error(q, q->st.instr,q->st.cur_ctx, "existence_error", "closed_stream");
 		}
 
 		len -= nbytes;
@@ -1709,6 +1718,12 @@ bool print_term_to_stream(query *q, stream *str, cell *c, pl_ctx c_ctx, int runn
 			return false;
 		}
 
+		if (ferror(str->fp)) {
+			SB_free(q->sb);
+			stream_close(q, str->n);
+			return throw_error(q, q->st.instr,q->st.cur_ctx, "existence_error", "closed_stream");
+		}
+
 		len -= nbytes;
 		src += nbytes;
 	}
@@ -1723,6 +1738,7 @@ bool print_term(query *q, FILE *fp, cell *c, pl_ctx c_ctx, int running)
 	q->last_thing = WAS_SPACE;
 	SB_init(q->sb);
 	print_term_to_buf(q, c, c_ctx, running, false);
+	if (q->fullstop) SB_putchar(q->sb, '.');
 	if (q->nl) SB_putchar(q->sb, '\n');
 	const char *src = SB_cstr(q->sb);
 	ssize_t len = SB_strlen(q->sb);
@@ -1736,6 +1752,11 @@ bool print_term(query *q, FILE *fp, cell *c, pl_ctx c_ctx, int running)
 			return false;
 		}
 
+		if (ferror(fp)) {
+			SB_free(q->sb);
+			return throw_error(q, q->st.instr,q->st.cur_ctx, "existence_error", "closed_stream");
+		}
+
 		len -= nbytes;
 		src += nbytes;
 	}
@@ -1744,9 +1765,8 @@ bool print_term(query *q, FILE *fp, cell *c, pl_ctx c_ctx, int running)
 	return true;
 }
 
-void clear_write_options(query *q)
+void partial_clear_write_options(query *q)
 {
-	q->print_idx = 0;
 	q->max_depth = q->pl->def_max_depth;
 	q->quoted = 0;
 	q->nl = q->fullstop = q->varnames = q->ignore_ops = false;
@@ -1755,5 +1775,11 @@ void clear_write_options(query *q)
 	q->last_thing = WAS_OTHER;
 	q->variable_names = NULL;
 	q->cycle_error = false;
+}
+
+void clear_write_options(query *q)
+{
+	partial_clear_write_options(q);
+	q->print_idx = 0;
 	memset(q->ignores, 0, sizeof(q->ignores));
 }

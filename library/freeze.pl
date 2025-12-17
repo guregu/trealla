@@ -44,13 +44,28 @@ attribute_goals(Var) -->
 
 :- use_module(library(lists)).
 
+:- help(freeze(-var,+goal), [iso(false)]).
+:- help(frozen(@term,-goal), [iso(false)]).
+
 frozen(Term, Goal) :-
-	copy_term(Term, Term2, Gs),
+	term_attributed_variables_(Term, Vs),
+	collect_atts_(Vs, [], AttsList),
+	collect_goals_(Vs, [], Gs),
+	reapply_atts_(Vs, AttsList),
 	( Gs = [] ->
 		Goal = true
 	;
-		Term = Term2,
 		flatten(Gs, Gs2),
 		list_to_conjunction(Gs2, Fresh),
 		Fresh = Goal
 	).
+
+collect_atts_([], AttsList, AttsList).
+collect_atts_([X|Tail], AttsList0, AttsList) :-
+	get_atts(X, Atts),
+	collect_atts_(Tail, [Atts|AttsList0], AttsList).
+
+reapply_atts_([], _).
+reapply_atts_([X|Tail], [Atts|Tail2]) :-
+	put_atts(X, Atts),
+	reapply_atts_(Tail, Tail2).

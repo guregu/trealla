@@ -4,7 +4,6 @@
 	]).
 
 :- use_module(library(lists)).
-:- use_module(library(dict)).
 
 read_response(S, Code) :-
 	getline(S, Line),
@@ -27,7 +26,7 @@ read_chunks(S, Tmp, Data) :-
 	hex_chars(Len, Line),
 	Len > 0,
 	!,
-	bread(S, Len, Tmp2),
+	'$bread'(S, Len, Tmp2),
 	getline(S, _),
 	(	Tmp = "" ->
 		Tmp3 = Tmp2
@@ -37,9 +36,9 @@ read_chunks(S, Tmp, Data) :-
 read_chunks(_, Data, Data).
 
 read_body(S, Hdrs, Data) :-
-	d_get(Hdrs, "content-length", V),
+	member("content-length":V, Hdrs),
 	number_chars(Len, V),
-	bread(S, Len, Data).
+	'$bread'(S, Len, Data).
 
 % Open with options...
 
@@ -59,7 +58,7 @@ http_open(UrlList, S, Opts) :-
 	format(S, '~s /~s HTTP/~d.~d\r~nHost: ~s\r~nConnection: keep-alive\r~n\r~n', [UMethod,Path,Major,Minor,Host]),
 	read_response(S, Code),
 	findall(Hdr, read_header(S, Hdr), Hdrs),
-	ignore(d_get(Hdrs, "location", Location)),
+	ignore(member("location":Location, Hdrs)),
 	ignore(memberchk(status_code(Code), OptList)),
 	ignore(memberchk(headers(Hdrs), OptList)),
 	ignore(memberchk(final_url(Location), OptList)).
@@ -81,7 +80,7 @@ process(Url, S, Opts) :-
 	;	Clen = ''
 	),
 	format(S, "~s /~s HTTP/~d.~d\r~nHost: ~s\r~nConnection: close\r~n~a~a\r~n", [UMethod,Path,Major,Minor,Host,Ctype,Clen]),
-	(nonvar(DataLen) -> bwrite(S, PostData) ; true),
+	(nonvar(DataLen) -> '$bwrite'(S, PostData) ; true),
 	read_response(S, Code),
 	findall(Hdr, read_header(S, Hdr), Hdrs),
 	ignore(memberchk(status_code2(Code), OptList)),
@@ -93,13 +92,16 @@ http_get(Url, Data, Opts) :-
 	Opts2=[headers2(Hdrs)|Opts],
 	Opts3=[status_code2(Code)|Opts2],
 	process(Url, S, Opts3),
-	d_get(Hdrs, "transfer-encoding", TE, ''),
+	( member("transfer-encoding":TE, Hdrs) -> true ; Te = ''),
 	(	TE == "chunked" -> read_chunks(S, "", Body)
 	; read_body(S, Hdrs, Body)
 	),
 	close(S),
-	(	memberchk(Code, [301,302]) -> (d_get(Hdrs, "location", Loc, ''),
-		http_get(Loc, Data, Opts))
+	(	memberchk(Code, [301,302]) ->
+		(
+			(member("location":Loc, Hdrs) -> true ; Loc = ''),
+			http_get(Loc, Data, Opts)
+		)
 	; 	(Data=Body,
 		ignore(memberchk(final_url(Url), Opts)),
 		ignore(memberchk(status_code(Code), Opts)),

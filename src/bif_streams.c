@@ -496,6 +496,7 @@ int new_stream(prolog *pl)
 		stream *str = &pl->streams[n];
 
 		if (!is_live_stream(str) && !str->ignore) {
+			str->n = n;
 			prolog_unlock(pl);
 			return n;
 		}
@@ -1657,6 +1658,9 @@ static bool bif_iso_open_4(query *q)
 			return throw_error(q, p1, p1_ctx, "existence_error", "source_sink");
 	}
 
+	if (S_ISFIFO(st.st_mode))
+		setvbuf(str->fp, NULL, _IONBF, 0);
+
 #if USE_MMAP
 	size_t offset = 0;
 #endif
@@ -1725,7 +1729,7 @@ static bool bif_iso_open_4(query *q)
 	return true;
 }
 
-static bool stream_close(query *q, int n)
+bool stream_close(query *q, int n)
 {
 	stream *str = &q->pl->streams[n];
 	parser_destroy(str->p);
@@ -2776,6 +2780,18 @@ bool parse_write_params(query *q, cell *c, pl_ctx c_ctx, cell **vnames, pl_ctx *
 		}
 
 		q->quoted = !CMP_STRING_TO_CSTR(q, c1, "true");
+	} else if (!CMP_STRING_TO_CSTR(q, c, "double_quotes")) {
+		if (is_var(c1)) {
+			throw_error(q, c1, c_ctx, "instantiation_error", "write_option");
+			return false;
+		}
+
+		if (!is_interned(c1) || (CMP_STRING_TO_CSTR(q, c1, "true") && CMP_STRING_TO_CSTR(q, c1, "false"))) {
+			throw_error(q, c, c_ctx, "domain_error", "write_option");
+			return false;
+		}
+
+		q->double_quotes = !CMP_STRING_TO_CSTR(q, c1, "true");
 	} else if (!CMP_STRING_TO_CSTR(q, c, "varnames")) {
 		if (is_var(c1)) {
 			throw_error(q, c1, c_ctx, "instantiation_error", "write_option");
@@ -2812,18 +2828,6 @@ bool parse_write_params(query *q, cell *c, pl_ctx c_ctx, cell **vnames, pl_ctx *
 		}
 
 		q->numbervars = !CMP_STRING_TO_CSTR(q, c1, "true");
-	} else if (!CMP_STRING_TO_CSTR(q, c, "double_quotes")) {
-		if (is_var(c1)) {
-			throw_error(q, c1, c_ctx, "instantiation_error", "write_option");
-			return false;
-		}
-
-		if (!is_interned(c1) || (CMP_STRING_TO_CSTR(q, c1, "true") && CMP_STRING_TO_CSTR(q, c1, "false"))) {
-			throw_error(q, c, c_ctx, "domain_error", "write_option");
-			return false;
-		}
-
-		q->double_quotes = !CMP_STRING_TO_CSTR(q, c1, "true");
 	} else if (!CMP_STRING_TO_CSTR(q, c, "variable_names")) {
 		if (is_var(c1)) {
 			throw_error(q, c1, c_ctx, "instantiation_error", "write_option");
@@ -6824,7 +6828,95 @@ static bool bif_client_5(query *q)
 	return unify(q, p4, p4_ctx, &tmp2, q->st.cur_ctx);
 }
 
-static bool bif_bread_3(query *q)
+static bool bif_sys_get_chars_3(query *q)
+{
+	GET_FIRST_ARG(pstr,stream);
+	GET_NEXT_ARG(p1,integer_or_var);
+	GET_NEXT_ARG(p2,var);
+	int n = get_stream(q, pstr);
+	stream *str = &q->pl->streams[n];
+	cell tmp;
+
+	if (is_var(p1)) {
+		size_t n_size = 1024;
+		char *data = malloc(n_size);
+		checked(data);
+		char *dst = data;
+		unsigned len = 0;
+
+		for (;;) {
+			int ch = str->ungetch ? str->ungetch : xgetc_utf8(net_getc, str);
+
+			if (feof(str->fp)) {
+				clearerr(str->fp);
+				break;
+			}
+
+			str->ungetch = 0;
+			size_t off = dst - data;
+
+			if ((off + MAX_BYTES_PER_CODEPOINT) >= n_size) {
+				data = realloc(data, n_size*=2);
+				checked(data);
+				dst = data + off;
+			}
+
+			dst += put_char_utf8(dst, ch);
+			len++;
+		}
+
+		make_uint(&tmp, len);
+		bool ok = unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+
+		if (!ok) {
+			free(data);
+			return false;
+		}
+
+		make_stringn(&tmp, data, dst-data);
+		ok = unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+		unshare_cell(&tmp);
+		free(data);
+		return ok;
+	}
+
+	if (is_bigint(p1))
+		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
+
+	int len = get_smallint(p1);
+
+	if (len < 0)
+		return false;
+
+	if (len == 0) {
+		make_atom(&tmp, g_nil_s);
+		return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	}
+
+	char *data = malloc(len*MAX_BYTES_PER_CODEPOINT+1);
+	checked(data);
+	char *dst = data;
+
+	while (len--) {
+		int ch = str->ungetch ? str->ungetch : xgetc_utf8(net_getc, str);
+		str->ungetch = 0;
+
+		if (feof(str->fp)) {
+			clearerr(str->fp);
+			break;
+		}
+
+		dst += put_char_utf8(dst, ch);
+	}
+
+	make_stringn(&tmp, data, dst-data);
+	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	unshare_cell(&tmp);
+	free(data);
+	return ok;
+}
+
+static bool bif_sys_bread_3(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	GET_NEXT_ARG(p1,integer_or_var);
@@ -6950,7 +7042,7 @@ static bool bif_bread_3(query *q)
 	return ok;
 }
 
-static bool bif_bflush_1(query *q)
+static bool bif_sys_bflush_1(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	int n = get_stream(q, pstr);
@@ -6962,7 +7054,7 @@ static bool bif_bflush_1(query *q)
 	return true;
 }
 
-static bool bif_bwrite_2(query *q)
+static bool bif_sys_bwrite_2(query *q)
 {
 	GET_FIRST_ARG(pstr,stream);
 	GET_NEXT_ARG(p1,atom);
@@ -7491,9 +7583,8 @@ static bool bif_portray_clause_1(query *q)
 	q->print_idx = 0;
 	q->double_quotes = true;
 	q->max_depth = 0;
+	q->fullstop = q->nl = true;
 	print_term(q, str->fp, p1, p1_ctx, 1);
-	fputc('.', str->fp);
-	fputc('\n', str->fp);
 	q->quoted = 0;
 	q->portray_vars = false;
 	clear_write_options(q);
@@ -7510,9 +7601,8 @@ static bool bif_portray_clause_2(query *q)
 	q->portray_vars = true;
 	q->print_idx = 0;
 	q->max_depth = 0;
+	q->fullstop = q->nl = true;
 	print_term(q, str->fp, p1, p1_ctx, 1);
-	fputc('.', str->fp);
-	fputc('\n', str->fp);
 	q->quoted = 0;
 	q->portray_vars = false;
 	clear_write_options(q);
@@ -7692,9 +7782,6 @@ builtins g_streams_bifs[] =
 	{"client", 5, bif_client_5, "+source_sink,-atom,-atom,-atom,+list", false, false, BLAH},
 	{"server", 3, bif_server_3, "+source_sink,--stream,+list", false, false, BLAH},
 	{"accept", 2, bif_accept_2, "+stream,--stream", false, false, BLAH},
-	{"bread", 3, bif_bread_3, "+stream,+integer,-string", false, false, BLAH},
-	{"bflush", 1, bif_bflush_1, "+stream", false, false, BLAH},
-	{"bwrite", 2, bif_bwrite_2, "+stream,-string", false, false, BLAH},
 
 	{"alias", 2, bif_alias_2, "+blob,+atom", false, false, BLAH},
 
@@ -7706,6 +7793,10 @@ builtins g_streams_bifs[] =
 	{"$capture_error_to_chars", 1, bif_sys_capture_error_to_chars_1, "-string", false, false, BLAH},
 	{"$capture_error_to_atom", 1, bif_sys_capture_error_to_atom_1, "-atom", false, false, BLAH},
 	{"$readline", 2, bif_sys_readline_2, "+string,-string", false, false, BLAH},
+	{"$get_chars", 3, bif_sys_get_chars_3, "+stream,+integer,-string", false, false, BLAH},
+	{"$bread", 3, bif_sys_bread_3, "+stream,+integer,-string", false, false, BLAH},
+	{"$bflush", 1, bif_sys_bflush_1, "+stream", false, false, BLAH},
+	{"$bwrite", 2, bif_sys_bwrite_2, "+stream,-string", false, false, BLAH},
 
 	{"$memory_stream_create", 2, fn_sys_memory_stream_create_2, "-stream,+options", false, false, BLAH},
 	{"$memory_stream_to_chars", 2, fn_sys_memory_stream_to_chars_2, "+stream,-string", false, false, BLAH},

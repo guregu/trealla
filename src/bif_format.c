@@ -7,7 +7,7 @@
 #include "prolog.h"
 #include "query.h"
 
-static int format_integer(char *dst, cell *c, int grouping, int sep, int decimals, int radix)
+int format_integer(char *dst, cell *c, int grouping, int sep, int decimals, int radix)
 {
 	char *tmpbuf1 = NULL, *tmpbuf2 = NULL;
 	char xtmpbuf1[256], xtmpbuf2[256];
@@ -172,6 +172,11 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 	save_fmt1 = fmt1;
 	save_fmt2 = fmt2;
 
+	bool is_partial = false;
+
+	if (p2 && !check_list(q, p2, p2_ctx, &is_partial, NULL) && is_partial)
+		return throw_error(q, p2, p2_ctx, "instantiation_error", "atom");
+
 	while (is_more_data(q, &fmt1)) {
 		int argval = 0, noargval = 1, argval_specified = 0;
 		int pos = dst - tmpbuf + 1;
@@ -195,6 +200,22 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 
 			if (is_var)
 				return throw_error(q, p2, p2_ctx, "instantiation_error", "atom");
+
+			if (is_negative(c))
+				return throw_error(q, p2, p2_ctx, "domain_error", "positive");
+
+			cell p1 = eval(q, c);
+			c = &p1;
+
+			if (is_float(c)) {
+				free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
+			}
+
+			if (!is_integer(c)) {
+				free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
+			}
 
 			noargval = 0;
 
@@ -302,9 +323,6 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 		}
 
 		if (ch == '+') {
-			if (!tabs)
-				continue;
-
 			if (!redo) {
 				int at = last_at = argval ? (last_at+argval) : 8;
 
@@ -363,7 +381,14 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 
 		switch(ch) {
 		case 's':
+			if (is_iso_list(c) && !check_list(q, c, c_ctx, &is_partial, NULL) && is_partial)
+				return throw_error(q, c, c_ctx, "instantiation_error", "atom");
+
 			if (is_nil(c)) {
+			} else if (is_var(c)) {
+				return throw_error(q, c, c_ctx, "instantiation_error", "atom");
+			} else if (is_number(c)) {
+				return throw_error(q, c, c_ctx, "type_error", "atom");
 			} else if (is_atom(c)) {
 				int len = noargval ? (int)C_STRLEN_UTF8(c) : MIN_OF(argval, (int)C_STRLEN_UTF8(c));
 				const char *src = C_STR(q, c);
@@ -399,10 +424,18 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 
 			break;
 
-		case 'c':
-			if (!is_integer(c)) {
+		case 'c': {
+			cell p1 = eval(q, c);
+			c = &p1;
+
+			if (is_float(c)) {
 				free(tmpbuf);
 				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
+			}
+
+			if (!is_integer(c)) {
+				free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
 			}
 
 			while (argval-- > 1) {
@@ -414,12 +447,15 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			dst += put_char_utf8(dst, (int)get_smallint(c));
 			len = 0;
 			break;
-
+		}
 		case 'e':
-		case 'E':
-			if (!is_float(c) && !is_smallint(c)) {
+		case 'E': {
+			cell p1 = eval(q, c);
+			c = &p1;
+
+			if (!is_float(c)) {
 				free(tmpbuf);
-				return throw_error(q, c, q->st.cur_ctx, "type_error", "float");
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
 			}
 
 			len = argval < 4096 ? 4096 : argval;
@@ -440,12 +476,15 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			}
 
 			break;
-
+		}
 		case 'g':
-		case 'G':
-			if (!is_float(c) && !is_smallint(c)) {
+		case 'G': {
+			cell p1 = eval(q, c);
+			c = &p1;
+
+			if (!is_float(c)) {
 				free(tmpbuf);
-				return throw_error(q, c, q->st.cur_ctx, "type_error", "float");
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
 			}
 
 			len = argval < 4096 ? 4096 : argval;
@@ -466,11 +505,14 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			}
 
 			break;
+		}
+		case 'f': {
+			cell p1 = eval(q, c);
+			c = &p1;
 
-		case 'f':
-			if (!is_float(c) && !is_smallint(c)) {
+			if (!is_float(c)) {
 				free(tmpbuf);
-				return throw_error(q, c, q->st.cur_ctx, "type_error", "float");
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
 			}
 
 			len = argval < 4096 ? 4096 : argval;
@@ -483,11 +525,19 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 				len = snprintf(dst, len, "%f", is_float(c) ? get_float(c) : get_smallint(c));
 
 			break;
+		}
+		case 'I': {
+			cell p1 = eval(q, c);
+			c = &p1;
 
-		case 'I':
-			if (!is_integer(c)) {
+			if (is_float(c)) {
 				free(tmpbuf);
 				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
+			}
+
+			if (!is_integer(c)) {
+				free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
 			}
 
 			char *tmpbuf2 = print_term_to_strbuf(q, c, 0, 0);
@@ -496,69 +546,102 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			CHECK_BUF(len*2+1);
 			len = format_integer(dst, c, noargval?3:argval, '_', 0, 10);
 			break;
+		}
+		case 'd': {
+			cell p1 = eval(q, c);
+			c = &p1;
 
-		case 'd':
-			if (!is_integer(c)) {
+			if (is_float(c)) {
 				free(tmpbuf);
 				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}
 
-			tmpbuf2 = print_term_to_strbuf(q, c, 0, 0);
+			if (!is_integer(c)) {
+				free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
+			}
+
+			char *tmpbuf2 = print_term_to_strbuf(q, c, 0, 0);
 			len = strlen(tmpbuf2);
 			free(tmpbuf2);
 			CHECK_BUF(len*2+1);
 			len = format_integer(dst, c, 0, ',', noargval?0:argval, 10);
 			break;
+		}
+		case 'D': {
+			cell p1 = eval(q, c);
+			c = &p1;
 
-		case 'D':
-			if (!is_integer(c)) {
+			if (is_float(c)) {
 				free(tmpbuf);
 				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}
 
-			tmpbuf2 = print_term_to_strbuf(q, c, 0, 0);
+			if (!is_integer(c)) {
+				free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
+			}
+
+
+			char *tmpbuf2 = print_term_to_strbuf(q, c, 0, 0);
 			len = strlen(tmpbuf2);
 			free(tmpbuf2);
 			CHECK_BUF(len*2+1);
 			len = format_integer(dst, c, 3, ',', noargval?0:argval, 10);
 			break;
-
-		case 'r':
+		}
+		case 'r': {
 			if (!noargval && ((argval < 2) || (argval > 36))) {
 				free(tmpbuf);
 				return throw_error(q, p1, p1_ctx, "domain_error", "radix_invalid");
 			}
 
-			if (!is_integer(c)) {
+			cell p1 = eval(q, c);
+			c = &p1;
+
+			if (is_float(c)) {
 				free(tmpbuf);
 				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}
 
-			tmpbuf2 = print_term_to_strbuf(q, c, 0, 0);
+			if (!is_integer(c)) {
+				free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
+			}
+
+			char *tmpbuf2 = print_term_to_strbuf(q, c, 0, 0);
 			len = strlen(tmpbuf2);
 			free(tmpbuf2);
 			CHECK_BUF(len*10);
 			len = format_integer(dst, c, 0, ',', 0, !argval?8:argval);
 			break;
-
-		case 'R':
+		}
+		case 'R': {
 			if (!noargval && ((argval < 2) || (argval > 36))) {
 				free(tmpbuf);
 				return throw_error(q, p1, p1_ctx, "domain_error", "radix_invalid");
 			}
 
-			if (!is_integer(c)) {
+			cell p1 = eval(q, c);
+			c = &p1;
+
+			if (is_float(c)) {
 				free(tmpbuf);
 				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}
 
-			tmpbuf2 = print_term_to_strbuf(q, c, 0, 0);
+			if (!is_integer(c)) {
+				free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
+			}
+
+			char *tmpbuf2 = print_term_to_strbuf(q, c, 0, 0);
 			len = strlen(tmpbuf2);
 			free(tmpbuf2);
 			CHECK_BUF(len*10);
 			len = format_integer(dst, c, 0, ',', 0, !argval?-8:-argval);
 			break;
-
+		}
 		case 'p': {
 			cell *tmp;
 			pl_idx num_cells;
@@ -652,6 +735,69 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 				q->ignore_ops = true;
 				q->quoted = 1;
 			}
+
+			char *tmpbuf2 = print_term_to_strbuf(q, c, c_ctx, 1);
+
+			if (q->cycle_error) {
+				free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "resource_error", "cyclic");
+			}
+
+			len = strlen(tmpbuf2);
+			CHECK_BUF(len);
+			strcpy(dst, tmpbuf2);
+			free(tmpbuf2);
+			clear_write_options(q);
+			q->quoted = saveq;
+			break;
+		}
+
+		case 'W':
+		{
+			int saveq = q->quoted;
+			q->numbervars = true;
+			q->double_quotes = true;
+
+			if (argval)
+				q->max_depth = argval;
+
+			pl_ctx c2_ctx;
+			cell *c2 = get_next_cell(q, &fmt2, &is_var, &c2_ctx);
+
+			if (!c2)
+				return throw_error(q, c, c_ctx, "domain_error", "empty_list1");
+
+			q->flags = q->st.m->flags;
+			q->numbervars = false;
+			cell *vnames = NULL;
+			pl_ctx vnames_ctx;
+			LIST_HANDLER(c2);
+
+			while (is_iso_list(c2)) {
+				cell *h = LIST_HEAD(c2);
+				h = deref(q, h, c2_ctx);
+				pl_ctx h_ctx = q->latest_ctx;
+
+				if (!parse_write_params(q, h, h_ctx, &vnames, &vnames_ctx)) {
+					clear_write_options(q);
+					return true;
+				}
+
+				c2 = LIST_TAIL(c2);
+				c2 = deref(q, c2, c2_ctx);
+				c2_ctx = q->latest_ctx;
+			}
+
+			if (is_var(c2)) {
+				clear_write_options(q);
+				return throw_error(q, c2, c2_ctx, "instantiation_error", "write_option");
+			}
+
+			if (!is_nil(c2)) {
+				clear_write_options(q);
+				return throw_error(q, c2, c2_ctx, "type_error", "list");
+			}
+
 
 			char *tmpbuf2 = print_term_to_strbuf(q, c, c_ctx, 1);
 

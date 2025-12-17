@@ -94,7 +94,7 @@ raw_argv(L) :- current_prolog_flag(raw_argv, L).
 	'$undo_trail'(Vars, State),
 	process_vars_(Vars, [], Goals),
 	'$redo_trail'(State),
-	maplist(call, Goals).
+	maplist(once, Goals).
 
 process_vars_([], Goals, Goals).
 process_vars_([Var-Val|Vars], SoFar, Goals) :-
@@ -112,8 +112,6 @@ process_var_([Att|Atts], Var, Val, SoFar, Goals) :-
 	append(SoFar, NewGoals, MoreGoals),
 	process_var_(Atts, Var, Val, MoreGoals, Goals).
 
-:- help(term_attributed_variables(+term,-list), [iso(false), desc('Return list of attributed variables in term')]).
-
 term_attvars_([], VsIn, VsIn).
 term_attvars_([H|T], VsIn, VsOut) :-
 	(	'$attributed_var'(H) ->
@@ -121,12 +119,12 @@ term_attvars_([H|T], VsIn, VsOut) :-
 	;	term_attvars_(T, VsIn, VsOut)
 	).
 
-term_attributed_variables(Term, Vs) :-
-	can_be(Vs, list, term_attributed_variables/2, _),
+term_attributed_variables_(Term, Vs) :-
+	can_be(Vs, list, term_attributed_variables_/2, _),
 	term_variables(Term, Vs0),
 	term_attvars_(Vs0, [], Vs).
 
-:- help(call_residue_vars(+term,-list), [iso(false), desc('Return list of attributed variables after goal')]).
+:- help(call_residue_vars(@goal,-list), [iso(false)]).
 :- meta_predicate(call_residue_vars(0,?)).
 
 call_residue_vars(G, Ls) :-
@@ -135,11 +133,12 @@ call_residue_vars(G, Ls) :-
 	'$list_attributed'(Mark, Ls0),
 	sort(Ls0, Ls).
 
-:- help(copy_term(+term,?term,-list), [iso(false)]).
+duplicate_term_(Term, Copy) :-
+	'$duplicate_term'(Term, Copy).
 
 copy_term(Term, Copy, Gs) :-
 	duplicate_term_(Term, Copy),
-	term_attributed_variables(Copy, Vs),
+	term_attributed_variables_(Copy, Vs),
 	collect_goals_(Vs, [], Gs).
 
 collect_goals_(_, [], GsIn, GsIn).
@@ -163,18 +162,18 @@ collect_goals_([V|T], GsIn, GsOut) :-
 
 print_goals_(_, []).
 print_goals_(Any, [Goal|Goals]) :-
-	(Any -> write(', ') ; true),
+	(Any -> write(',\n   ') ; true),
 	write(Goal),
 	(Goals == [] -> true ;	write(', ')),
 	print_goals_(false, Goals).
 
 dump_attvars_([], []).
 dump_attvars_([Var|Vars], [Gs|Rest]) :-
-	term_attributed_variables(Var, Vs),
+	term_attributed_variables_(Var, Vs),
 	collect_goals_(Vs, [], Gs),
 	dump_attvars_(Vars, Rest).
 
-dump_attvars(Any) :-
+dump_attvars_(Any) :-
 	'$list_attributed'(0, Vs0),
 	sort(Vs0, Vs),
 	dump_attvars_(Vs, Gs0),
@@ -201,9 +200,6 @@ sort(A, B, C, D) :-
 	'$sort'(A, B, C, D).
 
 :- help(sort(+term,+atom,+list,?term), [iso(false)]).
-
-duplicate_term_(X, Y) :-
-	'$duplicate_term'(X, Y).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %

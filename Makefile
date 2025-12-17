@@ -148,7 +148,6 @@ LIBOBJECTS +=  \
 	library/curl.o \
 	library/dcgs.o \
 	library/debug.o \
-	library/dict.o \
 	library/dif.o \
 	library/error.o \
 	library/format.o \

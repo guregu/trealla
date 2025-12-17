@@ -13,13 +13,7 @@ get_line_to_chars(Stream, Cs0, Cs) :-
     partial_string(Line,Cs0,Cs).
 
 get_n_chars(Stream, N, Cs) :-
-	( N == 0 ->
-		peek_char(_),
-		Cs = []
-	;
-		bread(Stream, N, Cs0),
-		Cs0 = Cs
-	).
+	'$get_chars'(Stream, N, Cs).
 
 fabricate_var_name(VarType, VarName, N) :-
     char_code('A', AC),
