@@ -94,7 +94,13 @@ raw_argv(L) :- current_prolog_flag(raw_argv, L).
 	'$undo_trail'(Vars, State),
 	process_vars_(Vars, [], Goals),
 	'$redo_trail'(State),
-	maplist(once, Goals).
+	xmaplist_(Goals).
+
+xmaplist_([]).
+xmaplist_([E|T]) :-
+	once(E),
+	xmaplist_(T).
+
 
 process_vars_([], Goals, Goals).
 process_vars_([Var-Val|Vars], SoFar, Goals) :-
@@ -149,6 +155,14 @@ collect_goals_(V, [H|T], GsIn, GsOut) :-
 	!,
 	(Goal0 = [H2] -> Goal = H2 ; Goal = Goal0),
 	collect_goals_(V, T, [Goal|GsIn], GsOut).
+/*
+collect_goals_(V, [H|T], GsIn, GsOut) :-
+	nonvar(H),
+	H =.. [F, _],
+	attribute(M, F, 1),
+	Goal = M:put_atts(V, H),
+	collect_goals_(V, T, [Goal|GsIn], GsOut).
+*/
 collect_goals_(V, [_|T], GsIn, GsOut) :-
 	collect_goals_(V, T, GsIn, GsOut).
 
@@ -168,10 +182,8 @@ print_goals_(Any, [Goal|Goals]) :-
 	print_goals_(false, Goals).
 
 dump_attvars_([], []).
-dump_attvars_([Var|Vars], [Gs|Rest]) :-
-	term_attributed_variables_(Var, Vs),
-	collect_goals_(Vs, [], Gs),
-	dump_attvars_(Vars, Rest).
+dump_attvars_(Vars, Gs) :-
+	collect_goals_(Vars, [], Gs).
 
 dump_attvars_(Any) :-
 	'$list_attributed'(0, Vs0),
@@ -770,3 +782,35 @@ scalb(M, E, R) :-
 logb(M, E) :-
    E is floor(log(M)/log(2)).
 
+goal_expansion(maplist(G, L1), Goal) :-
+	nonvar(G), !,
+	term_variables(G, Args),
+	gensym:gensym(maplist_, U),
+	Goal =.. [U,Args,L1],
+	G1 =.. [U,Args,[]],
+	user:'$assertz'(G1),							% not dynamic
+	G2a =.. [U,Args,[E1|T1]],
+	G2b =.. [U,Args,T1],
+	user:'$assertz'((G2a :- call(G, E1), G2b)),		% not dynamic
+	true.
+goal_expansion(maplist(G, L1), maplist(G, L1)).
+
+goal_expansion(maplist(G, L1, L2), Goal) :-
+	nonvar(G), !,
+	term_variables(G, Args),
+	gensym:gensym(maplist_, U),
+	Goal =.. [U,Args,L1,L2],
+	G1 =.. [U,Args,[],[]],
+	user:'$assertz'(G1),							% not dynamic
+	G2a =.. [U,Args,[E1|T1],[E2|T2]],
+	G2b =.. [U,Args,T1,T2],
+	user:'$assertz'((G2a :- call(G, E1, E2), G2b)),	% not dynamic
+	true.
+goal_expansion(maplist(G, L1, L2), maplist(G, L1, L2)).
+
+goal_expansion(call_det(G, Det), Goal) :-
+	nonvar(G),
+	!,
+	Goal = ('$get_level'(L1), call(G), '$get_level'(L2), (L1 = L2 -> Det = true; Det = false)),
+	true.
+goal_expansion(call_det(G, V), call_det(G, V)).
