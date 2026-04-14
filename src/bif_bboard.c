@@ -50,25 +50,25 @@ static bool bif_bb_b_put_2(query *q)
 	if (DO_DUMP) DUMP_TERM2("bb_b_put", tmpbuf, p2, p2_ctx, 1);
 
 	char *key = strdup(tmpbuf);
-	checked(init_tmp_heap(q));
+	CHECKED(init_tmp_heap(q));
 	cell *tmp = copy_term_to_tmp(q, p2, p2_ctx, false);
-	checked(tmp);
+	CHECKED(tmp);
 	pl_idx num_cells = tmp->num_cells;
 	cell *val = malloc(sizeof(cell)*num_cells);
-	checked(val);
+	CHECKED(val);
 	dup_cells(val, tmp, tmp->num_cells);
 
 	int var_num = create_vars(q, 1);
-	checked(var_num != -1);
+	CHECKED(var_num != -1);
 
 	cell c, v;
-	make_ref(&c, var_num, q->st.cur_ctx);
+	make_ref(&c, var_num, q->st.curr_fp);
 	blob *b = calloc(1, sizeof(blob));
 	b->ptr = (void*)m;
 	b->ptr2 = (void*)strdup(key);
 	make_kvref(&v, b);
 
-	if (!unify(q, &c, q->st.cur_ctx, &v, q->st.cur_ctx))
+	if (!unify(q, &c, q->st.curr_fp, &v, q->st.curr_fp))
 		return false;
 
 	prolog_lock(q->pl);
@@ -119,12 +119,12 @@ static bool bif_bb_put_2(query *q)
 	if (DO_DUMP) DUMP_TERM2("bb_put", tmpbuf2, p2, p2_ctx, 1);
 
 	char *key2 = strdup(tmpbuf2);
-	checked(init_tmp_heap(q));
+	CHECKED(init_tmp_heap(q));
 	cell *tmp = copy_term_to_tmp(q, p2, p2_ctx, false);
-	checked(tmp);
+	CHECKED(tmp);
 	pl_idx num_cells = tmp->num_cells;
 	cell *val = malloc(sizeof(cell)*num_cells);
-	checked(val);
+	CHECKED(val);
 	dup_cells(val, tmp, tmp->num_cells);
 
 	prolog_lock(q->pl);
@@ -192,17 +192,17 @@ static bool bif_bb_get_2(query *q)
 
 	prolog_unlock(q->pl);
 
-	checked(check_frame(q, MAX_ARITY));
+	CHECKED(check_frame(q, MAX_ARITY));
 	try_me(q, MAX_ARITY);
-	cell *tmp = copy_term_to_heap(q, (cell*)val, q->st.new_fp, false);
-	checked(tmp);
+	cell *tmp = copy_term_to_heap(q, (cell*)val, q->st.fp, false);
+	CHECKED(tmp);
 	GET_FIRST_ARG(p1x,nonvar);
 	GET_NEXT_ARG(p2,any);
 
-	if (DO_DUMP) DUMP_TERM2("bb_get", tmpbuf, tmp, q->st.cur_ctx, 1);
+	if (DO_DUMP) DUMP_TERM2("bb_get", tmpbuf, tmp, q->st.curr_fp, 1);
 
 	if (is_var(p2) && is_var(tmp)) {
-		const frame *f = GET_FRAME(q->st.cur_ctx);
+		const frame *f = GET_FRAME(q->st.curr_fp);
 		const slot *e = get_slot(q, f, tmp->var_num);
 		const frame *f2 = GET_FRAME(p2_ctx);
 		slot *e2 = get_slot(q, f2, p2->var_num);
@@ -210,7 +210,7 @@ static bool bif_bb_get_2(query *q)
 		return true;
 	}
 
-	return unify(q, p2, p2_ctx, tmp, q->st.cur_ctx);
+	return unify(q, p2, p2_ctx, tmp, q->st.curr_fp);
 }
 
 static bool bif_bb_delete_2(query *q)
@@ -253,17 +253,17 @@ static bool bif_bb_delete_2(query *q)
 		return false;
 	}
 
-	checked(check_frame(q, MAX_ARITY), prolog_unlock(q->pl));
+	CHECKED(check_frame(q, MAX_ARITY), prolog_unlock(q->pl));
 	try_me(q, MAX_ARITY);
-	cell *tmp = copy_term_to_heap(q, (cell*)val, q->st.new_fp, false);
-	checked(tmp, prolog_unlock(q->pl));
+	cell *tmp = copy_term_to_heap(q, (cell*)val, q->st.fp, false);
+	CHECKED(tmp, prolog_unlock(q->pl));
 	GET_FIRST_ARG(p1x,nonvar);
 	GET_NEXT_ARG(p2,any);
 
-	if (DO_DUMP) DUMP_TERM2("bb_delete", tmpbuf, tmp, q->st.cur_ctx, 1);
+	if (DO_DUMP) DUMP_TERM2("bb_delete", tmpbuf, tmp, q->st.curr_fp, 1);
 
 	if (is_var(p2) && is_var(tmp)) {
-		const frame *f = GET_FRAME(q->st.cur_ctx);
+		const frame *f = GET_FRAME(q->st.curr_fp);
 		const slot *e = get_slot(q, f, tmp->var_num);
 		const frame *f2 = GET_FRAME(p2_ctx);
 		slot *e2 = get_slot(q, f2, p2->var_num);
@@ -273,7 +273,7 @@ static bool bif_bb_delete_2(query *q)
 		return ok;
 	}
 
-	if (!unify(q, p2, p2_ctx, tmp, q->st.cur_ctx)) {
+	if (!unify(q, p2, p2_ctx, tmp, q->st.curr_fp)) {
 		prolog_unlock(q->pl);
 		return false;
 	}
@@ -329,28 +329,28 @@ static bool bif_bb_update_3(query *q)
 		return false;
 	}
 
-	checked(check_frame(q, MAX_ARITY), prolog_unlock(q->pl));
+	CHECKED(check_frame(q, MAX_ARITY), prolog_unlock(q->pl));
 	try_me(q, MAX_ARITY);
 	q->noderef = true;
-	cell *tmp = copy_term_to_heap(q, (cell*)val, q->st.new_fp, false);
+	cell *tmp = copy_term_to_heap(q, (cell*)val, q->st.fp, false);
 	q->noderef = false;
-	checked(tmp, prolog_unlock(q->pl));
+	CHECKED(tmp, prolog_unlock(q->pl));
 	GET_FIRST_ARG(p1x,nonvar);
 	GET_NEXT_ARG(p2,any);
 	GET_NEXT_ARG(p3,any);
 
 	if (DO_DUMP) DUMP_TERM2("bb_update", tmpbuf, p2, p2_ctx, 1);
 
-	if (!unify(q, p2, p2_ctx, tmp, q->st.cur_ctx)) {
+	if (!unify(q, p2, p2_ctx, tmp, q->st.curr_fp)) {
 		prolog_unlock(q->pl);
 		return false;
 	}
 
 	key = strdup(tmpbuf);
 	tmp = copy_term_to_heap(q, p3, p3_ctx, false);
-	checked(tmp, prolog_unlock(q->pl));
+	CHECKED(tmp, prolog_unlock(q->pl));
 	cell *value = malloc(sizeof(cell)*tmp->num_cells);
-	checked(value, prolog_unlock(q->pl));
+	CHECKED(value, prolog_unlock(q->pl));
 	dup_cells(value, tmp, tmp->num_cells);
 
 	while (sl_del(q->pl->keyval, key))

@@ -509,25 +509,13 @@ static bool dump_variable(query *q, cell *c, pl_ctx c_ctx, bool running)
 	while (is_iso_list(l)) {
 		cell *h = LIST_HEAD(l);
 		h = running ? deref(q, h, l_ctx) : h;
-		pl_ctx h_ctx = running ? q->latest_ctx : 0;
+		pl_ctx h_ctx = running ? q->latest_ctx : l_ctx;
 		cell *name = running ? deref(q, h+1, h_ctx) : h+1;
-		cell *v = running ? deref(q, h+2, h_ctx) : h+2;
-		pl_ctx v_ctx = running ? q->latest_ctx : 0;
-
-		const frame *f = GET_FRAME(running ? v_ctx : 0);
-		pl_idx slot_nbr = running ?
-			(pl_idx)(get_actual_slot_num(q, f, v->var_num))
-			: v->var_num;
+		cell *v = 0 && running ? deref(q, h+2, h_ctx) : h+2;
+		pl_ctx v_ctx = 0 && running ? q->latest_ctx : l_ctx;
 
 		if (is_var(v) && (v->var_num == c->var_num) && (v_ctx == c_ctx)) {
-			if (0 && !strcmp(C_STR(q, name), "_")) {
-				print_variable(q, v, v_ctx, running);
-			} else if (q->is_dump_vars && !strcmp(C_STR(q, name), "_")) {
-				SB_sprintf(q->sb, "%s", get_slot_name(q, slot_nbr, q->listing||q->portray_vars));
-			} else {
-				SB_sprintf(q->sb, "%s", C_STR(q, name));
-			}
-
+			SB_sprintf(q->sb, "%s", C_STR(q, name));
 			q->last_thing = WAS_OTHER;
 			return true;
 		}
@@ -816,6 +804,25 @@ static void print_iso_list(query *q, cell *c, pl_ctx c_ctx, int running, bool co
 	clear_visited(visited, save_visited);
 }
 
+static const char *find_match(query *q, cell *v, pl_ctx v_ctx)
+{
+	const frame *f = GET_FRAME(0);
+
+	for (unsigned i = 0; i < q->top->vartab.num_vars; i++) {
+		slot *e = get_slot(q, f, i);
+
+		if (is_empty(&e->c))
+			continue;
+
+		cell *c = deref(q, &e->c, 0);
+		pl_ctx c_ctx = q->latest_ctx;
+
+		//return "$$$";
+	}
+
+	return "...";
+}
+
 static bool print_interned(query *q, cell *c, pl_ctx c_ctx, bool running, unsigned depth, visit *visited)
 {
 	// ATOM / COMPOUND
@@ -923,24 +930,27 @@ static bool print_interned(query *q, cell *c, pl_ctx c_ctx, bool running, unsign
 				pl_ctx tmp_ctx = c_ctx;
 				if (running) tmp = deref(q, tmp, tmp_ctx);
 				if (running) tmp_ctx = q->latest_ctx;
+				bool is_cyclic = has_visited(visited, tmp, tmp_ctx);
 
-				if (q->do_dump_vars && is_var(c) && 0 && is_cyclic_term(q, tmp, c_ctx)) {
-					print_variable(q, c, c_ctx, 0);
-					if (arity) {SB_sprintf(q->sb, "%s", ","); }
-					q->last_thing = WAS_OTHER;
-					continue;
-				} else if (q->is_dump_vars && has_visited(visited, tmp, tmp_ctx)) {
-					tmp = c;
-					tmp_ctx = c_ctx;
+				if (q->is_dump_vars && is_cyclic) {
 					if (c_ctx == 0) { SB_sprintf(q->sb, "%s", GET_POOL(q, q->top->vartab.off[c->var_num])); }
-					else { SB_sprintf(q->sb, "%s", !is_ref(tmp) ? "..." : "_"); }
+					else { SB_sprintf(q->sb, "%s", find_match(q, c, c_ctx)); }
 					if (arity) {SB_sprintf(q->sb, "%s", ","); }
 					q->last_thing = WAS_OTHER;
 					continue;
 				}
 
 				if (q->max_depth && ((depth+!braces) >= q->max_depth)) {
-					SB_sprintf(q->sb, "%s", "...");
+					if (q->variable_names && is_var(c)) {
+						//if (!dump_variable(q, c, c_ctx, running))
+						//	print_variable(q, c, c_ctx, running);
+						SB_sprintf(q->sb, "%s", "...");
+					} else if (is_var(c)) {
+						SB_sprintf(q->sb, "%s", GET_POOL(q, q->top->vartab.off[c->var_num]));
+					} else {
+						SB_sprintf(q->sb, "%s", "...");
+					}
+
 					q->last_thing = WAS_SYMBOL;
 
 					if (arity) {
@@ -1417,7 +1427,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_ctx c_ctx, int running, int
 		int radix = 10;
 		size_t len = mp_int_string_len(&c->val_bigint->irat.num, radix) - 1;
 		char *dst2 = malloc(len+1);
-		checked(dst2);
+		CHECKED(dst2);
 		mp_int_to_string(&c->val_bigint->irat.num, radix, dst2, len+1);
 		SB_sprintf(q->sb, "%s", dst2);
 		free(dst2);
@@ -1437,7 +1447,7 @@ static bool print_term_to_buf_(query *q, cell *c, pl_ctx c_ctx, int running, int
 		int radix = 10;
 		size_t len = mp_int_string_len(&c->val_bigint->ival, radix) - 1;
 		char *dst2 = malloc(len+1);
-		checked(dst2);
+		CHECKED(dst2);
 		mp_int_to_string(&c->val_bigint->ival, radix, dst2, len+1);
 		SB_sprintf(q->sb, "%s", dst2);
 		free(dst2);
@@ -1529,7 +1539,12 @@ static bool print_term_to_buf_(query *q, cell *c, pl_ctx c_ctx, int running, int
 				if (e) e->vgen = save_vgen;
 			}
 
-			if (is_smallint(h) && !both) {
+			if (!both && (c->flags & FLAG_CSTR_CODES) && (h->val_uint < ' ')) {
+				char tmpbuf[2];
+				tmpbuf[0] = h->val_uint;
+				tmpbuf[1] = 0;
+				SB_strcat_and_free(q->sb, formatted(tmpbuf, 1, true, q->json));
+			} else if (is_smallint(h) && !both) {
 				SB_putchar(q->sb, h->val_uint);
 			} else {
 				SB_strcat_and_free(q->sb, formatted(C_STR(q, h), C_STRLEN(q, h), true, q->json));
@@ -1637,8 +1652,8 @@ bool print_canonical_to_stream(query *q, stream *str, cell *c, pl_ctx c_ctx, int
 
 		if (ferror(str->fp)) {
 			SB_free(q->sb);
-			stream_close(q, str->n);
-			return throw_error(q, q->st.instr,q->st.cur_ctx, "existence_error", "stream");
+			stream_close(q, str->idx);
+			return throw_error(q, q->st.instr,q->st.curr_fp, "existence_error", "stream");
 		}
 
 		len -= nbytes;
@@ -1674,7 +1689,7 @@ bool print_canonical(query *q, FILE *fp, cell *c, pl_ctx c_ctx, int running)
 
 		if (ferror(fp)) {
 			SB_free(q->sb);
-			return throw_error(q, q->st.instr,q->st.cur_ctx, "existence_error", "stream");
+			return throw_error(q, q->st.instr,q->st.curr_fp, "existence_error", "stream");
 		}
 
 		len -= nbytes;
@@ -1713,7 +1728,7 @@ bool print_term_to_stream(query *q, stream *str, cell *c, pl_ctx c_ctx, int runn
 		size_t nbytes = net_write(src, len, str);
 
 		if (is_file_stream(str)) {
-			if (str->fp && feof(str->fp)) {
+			if (feof(str->fp)) {
 				q->error = true;
 				SB_free(q->sb);
 				return false;
@@ -1721,8 +1736,8 @@ bool print_term_to_stream(query *q, stream *str, cell *c, pl_ctx c_ctx, int runn
 
 			if (ferror(str->fp)) {
 				SB_free(q->sb);
-				stream_close(q, str->n);
-				return throw_error(q, q->st.instr,q->st.cur_ctx, "existence_error", "stream");
+				stream_close(q, str->idx);
+				return throw_error(q, q->st.instr,q->st.curr_fp, "existence_error", "stream");
 			}
 		}
 
@@ -1756,7 +1771,7 @@ bool print_term(query *q, FILE *fp, cell *c, pl_ctx c_ctx, int running)
 
 		if (ferror(fp)) {
 			SB_free(q->sb);
-			return throw_error(q, q->st.instr,q->st.cur_ctx, "existence_error", "stream");
+			return throw_error(q, q->st.instr,q->st.curr_fp, "existence_error", "stream");
 		}
 
 		len -= nbytes;

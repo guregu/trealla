@@ -5,7 +5,14 @@
 #include <string.h>
 #include <unistd.h>
 
-#if defined(USE_ISOCLINE)
+// On Nixes EDITLINE should be available if not defined uses GNU READLINE.
+// On WASM and Windows ISOCLINE?
+
+#if !defined(USE_EDITLINE) && !defined(USE_ISOCLINE) && !defined(USE_READLINE)
+#define USE_EDITLINE
+#endif
+
+#if defined(USE_ISOCLINE) || defined(_WIN32) && defined(__wasi__)
 #include "isocline/include/isocline.h"
 #endif
 
@@ -17,7 +24,7 @@
 #endif
 #endif
 
-#if !defined(USE_ISOCLINE) && !defined(USE_EDITLINE) && !defined(__wasi__)
+#if defined(USE_READLINE) && !defined(__wasi__)
 #include <readline/readline.h>
 #include <readline/history.h>
 #endif
@@ -74,7 +81,7 @@ LOOP:
 	if (cmd) {
 		size_t n = strlen(cmd) + strlen(line);
 		cmd = realloc(cmd, n+1);
-		ensure(cmd);
+		ENSURE(cmd);
 		strcat(cmd, line);
 	} else {
 		cmd = strdup(line);
@@ -108,7 +115,7 @@ LOOP:
 
 		if (ch == 0) {
 			cmd = realloc(cmd, strlen(cmd)+1+1);
-			ensure(cmd);
+			ENSURE(cmd);
 			strcat(cmd, "\n");
 			prompt = "";
 			goto LOOP;
@@ -341,7 +348,7 @@ LOOP:
 	if (cmd) {
 		size_t n = strlen(cmd) + strlen(line);
 		cmd = realloc(cmd, n+1);
-		ensure(cmd);
+		ENSURE(cmd);
 		strcat(cmd, line);
 	} else {
 		cmd = strdup(line);
@@ -366,7 +373,7 @@ LOOP:
 
 		if (ch == 0) {
 			cmd = realloc(cmd, strlen(cmd)+1+1);
-			ensure(cmd);
+			ENSURE(cmd);
 			strcat(cmd, "\n");
 			prompt = "";
 			goto LOOP;

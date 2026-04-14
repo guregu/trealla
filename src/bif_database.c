@@ -53,12 +53,16 @@ static bool bif_clause_3(query *q)
 			if (!r || (!u.u1 && !u.u2))
 				break;
 
+			CHECKED(push_choice(q));
+
 			q->st.dbe = r;
 			cl = &r->cl;
 			cell *head = get_head(cl->cells);
 
-			if (!unify(q, p1, p1_ctx, head, q->st.new_fp))
+			if (!unify(q, p1, p1_ctx, head, q->st.fp)) {
+				drop_choice(q);
 				break;
+			}
 		} else {
 			if (match_clause(q, p1, p1_ctx, DO_CLAUSE) != true)
 				break;
@@ -67,7 +71,7 @@ static bool bif_clause_3(query *q)
 			uuid_to_buf(&q->st.dbe->u, tmpbuf, sizeof(tmpbuf));
 			cell tmp;
 			make_cstring(&tmp, tmpbuf);
-			unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
+			unify(q, p3, p3_ctx, &tmp, q->st.curr_fp);
 			unshare_cell(&tmp);
 			cl = &q->st.dbe->cl;
 		}
@@ -76,11 +80,11 @@ static bool bif_clause_3(query *q)
 		bool ok;
 
 		if (body)
-			ok = unify(q, p2, p2_ctx, body, q->st.new_fp);
+			ok = unify(q, p2, p2_ctx, body, q->st.fp);
 		else {
 			cell tmp;
 			make_instr(&tmp, g_true_s, bif_iso_true_0, 0, 0);
-			ok = unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+			ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_fp);
 		}
 
 		if (ok) {
@@ -92,7 +96,7 @@ static bool bif_clause_3(query *q)
 				last_match = true;
 			}
 
-			stash_frame(q, cl, last_match);
+			stash_frame(q, cl->num_vars, last_match);
 			return true;
 		}
 
@@ -120,13 +124,13 @@ static void db_log(query *q, rule *r, enum log_type l)
 
 	switch(l) {
 	case LOG_ASSERTA:
-		dst = print_term_to_strbuf(q, r->cl.cells, q->st.cur_ctx, 1);
+		dst = print_term_to_strbuf(q, r->cl.cells, q->st.curr_fp, 1);
 		uuid_to_buf(&r->u, tmpbuf, sizeof(tmpbuf));
 		fprintf(fp, "%s:'$a_'((%s),'%s').\n", q->st.m->name, dst, tmpbuf);
 		free(dst);
 		break;
 	case LOG_ASSERTZ:
-		dst = print_term_to_strbuf(q, r->cl.cells, q->st.cur_ctx, 1);
+		dst = print_term_to_strbuf(q, r->cl.cells, q->st.curr_fp, 1);
 		uuid_to_buf(&r->u, tmpbuf, sizeof(tmpbuf));
 		fprintf(fp, "%s:'$z_'((%s),'%s').\n", q->st.m->name, dst, tmpbuf);
 		free(dst);
@@ -154,17 +158,17 @@ static bool bif_iso_clause_2(query *q)
 		cell *body = get_body(cl->cells);
 		bool ok;
 
-		if (body)
-			ok = unify(q, p2, p2_ctx, body, q->st.new_fp);
-		else {
+		if (body) {
+			ok = unify(q, p2, p2_ctx, body, q->st.fp);
+		} else {
 			cell tmp;
 			make_instr(&tmp, g_true_s, bif_iso_true_0, 0, 0);
-			ok = unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+			ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_fp);
 		}
 
 		if (ok) {
 			bool last_match = !has_next_key(q);
-			stash_frame(q, cl, last_match);
+			stash_frame(q, cl->num_vars, last_match);
 			return true;
 		}
 
@@ -222,7 +226,9 @@ bool do_retract(query *q, cell *p1, pl_ctx p1_ctx, enum clause_type is_retract)
 	db_log(q, r, LOG_ERASE);
 	retract_from_db(r->owner->m, r);
 	bool last_match = (is_retract == DO_RETRACT) && !has_next_key(q);
-	stash_frame(q, &r->cl, last_match);
+	q->in_retract = true;
+	stash_frame(q, r->cl.num_vars, last_match);
+	q->in_retract = false;
 	return true;
 }
 
@@ -247,7 +253,7 @@ static bool bif_iso_retractall_1(query *q)
 		return false;
 
 	cell *head = deref(q, get_head(p1), p1_ctx);
-	predicate *pr = search_predicate(q->st.m, head, NULL);
+	predicate *pr = search_predicate(q->st.m, head);
 
 	if (!pr) {
 		bool found = false;
@@ -262,9 +268,11 @@ static bool bif_iso_retractall_1(query *q)
 		return true;
 
 	prolog_lock(q->pl);
+	q->in_retractall = true;
 
 	while (do_retract(q, p1, p1_ctx, DO_RETRACTALL)) {
 		if (q->did_throw) {
+			q->in_retractall = false;
 			prolog_unlock(q->pl);
 			return true;
 		}
@@ -274,27 +282,19 @@ static bool bif_iso_retractall_1(query *q)
 		retry_choice(q);
 	}
 
-	if (!pr->refcnt) {
-		predicate_purge_dirty_list(pr);
-
-		if (!pr->cnt) {
-			sl_destroy(pr->idx2);
-			sl_destroy(pr->idx1);
-			pr->idx1 = pr->idx2 = NULL;
-		}
-	}
-
+	q->in_retractall = false;
+	pr->is_processed = false;
 	prolog_unlock(q->pl);
 	return true;
 }
 
 bool do_abolish(query *q, cell *c_orig, cell *c_pi, bool hard)
 {
-	predicate *pr = search_predicate(q->st.m, c_pi, NULL);
+	predicate *pr = search_predicate(q->st.m, c_pi);
 	if (!pr) return true;
 
 	if (!pr->is_dynamic)
-		return throw_error(q, c_orig, q->st.cur_ctx, "permission_error", "modify,static_procedure");
+		return throw_error(q, c_orig, q->st.curr_fp, "permission_error", "modify,static_procedure");
 
 	for (rule *r = pr->head; r; r = r->next)
 		retract_from_db(r->owner->m, r);
@@ -362,7 +362,6 @@ static bool bif_iso_abolish_1(query *q)
 	bool found = false;
 
 	if (get_builtin(q->pl, C_STR(q, p1_name), C_STRLEN(q, p1_name), get_smallint(p1_arity), &found, NULL), found) {
-		prolog_unlock(q->pl);
 		return throw_error(q, p1, p1_ctx, "permission_error", "modify,static_procedure");
 	}
 
@@ -370,7 +369,6 @@ static bool bif_iso_abolish_1(query *q)
 	tmp = *p1_name;
 	tmp.arity = get_smallint(p1_arity);
 	CLR_OP(&tmp);
-
 	prolog_lock(q->pl);
 	bool ok = do_abolish(q, p1, &tmp, true);
 	prolog_unlock(q->pl);
@@ -380,30 +378,29 @@ static bool bif_iso_abolish_1(query *q)
 static bool bif_iso_asserta_1(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
-	checked(init_tmp_heap(q));
+	CHECKED(init_tmp_heap(q));
 	cell *tmp = copy_term_to_tmp(q, p1, p1_ctx, false);
-	checked(tmp);
+	CHECKED(tmp);
 	cell *head = get_head(tmp);
 
 	if (is_var(head))
-		return throw_error(q, head, q->st.cur_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
+		return throw_error(q, head, q->st.curr_fp, "instantiation_error", "args_not_sufficiently_instantiated");
 
 	if (!is_interned(head) && !is_cstring(head))
-		return throw_error(q, head, q->st.cur_ctx, "type_error", "callable");
+		return throw_error(q, head, q->st.curr_fp, "type_error", "callable");
 
 	bool found = false;
 
 	if (get_builtin_term(q->st.m, head, &found, NULL), found) {
 		if (!GET_OP(head)) {
-			return throw_error(q, head, q->st.cur_ctx, "permission_error", "modify,static_procedure");
+			return throw_error(q, head, q->st.curr_fp, "permission_error", "modify,static_procedure");
 		}
 	}
 
 	cell *tmp2, *body = get_body(tmp);
 
 	if (body && ((tmp2 = check_body_callable(body)) != NULL)) {
-		prolog_unlock(q->pl);
-		return throw_error(q, tmp2, q->st.cur_ctx, "type_error", "callable");
+		return throw_error(q, tmp2, q->st.curr_fp, "type_error", "callable");
 	}
 
 	pl_idx num_cells = tmp->num_cells;
@@ -411,7 +408,7 @@ static bool bif_iso_asserta_1(query *q)
 
 	if (num_cells > p->cl->num_allocated_cells) {
 		p->cl = realloc(p->cl, sizeof(clause)+(sizeof(cell)*(num_cells+1)));
-		checked(p->cl, prolog_unlock(q->pl));
+		CHECKED(p->cl);
 		p->cl->num_allocated_cells = num_cells;
 	}
 
@@ -428,8 +425,8 @@ static bool bif_iso_asserta_1(query *q)
 	parser_destroy(p);
 
 	if (!r) {
-		h = copy_term_to_heap(q, h, q->st.cur_ctx, false);
-		return throw_error(q, h, q->st.cur_ctx, "permission_error", "modify,static_procedure");
+		h = copy_term_to_heap(q, h, q->st.curr_fp, false);
+		return throw_error(q, h, q->st.curr_fp, "permission_error", "modify,static_procedure");
 	}
 
 	db_log(q, r, LOG_ASSERTA);
@@ -439,29 +436,29 @@ static bool bif_iso_asserta_1(query *q)
 static bool do_assertz_1(query *q, bool consulting)
 {
 	GET_FIRST_ARG(p1,callable);
-	checked(init_tmp_heap(q));
+	CHECKED(init_tmp_heap(q));
 	cell *tmp = copy_term_to_tmp(q, p1, p1_ctx, false);
-	checked(tmp);
+	CHECKED(tmp);
 	cell *head = get_head(tmp);
 
 	if (is_var(head))
-		return throw_error(q, head, q->st.cur_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
+		return throw_error(q, head, q->st.curr_fp, "instantiation_error", "args_not_sufficiently_instantiated");
 
 	if (!is_interned(head) && !is_cstring(head))
-		return throw_error(q, head, q->st.cur_ctx, "type_error", "callable");
+		return throw_error(q, head, q->st.curr_fp, "type_error", "callable");
 
 	bool found = false, evaluable = false;
 
 	if (get_builtin_term(q->st.m, head, &found, &evaluable), found && !evaluable) {
 		if (!GET_OP(head)) {
-			return throw_error(q, head, q->st.cur_ctx, "permission_error", "modify,static_procedure");
+			return throw_error(q, head, q->st.curr_fp, "permission_error", "modify,static_procedure");
 		}
 	}
 
 	cell *tmp2, *body = get_body(tmp);
 
 	if (body && ((tmp2 = check_body_callable(body)) != NULL)) {
-		return throw_error(q, tmp2, q->st.cur_ctx, "type_error", "callable");
+		return throw_error(q, tmp2, q->st.curr_fp, "type_error", "callable");
 	}
 
 	pl_idx num_cells = tmp->num_cells;
@@ -469,7 +466,7 @@ static bool do_assertz_1(query *q, bool consulting)
 
 	if (num_cells > p->cl->num_allocated_cells) {
 		p->cl = realloc(p->cl, sizeof(clause)+(sizeof(cell)*(num_cells+1)));
-		checked(p->cl, prolog_unlock(q->pl));
+		CHECKED(p->cl);
 		p->cl->num_allocated_cells = num_cells;
 	}
 
@@ -486,8 +483,8 @@ static bool do_assertz_1(query *q, bool consulting)
 	parser_destroy(p);
 
 	if (!r) {
-		h = copy_term_to_heap(q, h, q->st.cur_ctx, false);
-		return throw_error(q, h, q->st.cur_ctx, "permission_error", "modify,static_procedure");
+		h = copy_term_to_heap(q, h, q->st.curr_fp, false);
+		return throw_error(q, h, q->st.curr_fp, "permission_error", "modify,static_procedure");
 	}
 
 	db_log(q, r, LOG_ASSERTZ);
@@ -536,16 +533,16 @@ static bool do_asserta_2(query *q)
 	}
 
 	GET_NEXT_ARG(p2,atom_or_var);
-	checked(init_tmp_heap(q));
+	CHECKED(init_tmp_heap(q));
 	cell *tmp = copy_term_to_tmp(q, p1, p1_ctx, false);
-	checked(tmp);
+	CHECKED(tmp);
 
 	pl_idx num_cells = tmp->num_cells;
 	parser *p = parser_create(q->st.m);
 
 	if (num_cells > p->cl->num_allocated_cells) {
 		p->cl = realloc(p->cl, sizeof(clause)+(sizeof(cell)*(num_cells+1)));
-		checked(p->cl, prolog_unlock(q->pl));
+		CHECKED(p->cl);
 		p->cl->num_allocated_cells = num_cells;
 	}
 
@@ -562,8 +559,8 @@ static bool do_asserta_2(query *q)
 	parser_destroy(p);
 
 	if (!r) {
-		h = copy_term_to_heap(q, h, q->st.cur_ctx, false);
-		return throw_error(q, h, q->st.cur_ctx, "permission_error", "modify,static_procedure");
+		h = copy_term_to_heap(q, h, q->st.curr_fp, false);
+		return throw_error(q, h, q->st.curr_fp, "permission_error", "modify,static_procedure");
 	}
 
 	if (!is_var(p2)) {
@@ -576,7 +573,7 @@ static bool do_asserta_2(query *q)
 		uuid_to_buf(&r->u, tmpbuf, sizeof(tmpbuf));
 		cell tmp2;
 		make_cstring(&tmp2, tmpbuf);
-		unify(q, p2, p2_ctx, &tmp2, q->st.cur_ctx);
+		unify(q, p2, p2_ctx, &tmp2, q->st.curr_fp);
 		unshare_cell(&tmp2);
 	}
 
@@ -630,16 +627,16 @@ static bool do_assertz_2(query *q)
 	}
 
 	GET_NEXT_ARG(p2,atom_or_var);
-	checked(init_tmp_heap(q));
+	CHECKED(init_tmp_heap(q));
 	cell *tmp = copy_term_to_tmp(q, p1, p1_ctx, false);
-	checked(tmp);
+	CHECKED(tmp);
 
 	pl_idx num_cells = tmp->num_cells;
 	parser *p = parser_create(q->st.m);
 
 	if (num_cells > p->cl->num_allocated_cells) {
 		p->cl = realloc(p->cl, sizeof(clause)+(sizeof(cell)*(num_cells+1)));
-		checked(p->cl, prolog_unlock(q->pl));
+		CHECKED(p->cl);
 		p->cl->num_allocated_cells = num_cells;
 	}
 
@@ -656,8 +653,8 @@ static bool do_assertz_2(query *q)
 	parser_destroy(p);
 
 	if (!r) {
-		h = copy_term_to_heap(q, h, q->st.cur_ctx, false);
-		return throw_error(q, h, q->st.cur_ctx, "permission_error", "modify,static_procedure");
+		h = copy_term_to_heap(q, h, q->st.curr_fp, false);
+		return throw_error(q, h, q->st.curr_fp, "permission_error", "modify,static_procedure");
 	}
 
 	if (!is_var(p2)) {
@@ -670,7 +667,7 @@ static bool do_assertz_2(query *q)
 		uuid_to_buf(&r->u, tmpbuf, sizeof(tmpbuf));
 		cell tmp2;
 		make_cstring(&tmp2, tmpbuf);
-		unify(q, p2, p2_ctx, &tmp2, q->st.cur_ctx);
+		unify(q, p2, p2_ctx, &tmp2, q->st.curr_fp);
 		unshare_cell(&tmp2);
 	}
 
@@ -853,8 +850,8 @@ static bool bif_instance_2(query *q)
 	uuid u;
 	uuid_from_buf(C_STR(q, p1), &u);
 	rule *r = find_in_db(q->st.m, &u);
-	checked(r);
-	return unify(q, p2, p2_ctx, r->cl.cells, q->st.cur_ctx);
+	CHECKED(r);
+	return unify(q, p2, p2_ctx, r->cl.cells, q->st.curr_fp);
 }
 
 static bool bif_sys_clause_2(query *q)
@@ -877,22 +874,22 @@ static bool bif_sys_retract_on_backtrack_1(query *q)
 {
 	GET_FIRST_ARG(p1,atom);
 	int var_num = create_vars(q, 1);
-	checked(var_num != -1);
+	CHECKED(var_num != -1);
 	blob *b = calloc(1, sizeof(blob));
 	b->ptr = (void*)q->st.m;
 	b->ptr2 = (void*)strdup(C_STR(q, p1));
-	checked(b->ptr2);
+	CHECKED(b->ptr2);
 	cell c, v;
-	make_ref(&c, var_num, q->st.cur_ctx);
+	make_ref(&c, var_num, q->st.curr_fp);
 	make_dbref(&v, b);
-	return unify(q, &c, q->st.cur_ctx, &v, q->st.cur_ctx);
+	return unify(q, &c, q->st.curr_fp, &v, q->st.curr_fp);
 }
 
 static bool do_dump_term(query *q, cell *p1x, pl_ctx p1x_ctx, cell *p1, pl_ctx p1_ctx, bool deref, int depth)
 {
 	if (!depth) {
 		const frame *f = GET_CURR_FRAME();
-		printf("f=%u, f->initial_slots=%u, f->actual_slots=%u\n", q->st.cur_ctx, f->initial_slots, f->actual_slots);
+		printf("f=%u, f->initial_slots=%u, f->actual_slots=%u\n", q->st.curr_fp, f->initial_slots, f->actual_slots);
 	}
 
 	cell *tmp = p1;
@@ -947,7 +944,7 @@ static bool do_dump_term(query *q, cell *p1x, pl_ctx p1x_ctx, cell *p1, pl_ctx p
 
 			if (e->c.val_attrs && 0) {
 				printf("\n");
-				do_dump_term(q, p1x, p1x_ctx, e->c.val_attrs, q->st.cur_ctx, deref, depth+1);
+				do_dump_term(q, p1x, p1x_ctx, e->c.val_attrs, q->st.curr_fp, deref, depth+1);
 				continue;
 			}
 		}

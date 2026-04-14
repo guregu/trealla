@@ -45,10 +45,15 @@ static int nodecmp(const void *ptr1, const void *ptr2)
 		return ok < 0 ? 1 : ok > 0 ? -1 : 0;
 }
 
+#if (defined __APPLE__ || defined __MACH__ || defined __DARWIN__	\
+	|| defined __FreeBSD__ || defined __DragonFly__ 				\
+	|| defined __NetBSD__  || defined __OpenBSD__ 					\
+	)
 static int nodecmp_(const void *ptr1, const void *ptr2, const void *data)
 {
 	return nodecmp(ptr1, ptr2);
 }
+#endif
 
 static cell *nodesort(query *q, cell *p1, pl_ctx p1_ctx, bool dedup, bool keysort, bool *status)
 {
@@ -118,8 +123,8 @@ static cell *nodesort(query *q, cell *p1, pl_ctx p1_ctx, bool dedup, bool keysor
 		cell tmp;
 
 		if (is_compound(c)) {
-			make_ref(&tmp, vnbr++, q->st.cur_ctx);
-			unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
+			make_ref(&tmp, vnbr++, q->st.curr_fp);
+			unify(q, c, c_ctx, &tmp, q->st.curr_fp);
 			c = &tmp;
 		}
 
@@ -151,7 +156,7 @@ static bool bif_iso_sort_2(query *q)
 		return throw_error(q, p2, p2_ctx, "type_error", "list");
 
 	if (is_nil(p1))
-		return unify(q, p2, p2_ctx, make_nil(), q->st.cur_ctx);
+		return unify(q, p2, p2_ctx, make_nil(), q->st.curr_fp);
 
 	if (!is_list_or_nil(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "list");
@@ -193,7 +198,7 @@ static bool bif_iso_msort_2(query *q)
 		return throw_error(q, p2, p2_ctx, "type_error", "list");
 
 	if (is_nil(p1))
-		return unify(q, p2, p2_ctx, make_nil(), q->st.cur_ctx);
+		return unify(q, p2, p2_ctx, make_nil(), q->st.curr_fp);
 
 	if (!is_list_or_nil(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "list");
@@ -246,7 +251,7 @@ static bool bif_iso_keysort_2(query *q)
 	}
 
 	if (is_nil(p1))
-		return unify(q, p2, p2_ctx, make_nil(), q->st.cur_ctx);
+		return unify(q, p2, p2_ctx, make_nil(), q->st.curr_fp);
 
 	if (skip1 && skip2 && (skip2 > skip1))
 		return false;
@@ -318,8 +323,8 @@ static cell *nodesort4(query *q, cell *p1, pl_ctx p1_ctx, bool dedup, bool ascen
 		cell tmp;
 
 		if (is_compound(c)) {
-			make_ref(&tmp, vnbr++, q->st.cur_ctx);
-			unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
+			make_ref(&tmp, vnbr++, q->st.curr_fp);
+			unify(q, c, c_ctx, &tmp, q->st.curr_fp);
 			c = &tmp;
 		}
 
@@ -385,7 +390,7 @@ static bool bif_sort_4(query *q)
 	}
 
 	if (is_nil(p3))
-		return unify(q, p4, p4_ctx, make_nil(), q->st.cur_ctx);
+		return unify(q, p4, p4_ctx, make_nil(), q->st.curr_fp);
 
 	if (skip1 && skip2 && (skip2 > skip1))
 		return false;
@@ -397,7 +402,7 @@ static bool bif_sort_4(query *q)
 	GET_NEXT_ARG(p2x,atom);
 	GET_NEXT_ARG(p3x,list_or_nil);
 	GET_NEXT_ARG(p4x,list_or_nil_or_var);
-	return unify(q, p4x, p4x_ctx, l, q->st.cur_ctx);
+	return unify(q, p4x, p4x_ctx, l, q->st.curr_fp);
 }
 
 builtins g_sort_bifs[] =

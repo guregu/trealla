@@ -10,17 +10,6 @@ struct heap_save {
 	pl_idx size, hp;
 };
 
-static int accum_slot(const query *q, size_t slot_nbr, unsigned var_num)
-{
-	const void *vnbr;
-
-	if (sl_get(q->vars, (void*)slot_nbr, &vnbr))
-		return (unsigned)(size_t)vnbr;
-
-	sl_app(q->vars, (void*)slot_nbr, (void*)(size_t)var_num);
-	return -1;
-}
-
 size_t alloc_grow(query *q, void **addr, size_t elem_size, size_t min_elements, size_t max_elements)
 {
 	if (min_elements > max_elements)
@@ -76,7 +65,7 @@ cell *alloc_tmp(query *q, unsigned num_cells)
 }
 
 #define deep_copy(c) \
-	(!q->noderef || (is_ref(c) && (c->val_ctx <= q->st.cur_ctx) && !is_anon(c)))
+	(!q->noderef || (is_ref(c) && (c->val_ctx <= q->st.curr_fp) && !is_anon(c)))
 
 // Note: convert vars to refs
 // Note: doesn't increment ref counts
@@ -215,6 +204,17 @@ cell *append_to_tmp(query *q, cell *p1, pl_ctx p1_ctx)
 	return tmp;
 }
 
+static int accum_slot(const query *q, size_t slot_nbr, unsigned var_num)
+{
+	const void *vnbr;
+
+	if (sl_get(q->vars, (void*)slot_nbr, &vnbr))
+		return (unsigned)(size_t)vnbr;
+
+	sl_app(q->vars, (void*)slot_nbr, (void*)(size_t)var_num);
+	return -1;
+}
+
 static bool copy_vars(query *q, cell *c, bool copy_attrs, cell *from, pl_ctx from_ctx, cell *to, pl_ctx to_ctx)
 {
 	unsigned num_cells = c->num_cells;
@@ -250,7 +250,7 @@ static bool copy_vars(query *q, cell *c, bool copy_attrs, cell *from, pl_ctx fro
 			}
 
 			c->var_num = var_num;
-			c->val_ctx = q->st.cur_ctx;
+			c->val_ctx = q->st.curr_fp;
 
 			if (copy_attrs && attrs) {
 				cell *save_tmp_heap = q->tmp_heap;
@@ -259,9 +259,9 @@ static bool copy_vars(query *q, cell *c, bool copy_attrs, cell *from, pl_ctx fro
 
 				if (!c->tmp_attrs) {
 					cell *tmp =
-						from ?copy_term_to_heap_with_replacement(q, attrs, q->st.cur_ctx, false, from, from_ctx, to, to_ctx)
-						:copy_term_to_heap(q, attrs, q->st.cur_ctx, false);
-					checked(tmp);
+						from ?copy_term_to_heap_with_replacement(q, attrs, q->st.curr_fp, false, from, from_ctx, to, to_ctx)
+						:copy_term_to_heap(q, attrs, q->st.curr_fp, false);
+					CHECKED(tmp);
 					c->tmp_attrs = tmp;
 				}
 
@@ -419,6 +419,34 @@ cell *clone_term_to_heap(query *q, cell *p1, pl_ctx p1_ctx)
 	return tmp;
 }
 
+cell *copy_term_to_heap_with_replacement(query *q, cell *p1, pl_ctx p1_ctx, bool copy_attrs, cell *from, pl_ctx from_ctx, cell *to, pl_ctx to_ctx)
+{
+	if (!init_tmp_heap(q))
+		return NULL;
+
+	cell *tmp = copy_term_to_tmp_with_replacement(q, p1, p1_ctx, copy_attrs, is_var(from)?from:NULL, from_ctx, is_var(to)?to:NULL, to_ctx);
+	if (!tmp) return tmp;
+	cell *tmp2 = alloc_heap(q, tmp->num_cells);
+	if (!tmp2) return NULL;
+	dup_cells(tmp2, tmp, tmp->num_cells);
+
+	if (!copy_attrs)
+		return tmp2;
+
+	cell *c = tmp2;
+
+	for (pl_idx i = 0; i < tmp2->num_cells; i++, c++) {
+		if (is_var(c) && c->tmp_attrs) {
+			const frame *f = GET_FRAME(c->val_ctx);
+			slot *e = get_slot(q, f, c->var_num);
+			e->c.val_attrs = c->tmp_attrs;
+			c->tmp_attrs = NULL;
+		}
+	}
+
+	return tmp2;
+}
+
 cell *copy_term_to_heap(query *q, cell *p1, pl_ctx p1_ctx, bool copy_attrs)
 {
 	if (!init_tmp_heap(q))
@@ -443,34 +471,6 @@ cell *copy_term_to_heap(query *q, cell *p1, pl_ctx p1_ctx, bool copy_attrs)
 			e->c.val_attrs = c->tmp_attrs;
 			c->tmp_attrs = NULL;
 			add_trail(q, c->val_ctx, c->var_num, NULL);
-		}
-	}
-
-	return tmp2;
-}
-
-cell *copy_term_to_heap_with_replacement(query *q, cell *p1, pl_ctx p1_ctx, bool copy_attrs, cell *from, pl_ctx from_ctx, cell *to, pl_ctx to_ctx)
-{
-	if (!init_tmp_heap(q))
-		return NULL;
-
-	cell *tmp = copy_term_to_tmp_with_replacement(q, p1, p1_ctx, copy_attrs, is_var(from)?from:NULL, from_ctx, is_var(to)?to:NULL, to_ctx);
-	if (!tmp) return tmp;
-	cell *tmp2 = alloc_heap(q, tmp->num_cells);
-	if (!tmp2) return NULL;
-	dup_cells(tmp2, tmp, tmp->num_cells);
-
-	if (!copy_attrs)
-		return tmp2;
-
-	cell *c = tmp2;
-
-	for (pl_idx i = 0; i < tmp2->num_cells; i++, c++) {
-		if (is_var(c) && c->tmp_attrs) {
-			const frame *f = GET_FRAME(c->val_ctx);
-			slot *e = get_slot(q, f, c->var_num);
-			e->c.val_attrs = c->tmp_attrs;
-			c->tmp_attrs = NULL;
 		}
 	}
 

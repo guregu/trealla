@@ -1,17 +1,33 @@
+# Installation paths
+PREFIX ?= /usr/local
+BINDIR ?= $(PREFIX)/bin
+LIBDIR ?= $(PREFIX)/share/trealla
+MANDIR ?= $(PREFIX)/share/man
+
+EMBED ?= 1
+
+HOST_CC ?= cc
+
 GIT_VERSION := "$(shell git describe --abbrev=4 --dirty --always --tags)"
 COMPILER_IS_GCC := $(shell $(CC) --version | grep -E -o 'g?cc')
 
 CFLAGS = -Isrc -I/usr/local/include -DVERSION='$(GIT_VERSION)' \
+	-DDEFAULT_LIBRARY_PATH='"$(LIBDIR)/library"' \
 	-O3 $(OPT) -D_GNU_SOURCE \
 	-Wall -Wextra \
 	-Wno-unused-but-set-variable \
 	-Wno-unused-parameter \
 	-Wno-unused-variable
+
+ifeq ($(EMBED), 1)
+CFLAGS += -DEMBED=1
+endif
+
 LDFLAGS = -L/usr/local/lib -lm
 
 ifdef HOMEBREW_PREFIX
-LDFLAGS += -L$(HOMEBREW_PREFIX)/opt/libffi/lib -L$(HOMEBREW_PREFIX)/opt/openssl@3/lib -L$(HOMEBREW_PREFIX)/opt/readline/lib
-CFLAGS += -I$(HOMEBREW_PREFIX)/opt/libffi/include -I$(HOMEBREW_PREFIX)/opt/openssl@3/include -I$(HOMEBREW_PREFIX)/opt/readline/include
+LDFLAGS += -L$(HOMEBREW_PREFIX)/opt/libffi/lib -L$(HOMEBREW_PREFIX)/opt/openssl@3/lib
+CFLAGS += -I$(HOMEBREW_PREFIX)/opt/libffi/include -I$(HOMEBREW_PREFIX)/opt/openssl@3/include
 endif
 
 ifndef TPL
@@ -55,13 +71,29 @@ endif
 
 ifdef ISOCLINE
 CFLAGS += -DUSE_ISOCLINE=1
-else
+endif
+
+ifdef READLINE
+CFLAGS += -DUSE_READLINE=1 -I$(HOMEBREW_PREFIX)/opt/readline/include
+LDFLAGS += -lreadline -L$(HOMEBREW_PREFIX)/opt/readline/lib
+endif
+
 ifdef EDITLINE
 CFLAGS += -DUSE_EDITLINE=1
 LDFLAGS += -ledit
-else
+endif
+
+ifdef WASI
+CFLAGS += -DUSE_ISOCLINE=1
+endif
+
+ifndef EDITLINE
+ifndef READLINE
 ifndef WASI
-LDFLAGS += -lreadline
+ifndef WIN
+CFLAGS += -DUSE_EDITLINE=1
+LDFLAGS += -ledit
+endif
 endif
 endif
 endif
@@ -135,6 +167,9 @@ SRCOBJECTS = tpl.o \
 	src/utf8.o \
 	src/version.o
 
+LIBOBJECTS =
+
+ifeq ($(EMBED), 1)
 LIBOBJECTS +=  \
 	library/abnf.o \
 	library/aggregate.o \
@@ -155,12 +190,10 @@ LIBOBJECTS +=  \
 	library/freeze.o \
 	library/gensym.o \
 	library/gsl.o \
-	library/heaps.o \
 	library/http.o \
 	library/iso_ext.o \
 	library/json.o \
 	library/lambda.o \
-	library/linda.o \
 	library/lists.o \
 	library/ordsets.o \
 	library/pairs.o \
@@ -172,6 +205,7 @@ LIBOBJECTS +=  \
 	library/reif.o \
 	library/si.o \
 	library/sqlite3.o \
+	library/sockets.o \
 	library/time.o \
 	library/ugraphs.o \
 	library/uuid.o \
@@ -179,6 +213,7 @@ LIBOBJECTS +=  \
 	library/wasm_generic.o \
 	library/wasm_js.o \
 	library/when.o
+endif
 
 SRCOBJECTS += src/imath/imath.o
 SRCOBJECTS += src/imath/imrat.o
@@ -200,9 +235,9 @@ endif
 
 OBJECTS = $(SRCOBJECTS) $(LIBOBJECTS)
 
-library/%.c: library/%.pl
+library/%.c: library/%.pl util/bin2c
 	echo '#include <stddef.h>' > $@
-	xxd -i $^ >> $@
+	./util/bin2c $< >> $@
 
 .PHONY: test
 
@@ -213,17 +248,35 @@ tpl: $(OBJECTS) Makefile README.md LICENSE
 	$(CC) $(CFLAGS) -o src/version.o -c src/version.c
 	$(CC) $(CFLAGS) -o $(TPL) $(OBJECTS) $(OPT) $(LDFLAGS)
 
+util/bin2c: util/bin2c.c
+	$(HOST_CC) -o util/bin2c util/bin2c.c
+
 profile:
 	$(MAKE) 'OPT=$(OPT) -O0 -pg -DDEBUG'
 
 debug:
-	$(MAKE) 'OPT=$(OPT) -O0 -g3 -DDEBUG'
+	$(MAKE) 'OPT=$(OPT) -fsanitize=address -O0 -g3 -DDEBUG'
 
 release:
 	$(MAKE) 'OPT=$(OPT) -DNDEBUG'
 
-install:
-	ln -s $(PWD)/tpl ~/bin/tpl
+install: all
+	mkdir -p $(DESTDIR)$(BINDIR)
+	mkdir -p $(DESTDIR)$(LIBDIR)
+	mkdir -p $(DESTDIR)$(MANDIR)/man1
+	cp tpl $(DESTDIR)$(BINDIR)/tpl
+	cp -r library $(DESTDIR)$(LIBDIR)/
+	cp man/trealla.1 $(DESTDIR)$(MANDIR)/man1/trealla.1
+	chmod 755 $(DESTDIR)$(BINDIR)/tpl
+	chmod 644 $(DESTDIR)$(MANDIR)/man1/trealla.1
+
+uninstall:
+	rm -f $(DESTDIR)$(BINDIR)/tpl
+	rm -f $(DESTDIR)$(MANDIR)/man1/trealla.1
+	rm -rf $(DESTDIR)$(LIBDIR)
+
+install-strip: install
+	strip $(DESTDIR)$(BINDIR)/tpl
 
 tpl.wasm:
 	$(MAKE) WASI=1 TPL=tpl.wasm 'OPT=$(OPT) -DNDEBUG'
@@ -281,10 +334,10 @@ wit:
 	sed -i '' -e 's/<outbound-pg.h>/"outbound-pg.h"/' ./src/wasm/outbound-pg.c
 	sed -i '' -e 's/<sqlite.h>/"sqlite.h"/' ./src/wasm/sqlite.c
 
-compile:
+compile: util/bin2c
 	echo '#include <stddef.h>' > main.c
 	cp $(main) main.pl
-	xxd -i main.pl >> main.c
+	./util/bin2c main.pl >> main.c
 	rm -f src/library.o
 	$(CC) $(CFLAGS) -o main.o -c main.c
 	$(CC) $(CFLAGS) -DUSE_MAIN=1 -o src/library.o -c src/library.c
@@ -294,19 +347,13 @@ compile:
 test:
 	./tests/run.sh
 
-check:
-	./tests/run_valgrind.sh
-
-leaks:
-	./tests/run_valgrind_leaks.sh
-
 clean:
 	rm -f tpl tpl.wasm tpl*.wasm libtpl*.wasm \
 		src/*.o src/imath/*.o src/isocline/src/*.o src/sre/*.o src/wasm/*.o \
 		src/utf8/*.o \
 		library/*.o library/*.c *.o samples/*.o samples/*.so \
 		vgcore.* *.core core core.* *.exe gmon.* \
-		samples/*.xwam
+		samples/*.xwam util/bin2c
 	rm -f *.itf *.po *.xwam samples/*.itf samples/*.po
 
 # from [gcc|clang] -MM src/*.c src/imath/*.c src/isocline/src/*.c src/sre/*.c

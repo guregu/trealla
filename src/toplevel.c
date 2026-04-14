@@ -11,7 +11,7 @@ static void show_goals(query *q, int num)
 {
 	frame *f = GET_CURR_FRAME();
 	cell *c = q->st.instr;
-	pl_ctx c_ctx = q->st.cur_ctx;
+	pl_ctx c_ctx = q->st.curr_fp;
 
 	while (c && num--) {
 		printf(" [%llu] ", (long long unsigned)c_ctx);
@@ -39,7 +39,7 @@ int check_interrupt(query *q)
 		g_tpl_interrupt = 0;
 		signal(SIGINT, &sigfn);
 
-		if (!throw_error(q, q->st.instr, q->st.cur_ctx, "time_limit_exceeded", "timed_out"))
+		if (!throw_error(q, q->st.instr, q->st.curr_fp, "time_limit_exceeded", "timed_out"))
 			q->retry = true;
 
 		return 0;
@@ -283,7 +283,7 @@ static void	clear_results()
 static void add_result(int num, cell *c, pl_ctx c_ctx)
 {
 	item *ptr = malloc(sizeof(item));
-	ensure(ptr);
+	ENSURE(ptr);
 	ptr->c = c;
 	ptr->c_ctx = c_ctx;
 	ptr->num = num;
@@ -349,7 +349,6 @@ void dump_vars(query *q, bool partial)
 	const frame *f = GET_FRAME(0);
 	q->is_dump_vars = true;
 	q->tab_idx = 0;
-	bool any = false;
 	clear_write_options(q);
 
 	// Build the ignore list for var name clashes....
@@ -382,7 +381,7 @@ void dump_vars(query *q, bool partial)
 	// dump them out...
 
 	cell *vlist = end_list(q);
-	bool want_space = false;
+	bool want_space = false, any = false, anons = false;
 	q->variable_names = vlist;
 	q->variable_names_ctx = 0;
 	q->print_idx = 0;
@@ -391,8 +390,10 @@ void dump_vars(query *q, bool partial)
 		if (!strcmp(GET_POOL(q, p->vartab.off[i]), "__G_"))
 			continue;
 
-		if (!strcmp(GET_POOL(q, p->vartab.off[i]), "_"))
+		if (!strcmp(GET_POOL(q, p->vartab.off[i]), "_")) {
+			anons = true;
 			continue;
+		}
 
 		if (q->pl->quiet && GET_POOL(q, p->vartab.off[i])[0] == '_')
 			continue;
@@ -488,7 +489,7 @@ void dump_vars(query *q, bool partial)
 		any = true;
 	}
 
-	bool any_atts = any_attributed(q);
+	bool any_atts = /*any &&*/ any_attributed(q);
 
 	if (!q->pl->is_query) {
 		if (any && any_atts)
@@ -510,7 +511,7 @@ void dump_vars(query *q, bool partial)
 		cell p1[2];
 		make_instr(p1+0, new_atom(q->pl, "dump_attvars_"), NULL, 1, 1);
 		make_atom(p1+1, any ? g_true_s : g_false_s);
-		cell *tmp = prepare_call(q, CALL_SKIP, p1, q->st.cur_ctx, 1);
+		cell *tmp = prepare_call(q, CALL_SKIP, p1, q->st.curr_fp, 1);
 		pl_idx num_cells = 2;
 		make_end(tmp+num_cells);
 		q->st.instr = tmp;

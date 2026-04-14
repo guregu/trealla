@@ -20,3 +20,4 @@ tpl
 faultinject*
 .vscode
 .DS_Store
+util/bin2c

@@ -199,9 +199,22 @@ int main(int ac, char *av[], char * envp[])
 	bool ns = false, no_res = false, quiet = false;
 	bool emulate = false;
 	const char *restore_file = NULL;
+
+	char *library_opt = NULL;
+	for (i = 1; i < ac; i++) {
+		if (!strcmp(av[i], "--library")) {
+			if (++i < ac) {
+				g_tpl_lib = strdup(av[i]);
+				library_opt = g_tpl_lib;
+				convert_path(g_tpl_lib);
+			}
+		}
+	}
+
 #ifdef __wasi__
     if (!initialized) init_func();
-	g_init_lib(); // "lazy loading" the environment
+	if (!library_opt)
+		g_init_lib(); // "lazy loading" the environment
 	prolog *pl = g_tpl;
 #else
 	prolog *pl = pl_create();
@@ -370,15 +383,16 @@ int main(int ac, char *av[], char * envp[])
 		return halt_code;
 	}
 
-	if (version)
+	if (version || (isatty(0) && !quiet))
 		printf("Trealla Prolog (c) Infradig 2020, %s\n", g_version);
 
 	if (version == 2) {
 		fprintf(stdout, "Usage:\n");
 		fprintf(stdout, "  tpl [options] [files] [-- args]\n");
 		fprintf(stdout, "Options:\n");
-		fprintf(stdout, "  -f file\t\t- load file (~/.tplrc not loaded)\n");
-		fprintf(stdout, "  -l file\t\t- load file (~/.tplrc) loaded\n");
+		fprintf(stdout, "  -f\t\t\t- ~/.tplrc not loaded\n");
+		fprintf(stdout, "  -l file\t\t- load file\n");
+		fprintf(stdout, "  file\t\t\t- load file\n");
 		fprintf(stdout, "  -g goal\t\t- query goal (only used once)\n");
 		fprintf(stdout, "  --library path\t- alt to TPL_LIBRARY_PATH env variable\n");
 		fprintf(stdout, "  -v, --version\t\t- print version info and exit\n");
@@ -416,7 +430,16 @@ int main(int ac, char *av[], char * envp[])
 				break;
 			}
 
-			line[strlen(line)-1] = '\0';
+			size_t len = strlen(line);
+
+			while (len && iswspace(line[len-1]))
+				len--;
+
+			if (len && (line[len-1] != '.')) {
+				fprintf(stderr, "Error: error(syntax_error(unterminated),read_term/3)\n");
+				pl_destroy(pl);
+				return 1;
+			}
 		}
 
 		const char *src = line;

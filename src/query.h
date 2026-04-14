@@ -11,6 +11,7 @@ typedef struct {
 } csv;
 
 query *query_create(module *m);
+query *query_create_threaded(module *m);
 query *query_create_subquery(query *q, cell *instr);
 query *query_create_task(query *q, cell *instr);
 void query_destroy(query *q);
@@ -45,7 +46,7 @@ bool match_rule(query *q, cell *p1, pl_ctx p1_ctx, enum clause_type is_retract);
 bool match_clause(query *q, cell *p1, pl_ctx p1_ctx, enum clause_type retract);
 void try_me(query *q, unsigned vars);
 void call_attrs(query *q, cell *attrs);
-void stash_frame(query *q, const clause *cl, bool last_match);
+void stash_frame(query *q, unsigned num_vars, bool last_match);
 bool check_redo(query *q);
 void dump_vars(query *q, bool partial);
 int check_interrupt(query *q);
@@ -91,6 +92,7 @@ bool do_post_unify_hook(query *q, bool is_builtin);
 bool any_attributed(query *q);
 bool do_load_file(query *q, cell *p1, pl_ctx p1_ctx);
 bool stream_close(query *q, int n);
+void leave_predicate(query *q, predicate *pr, bool is_final);
 
 #if USE_THREADS
 bool do_signal(query *q, void *thread_ptr);
@@ -148,7 +150,6 @@ bool bif_statistics_0(query *q);
 bool bif_sys_module_1(query *q);
 bool bif_sys_undo_1(query *q);
 bool bif_sys_create_var_1(query *q);
-bool bif_sys_match_1(query *q);
 bool bif_sys_list_iterate_3(query *q);
 
 void save_db(FILE *fp, query *q, int logging);
@@ -215,7 +216,8 @@ inline static cell *get_body(cell *c)
 
 inline static void drop_choice(query *q)
 {
-	--q->cp;
+	if (q->cp)
+		--q->cp;
 }
 
 inline static pl_idx get_ordered_slot_num(const query *q, const frame *f, unsigned var_num)

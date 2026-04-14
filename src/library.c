@@ -1,11 +1,10 @@
 #include "library.h"
 
+#ifdef EMBED
 extern unsigned char library_builtins_pl[];
 extern unsigned int library_builtins_pl_len;
 extern unsigned char library_lists_pl[];
 extern unsigned int library_lists_pl_len;
-extern unsigned char library_heaps_pl[];
-extern unsigned int library_heaps_pl_len;
 extern unsigned char library_http_pl[];
 extern unsigned int library_http_pl_len;
 extern unsigned char library_atts_pl[];
@@ -44,6 +43,8 @@ extern unsigned char library_ugraphs_pl[];
 extern unsigned int library_ugraphs_pl_len;
 extern unsigned char library_sqlite3_pl[];
 extern unsigned int library_sqlite3_pl_len;
+extern unsigned char library_sockets_pl[];
+extern unsigned int library_sockets_pl_len;
 extern unsigned char library_json_pl[];
 extern unsigned int library_json_pl_len;
 extern unsigned char library_wasm_pl[];
@@ -117,12 +118,10 @@ library g_libs[] = {
 	 {"freeze", library_freeze_pl, &library_freeze_pl_len},
 	 {"gensym", library_gensym_pl, &library_gensym_pl_len},
 	 {"gsl", library_gsl_pl, &library_gsl_pl_len},
-	 {"heaps", library_heaps_pl, &library_heaps_pl_len},
 	 {"http", library_http_pl, &library_http_pl_len},
 	 {"iso_ext", library_iso_ext_pl, &library_iso_ext_pl_len},
 	 {"json", library_json_pl, &library_json_pl_len},
 	 {"lambda", library_lambda_pl, &library_lambda_pl_len},
-	 {"linda", library_linda_pl, &library_linda_pl_len},
 	 {"lists", library_lists_pl, &library_lists_pl_len},
 	 {"ordsets", library_ordsets_pl, &library_ordsets_pl_len},
 	 {"pairs", library_pairs_pl, &library_pairs_pl_len},
@@ -137,6 +136,7 @@ library g_libs[] = {
 	 {"spin", library_spin_pl, &library_spin_pl_len},
 #endif
 	 {"sqlite3", library_sqlite3_pl, &library_sqlite3_pl_len},
+	 {"sockets", library_sockets_pl, &library_sockets_pl_len},
 	 {"time", library_time_pl, &library_time_pl_len},
 	 {"ugraphs", library_ugraphs_pl, &library_ugraphs_pl_len},
 	 {"uuid", library_uuid_pl, &library_uuid_pl_len},
@@ -151,3 +151,9 @@ library g_libs[] = {
 
 	 {0}
 };
+#else
+library g_libs[] = {
+	 {0}
+};
+#endif
+

@@ -439,7 +439,7 @@ int get_named_stream(prolog *pl, const char *name, size_t len)
 	for (int i = 0; i < MAX_STREAMS; i++) {
 		stream *str = &pl->streams[i];
 
-		if (!is_live_stream(str) || str->ignore || !str->alias)
+		if (!is_live_stream(str) || !str->alias)
 			continue;
 
 		if (sl_get(str->alias, name, NULL)) {
@@ -487,19 +487,21 @@ int new_stream(prolog *pl)
 {
 	prolog_lock(pl);
 
-	for (int i = 0; i < MAX_STREAMS; i++) {
-		unsigned n = pl->str_cnt++ % MAX_STREAMS;
+	for (int i = 3; i < MAX_STREAMS; i++) {
+		stream *str = &pl->streams[i];
 
-		if (n < 4)
+		if (is_live_stream(str))
 			continue;
 
-		stream *str = &pl->streams[n];
-
-		if (!is_live_stream(str) && !str->ignore) {
-			str->n = n;
-			prolog_unlock(pl);
-			return n;
-		}
+		str->is_pipe = false;
+		str->is_socket = false;
+		str->is_alias = false;
+		str->is_engine = false;
+		str->is_map = false;
+		str->is_memory = false;
+		str->idx = i;
+		prolog_unlock(pl);
+		return i;
 	}
 
 	prolog_unlock(pl);
@@ -526,10 +528,10 @@ static void add_stream_properties(query *q, int n)
 	char tmpbuf[1024*8];
 	char *dst = tmpbuf;
 	*dst = '\0';
-	off_t pos = !is_virtual_stream(str) ? ftello(str->fp) : 0;
+	off_t pos = is_file_stream(str) && !is_socket_stream(str) && !is_virtual_stream(str) ? ftello(str->fp) : 0;
 	bool at_end_of_file = false;
 
-	if (!str->at_end_of_file && (n > 2) && !is_virtual_stream(str) && !str->p) {
+	if (!str->at_end_of_file && (n > 2) && !is_socket_stream(str) && !is_virtual_stream(str) && !str->p) {
 #if 0
 		if (str->p) {
 			if (str->p->srcptr && *str->p->srcptr) {
@@ -573,7 +575,7 @@ static void add_stream_properties(query *q, int n)
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, type(%s)).\n", n, str->binary ? "binary" : "text");
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, line_count(%d)).\n", n, str->p ? str->p->line_num : 1);
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, position(%llu)).\n", n, (unsigned long long)(pos != -1 ? pos : 0));
-		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, reposition(%s)).\n", n, (n < 3) || str->socket ? "false" : "true");
+		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, reposition(%s)).\n", n, (n < 3) || str->is_socket ? "false" : "true");
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, end_of_stream(%s)).\n", n, str->at_end_of_file ? "past" : at_end_of_file ? "at" : "not");
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, eof_action(%s)).\n", n, str->eof_action == eof_action_eof_code ? "eof_code" : str->eof_action == eof_action_error ? "error" : str->eof_action == eof_action_reset ? "reset" : "none");
 
@@ -599,11 +601,7 @@ static void add_stream_properties(query *q, int n)
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, skiplist(true)).\n", n);
 	else if (is_memory_stream(str))
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, memory(true)).\n", n);
-	else if (str->is_mutex)
-		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, mutex(true)).\n", n);
-	else if (str->is_queue)
-		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, queue(true)).\n", n);
-	else if (str->is_alias)
+	else if (is_alias_stream(str))
 		dst += snprintf(dst, sizeof(tmpbuf)-strlen(tmpbuf), "'$stream_property'(%d, alias(true)).\n", n);
 
 	parser *p = parser_create(q->st.m);
@@ -616,17 +614,17 @@ static void add_stream_properties(query *q, int n)
 static bool del_stream_properties(query *q, int n)
 {
 	cell *tmp = alloc_heap(q, 3);
-	checked(tmp);
+	CHECKED(tmp);
 	make_atom(tmp+0, g_sys_stream_property_s);
 	make_int(tmp+1, n);
 	int vnbr = create_vars(q, 1);
-	checked(vnbr != -1);
-	make_ref(tmp+2, vnbr, q->st.cur_ctx);
+	CHECKED(vnbr != -1);
+	make_ref(tmp+2, vnbr, q->st.curr_fp);
 	tmp->num_cells = 3;
 	tmp->arity = 2;
 	q->retry = QUERY_OK;
 
-	while (do_retract(q, tmp, q->st.cur_ctx, DO_RETRACTALL)) {
+	while (do_retract(q, tmp, q->st.curr_fp, DO_RETRACTALL)) {
 		if (q->did_throw) return false;
 		q->retry = QUERY_RETRY;
 		retry_choice(q);
@@ -649,7 +647,7 @@ static bool do_stream_property(query *q)
 	if (!CMP_STRING_TO_CSTR(q, p1, "file_name")) {
 		cell tmp;
 		make_cstring(&tmp, str->filename);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_fp);
 		unshare_cell(&tmp);
 		return ok;
 	}
@@ -660,7 +658,7 @@ static bool do_stream_property(query *q)
 
 		cell tmp;
 		make_int(&tmp, fileno(str->fp));
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_fp);
 		return ok;
 	}
 
@@ -670,7 +668,7 @@ static bool do_stream_property(query *q)
 
 		cell tmp;
 		make_uint(&tmp, (size_t)str->fp);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_fp);
 		return ok;
 	}
 
@@ -682,7 +680,7 @@ static bool do_stream_property(query *q)
 		while (sl_next(iter, NULL)) {
 			const char *alias = sl_key(iter);
 			make_cstring(&tmp, alias);
-			ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
+			ok = unify(q, c, c_ctx, &tmp, q->st.curr_fp);
 			unshare_cell(&tmp);
 			if (ok) break;
 		}
@@ -694,7 +692,7 @@ static bool do_stream_property(query *q)
 	if (!CMP_STRING_TO_CSTR(q, p1, "mode")) {
 		cell tmp;
 		make_cstring(&tmp, str->mode);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_fp);
 		unshare_cell(&tmp);
 		return ok;
 	}
@@ -702,23 +700,7 @@ static bool do_stream_property(query *q)
 	if (!CMP_STRING_TO_CSTR(q, p1, "engine")) {
 		cell tmp;
 		make_cstring(&tmp, str->is_engine?"true":"false");
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-		unshare_cell(&tmp);
-		return ok;
-	}
-
-	if (!CMP_STRING_TO_CSTR(q, p1, "mutex")) {
-		cell tmp;
-		make_cstring(&tmp, str->is_mutex?"true":"false");
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
-		unshare_cell(&tmp);
-		return ok;
-	}
-
-	if (!CMP_STRING_TO_CSTR(q, p1, "queue")) {
-		cell tmp;
-		make_cstring(&tmp, str->is_queue?"true":"false");
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_fp);
 		unshare_cell(&tmp);
 		return ok;
 	}
@@ -726,7 +708,7 @@ static bool do_stream_property(query *q)
 	if (!CMP_STRING_TO_CSTR(q, p1, "skiplist")) {
 		cell tmp;
 		make_cstring(&tmp, str->is_map?"true":"false");
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_fp);
 		unshare_cell(&tmp);
 		return ok;
 	}
@@ -734,7 +716,7 @@ static bool do_stream_property(query *q)
 	if (!CMP_STRING_TO_CSTR(q, p1, "bom") && !str->binary) {
 		cell tmp;
 		make_cstring(&tmp, str->bom?"true":"false");
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_fp);
 		unshare_cell(&tmp);
 		return ok;
 	}
@@ -742,15 +724,15 @@ static bool do_stream_property(query *q)
 	if (!CMP_STRING_TO_CSTR(q, p1, "type")) {
 		cell tmp;
 		make_cstring(&tmp, str->binary ? "binary" : "text");
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_fp);
 		unshare_cell(&tmp);
 		return ok;
 	}
 
 	if (!CMP_STRING_TO_CSTR(q, p1, "reposition")) {
 		cell tmp;
-		make_cstring(&tmp, str->socket || (n <= 2) ? "false" : str->repo ? "true" : "false");
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
+		make_cstring(&tmp, str->is_socket || (n <= 2) ? "false" : str->repo ? "true" : "false");
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_fp);
 		unshare_cell(&tmp);
 		return ok;
 	}
@@ -758,7 +740,7 @@ static bool do_stream_property(query *q)
 	if (!CMP_STRING_TO_CSTR(q, p1, "encoding") && !str->binary) {
 		cell tmp;
 		make_cstring(&tmp, "UTF-8");
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_fp);
 		unshare_cell(&tmp);
 		return ok;
 	}
@@ -766,7 +748,7 @@ static bool do_stream_property(query *q)
 	if (!CMP_STRING_TO_CSTR(q, p1, "newline")) {
 		cell tmp;
 		make_cstring(&tmp, NEWLINE_MODE);
-		bool ok = unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
+		bool ok = unify(q, c, c_ctx, &tmp, q->st.curr_fp);
 		unshare_cell(&tmp);
 		return ok;
 	}
@@ -789,7 +771,7 @@ static bool do_stream_property(query *q)
 		else
 			make_atom(&tmp, new_atom(q->pl, "none"));
 
-		return unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
+		return unify(q, c, c_ctx, &tmp, q->st.curr_fp);
 	}
 
 	if (!CMP_STRING_TO_CSTR(q, p1, "end_of_stream") && is_stream(pstr)) {
@@ -825,19 +807,19 @@ static bool do_stream_property(query *q)
 		else
 			make_atom(&tmp, new_atom(q->pl, "not"));
 
-		return unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
+		return unify(q, c, c_ctx, &tmp, q->st.curr_fp);
 	}
 
 	if (!CMP_STRING_TO_CSTR(q, p1, "position") && !is_var(pstr)) {
 		cell tmp;
 		make_int(&tmp, ftello(str->fp));
-		return unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
+		return unify(q, c, c_ctx, &tmp, q->st.curr_fp);
 	}
 
 	if (!CMP_STRING_TO_CSTR(q, p1, "line_count") && !is_var(pstr)) {
 		cell tmp;
 		make_int(&tmp, str->p->line_num);
-		return unify(q, c, c_ctx, &tmp, q->st.cur_ctx);
+		return unify(q, c, c_ctx, &tmp, q->st.curr_fp);
 	}
 
 	return false;
@@ -876,9 +858,9 @@ static bool bif_iso_stream_property_2(query *q)
 
 	if (!is_stream_or_var(pstr)) {
 		if (is_closed_stream(q->pl, pstr))
-			return throw_error(q, pstr, q->st.cur_ctx, "existence_error", "stream");
+			return throw_error(q, pstr, q->st.curr_fp, "existence_error", "stream");
 		else
-			return throw_error(q, pstr, q->st.cur_ctx, "domain_error", "stream");
+			return throw_error(q, pstr, q->st.curr_fp, "domain_error", "stream");
 	}
 
 	if (p1->arity > 1)
@@ -895,21 +877,16 @@ static bool bif_iso_stream_property_2(query *q)
 
 		for (int i = 0; i < MAX_STREAMS; i++) {
 			stream *str = &q->pl->streams[i];
-
-			if (!is_live_stream(str))
-				continue;
-
-			if (!str->socket)
-				add_stream_properties(q, i);
+			add_stream_properties(q, i);
 		}
 	}
 
-	checked(init_tmp_heap(q));
-	cell *tmp = clone_term_to_tmp(q, q->st.instr, q->st.cur_ctx);
-	checked(tmp);
+	CHECKED(init_tmp_heap(q));
+	cell *tmp = clone_term_to_tmp(q, q->st.instr, q->st.curr_fp);
+	CHECKED(tmp);
 	tmp->val_off = g_sys_stream_property_s;
 
-	if (match_clause(q, tmp, q->st.cur_ctx, DO_CLAUSE) != true) {
+	if (match_clause(q, tmp, q->st.curr_fp, DO_CLAUSE) != true) {
 		clear_streams_properties(q);
 
 		if (is_callable(p1) && !strstr(s_properties, C_STR(q, p1)))
@@ -921,7 +898,7 @@ static bool bif_iso_stream_property_2(query *q)
 	clause *cl = &q->st.dbe->cl;
 	GET_FIRST_ARG(pstrx,any);
 	pstrx->flags |= FLAG_INT_STREAM;
-	stash_frame(q, cl, false);
+	stash_frame(q, cl->num_vars, false);
 	return true;
 }
 
@@ -985,10 +962,10 @@ static bool bif_popen_4(query *q)
 	convert_path(filename);
 
 	stream *str = &q->pl->streams[n];
-	str->pipe = true;
-	if (!str->alias) str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL);
-	checked(str->filename = strdup(filename));
-	checked(str->mode = DUP_STRING(q, p2));
+	str->is_pipe = true;
+	CHECKED(str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL));
+	CHECKED(str->filename = strdup(filename));
+	CHECKED(str->mode = DUP_STRING(q, p2));
 	bool binary = false;
 	uint8_t eof_action = eof_action_eof_code;
 	bool is_alias = false;
@@ -1022,7 +999,7 @@ static bool bif_popen_4(query *q)
 					cell tmp;
 					make_atom(&tmp, new_atom(q->pl, C_STR(q, name)));
 
-					if (!unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx))
+					if (!unify(q, p3, p3_ctx, &tmp, q->st.curr_fp))
 						return false;
 
 					is_alias = true;
@@ -1077,7 +1054,7 @@ static bool bif_popen_4(query *q)
 		make_int(&tmp, n);
 		tmp.flags |= FLAG_INT_STREAM;
 
-		if (!unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx))
+		if (!unify(q, p3, p3_ctx, &tmp, q->st.curr_fp))
 			return false;
 	}
 
@@ -1237,11 +1214,12 @@ static bool bif_process_create_3(query *q)
 				if (pipe(fds)) return false;
 				posix_spawn_file_actions_adddup2(&file_actions, fds[0], 0);
 				q->pl->streams[n].fp = fdopen(fds[1], "w");
-				q->pl->streams[n].pipe = true;
+				q->pl->streams[n].is_pipe = true;
+				CHECKED(q->pl->streams[n].mode = strdup("write"));
 				cell tmp;
 				make_int(&tmp, n);
 				tmp.flags |= FLAG_INT_STREAM;
-				unify(q, ns, ns_ctx, &tmp, q->st.cur_ctx);
+				unify(q, ns, ns_ctx, &tmp, q->st.curr_fp);
 
 			} else if (!CMP_STRING_TO_CSTR(q, c, "stdin") && !CMP_STRING_TO_CSTR(q, name, "stream")) {
 				cell *ns = deref(q, name, name_ctx);
@@ -1261,11 +1239,12 @@ static bool bif_process_create_3(query *q)
 				if (pipe(fds)) return false;
 				posix_spawn_file_actions_adddup2(&file_actions, fds[1], 1);
 				q->pl->streams[n].fp = fdopen(fds[0], "r");
-				q->pl->streams[n].pipe = true;
+				q->pl->streams[n].is_pipe = true;
+				CHECKED(q->pl->streams[n].mode = strdup("read"));
 				cell tmp;
 				make_int(&tmp, n);
 				tmp.flags |= FLAG_INT_STREAM;
-				unify(q, ns, ns_ctx, &tmp, q->st.cur_ctx);
+				unify(q, ns, ns_ctx, &tmp, q->st.curr_fp);
 
 			} else if (!CMP_STRING_TO_CSTR(q, c, "stdout") && !CMP_STRING_TO_CSTR(q, name, "stream")) {
 				cell *ns = deref(q, name, name_ctx);
@@ -1285,11 +1264,12 @@ static bool bif_process_create_3(query *q)
 				if (pipe(fds)) return false;
 				posix_spawn_file_actions_adddup2(&file_actions, fds[1], 2);
 				q->pl->streams[n].fp = fdopen(fds[0], "r");
-				q->pl->streams[n].pipe = true;
+				q->pl->streams[n].is_pipe = true;
+				CHECKED(q->pl->streams[n].mode = strdup("read"));
 				cell tmp;
 				make_int(&tmp, n);
 				tmp.flags |= FLAG_INT_STREAM;
-				unify(q, ns, ns_ctx, &tmp, q->st.cur_ctx);
+				unify(q, ns, ns_ctx, &tmp, q->st.curr_fp);
 			} else if (!CMP_STRING_TO_CSTR(q, c, "stderr") && !CMP_STRING_TO_CSTR(q, name, "stream")) {
 				cell *ns = deref(q, name, name_ctx);
 				int n = get_stream(q, ns);
@@ -1321,7 +1301,7 @@ static bool bif_process_create_3(query *q)
 	if (ppid) {
 		cell tmp;
 		make_uint(&tmp, pid);
-		return unify(q, ppid, ppid_ctx, &tmp, q->st.cur_ctx);
+		return unify(q, ppid, ppid_ctx, &tmp, q->st.curr_fp);
 	} else {
 		waitpid(pid, NULL, 0);
 	}
@@ -1476,9 +1456,9 @@ static bool bif_iso_open_4(query *q)
 
 	convert_path(filename);
 	stream *str = &q->pl->streams[n];
-	checked(str->filename = strdup(filename));
-	if (!str->alias) str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL);
-	checked(str->mode = DUP_STRING(q, p2));
+	CHECKED(str->filename = strdup(filename));
+	CHECKED(str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL));
+	CHECKED(str->mode = DUP_STRING(q, p2));
 	bool binary = false, repo = true;
 	uint8_t eof_action = eof_action_eof_code;
 	free(src);
@@ -1538,7 +1518,7 @@ static bool bif_iso_open_4(query *q)
 				cell tmp;
 				make_atom(&tmp, new_atom(q->pl, C_STR(q, name)));
 
-				if (!unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx))
+				if (!unify(q, p3, p3_ctx, &tmp, q->st.curr_fp))
 					return false;
 
 				is_alias = true;
@@ -1680,7 +1660,7 @@ static bool bif_iso_open_4(query *q)
 			fseek(str->fp, 0, SEEK_SET);
 	} else if (!strcmp(str->mode, "write") && !str->binary && use_bom) {
 		int ch = 0xFEFF;
-		char tmpbuf[10];
+		char tmpbuf[MAX_BYTES_PER_CODEPOINT+1];
 		put_char_utf8(tmpbuf, ch);
 		net_write(tmpbuf, strlen(tmpbuf), str);
 		str->bom = true;
@@ -1713,7 +1693,7 @@ static bool bif_iso_open_4(query *q)
 		} else
 			make_atom(&tmp, g_nil_s);
 
-		unify(q, mmap_var, mmap_ctx, &tmp, q->st.cur_ctx);
+		unify(q, mmap_var, mmap_ctx, &tmp, q->st.curr_fp);
 	}
 #endif
 
@@ -1722,7 +1702,7 @@ static bool bif_iso_open_4(query *q)
 		make_int(&tmp, n);
 		tmp.flags |= FLAG_INT_STREAM;
 
-		if (!unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx))
+		if (!unify(q, p3, p3_ctx, &tmp, q->st.curr_fp))
 			return false;
 	}
 
@@ -1764,9 +1744,7 @@ bool stream_close(query *q, int n)
 		sl_app(str2->alias, strdup("user_error"), NULL);
 	}
 
-	if (!str->socket && !str->is_mutex && !str->is_queue && !str->is_memory)
-		del_stream_properties(q, n);
-
+	del_stream_properties(q, n);
 	bool ok = true;
 
 	if (str->is_alias) {
@@ -1777,20 +1755,22 @@ bool stream_close(query *q, int n)
 		str->is_memory = false;
 	} else if (is_engine_stream(str)) {
 		query_destroy(str->engine);
-	} else if (str->is_queue || str->is_mutex) {
 	} else
 		ok = !net_close(str);
 
-	sl_destroy(str->alias); str->alias = NULL;
+	sl_destroy(str->alias);
+	str->alias = NULL;
 	str->fp = NULL;
-	//str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL);
-	free(str->mode); str->mode = NULL;
-	free(str->filename); str->filename = NULL;
-	free(str->data); str->data = NULL;
+	free(str->mode);
+	str->mode = NULL;
+	free(str->filename);
+	str->filename = NULL;
+	free(str->data);
+	str->data = NULL;
 	str->at_end_of_file = true;
 
 	if (!ok)
-		return throw_error(q, q->st.instr, q->st.cur_ctx, "io_error", strerror(errno));
+		return throw_error(q, q->st.instr, q->st.curr_fp, "io_error", strerror(errno));
 
 	return true;
 }
@@ -1846,7 +1826,7 @@ static bool bif_iso_at_end_of_stream_0(query *q)
 	if (!str->ungetch && isatty(fileno(str->fp)))
 		return false;
 
-	if (!str->socket) {
+	if (!str->is_socket) {
 		int ch = str->ungetch ? str->ungetch : xgetc_utf8(net_getc, str);
 		str->ungetch = ch;
 	}
@@ -1867,7 +1847,7 @@ static bool bif_iso_at_end_of_stream_1(query *q)
 	stream *str = &q->pl->streams[n];
 
 	if (strcmp(str->mode, "read") && strcmp(str->mode, "update"))
-		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "input,stream");
+		return throw_error(q, pstr, q->st.curr_fp, "permission_error", "input,stream");
 
 	if (!str->ungetch && str->p) {
 		if (str->p->srcptr && *str->p->srcptr) {
@@ -1879,7 +1859,7 @@ static bool bif_iso_at_end_of_stream_1(query *q)
 	if (!str->ungetch && isatty(fileno(str->fp)))
 		return false;
 
-	if (!str->socket) {
+	if (!str->is_socket) {
 		int ch = str->ungetch ? str->ungetch : xgetc_utf8(net_getc, str);
 		str->ungetch = ch;
 	}
@@ -1903,8 +1883,8 @@ static bool bif_iso_flush_output_0(query *q)
 
 	int err = fflush(str->fp);
 
-	if (err == EOF)
-		return throw_error(q, q->st.instr, q->st.cur_ctx, "io_error", strerror(errno));
+	if ((err == EOF) && !str->is_socket)
+		return throw_error(q, q->st.instr, q->st.curr_fp, "io_error", strerror(errno));
 
 	return !ferror(str->fp);
 }
@@ -1916,14 +1896,14 @@ static bool bif_iso_flush_output_1(query *q)
 	stream *str = &q->pl->streams[n];
 
 	if (!strcmp(str->mode, "read"))
-		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "output,stream");
+		return throw_error(q, pstr, q->st.curr_fp, "permission_error", "output,stream");
 
 	if (is_memory_stream(str))
 		return true;
 
 	int err = fflush(str->fp);
 
-	if (err == EOF)
+	if ((err == EOF) && !str->is_socket)
 		return throw_error(q, pstr, pstr_ctx, "io_error", strerror(errno));
 
 	return !ferror(str->fp);
@@ -1935,7 +1915,7 @@ static bool bif_iso_nl_0(query *q)
 	stream *str = &q->pl->streams[n];
 
 	if (str->binary)
-		return throw_error(q, q->st.instr, q->st.cur_ctx, "permission_error", "output,binary_stream");
+		return throw_error(q, q->st.instr, q->st.curr_fp, "permission_error", "output,binary_stream");
 
 	if (!net_write("\n", 1, str))
 		return false;
@@ -1945,8 +1925,8 @@ static bool bif_iso_nl_0(query *q)
 
 	int err = fflush(str->fp);
 
-	if (err == EOF)
-		return throw_error(q, q->st.instr, q->st.cur_ctx, "io_error", strerror(errno));
+	if ((err == EOF) && !str->is_socket)
+		return throw_error(q, q->st.instr, q->st.curr_fp, "io_error", strerror(errno));
 
 	return !ferror(str->fp);
 }
@@ -1958,10 +1938,10 @@ static bool bif_iso_nl_1(query *q)
 	stream *str = &q->pl->streams[n];
 
 	if (!strcmp(str->mode, "read"))
-		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "output,stream");
+		return throw_error(q, pstr, q->st.curr_fp, "permission_error", "output,stream");
 
 	if (str->binary)
-		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "output,binary_stream");
+		return throw_error(q, pstr, q->st.curr_fp, "permission_error", "output,binary_stream");
 
 	if (!net_write("\n", 1, str))
 		return false;
@@ -1971,7 +1951,7 @@ static bool bif_iso_nl_1(query *q)
 
 	int err = fflush(str->fp);
 
-	if (err == EOF)
+	if ((err == EOF) && !str->is_socket)
 		return throw_error(q, pstr, pstr_ctx, "io_error", strerror(errno));
 
 	return !ferror(str->fp);
@@ -1986,10 +1966,10 @@ static bool bif_iso_read_1(query *q)
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,binary_stream");
 	}
 
-	return do_read_term(q, str, p1, p1_ctx, make_nil(), q->st.cur_ctx, NULL);
+	return do_read_term(q, str, p1, p1_ctx, make_nil(), q->st.curr_fp, NULL);
 }
 
 static bool bif_iso_read_2(query *q)
@@ -2000,15 +1980,15 @@ static bool bif_iso_read_2(query *q)
 	GET_NEXT_ARG(p1,any);
 
 	if (strcmp(str->mode, "read"))
-		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "input,stream");
+		return throw_error(q, pstr, q->st.curr_fp, "permission_error", "input,stream");
 
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,binary_stream");
 	}
 
-	return do_read_term(q, str, p1, p1_ctx, make_nil(), q->st.cur_ctx, NULL);
+	return do_read_term(q, str, p1, p1_ctx, make_nil(), q->st.curr_fp, NULL);
 }
 
 static bool parse_read_params(query *q, stream *str, cell *c, pl_ctx c_ctx, cell **vars, pl_ctx *vars_ctx, cell **varnames, pl_ctx *varnames_ctx, cell **sings, pl_ctx *sings_ctx)
@@ -2084,7 +2064,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_ctx p1_ctx, cell *p2, pl_c
 {
 	if (!str->p) {
 		str->p = parser_create(q->st.m);
-		checked(str->p);
+		CHECKED(str->p);
 		str->p->flags = q->st.m->flags;
 		str->p->fp = str->fp;
 		if (q->top) str->p->no_fp = q->top->no_fp;
@@ -2138,7 +2118,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_ctx p1_ctx, cell *p2, pl_c
 		char *src = (char*)eat_space(str->p);
 
 		if (str->p->error)
-			return throw_error(q, q->st.instr, q->st.cur_ctx, "syntax_error", str->p->error_desc?str->p->error_desc:"read_term");
+			return throw_error(q, q->st.instr, q->st.curr_fp, "syntax_error", str->p->error_desc?str->p->error_desc:"read_term");
 
 		str->p->line_num_start = str->p->line_num;
 		str->p->srcptr = src;
@@ -2169,15 +2149,15 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_ctx p1_ctx, cell *p2, pl_c
 					clearerr(str->fp);
 
 				if (vars)
-					if (!unify(q, vars, vars_ctx, make_nil(), q->st.cur_ctx))
+					if (!unify(q, vars, vars_ctx, make_nil(), q->st.curr_fp))
 						return false;
 
 				if (varnames)
-					if (!unify(q, varnames, varnames_ctx, make_nil(), q->st.cur_ctx))
+					if (!unify(q, varnames, varnames_ctx, make_nil(), q->st.curr_fp))
 						return false;
 
 				if (sings)
-					if (!unify(q, sings, sings_ctx, make_nil(), q->st.cur_ctx))
+					if (!unify(q, sings, sings_ctx, make_nil(), q->st.curr_fp))
 						return false;
 
 				cell *p22 = p2;
@@ -2198,24 +2178,24 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_ctx p1_ctx, cell *p2, pl_c
 						pl_ctx p_ctx = q->latest_ctx;
 						cell tmp;
 						make_int(&tmp, str->p->pos_start);
-						unify(q, p, p_ctx, &tmp, q->st.cur_ctx);
+						unify(q, p, p_ctx, &tmp, q->st.curr_fp);
 						p = h+2;
 						p = deref(q, p, h_ctx);
 						p_ctx = q->latest_ctx;
 						make_int(&tmp, ftello(str->fp));
-						unify(q, p, p_ctx, &tmp, q->st.cur_ctx);
+						unify(q, p, p_ctx, &tmp, q->st.curr_fp);
 					} else if (!CMP_STRING_TO_CSTR(q, h, "line_counts") && (h->arity == 2)) {
 						cell *p = h+1;
 						p = deref(q, p, h_ctx);
 						pl_ctx p_ctx = q->latest_ctx;
 						cell tmp;
 						make_int(&tmp, str->p->line_num_start);
-						unify(q, p, p_ctx, &tmp, q->st.cur_ctx);
+						unify(q, p, p_ctx, &tmp, q->st.curr_fp);
 						p = h+2;
 						p = deref(q, p, h_ctx);
 						p_ctx = q->latest_ctx;
 						make_int(&tmp, str->p->line_num);
-						unify(q, p, p_ctx, &tmp, q->st.cur_ctx);
+						unify(q, p, p_ctx, &tmp, q->st.curr_fp);
 					}
 
 					p22 = LIST_TAIL(p22);
@@ -2225,7 +2205,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_ctx p1_ctx, cell *p2, pl_c
 
 				cell tmp;
 				make_atom(&tmp, g_eof_s);
-				return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+				return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 			}
 
 			//if (!*p->save_line || (*p->save_line == '\r') || (*p->save_line == '\n'))
@@ -2262,7 +2242,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_ctx p1_ctx, cell *p2, pl_c
 		}
 
 		str->p->do_read_term = false;
-		return throw_error(q, make_nil(), q->st.cur_ctx, "syntax_error", str->p->error_desc?str->p->error_desc:"read_term");
+		return throw_error(q, make_nil(), q->st.curr_fp, "syntax_error", str->p->error_desc?str->p->error_desc:"read_term");
 	}
 
 	str->p->do_read_term = false;
@@ -2286,7 +2266,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_ctx p1_ctx, cell *p2, pl_c
 			cell tmp;
 			make_int(&tmp, str->p->pos_start);
 
-			if (!unify(q, p, p_ctx, &tmp, q->st.cur_ctx))
+			if (!unify(q, p, p_ctx, &tmp, q->st.curr_fp))
 				return false;
 
 			p = h+2;
@@ -2294,7 +2274,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_ctx p1_ctx, cell *p2, pl_c
 			p_ctx = q->latest_ctx;
 			make_int(&tmp, ftello(str->fp));
 
-			if (!unify(q, p, p_ctx, &tmp, q->st.cur_ctx))
+			if (!unify(q, p, p_ctx, &tmp, q->st.curr_fp))
 				return false;
 		} else if (!CMP_STRING_TO_CSTR(q, h, "line_counts") && (h->arity == 2)) {
 			cell *p = h+1;
@@ -2303,7 +2283,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_ctx p1_ctx, cell *p2, pl_c
 			cell tmp;
 			make_int(&tmp, str->p->line_num_start);
 
-			if (!unify(q, p, p_ctx, &tmp, q->st.cur_ctx))
+			if (!unify(q, p, p_ctx, &tmp, q->st.curr_fp))
 				return false;
 
 			p = h+2;
@@ -2311,7 +2291,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_ctx p1_ctx, cell *p2, pl_c
 			p_ctx = q->latest_ctx;
 			make_int(&tmp, str->p->line_num);
 
-			if (!unify(q, p, p_ctx, &tmp, q->st.cur_ctx))
+			if (!unify(q, p, p_ctx, &tmp, q->st.curr_fp))
 				return false;
 		}
 
@@ -2323,7 +2303,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_ctx p1_ctx, cell *p2, pl_c
 	if (!str->p->cl->cidx) {
 		cell tmp;
 		make_atom(&tmp, g_eof_s);
-		return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+		return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 	}
 
 	process_clause(str->p->m, str->p->cl, NULL);
@@ -2336,16 +2316,16 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_ctx p1_ctx, cell *p2, pl_c
 	q->tab_idx = 0;
 
 	if (str->p->num_vars)
-		collect_vars(q, str->p->cl->cells, q->st.cur_ctx);
+		collect_vars(q, str->p->cl->cells, q->st.curr_fp);
 
 	if (vars) {
 		unsigned cnt = q->tab_idx;
 		unsigned idx = 0;
 
 		if (cnt) {
-			checked(init_tmp_heap(q));
+			CHECKED(init_tmp_heap(q));
 			cell *tmp = alloc_tmp(q, (cnt*2)+1);
-			checked(tmp);
+			CHECKED(tmp);
 			unsigned done = 0;
 
 			for (unsigned i = 0; i < q->tab_idx; i++) {
@@ -2353,7 +2333,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_ctx p1_ctx, cell *p2, pl_c
 				tmp[idx].arity = 2;
 				tmp[idx++].num_cells = ((cnt-done)*2)+1;
 				cell v;
-				make_ref(&v, q->pl->tabs[i].var_num, q->st.cur_ctx);
+				make_ref(&v, q->pl->tabs[i].var_num, q->st.curr_fp);
 				tmp[idx++] = v;
 				done++;
 			}
@@ -2364,20 +2344,20 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_ctx p1_ctx, cell *p2, pl_c
 
 			cell *save = tmp;
 			tmp = alloc_heap(q, idx);
-			checked(tmp);
+			CHECKED(tmp);
 			dup_cells(tmp, save, idx);
 			tmp->num_cells = idx;
-			if (!unify(q, vars, vars_ctx, tmp, q->st.cur_ctx))
+			if (!unify(q, vars, vars_ctx, tmp, q->st.curr_fp))
 				return false;
 		} else {
-			if (!unify(q, vars, vars_ctx, make_nil(), q->st.cur_ctx))
+			if (!unify(q, vars, vars_ctx, make_nil(), q->st.curr_fp))
 				return false;
 		}
 	}
 
 	if (varnames) {
 		unsigned cnt = 0;
-		checked(init_tmp_heap(q));
+		CHECKED(init_tmp_heap(q));
 		unsigned idx = 0;
 
 		for (unsigned i = 0; i < q->tab_idx; i++) {
@@ -2389,7 +2369,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_ctx p1_ctx, cell *p2, pl_c
 
 		if (cnt) {
 			cell *tmp = alloc_tmp(q, (cnt*4)+1);
-			checked(tmp);
+			CHECKED(tmp);
 			unsigned done = 0;
 
 			for (unsigned i = 0; i < q->tab_idx; i++) {
@@ -2405,7 +2385,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_ctx p1_ctx, cell *p2, pl_c
 				tmp[idx++] = v;
 				make_atom(&v, q->pl->tabs[i].val_off);
 				tmp[idx++] = v;
-				make_ref(&v, q->pl->tabs[i].var_num, q->st.cur_ctx);
+				make_ref(&v, q->pl->tabs[i].var_num, q->st.curr_fp);
 				tmp[idx++] = v;
 				done++;
 			}
@@ -2416,20 +2396,20 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_ctx p1_ctx, cell *p2, pl_c
 
 			cell *save = tmp;
 			tmp = alloc_heap(q, idx);
-			checked(tmp);
+			CHECKED(tmp);
 			dup_cells(tmp, save, idx);
 			tmp->num_cells = idx;
-			if (!unify(q, varnames, varnames_ctx, tmp, q->st.cur_ctx))
+			if (!unify(q, varnames, varnames_ctx, tmp, q->st.curr_fp))
 				return false;
 		} else {
-			if (!unify(q, varnames, varnames_ctx, make_nil(), q->st.cur_ctx))
+			if (!unify(q, varnames, varnames_ctx, make_nil(), q->st.curr_fp))
 				return false;
 		}
 	}
 
 	if (sings) {
 		unsigned cnt = 0;
-		checked(init_tmp_heap(q));
+		CHECKED(init_tmp_heap(q));
 		unsigned idx = 0;
 
 		for (unsigned i = 0; i < q->tab_idx; i++) {
@@ -2444,7 +2424,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_ctx p1_ctx, cell *p2, pl_c
 
 		if (cnt) {
 			cell *tmp = alloc_tmp(q, (cnt*4)+1);
-			checked(tmp);
+			CHECKED(tmp);
 			unsigned done = 0;
 
 			for (unsigned i = 0; i < q->tab_idx; i++) {
@@ -2463,7 +2443,7 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_ctx p1_ctx, cell *p2, pl_c
 				tmp[idx++] = v;
 				make_atom(&v, q->pl->tabs[i].val_off);
 				tmp[idx++] = v;
-				make_ref(&v, q->pl->tabs[i].var_num, q->st.cur_ctx);
+				make_ref(&v, q->pl->tabs[i].var_num, q->st.curr_fp);
 				tmp[idx++] = v;
 				done++;
 			}
@@ -2474,21 +2454,21 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_ctx p1_ctx, cell *p2, pl_c
 
 			cell *save = tmp;
 			tmp = alloc_heap(q, idx);
-			checked(tmp);
+			CHECKED(tmp);
 			dup_cells(tmp, save, idx);
 			tmp->num_cells = idx;
-			if (!unify(q, sings, sings_ctx, tmp, q->st.cur_ctx))
+			if (!unify(q, sings, sings_ctx, tmp, q->st.curr_fp))
 				return false;
 		} else {
-			if (!unify(q, sings, sings_ctx, make_nil(), q->st.cur_ctx))
+			if (!unify(q, sings, sings_ctx, make_nil(), q->st.curr_fp))
 				return false;
 		}
 	}
 
 	cell *tmp = alloc_heap(q, str->p->cl->cidx-1);
-	checked(tmp);
+	CHECKED(tmp);
 	dup_cells(tmp, str->p->cl->cells, str->p->cl->cidx-1);
-	bool ok = unify(q, p1, p1_ctx, tmp, q->st.cur_ctx);
+	bool ok = unify(q, p1, p1_ctx, tmp, q->st.curr_fp);
 	clear_clause(str->p->cl);
 	return ok;
 }
@@ -2503,7 +2483,7 @@ static bool bif_iso_read_term_2(query *q)
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,binary_stream");
 	}
 
 	return do_read_term(q, str, p1, p1_ctx, p2, p2_ctx, NULL);
@@ -2517,13 +2497,13 @@ static bool bif_iso_read_term_3(query *q)
 	GET_NEXT_ARG(p1,any);
 	GET_NEXT_ARG(p2,list_or_nil);
 
-	if (strcmp(str->mode, "read"))
-		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "input,stream");
+	if (strcmp(str->mode, "read") && strcmp(str->mode, "update"))
+		return throw_error(q, pstr, q->st.curr_fp, "permission_error", "input,stream");
 
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,binary_stream");
 	}
 
 	return do_read_term(q, str, p1, p1_ctx, p2, p2_ctx, NULL);
@@ -2538,7 +2518,7 @@ static bool bif_iso_write_1(query *q)
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "output,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "output,binary_stream");
 	}
 
 	q->numbervars = true;
@@ -2548,8 +2528,8 @@ static bool bif_iso_write_1(query *q)
 	if (is_memory_stream(str))
 		return true;
 
-	if (isatty(fileno(str->fp)))
-		fflush(str->fp);
+	if (fflush(str->fp))
+		return throw_error(q, q->st.instr, q->st.curr_fp, "io_error", strerror(errno));
 
 	return !ferror(str->fp);
 }
@@ -2562,12 +2542,12 @@ static bool bif_iso_write_2(query *q)
 	GET_NEXT_ARG(p1,any);
 
 	if (!strcmp(str->mode, "read"))
-		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "output,stream");
+		return throw_error(q, pstr, q->st.curr_fp, "permission_error", "output,stream");
 
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "output,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "output,binary_stream");
 	}
 
 	q->numbervars = true;
@@ -2577,10 +2557,8 @@ static bool bif_iso_write_2(query *q)
 	if (is_memory_stream(str))
 		return true;
 
-	if (isatty(fileno(str->fp))) {
-		if (fflush(str->fp))
-			return false;
-	}
+	if (fflush(str->fp))
+		return throw_error(q, q->st.instr, q->st.curr_fp, "io_error", strerror(errno));
 
 	return !ferror(str->fp);
 }
@@ -2594,7 +2572,7 @@ static bool bif_iso_writeq_1(query *q)
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "output,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "output,binary_stream");
 	}
 
 	q->quoted = 1;
@@ -2606,8 +2584,8 @@ static bool bif_iso_writeq_1(query *q)
 	if (is_memory_stream(str))
 		return true;
 
-	if (isatty(fileno(str->fp)))
-		fflush(str->fp);
+	if (fflush(str->fp))
+		return throw_error(q, q->st.instr, q->st.curr_fp, "io_error", strerror(errno));
 
 	return !ferror(str->fp);
 }
@@ -2620,12 +2598,12 @@ static bool bif_iso_writeq_2(query *q)
 	GET_NEXT_ARG(p1,any);
 
 	if (!strcmp(str->mode, "read"))
-		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "output,stream");
+		return throw_error(q, pstr, q->st.curr_fp, "permission_error", "output,stream");
 
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "output,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "output,binary_stream");
 	}
 
 	q->quoted = 1;
@@ -2637,8 +2615,8 @@ static bool bif_iso_writeq_2(query *q)
 	if (is_memory_stream(str))
 		return true;
 
-	if (isatty(fileno(str->fp)))
-		fflush(str->fp);
+	if (fflush(str->fp))
+		return throw_error(q, q->st.instr, q->st.curr_fp, "io_error", strerror(errno));
 
 	return !ferror(str->fp);
 }
@@ -2652,7 +2630,7 @@ static bool bif_iso_write_canonical_1(query *q)
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "output,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "output,binary_stream");
 	}
 
 	print_canonical_to_stream(q, str, p1, p1_ctx, 1);
@@ -2660,8 +2638,8 @@ static bool bif_iso_write_canonical_1(query *q)
 	if (is_memory_stream(str))
 		return true;
 
-	if (isatty(fileno(str->fp)))
-		fflush(str->fp);
+	if (fflush(str->fp))
+		return throw_error(q, q->st.instr, q->st.curr_fp, "io_error", strerror(errno));
 
 	return !ferror(str->fp);
 }
@@ -2674,12 +2652,12 @@ static bool bif_iso_write_canonical_2(query *q)
 	GET_NEXT_ARG(p1,any);
 
 	if (!strcmp(str->mode, "read"))
-		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "output,stream");
+		return throw_error(q, pstr, q->st.curr_fp, "permission_error", "output,stream");
 
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "output,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "output,binary_stream");
 	}
 
 	print_canonical_to_stream(q, str, p1, p1_ctx, 1);
@@ -2687,8 +2665,8 @@ static bool bif_iso_write_canonical_2(query *q)
 	if (is_memory_stream(str))
 		return true;
 
-	if (isatty(fileno(str->fp)))
-		fflush(str->fp);
+	if (fflush(str->fp))
+		return throw_error(q, q->st.instr, q->st.curr_fp, "io_error", strerror(errno));
 
 	return !ferror(str->fp);
 }
@@ -2930,7 +2908,7 @@ static bool bif_iso_write_term_2(query *q)
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "output,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "output,binary_stream");
 	}
 
 	q->flags = q->st.m->flags;
@@ -2939,7 +2917,7 @@ static bool bif_iso_write_term_2(query *q)
 	pl_ctx p2_orig_ctx = p2_ctx, vnames_ctx = 0;
 	LIST_HANDLER(p2);
 
-	while (is_list(p2)) {
+	while (is_iso_list(p2)) {
 		cell *h = LIST_HEAD(p2);
 		h = deref(q, h, p2_ctx);
 		pl_ctx h_ctx = q->latest_ctx;
@@ -2970,7 +2948,7 @@ static bool bif_iso_write_term_2(query *q)
 		cell p1[1+c->num_cells];
 		make_instr(p1+0, new_atom(q->pl, "$portray"), NULL, 1, c->num_cells);
 		dup_cells_by_ref(p1+1, c, c_ctx, c->num_cells);
-		cell *tmp = prepare_call(q, CALL_SKIP, p1, q->st.cur_ctx, 1);
+		cell *tmp = prepare_call(q, CALL_SKIP, p1, q->st.curr_fp, 1);
 		pl_idx num_cells = p1->num_cells;
 		make_end(tmp+num_cells);
 		query *q2 = query_create_subquery(q, tmp);
@@ -2993,7 +2971,9 @@ static bool bif_iso_write_term_2(query *q)
 
 	if (q->nl) {
 		net_write("\n", 1, str);
-		//fflush(str->fp);
+
+		if (fflush(str->fp))
+			return throw_error(q, q->st.instr, q->st.curr_fp, "io_error", strerror(errno));
 	}
 
 	clear_write_options(q);
@@ -3013,12 +2993,12 @@ static bool bif_iso_write_term_3(query *q)
 	GET_NEXT_ARG(p2,list_or_nil);
 
 	if (!strcmp(str->mode, "read"))
-		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "output,stream");
+		return throw_error(q, pstr, q->st.curr_fp, "permission_error", "output,stream");
 
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "output,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "output,binary_stream");
 	}
 
 	q->flags = q->st.m->flags;
@@ -3027,7 +3007,7 @@ static bool bif_iso_write_term_3(query *q)
 	pl_ctx p2_orig_ctx = p2_ctx, vnames_ctx;
 	LIST_HANDLER(p2);
 
-	while (is_list(p2)) {
+	while (is_iso_list(p2)) {
 		cell *h = LIST_HEAD(p2);
 		h = deref(q, h, p2_ctx);
 		pl_ctx h_ctx = q->latest_ctx;
@@ -3059,7 +3039,7 @@ static bool bif_iso_write_term_3(query *q)
 		make_instr(p1+0, new_atom(q->pl, "$portray"), NULL, 2, 1+c->num_cells);
 		p1[1] = *pstr;
 		dup_cells_by_ref(p1+2, c, c_ctx, c->num_cells);
-		cell *tmp = prepare_call(q, CALL_SKIP, p1, q->st.cur_ctx, 1);
+		cell *tmp = prepare_call(q, CALL_SKIP, p1, q->st.curr_fp, 1);
 		pl_idx num_cells = p1->num_cells;
 		make_end(tmp+num_cells);
 		query *q2 = query_create_subquery(q, tmp);
@@ -3083,7 +3063,9 @@ static bool bif_iso_write_term_3(query *q)
 
 	if (q->nl) {
 		net_write("\n", 1, str);
-		//fflush(str->fp);
+
+		if (fflush(str->fp))
+			return throw_error(q, q->st.instr, q->st.curr_fp, "io_error", strerror(errno));
 	}
 
 	clear_write_options(q);
@@ -3104,7 +3086,7 @@ static bool bif_iso_put_char_1(query *q)
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "output,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "output,binary_stream");
 	}
 
 	if (len != C_STRLEN(q, p1))
@@ -3112,7 +3094,7 @@ static bool bif_iso_put_char_1(query *q)
 
 	const char *src = C_STR(q, p1);
 	int ch = get_char_utf8(&src);
-	char tmpbuf[80];
+	char tmpbuf[MAX_BYTES_PER_CODEPOINT+1];
 	put_char_utf8(tmpbuf, ch);
 	net_write(tmpbuf, strlen(tmpbuf), str);
 
@@ -3131,12 +3113,12 @@ static bool bif_iso_put_char_2(query *q)
 	size_t len = len_char_utf8(C_STR(q, p1));
 
 	if (!strcmp(str->mode, "read"))
-		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "output,stream");
+		return throw_error(q, pstr, q->st.curr_fp, "permission_error", "output,stream");
 
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "output,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "output,binary_stream");
 	}
 
 	if (len != C_STRLEN(q, p1))
@@ -3144,7 +3126,7 @@ static bool bif_iso_put_char_2(query *q)
 
 	const char *src = C_STR(q, p1);
 	int ch = get_char_utf8(&src);
-	char tmpbuf[80];
+	char tmpbuf[MAX_BYTES_PER_CODEPOINT+1];
 	put_char_utf8(tmpbuf, ch);
 	net_write(tmpbuf, strlen(tmpbuf), str);
 
@@ -3166,7 +3148,7 @@ static bool bif_iso_put_code_1(query *q)
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "output,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "output,binary_stream");
 	}
 
 	if (!is_integer(p1))
@@ -3176,7 +3158,7 @@ static bool bif_iso_put_code_1(query *q)
 		return throw_error(q, p1, p1_ctx, "representation_error", "character_code");
 
 	int ch = (int)get_smallint(p1);
-	char tmpbuf[80];
+	char tmpbuf[MAX_BYTES_PER_CODEPOINT+1];
 	put_char_utf8(tmpbuf, ch);
 	net_write(tmpbuf, strlen(tmpbuf), str);
 	return !ferror(str->fp);
@@ -3193,12 +3175,12 @@ static bool bif_iso_put_code_2(query *q)
 		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
 
 	if (!strcmp(str->mode, "read"))
-		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "output,stream");
+		return throw_error(q, pstr, q->st.curr_fp, "permission_error", "output,stream");
 
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "output,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "output,binary_stream");
 	}
 
 	if (!is_integer(p1))
@@ -3208,7 +3190,7 @@ static bool bif_iso_put_code_2(query *q)
 		return throw_error(q, p1, p1_ctx, "representation_error", "character_code");
 
 	int ch = (int)get_smallint(p1);
-	char tmpbuf[80];
+	char tmpbuf[MAX_BYTES_PER_CODEPOINT+1];
 	put_char_utf8(tmpbuf, ch);
 	net_write(tmpbuf, strlen(tmpbuf), str);
 
@@ -3230,7 +3212,7 @@ static bool bif_iso_put_byte_1(query *q)
 	if (!str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "output,text_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "output,text_stream");
 	}
 
 	if (!is_integer(p1))
@@ -3261,10 +3243,10 @@ static bool bif_iso_put_byte_2(query *q)
 		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
 
 	if (!strcmp(str->mode, "read"))
-		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "output,stream");
+		return throw_error(q, pstr, q->st.curr_fp, "permission_error", "output,stream");
 
 	if (!str->binary)
-		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "output,text_stream");
+		return throw_error(q, pstr, q->st.curr_fp, "permission_error", "output,text_stream");
 
 	if (!is_integer(p1))
 		return throw_error(q, p1, p1_ctx, "type_error", "integer");
@@ -3292,13 +3274,13 @@ static bool bif_iso_get_char_1(query *q)
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,binary_stream");
 	}
 
 	if (str->at_end_of_file && (str->eof_action == eof_action_error)) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,past_end_of_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,past_end_of_stream");
 	}
 
 	if (!str->ungetch && str->p) {
@@ -3310,7 +3292,9 @@ static bool bif_iso_get_char_1(query *q)
 
 	if (isatty(fileno(str->fp)) && !str->did_getc && !str->ungetch) {
 		fprintf(str->fp, "%s", PROMPT);
-		fflush(str->fp);
+
+		if (fflush(str->fp))
+			return throw_error(q, q->st.instr, q->st.curr_fp, "io_error", strerror(errno));
 	}
 
 	int ch = str->ungetch ? str->ungetch : xgetc_utf8(net_getc, str);
@@ -3331,7 +3315,7 @@ static bool bif_iso_get_char_1(query *q)
 
 		cell tmp;
 		make_atom(&tmp, g_eof_s);
-		return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+		return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 	}
 
 	str->ungetch = 0;
@@ -3343,11 +3327,11 @@ static bool bif_iso_get_char_1(query *q)
 			str->p->line_num++;
 	}
 
-	char tmpbuf[80];
+	char tmpbuf[MAX_BYTES_PER_CODEPOINT+1];
 	n = put_char_utf8(tmpbuf, ch);
 	cell tmp;
 	make_smalln(&tmp, tmpbuf, n);
-	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 }
 
 static bool bif_iso_get_char_2(query *q)
@@ -3357,19 +3341,19 @@ static bool bif_iso_get_char_2(query *q)
 	stream *str = &q->pl->streams[n];
 	GET_NEXT_ARG(p1,in_character_or_var);
 
-	if (strcmp(str->mode, "read"))
-		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "input,stream");
+	if (strcmp(str->mode, "read") && strcmp(str->mode, "update"))
+		return throw_error(q, pstr, q->st.curr_fp, "permission_error", "input,stream");
 
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,binary_stream");
 	}
 
 	if (str->at_end_of_file && (str->eof_action == eof_action_error)) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,past_end_of_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,past_end_of_stream");
 	}
 
 	if (!str->ungetch && str->p) {
@@ -3381,7 +3365,9 @@ static bool bif_iso_get_char_2(query *q)
 
 	if (isatty(fileno(str->fp)) && !str->did_getc && !str->ungetch) {
 		fprintf(str->fp, "%s", PROMPT);
-		fflush(str->fp);
+
+		if (fflush(str->fp))
+			return throw_error(q, q->st.instr, q->st.curr_fp, "io_error", strerror(errno));
 	}
 
 	int ch = str->ungetch ? str->ungetch : xgetc_utf8(net_getc, str);
@@ -3402,7 +3388,7 @@ static bool bif_iso_get_char_2(query *q)
 
 		cell tmp;
 		make_atom(&tmp, g_eof_s);
-		return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+		return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 	}
 
 	str->ungetch = 0;
@@ -3414,11 +3400,11 @@ static bool bif_iso_get_char_2(query *q)
 			str->p->line_num++;
 	}
 
-	char tmpbuf[80];
+	char tmpbuf[MAX_BYTES_PER_CODEPOINT+1];
 	n = put_char_utf8(tmpbuf, ch);
 	cell tmp;
 	make_smalln(&tmp, tmpbuf, n);
-	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 }
 
 static bool bif_iso_get_code_1(query *q)
@@ -3436,13 +3422,13 @@ static bool bif_iso_get_code_1(query *q)
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,binary_stream");
 	}
 
 	if (str->at_end_of_file && (str->eof_action == eof_action_error)) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,past_end_of_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,past_end_of_stream");
 	}
 
 	if (!str->ungetch && str->p) {
@@ -3475,7 +3461,7 @@ static bool bif_iso_get_code_1(query *q)
 
 		cell tmp;
 		make_int(&tmp, -1);
-		return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+		return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 	}
 
 	str->ungetch = 0;
@@ -3490,7 +3476,7 @@ static bool bif_iso_get_code_1(query *q)
 
 	cell tmp;
 	make_int(&tmp, ch);
-	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 }
 
 static bool bif_iso_get_code_2(query *q)
@@ -3507,18 +3493,18 @@ static bool bif_iso_get_code_2(query *q)
 		return throw_error(q, p1, p1_ctx, "representation_error", "in_character_code");
 
 	if (strcmp(str->mode, "read"))
-		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "input,stream");
+		return throw_error(q, pstr, q->st.curr_fp, "permission_error", "input,stream");
 
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,binary_stream");
 	}
 
 	if (str->at_end_of_file && (str->eof_action == eof_action_error)) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,past_end_of_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,past_end_of_stream");
 	}
 
 	if (!str->ungetch && str->p) {
@@ -3551,7 +3537,7 @@ static bool bif_iso_get_code_2(query *q)
 
 		cell tmp;
 		make_int(&tmp, -1);
-		return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+		return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 	}
 
 	str->ungetch = 0;
@@ -3565,7 +3551,7 @@ static bool bif_iso_get_code_2(query *q)
 
 	cell tmp;
 	make_int(&tmp, ch);
-	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 }
 
 static bool bif_iso_get_byte_1(query *q)
@@ -3577,13 +3563,13 @@ static bool bif_iso_get_byte_1(query *q)
 	if (!str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,text_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,text_stream");
 	}
 
 	if (str->at_end_of_file && (str->eof_action == eof_action_error)) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,past_end_of_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,past_end_of_stream");
 	}
 
 	if (!str->ungetch && str->p) {
@@ -3616,14 +3602,14 @@ static bool bif_iso_get_byte_1(query *q)
 
 		cell tmp;
 		make_int(&tmp, -1);
-		return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+		return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 	}
 
 	str->ungetch = 0;
 
 	cell tmp;
 	make_int(&tmp, ch);
-	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 }
 
 static bool bif_iso_get_byte_2(query *q)
@@ -3633,19 +3619,19 @@ static bool bif_iso_get_byte_2(query *q)
 	stream *str = &q->pl->streams[n];
 	GET_NEXT_ARG(p1,in_byte_or_var);
 
-	if (strcmp(str->mode, "read"))
-		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "input,stream");
+	if (strcmp(str->mode, "read") && strcmp(str->mode, "update"))
+		return throw_error(q, pstr, q->st.curr_fp, "permission_error", "input,stream");
 
 	if (!str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,text_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,text_stream");
 	}
 
 	if (str->at_end_of_file && (str->eof_action == eof_action_error)) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,past_end_of_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,past_end_of_stream");
 	}
 
 	if (!str->ungetch && str->p) {
@@ -3678,13 +3664,13 @@ static bool bif_iso_get_byte_2(query *q)
 
 		cell tmp;
 		make_int(&tmp, -1);
-		return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+		return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 	}
 
 	str->ungetch = 0;
 	cell tmp;
 	make_int(&tmp, ch);
-	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 }
 
 static bool bif_unget_char_1(query *q)
@@ -3696,13 +3682,13 @@ static bool bif_unget_char_1(query *q)
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,binary_stream");
 	}
 
 	if (str->at_end_of_file && (str->eof_action == eof_action_error)) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,past_end_of_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,past_end_of_stream");
 	}
 
 	str->did_getc = false;
@@ -3718,13 +3704,13 @@ static bool bif_unget_char_2(query *q)
 	stream *str = &q->pl->streams[n];
 	GET_NEXT_ARG(p1,in_character);
 
-	if (strcmp(str->mode, "read"))
-		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "input,stream");
+	if (strcmp(str->mode, "read") && strcmp(str->mode, "update"))
+		return throw_error(q, pstr, q->st.curr_fp, "permission_error", "input,stream");
 
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,binary_stream");
 	}
 
 	if (!str->ungetch && str->p) {
@@ -3760,7 +3746,7 @@ static bool bif_unget_code_1(query *q)
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,binary_stream");
 	}
 
 	str->did_getc = false;
@@ -3783,12 +3769,12 @@ static bool bif_unget_code_2(query *q)
 		return throw_error(q, p1, p1_ctx, "representation_error", "in_character_code");
 
 	if (strcmp(str->mode, "read"))
-		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "input,stream");
+		return throw_error(q, pstr, q->st.curr_fp, "permission_error", "input,stream");
 
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,binary_stream");
 	}
 
 	str->did_getc = false;
@@ -3806,7 +3792,7 @@ static bool bif_unget_byte_1(query *q)
 	if (!str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,text_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,text_stream");
 	}
 
 	str->did_getc = false;
@@ -3822,13 +3808,13 @@ static bool bif_unget_byte_2(query *q)
 	stream *str = &q->pl->streams[n];
 	GET_NEXT_ARG(p1,in_byte);
 
-	if (strcmp(str->mode, "read"))
-		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "input,stream");
+	if (strcmp(str->mode, "read") && strcmp(str->mode, "update"))
+		return throw_error(q, pstr, q->st.curr_fp, "permission_error", "input,stream");
 
 	if (!str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,text_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,text_stream");
 	}
 
 	str->did_getc = false;
@@ -3846,13 +3832,13 @@ static bool bif_iso_peek_char_1(query *q)
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,binary_stream");
 	}
 
 	if (str->at_end_of_file && (str->eof_action == eof_action_error)) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,past_end_of_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,past_end_of_stream");
 	}
 
 	if (!str->ungetch && str->p) {
@@ -3875,15 +3861,15 @@ static bool bif_iso_peek_char_1(query *q)
 		clearerr(str->fp);
 		cell tmp;
 		make_atom(&tmp, g_eof_s);
-		return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+		return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 	}
 
 	str->ungetch = ch;
-	char tmpbuf[80];
+	char tmpbuf[MAX_BYTES_PER_CODEPOINT+1];
 	n = put_char_utf8(tmpbuf, ch);
 	cell tmp;
 	make_smalln(&tmp, tmpbuf, n);
-	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 }
 
 static bool bif_iso_peek_char_2(query *q)
@@ -3894,18 +3880,18 @@ static bool bif_iso_peek_char_2(query *q)
 	GET_NEXT_ARG(p1,in_character_or_var);
 
 	if (strcmp(str->mode, "read"))
-		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "input,stream");
+		return throw_error(q, pstr, q->st.curr_fp, "permission_error", "input,stream");
 
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,binary_stream");
 	}
 
 	if (str->at_end_of_file && (str->eof_action == eof_action_error)) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,past_end_of_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,past_end_of_stream");
 	}
 
 	if (!str->ungetch && str->p) {
@@ -3927,15 +3913,15 @@ static bool bif_iso_peek_char_2(query *q)
 		clearerr(str->fp);
 		cell tmp;
 		make_atom(&tmp, g_eof_s);
-		return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+		return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 	}
 
 	str->ungetch = ch;
-	char tmpbuf[80];
+	char tmpbuf[MAX_BYTES_PER_CODEPOINT+1];
 	n = put_char_utf8(tmpbuf, ch);
 	cell tmp;
 	make_smalln(&tmp, tmpbuf, n);
-	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 }
 
 static bool bif_iso_peek_code_1(query *q)
@@ -3953,13 +3939,13 @@ static bool bif_iso_peek_code_1(query *q)
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,binary_stream");
 	}
 
 	if (str->at_end_of_file && (str->eof_action == eof_action_error)) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,past_end_of_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,past_end_of_stream");
 	}
 
 	if (!str->ungetch && str->p) {
@@ -3981,13 +3967,13 @@ static bool bif_iso_peek_code_1(query *q)
 		clearerr(str->fp);
 		cell tmp;
 		make_int(&tmp, -1);
-		return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+		return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 	}
 
 	str->ungetch = ch;
 	cell tmp;
 	make_int(&tmp, ch);
-	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 }
 
 static bool bif_iso_peek_code_2(query *q)
@@ -4004,18 +3990,18 @@ static bool bif_iso_peek_code_2(query *q)
 		return throw_error(q, p1, p1_ctx, "representation_error", "in_character_code");
 
 	if (strcmp(str->mode, "read"))
-		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "input,stream");
+		return throw_error(q, pstr, q->st.curr_fp, "permission_error", "input,stream");
 
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,binary_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,binary_stream");
 	}
 
 	if (str->at_end_of_file && (str->eof_action == eof_action_error)) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,past_end_of_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,past_end_of_stream");
 	}
 
 	if (!str->ungetch && str->p) {
@@ -4037,13 +4023,13 @@ static bool bif_iso_peek_code_2(query *q)
 		clearerr(str->fp);
 		cell tmp;
 		make_int(&tmp, -1);
-		return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+		return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 	}
 
 	str->ungetch = ch;
 	cell tmp;
 	make_int(&tmp, ch);
-	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 }
 
 static bool bif_iso_peek_byte_1(query *q)
@@ -4055,13 +4041,13 @@ static bool bif_iso_peek_byte_1(query *q)
 	if (!str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,text_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,text_stream");
 	}
 
 	if (str->at_end_of_file && (str->eof_action == eof_action_error)) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,past_end_of_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,past_end_of_stream");
 	}
 
 	if (!str->ungetch && str->p) {
@@ -4082,13 +4068,13 @@ static bool bif_iso_peek_byte_1(query *q)
 		clearerr(str->fp);
 		cell tmp;
 		make_int(&tmp, -1);
-		return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+		return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 	}
 
 	str->ungetch = ch;
 	cell tmp;
 	make_int(&tmp, ch);
-	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 }
 
 static bool bif_iso_peek_byte_2(query *q)
@@ -4099,18 +4085,18 @@ static bool bif_iso_peek_byte_2(query *q)
 	GET_NEXT_ARG(p1,in_byte_or_var);
 
 	if (strcmp(str->mode, "read"))
-		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "input,stream");
+		return throw_error(q, pstr, q->st.curr_fp, "permission_error", "input,stream");
 
 	if (!str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,text_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,text_stream");
 	}
 
 	if (str->at_end_of_file && (str->eof_action == eof_action_error)) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,past_end_of_stream");
+		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,past_end_of_stream");
 	}
 
 	if (!str->ungetch && str->p) {
@@ -4131,13 +4117,13 @@ static bool bif_iso_peek_byte_2(query *q)
 		clearerr(str->fp);
 		cell tmp;
 		make_int(&tmp, -1);
-		return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+		return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 	}
 
 	str->ungetch = ch;
 	cell tmp;
 	make_int(&tmp, ch);
-	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 }
 
 static bool bif_iso_current_input_1(query *q)
@@ -4148,11 +4134,11 @@ static bool bif_iso_current_input_1(query *q)
 		cell tmp;
 		make_int(&tmp, q->pl->current_input);
 		tmp.flags |= FLAG_INT_STREAM;
-		return unify(q, pstr, pstr_ctx, &tmp, q->st.cur_ctx);
+		return unify(q, pstr, pstr_ctx, &tmp, q->st.curr_fp);
 	}
 
 	if (!is_stream(pstr))
-		return throw_error(q, pstr, q->st.cur_ctx, "domain_error", "stream");
+		return throw_error(q, pstr, q->st.curr_fp, "domain_error", "stream");
 
 	int n = get_stream(q, pstr);
 	return n == (int)q->pl->current_input ? true : false;
@@ -4166,11 +4152,11 @@ static bool bif_iso_current_output_1(query *q)
 		cell tmp;
 		make_int(&tmp, q->pl->current_output);
 		tmp.flags |= FLAG_INT_STREAM;
-		return unify(q, pstr, pstr_ctx, &tmp, q->st.cur_ctx);
+		return unify(q, pstr, pstr_ctx, &tmp, q->st.curr_fp);
 	}
 
 	if (!is_stream(pstr))
-		return throw_error(q, pstr, q->st.cur_ctx, "domain_error", "stream");
+		return throw_error(q, pstr, q->st.curr_fp, "domain_error", "stream");
 
 	int n = get_stream(q, pstr);
 	return n == (int)q->pl->current_output ? true : false;
@@ -4184,11 +4170,11 @@ static bool bif_iso_current_error_1(query *q)
 		cell tmp;
 		make_int(&tmp, q->pl->current_error);
 		tmp.flags |= FLAG_INT_STREAM;
-		return unify(q, pstr, pstr_ctx, &tmp, q->st.cur_ctx);
+		return unify(q, pstr, pstr_ctx, &tmp, q->st.curr_fp);
 	}
 
 	if (!is_stream(pstr))
-		return throw_error(q, pstr, q->st.cur_ctx, "domain_error", "stream");
+		return throw_error(q, pstr, q->st.curr_fp, "domain_error", "stream");
 
 	int n = get_stream(q, pstr);
 	return n == (int)q->pl->current_error ? true : false;
@@ -4201,7 +4187,7 @@ static bool bif_iso_set_input_1(query *q)
 	stream *str = &q->pl->streams[n];
 
 	if (strcmp(str->mode, "read") && strcmp(str->mode, "update"))
-		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "input,stream");
+		return throw_error(q, pstr, q->st.curr_fp, "permission_error", "input,stream");
 
 	q->pl->current_input = n;
 	return true;
@@ -4214,7 +4200,7 @@ static bool bif_iso_set_output_1(query *q)
 	stream *str = &q->pl->streams[n];
 
 	if (!strcmp(str->mode, "read"))
-		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "output,stream");
+		return throw_error(q, pstr, q->st.curr_fp, "permission_error", "output,stream");
 
 	q->pl->current_output = n;
 	return true;
@@ -4227,7 +4213,7 @@ static bool bif_iso_set_stream_position_2(query *q)
 	stream *str = &q->pl->streams[n];
 	GET_NEXT_ARG(p1,any);
 
-	if (str->socket || (n <= 2) || !str->repo)
+	if (str->is_socket || (n <= 2) || !str->repo)
 		return throw_error(q, p1, p1_ctx, "permission_error", "reposition,stream");
 
 	if (!is_smallint(p1))
@@ -4258,7 +4244,7 @@ static bool bif_sys_read_term_from_chars_4(query *q)
 		if (!strcmp(C_STR(q, p_chars), "[]")) {
 			cell tmp;
 			make_atom(&tmp, g_eof_s);
-			return unify(q, p_term, p_term_ctx, &tmp, q->st.cur_ctx);
+			return unify(q, p_term, p_term_ctx, &tmp, q->st.curr_fp);
 		} else
 			return throw_error(q, p_chars, p_chars_ctx, "type_error", "character");
 	} else if (is_string(p_chars)) {
@@ -4288,7 +4274,7 @@ static bool bif_sys_read_term_from_chars_4(query *q)
 		parser_destroy(str->p);
 		cell tmp;
 		make_atom(&tmp, g_eof_s);
-		return unify(q, p_term, p_term_ctx, &tmp, q->st.cur_ctx);
+		return unify(q, p_term, p_term_ctx, &tmp, q->st.curr_fp);
 	}
 
 	bool ok = do_read_term(q, str, p_term, p_term_ctx, p_opts, p_opts_ctx, NULL);
@@ -4306,7 +4292,7 @@ static bool bif_sys_read_term_from_chars_4(query *q)
 
 	if (str->p->error) {
 		parser_destroy(str->p);
-		return throw_error(q, q->st.instr, q->st.cur_ctx, "syntax_error", str->p->error_desc?str->p->error_desc:"read_term");
+		return throw_error(q, q->st.instr, q->st.curr_fp, "syntax_error", str->p->error_desc?str->p->error_desc:"read_term");
 	}
 
 	cell tmp;
@@ -4329,7 +4315,7 @@ static bool bif_sys_read_term_from_chars_4(query *q)
 	if (!is_string(p_chars))
 		free(src);
 
-	unify(q, p_rest, p_rest_ctx, &tmp, q->st.cur_ctx);
+	unify(q, p_rest, p_rest_ctx, &tmp, q->st.curr_fp);
 	unshare_cell(&tmp);
 	return ok;
 }
@@ -4350,13 +4336,13 @@ static bool bif_read_term_from_chars_3(query *q)
 		if (!strcmp(C_STR(q, p_chars), "[]")) {
 			cell tmp;
 			make_atom(&tmp, g_eof_s);
-			return unify(q, p_term, p_term_ctx, &tmp, q->st.cur_ctx);
+			return unify(q, p_term, p_term_ctx, &tmp, q->st.curr_fp);
 		} else
 			return throw_error(q, p_chars, p_chars_ctx, "type_error", "character");
 	} else if (is_string(p_chars)) {
 		len = C_STRLEN(q, p_chars);
 		src = malloc(len+1+1);		// +1 is to allow adding a '.'
-		checked(src);
+		CHECKED(src);
 		memcpy(src, C_STR(q, p_chars), len);
 		src[len] = '\0';
 	} else if (!check_list(q, p_chars, p_chars_ctx, &is_partial, NULL)) {
@@ -4385,7 +4371,7 @@ static bool bif_read_term_from_chars_3(query *q)
 		free(save_src);
 		cell tmp;
 		make_atom(&tmp, g_eof_s);
-		return unify(q, p_term, p_term_ctx, &tmp, q->st.cur_ctx);
+		return unify(q, p_term, p_term_ctx, &tmp, q->st.curr_fp);
 	}
 
 	const char *end_ptr = src + strlen(src) - 1;
@@ -4421,7 +4407,7 @@ static bool bif_read_term_from_atom_3(query *q)
 	if (is_atom(p_chars)) {
 		len = C_STRLEN(q, p_chars);
 		src = malloc(len+1+1);	// final +1 is for look-ahead
-		checked(src);
+		CHECKED(src);
 		memcpy(src, C_STR(q, p_chars), len);
 		src[len] = '\0';
 	} else if ((len = scan_is_chars_list(q, p_chars, p_chars_ctx, false)) > 0) {
@@ -4456,7 +4442,7 @@ static bool bif_write_term_to_atom_3(query *q)
 	q->flags = q->st.m->flags;
 	LIST_HANDLER(p2);
 
-	while (is_list(p2)) {
+	while (is_iso_list(p2)) {
 		cell *h = LIST_HEAD(p2);
 		h = deref(q, h, p2_ctx);
 		pl_ctx h_ctx = q->latest_ctx;
@@ -4473,7 +4459,7 @@ static bool bif_write_term_to_atom_3(query *q)
 	cell tmp;
 	make_cstring(&tmp, dst);
 	free(dst);
-	bool ok = unify(q, p_chars, p_chars_ctx, &tmp, q->st.cur_ctx);
+	bool ok = unify(q, p_chars, p_chars_ctx, &tmp, q->st.curr_fp);
 	unshare_cell(&tmp);
 	return ok;
 }
@@ -4488,7 +4474,7 @@ static bool bif_write_term_to_chars_3(query *q)
 	q->flags = q->st.m->flags;
 	LIST_HANDLER(p2);
 
-	while (is_list(p2)) {
+	while (is_iso_list(p2)) {
 		cell *h = LIST_HEAD(p2);
 		h = deref(q, h, p2_ctx);
 		pl_ctx h_ctx = q->latest_ctx;
@@ -4505,7 +4491,7 @@ static bool bif_write_term_to_chars_3(query *q)
 	cell tmp;
 	make_string(&tmp, dst);
 	free(dst);
-	bool ok = unify(q, p_chars, p_chars_ctx, &tmp, q->st.cur_ctx);
+	bool ok = unify(q, p_chars, p_chars_ctx, &tmp, q->st.curr_fp);
 	unshare_cell(&tmp);
 	return ok;
 }
@@ -4535,7 +4521,7 @@ static bool bif_write_canonical_to_chars_3(query *q)
 	cell tmp;
 	make_string(&tmp, dst);
 	free(dst);
-	bool ok = unify(q, p_chars, p_chars_ctx, &tmp, q->st.cur_ctx);
+	bool ok = unify(q, p_chars, p_chars_ctx, &tmp, q->st.curr_fp);
 	unshare_cell(&tmp);
 	return ok;
 }
@@ -4645,7 +4631,7 @@ static bool bif_edin_seen_0(query *q)
 	int n = q->pl->current_input;
 	stream *str = &q->pl->streams[n];
 
-	if (n <= 2)
+	if (n < 3)
 		return true;
 
 	if ((str->fp != stdin)
@@ -4692,7 +4678,7 @@ static bool bif_edin_seeing_1(query *q)
 	const char *name = q->pl->current_input==0?"user":alias;
 	cell tmp;
 	make_cstring(&tmp, name);
-	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 	unshare_cell(&tmp);
 	return ok;
 }
@@ -4707,7 +4693,7 @@ static bool bif_edin_telling_1(query *q)
 	const char *name =q->pl->current_output==1?"user":alias;
 	cell tmp;
 	make_cstring(&tmp, name);
-	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 	unshare_cell(&tmp);
 	return ok;
 }
@@ -4736,7 +4722,7 @@ static bool bif_read_line_to_string_2(query *q)
 
 		cell tmp;
 		make_atom(&tmp, g_eof_s);
-		return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+		return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 	}
 
 	len = strlen(line);
@@ -4754,7 +4740,7 @@ static bool bif_read_line_to_string_2(query *q)
 	cell tmp;
 	make_string(&tmp, line);
 	free(line);
-	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 	unshare_cell(&tmp);
 	return ok;
 }
@@ -4847,7 +4833,7 @@ static bool bif_read_file_to_string_3(query *q)
 
 	size_t len = st.st_size - offset;
 	char *s = malloc(len+1);
-	checked(s, fclose(fp));
+	CHECKED(s, fclose(fp));
 
 	if (fread(s, 1, len, fp) != (size_t)len) {
 		free(s);
@@ -4859,7 +4845,7 @@ static bool bif_read_file_to_string_3(query *q)
 	fclose(fp);
 	cell tmp;
 	make_stringn(&tmp, s, len);
-	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_fp);
 	unshare_cell(&tmp);
 	free(s);
 	return ok;
@@ -5024,7 +5010,7 @@ static bool bif_savefile_2(query *q)
 
 	convert_path(filename);
 	FILE *fp = fopen(filename, "wb");
-	checked(fp);
+	CHECKED(fp);
 	fwrite(C_STR(q, p2), 1, C_STRLEN(q, p2), fp);
 	fclose(fp);
 	free(filename);
@@ -5071,7 +5057,7 @@ static bool bif_loadfile_2(query *q)
 
 	size_t len = st.st_size - offset;
 	char *s = malloc(len+1);
-	checked(s, fclose(fp));
+	CHECKED(s, fclose(fp));
 
 	if (fread(s, 1, len, fp) != (size_t)len) {
 		free(s);
@@ -5088,7 +5074,7 @@ static bool bif_loadfile_2(query *q)
 	else
 		make_stringn(&tmp, s, len);
 
-	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_fp);
 	unshare_cell(&tmp);
 	free(s);
 	return ok;
@@ -5126,7 +5112,7 @@ static bool bif_getfile_2(query *q)
 
 	char *line = NULL;
 	size_t len = 0;
-	checked(init_tmp_heap(q));
+	CHECKED(init_tmp_heap(q));
 
 	while (getline(&line, &len, fp) != -1) {
 		int len = strlen(line);
@@ -5149,8 +5135,8 @@ static bool bif_getfile_2(query *q)
 	free(line);
 	fclose(fp);
 	cell *l = end_list(q);
-	checked(l);
-	unify(q, p2, p2_ctx, l, q->st.cur_ctx);
+	CHECKED(l);
+	unify(q, p2, p2_ctx, l, q->st.curr_fp);
 	return true;
 }
 
@@ -5216,7 +5202,7 @@ static bool bif_getfile_3(query *q)
 
 	char *line = NULL;
 	size_t len = 0;
-	checked(init_tmp_heap(q));
+	CHECKED(init_tmp_heap(q));
 
 	while (getline(&line, &len, fp) != -1) {
 		int len = strlen(line);
@@ -5241,8 +5227,8 @@ static bool bif_getfile_3(query *q)
 	free(line);
 	fclose(fp);
 	cell *l = end_list(q);
-	checked(l);
-	unify(q, p2, p2_ctx, l, q->st.cur_ctx);
+	CHECKED(l);
+	unify(q, p2, p2_ctx, l, q->st.curr_fp);
 	return true;
 }
 
@@ -5253,7 +5239,7 @@ static bool bif_getlines_1(query *q)
 	stream *str = &q->pl->streams[n];
 	char *line = NULL;
 	size_t len = 0;
-	checked(init_tmp_heap(q));
+	CHECKED(init_tmp_heap(q));
 
 	while (getline(&line, &len, str->fp) != -1) {
 		int len = strlen(line);
@@ -5275,8 +5261,8 @@ static bool bif_getlines_1(query *q)
 
 	free(line);
 	cell *l = end_list(q);
-	checked(l);
-	unify(q, p1, p1_ctx, l, q->st.cur_ctx);
+	CHECKED(l);
+	unify(q, p1, p1_ctx, l, q->st.curr_fp);
 	return true;
 }
 
@@ -5288,7 +5274,7 @@ static bool bif_getlines_2(query *q)
 	stream *str = &q->pl->streams[n];
 	char *line = NULL;
 	size_t len = 0;
-	checked(init_tmp_heap(q));
+	CHECKED(init_tmp_heap(q));
 
 	while (getline(&line, &len, str->fp) != -1) {
 		int len = strlen(line);
@@ -5310,8 +5296,8 @@ static bool bif_getlines_2(query *q)
 
 	free(line);
 	cell *l = end_list(q);
-	checked(l);
-	unify(q, p1, p1_ctx, l, q->st.cur_ctx);
+	CHECKED(l);
+	unify(q, p1, p1_ctx, l, q->st.curr_fp);
 	return true;
 }
 
@@ -5325,7 +5311,7 @@ static bool bif_getlines_3(query *q)
 	char *line = NULL;
 	size_t len = 0;
 	bool terminator = get_terminator(q, p2, p2_ctx);
-	checked(init_tmp_heap(q));
+	CHECKED(init_tmp_heap(q));
 
 	while (getline(&line, &len, str->fp) != -1) {
 		int len = strlen(line);
@@ -5349,8 +5335,8 @@ static bool bif_getlines_3(query *q)
 
 	free(line);
 	cell *l = end_list(q);
-	checked(l);
-	unify(q, p1, p1_ctx, l, q->st.cur_ctx);
+	CHECKED(l);
+	unify(q, p1, p1_ctx, l, q->st.curr_fp);
 	return true;
 }
 
@@ -5405,7 +5391,7 @@ static bool bif_absolute_file_name_3(query *q)
 	char *filename = NULL;
 	char cwdbuf[1024*4];
 	char *here = strdup(getcwd(cwdbuf, sizeof(cwdbuf)));
-	checked(here);
+	CHECKED(here);
 	char *cwd = here;
 
 	if (is_iso_list(p1)) {
@@ -5469,7 +5455,7 @@ static bool bif_absolute_file_name_3(query *q)
 
 		size_t buflen = strlen(ptr)+1+strlen(s)+1;
 		tmpbuf = malloc(buflen);
-		checked(tmpbuf);
+		CHECKED(tmpbuf);
 		snprintf(tmpbuf, buflen, "%s/%s", ptr, s);
 		convert_path(tmpbuf);
 		char *tmpbuf2;
@@ -5484,7 +5470,7 @@ static bool bif_absolute_file_name_3(query *q)
 			if ((tmpbuf = realpath(cwd, NULL)) == NULL)
 				tmpbuf = realpath(".", NULL);
 
-			checked(tmpbuf);
+			CHECKED(tmpbuf);
 
 			if ((*s != '/') && (*s != '\\')
 #ifdef _WIN32
@@ -5493,17 +5479,17 @@ static bool bif_absolute_file_name_3(query *q)
 				) {
 				size_t buflen = strlen(tmpbuf)+1+strlen(s)+1;
 				char *tmp = malloc(buflen);
-				checked(tmp, free(tmpbuf));
+				CHECKED(tmp, free(tmpbuf));
 				snprintf(tmp, buflen, "%s/%s", tmpbuf, s);
 				convert_path(tmp);
 				free(tmpbuf);
 				tmpbuf = fixup(tmp);
-				checked(tmpbuf);
+				CHECKED(tmpbuf);
 				free(tmp);
 			} else {
 				free(tmpbuf);
 				tmpbuf = fixup(s);
-				checked(tmpbuf);
+				CHECKED(tmpbuf);
 			}
 		}
 	}
@@ -5521,7 +5507,7 @@ static bool bif_absolute_file_name_3(query *q)
 		make_cstring(&tmp, tmpbuf);
 
 	free(tmpbuf);
-	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_fp);
 	unshare_cell(&tmp);
 	return ok;
 }
@@ -5559,7 +5545,7 @@ static bool bif_getline_1(query *q)
 	cell tmp;
 	make_string(&tmp, line);
 	free(line);
-	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 	unshare_cell(&tmp);
 	return ok;
 }
@@ -5600,7 +5586,7 @@ static bool bif_getline_2(query *q)
 	cell tmp;
 	make_string(&tmp, line);
 	free(line);
-	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 	unshare_cell(&tmp);
 	return ok;
 }
@@ -5645,7 +5631,7 @@ static bool bif_getline_3(query *q)
 	cell tmp;
 	make_string(&tmp, line);
 	free(line);
-	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 	unshare_cell(&tmp);
 	return ok;
 }
@@ -5786,7 +5772,7 @@ static bool bif_directory_files_2(query *q)
 	closedir(dirp);
 	free(filename);
 	cell *l = end_list(q);
-	bool ok = unify(q, p2, p2_ctx, l, q->st.cur_ctx);
+	bool ok = unify(q, p2, p2_ctx, l, q->st.curr_fp);
 	return ok;
 }
 
@@ -5959,7 +5945,7 @@ static bool bif_time_file_2(query *q)
 	free(filename);
 	cell tmp;
 	make_float(&tmp, st.st_mtime);
-	return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	return unify(q, p2, p2_ctx, &tmp, q->st.curr_fp);
 }
 
 static bool bif_size_file_2(query *q)
@@ -5989,7 +5975,7 @@ static bool bif_size_file_2(query *q)
 	free(filename);
 	cell tmp;
 	make_int(&tmp, st.st_size);
-	return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	return unify(q, p2, p2_ctx, &tmp, q->st.curr_fp);
 }
 
 static bool bif_exists_directory_1(query *q)
@@ -6137,7 +6123,7 @@ static bool bif_working_directory_2(query *q)
 		free(filename);
 	}
 
-	bool ok = unify(q, p_old, p_old_ctx, &tmp, q->st.cur_ctx);
+	bool ok = unify(q, p_old, p_old_ctx, &tmp, q->st.curr_fp);
 	unshare_cell(&tmp);
 	return ok;
 }
@@ -6187,23 +6173,40 @@ static void parse_host(const char *src, char hostname[1024], char path[4096], un
 
 static bool bif_server_3(query *q)
 {
-	GET_FIRST_ARG(p1,source_sink);
+	GET_FIRST_ARG(p1,any);
 	GET_NEXT_ARG(p2,var);
 	GET_NEXT_ARG(p3,list_or_nil);
 	char hostname[1024], path[4096];
 	char *keyfile = "privkey.pem", *certfile = "fullchain.pem";
-	int udp = 0, nodelay = 1, nonblock = 0, ssl = 0, domain = 0, level = 0;
+	int udp = 0, nodelay = 1, ssl = 0, domain = 0, level = 0;
 	unsigned port = 80;
 	snprintf(hostname, sizeof(hostname), "localhost");
 	path[0] = '\0';
-	char *filename;
+	char *filename = NULL;
 
-	if (is_atom(p1))
+	if (is_var(p1)) {
+		port = 0;
+		filename = strdup(":0");
+	} else if (is_compound(p1) && (p1->arity == 2)) {
+		cell *p11 = deref(q, p1+1, p1_ctx);
+		cell *p12 = deref(q, p1+2, p1_ctx);
+		char tmpbuf[1024];
+
+		if (is_atom(p11) && is_smallint(p12))
+			snprintf(tmpbuf, sizeof(tmpbuf), "%s:%u", C_STR(q, p11), (unsigned)get_smalluint(p12));
+		else if (is_atom(p11) && is_var(p12)) {
+			p1 = deref(q, p12, p1_ctx);
+			p1_ctx = q->latest_ctx;
+			snprintf(tmpbuf, sizeof(tmpbuf), "%s:%u", C_STR(q, p11), port=0);
+		} else
+			return throw_error(q, p1, p1_ctx, "domain_error", "source_sink");
+
+		filename = strdup(tmpbuf);
+	} else if (is_atom(p1))
 		filename = DUP_STRING(q, p1);
 	else if (!is_iso_list(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "source_sink");
-
-	if (is_iso_list(p1)) {
+	else {
 		size_t len = scan_is_chars_list(q, p1, p1_ctx, true);
 
 		if (!len)
@@ -6277,8 +6280,6 @@ static bool bif_server_3(query *q)
 	const char *url = filename;
 	parse_host(url, hostname, path, &port, &ssl, &domain);
 	free(filename);
-	nonblock = q->is_task;
-
 	int fd = net_server(hostname, port, udp, ssl?keyfile:NULL, ssl?certfile:NULL);
 
 	if (fd == -1)
@@ -6291,31 +6292,39 @@ static bool bif_server_3(query *q)
 		return throw_error(q, p1, p1_ctx, "resource_error", "too_many_streams");
 	}
 
+	if (port == 0) {
+		port = get_local_port(fd);
+		cell tmp;
+		make_int(&tmp, port);
+		unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
+	}
+
+	//printf("*** net_server host=%s, port=%d, fd=%d\n", hostname, port, fd);
+
 	stream *str = &q->pl->streams[n];
-	if (!str->alias) str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL);
+	CHECKED(str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL));
 	sl_app(str->alias, strdup(hostname), NULL);
-	checked(str->filename = DUP_STRING(q, p1));
-	checked(str->mode = strdup("update"));
+	CHECKED(str->filename = DUP_STRING(q, p1));
+	CHECKED(str->mode = strdup("update"));
+	str->is_socket = true;
 	str->nodelay = nodelay;
-	str->nonblock = nonblock;
 	str->udp = udp;
-	str->fp = fdopen(fd, "r+");
 	str->ssl = ssl;
 	str->level = level;
-	str->sslptr = NULL;
+	str->fp = fdopen(fd, "r");
 
 	if (str->fp == NULL) {
 		close(fd);
 		return throw_error(q, p1, p1_ctx, "existence_error", "cannot_open_stream");
 	}
 
-	if (!str->ssl)
+	if (!str->ssl && q->is_task)
 		net_set_nonblocking(str);
 
 	cell tmp;
 	make_int(&tmp, n);
 	tmp.flags |= FLAG_INT_STREAM;
-	return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	return unify(q, p2, p2_ctx, &tmp, q->st.curr_fp);
 }
 
 static bool bif_accept_2(query *q)
@@ -6325,7 +6334,11 @@ static bool bif_accept_2(query *q)
 	int n = get_stream(q, pstr);
 	stream *str = &q->pl->streams[n];
 
+	//printf("*** net_accept, fd=%d\n", fileno(str->fp));
+
 	int fd = net_accept(str);
+
+	//printf("*** ~net_accept, fd=%d\n", fd);
 
 	if (fd == -1) {
 		if (q->is_task)
@@ -6343,11 +6356,10 @@ static bool bif_accept_2(query *q)
 
 	stream *str2 = &q->pl->streams[n];
 	sl_app(str2->alias, strdup(str->filename), NULL);
-	checked(str2->filename = strdup(str->filename));
-	checked(str2->mode = strdup("update"));
-	str2->socket = true;
+	CHECKED(str2->filename = strdup(str->filename));
+	CHECKED(str2->mode = strdup("update"));
+	str2->is_socket = true;
 	str2->nodelay = str->nodelay;
-	str2->nonblock = str->nonblock;
 	str2->udp = str->udp;
 	str2->ssl = str->ssl;
 	str2->fp = fdopen(fd, "r+");
@@ -6366,14 +6378,15 @@ static bool bif_accept_2(query *q)
 		}
 	}
 
-	if (!str->ssl)
+	if (!str->ssl && q->is_task) {
 		net_set_nonblocking(str2);
+		CHECKED(push_choice(q));
+	}
 
-	checked(push_choice(q));
 	cell tmp;
 	make_int(&tmp, n);
 	tmp.flags |= FLAG_INT_STREAM;
-	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 }
 
 static bool do_parse_parts(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx, bool full)
@@ -6434,7 +6447,7 @@ static bool do_parse_parts(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p
 
 				size_t len1 = C_STRLEN(q, c+1);
 				char *dstbuf1 = malloc(len1+1);
-				checked(dstbuf1);
+				CHECKED(dstbuf1);
 				url_encode(C_STR(q, c+1), len1, dstbuf1);
 				dst += sprintf(dst, "%s", dstbuf1);
 				free(dstbuf1);
@@ -6442,7 +6455,7 @@ static bool do_parse_parts(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p
 				if (is_atom(c+2)) {
 					size_t len2 = C_STRLEN(q, c+2);
 					char *dstbuf2 = malloc(len2+1);
-					checked(dstbuf2);
+					CHECKED(dstbuf2);
 					url_encode(C_STR(q, c+2), len2, dstbuf2);
 					dst += sprintf(dst, "=%s", dstbuf2);
 					free(dstbuf2);
@@ -6451,7 +6464,7 @@ static bool do_parse_parts(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p
 					snprintf(tmpbuf, sizeof(tmpbuf), "%lld", (long long)get_smallint(c+2));
 					size_t len2 = strlen(tmpbuf);
 					char *dstbuf2 = malloc(len2+1);
-					checked(dstbuf2);
+					CHECKED(dstbuf2);
 					url_encode(tmpbuf, len2, dstbuf2);
 					dst += sprintf(dst, "=%s", dstbuf2);
 					free(dstbuf2);
@@ -6460,7 +6473,7 @@ static bool do_parse_parts(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p
 					snprintf(tmpbuf, sizeof(tmpbuf), "%.17g", get_float(c+2));
 					size_t len2 = strlen(tmpbuf);
 					char *dstbuf2 = malloc(len2+1);
-					checked(dstbuf2);
+					CHECKED(dstbuf2);
 					url_encode(tmpbuf, len2, dstbuf2);
 					dst += sprintf(dst, "=%s", dstbuf2);
 					free(dstbuf2);
@@ -6493,7 +6506,7 @@ static bool do_parse_parts(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p
 	if (fragment[0]) SB_sprintf(pr, "#%s", fragment);
 	cell tmp;
 	make_cstring(&tmp,  SB_cstr(pr));
-	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 }
 
 static bool do_parse_url(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx, bool full)
@@ -6530,14 +6543,14 @@ static bool do_parse_url(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_
 
 				len = strlen(key);
 				dstbuf = malloc(len+1);
-				checked(dstbuf);
+				CHECKED(dstbuf);
 				url_decode(key, dstbuf);
 				make_cstring(tmp+1, dstbuf);
 				free(dstbuf);
 
 				len = strlen(search2);
 				dstbuf = malloc(len+1);
-				checked(dstbuf);
+				CHECKED(dstbuf);
 				url_decode(search2, dstbuf);
 				make_cstring(tmp+2, dstbuf);
 				free(dstbuf);
@@ -6562,14 +6575,14 @@ static bool do_parse_url(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_
 
 		len = strlen(key);
 		dstbuf = malloc(len+1);
-		checked(dstbuf);
+		CHECKED(dstbuf);
 		url_decode(key, dstbuf);
 		make_cstring(tmp+1, dstbuf);
 		free(dstbuf);
 
 		len = strlen(search2);
 		dstbuf = malloc(len+1);
-		checked(dstbuf);
+		CHECKED(dstbuf);
 		url_decode(search2, dstbuf);
 		make_cstring(tmp+2, dstbuf);
 		free(dstbuf);
@@ -6615,7 +6628,7 @@ static bool do_parse_url(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_
 	if (path[0]) {
 		len = strlen(path);
 		dstbuf = malloc(len+1);
-		checked(dstbuf);
+		CHECKED(dstbuf);
 		url_decode(path, dstbuf);
 		src = dstbuf;
 		make_instr(tmp, new_atom(q->pl, "path"), NULL, 1, 1);
@@ -6627,7 +6640,7 @@ static bool do_parse_url(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_
 	if (fragment[0]) {
 		len = strlen(fragment);
 		dstbuf = malloc(len+1);
-		checked(dstbuf);
+		CHECKED(dstbuf);
 		url_decode(path, dstbuf);
 		src = dstbuf;
 		make_instr(tmp, new_atom(q->pl, "fragment"), NULL, 1, 1);
@@ -6636,7 +6649,7 @@ static bool do_parse_url(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_
 		free(dstbuf);
 	}
 
-	return unify(q, p2, p2_ctx, end_list(q), q->st.cur_ctx);
+	return unify(q, p2, p2_ctx, end_list(q), q->st.curr_fp);
 }
 
 static bool bif_parse_url_2(query *q)
@@ -6676,15 +6689,19 @@ static bool bif_client_5(query *q)
 	GET_NEXT_ARG(p5,list_or_nil);
 	char hostname[1024], path[1024*4];
 	char *certfile = NULL;
-	int udp = 0, nodelay = 1, nonblock = 0, ssl = 0, domain = 0, level = 0;
+	int udp = 0, nodelay = 1, ssl = 0, domain = 0, level = 0;
 	hostname[0] = path[0] = '\0';
 	unsigned port = 80;
 	char *filename = NULL;
 
 	if (is_atom(p1))
 		filename = DUP_STRING(q, p1);
-	else if (!is_iso_list(p1))
-		return throw_error(q, p1, p1_ctx, "domain_error", "source_sink");
+	else if (!is_list(p1)) {
+		char host[1024];
+		snprintf(host, sizeof(host), "%s", C_STR(q, deref(q, p1+1, p1_ctx)));
+		port = (int)get_smallint(deref(q, p1+2, p1_ctx));
+		filename = strdup(host);
+	}
 
 	if (is_iso_list(p1)) {
 		size_t len = scan_is_chars_list(q, p1, p1_ctx, true);
@@ -6697,7 +6714,7 @@ static bool bif_client_5(query *q)
 
 	LIST_HANDLER(p5);
 
-	while (is_list(p5)) {
+	while (is_iso_list(p5)) {
 		cell *h = LIST_HEAD(p5);
 		cell *c = deref(q, h, p5_ctx);
 
@@ -6750,27 +6767,10 @@ static bool bif_client_5(query *q)
 	const char *url = filename;
 	parse_host(url, hostname, path, &port, &ssl, &domain);
 	free(filename);
-	nonblock = q->is_task;
 
-	while (is_list(p5)) {
-		cell *h = LIST_HEAD(p5);
-		cell *c = deref(q, h, p5_ctx);
-
-		if (is_compound(c) && (c->arity == 1)) {
-			if (!CMP_STRING_TO_CSTR(q, c, "host")) {
-				c = c + 1;
-
-				//if (is_atom(c))
-				//	;//udp = !CMP_STRING_TO_CSTR(q, c, "true") ? 1 : 0;
-			}
-		}
-
-		p5 = LIST_TAIL(p5);
-		p5 = deref(q, p5, p5_ctx);
-		p5_ctx = q->latest_ctx;
-	}
-
+	//printf("*** net_connect host=%s, port=%d\n", hostname, port);
 	int fd = net_connect(hostname, port, udp, nodelay);
+	//printf("*** ~net_connect host=%s, port=%d, fd=%d\n", hostname, port, fd);
 
 	if (fd == -1)
 		return throw_error(q, p1, p1_ctx, "resource_error", "could_not_connect");
@@ -6783,13 +6783,12 @@ static bool bif_client_5(query *q)
 	}
 
 	stream *str = &q->pl->streams[n];
-	if (!str->alias) str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL);
+	CHECKED(str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL));
 	sl_app(str->alias, DUP_STRING(q, p1), NULL);
-	checked(str->filename = DUP_STRING(q, p1));
-	checked(str->mode = strdup("update"));
-	str->socket = true;
+	CHECKED(str->filename = DUP_STRING(q, p1));
+	CHECKED(str->mode = strdup("update"));
+	str->is_socket = true;
 	str->nodelay = nodelay;
-	str->nonblock = nonblock;
 	str->udp = udp;
 	str->ssl = ssl;
 	str->level = level;
@@ -6809,23 +6808,23 @@ static bool bif_client_5(query *q)
 
 	if (str->ssl) {
 		str->sslptr = net_enable_ssl(fd, hostname, 0, str->level, certfile);
-		checked (str->sslptr, close(fd));
+		CHECKED(str->sslptr, close(fd));
 	}
 
-	if (nonblock && !str->ssl)
+	if (!str->ssl && q->is_task)
 		net_set_nonblocking(str);
 
 	cell tmp;
 	make_string(&tmp, hostname);
-	unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	unify(q, p2, p2_ctx, &tmp, q->st.curr_fp);
 	unshare_cell(&tmp);
 	make_string(&tmp, path);
-	unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
+	unify(q, p3, p3_ctx, &tmp, q->st.curr_fp);
 	unshare_cell(&tmp);
 	cell tmp2;
 	make_int(&tmp2, n);
 	tmp2.flags |= FLAG_INT_STREAM;
-	return unify(q, p4, p4_ctx, &tmp2, q->st.cur_ctx);
+	return unify(q, p4, p4_ctx, &tmp2, q->st.curr_fp);
 }
 
 static bool bif_sys_get_chars_3(query *q)
@@ -6840,7 +6839,7 @@ static bool bif_sys_get_chars_3(query *q)
 	if (is_var(p1)) {
 		size_t n_size = 1024;
 		char *data = malloc(n_size);
-		checked(data);
+		CHECKED(data);
 		char *dst = data;
 		unsigned len = 0;
 
@@ -6857,7 +6856,7 @@ static bool bif_sys_get_chars_3(query *q)
 
 			if ((off + MAX_BYTES_PER_CODEPOINT) >= n_size) {
 				data = realloc(data, n_size*=2);
-				checked(data);
+				CHECKED(data);
 				dst = data + off;
 			}
 
@@ -6866,7 +6865,7 @@ static bool bif_sys_get_chars_3(query *q)
 		}
 
 		make_uint(&tmp, len);
-		bool ok = unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+		bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 
 		if (!ok) {
 			free(data);
@@ -6874,7 +6873,7 @@ static bool bif_sys_get_chars_3(query *q)
 		}
 
 		make_stringn(&tmp, data, dst-data);
-		ok = unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+		ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_fp);
 		unshare_cell(&tmp);
 		free(data);
 		return ok;
@@ -6890,11 +6889,11 @@ static bool bif_sys_get_chars_3(query *q)
 
 	if (len == 0) {
 		make_atom(&tmp, g_nil_s);
-		return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+		return unify(q, p2, p2_ctx, &tmp, q->st.curr_fp);
 	}
 
 	char *data = malloc(len*MAX_BYTES_PER_CODEPOINT+1);
-	checked(data);
+	CHECKED(data);
 	char *dst = data;
 
 	while (len--) {
@@ -6910,7 +6909,7 @@ static bool bif_sys_get_chars_3(query *q)
 	}
 
 	make_stringn(&tmp, data, dst-data);
-	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_fp);
 	unshare_cell(&tmp);
 	free(data);
 	return ok;
@@ -6931,7 +6930,7 @@ static bool bif_sys_bread_3(query *q)
 	if (is_integer(p1) && is_positive(p1)) {
 		if (!str->data) {
 			str->data = malloc(get_smallint(p1)+1);
-			checked(str->data);
+			CHECKED(str->data);
 			str->data_len = 0;
 		}
 
@@ -6965,7 +6964,7 @@ static bool bif_sys_bread_3(query *q)
 
 		cell tmp;
 		make_stringn(&tmp, str->data, str->data_len);
-		bool ok = unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+		bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_fp);
 		unshare_cell(&tmp);
 		free(str->data);
 		str->data = NULL;
@@ -6975,7 +6974,7 @@ static bool bif_sys_bread_3(query *q)
 	if (is_integer(p1)) {
 		if (!str->data) {
 			str->data = malloc((str->alloc_nbytes=1024)+1);
-			checked(str->data);
+			CHECKED(str->data);
 			str->data_len = 0;
 		}
 
@@ -6988,10 +6987,10 @@ static bool bif_sys_bread_3(query *q)
 		size_t nbytes = net_read(str->data, str->alloc_nbytes, str);
 		str->data[nbytes] = '\0';
 		str->data = realloc(str->data, nbytes+1);
-		checked(str->data);
+		CHECKED(str->data);
 		cell tmp;
 		make_stringn(&tmp, str->data, nbytes);
-		bool ok = unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+		bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_fp);
 		unshare_cell(&tmp);
 		free(str->data);
 		str->data = NULL;
@@ -7000,7 +6999,7 @@ static bool bif_sys_bread_3(query *q)
 
 	if (!str->data) {
 		str->data = malloc((str->alloc_nbytes=1024)+1);
-		checked(str->data);
+		CHECKED(str->data);
 		str->data_len = 0;
 	}
 
@@ -7021,13 +7020,13 @@ static bool bif_sys_bread_3(query *q)
 
 		if (str->alloc_nbytes == str->data_len) {
 			str->data = realloc(str->data, (str->alloc_nbytes*=2)+1);
-			checked(str->data);
+			CHECKED(str->data);
 		}
 	}
 
 	cell tmp1;
 	make_int(&tmp1, str->data_len);
-	unify(q, p1, p1_ctx, &tmp1, q->st.cur_ctx);
+	unify(q, p1, p1_ctx, &tmp1, q->st.curr_fp);
 	cell tmp2;
 
 	if (str->data_len)
@@ -7035,7 +7034,7 @@ static bool bif_sys_bread_3(query *q)
 	else
 		make_atom(&tmp2, g_nil_s);
 
-	bool ok = unify(q, p2, p2_ctx, &tmp2, q->st.cur_ctx);
+	bool ok = unify(q, p2, p2_ctx, &tmp2, q->st.curr_fp);
 	unshare_cell(&tmp2);
 	free(str->data);
 	str->data = NULL;
@@ -7052,6 +7051,16 @@ static bool bif_sys_bflush_1(query *q)
 	str->data = NULL;
 	str->data_len = 0;
 	return true;
+}
+
+static bool bif_sys_current_host_1(query *q)
+{
+	GET_FIRST_ARG(p1,var);
+	char buffer[256];
+	const char *host = get_local_hostname(buffer, sizeof(buffer));
+	cell tmp;
+	make_cstring(&tmp, host);
+	return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 }
 
 static bool bif_sys_bwrite_2(query *q)
@@ -7094,7 +7103,7 @@ static bool bif_sys_readline_2(query *q)
 	cell tmp;
 	make_string(&tmp, s);
 	free(s);
-	return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	return unify(q, p2, p2_ctx, &tmp, q->st.curr_fp);
 }
 
 static bool bif_sys_put_chars_1(query *q)
@@ -7179,7 +7188,7 @@ static bool bif_sys_capture_output_to_chars_1(query *q)
 	make_stringn(&tmp, src, len);
 	str->is_memory = false;
 	SB_free(str->sb);
-	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 	unshare_cell(&tmp);
 	return ok;
 }
@@ -7195,7 +7204,7 @@ static bool bif_sys_capture_output_to_atom_1(query *q)
 	make_cstringn(&tmp, src, len);
 	str->is_memory = false;
 	SB_free(str->sb);
-	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 	unshare_cell(&tmp);
 	return ok;
 }
@@ -7225,7 +7234,7 @@ static bool bif_sys_capture_error_to_chars_1(query *q)
 	make_stringn(&tmp, src, len);
 	str->is_memory = false;
 	SB_free(str->sb);
-	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 	unshare_cell(&tmp);
 	return ok;
 }
@@ -7241,7 +7250,7 @@ static bool bif_sys_capture_error_to_atom_1(query *q)
 	make_cstringn(&tmp, src, len);
 	str->is_memory = false;
 	SB_free(str->sb);
-	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	bool ok = unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 	unshare_cell(&tmp);
 	return ok;
 }
@@ -7309,7 +7318,7 @@ static bool fn_sys_memory_stream_create_2(query *q)
 	cell tmp;
 	make_int(&tmp, n);
 	tmp.flags |= FLAG_INT_STREAM;
-	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 }
 
 static bool fn_sys_memory_stream_to_chars_2(query *q)
@@ -7321,10 +7330,10 @@ static bool fn_sys_memory_stream_to_chars_2(query *q)
 	const char *src = SB_cstr(str->sb);
 	size_t len = SB_strlen(str->sb);
 	cell tmp;
-	checked(make_stringn(&tmp, src, len));
+	CHECKED(make_stringn(&tmp, src, len));
 	// str->is_memory = false;
 	SB_free(str->sb);
-	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_fp);
 	unshare_cell(&tmp);
 	return ok;
 }
@@ -7381,7 +7390,7 @@ static bool bif_sys_gsl_vector_alloc_2(query *q)
 	tmpbuf[sizeof(tmpbuf)-1] = '\0';
 	cell tmp;
 	make_uint(&tmp, rows);
-	unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	unify(q, p2, p2_ctx, &tmp, q->st.curr_fp);
 	return true;
 }
 
@@ -7417,7 +7426,7 @@ static bool bif_sys_gsl_vector_size_2(query *q)
 	GET_NEXT_ARG(p2,integer_or_var);
 	cell tmp;
 	make_uint(&tmp, v->size1);
-	return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	return unify(q, p2, p2_ctx, &tmp, q->st.curr_fp);
 }
 
 typedef struct {
@@ -7482,9 +7491,9 @@ static bool bif_sys_gsl_matrix_alloc_3(query *q)
 	tmpbuf[sizeof(tmpbuf)-1] = '\0';
 	cell tmp;
 	make_int(&tmp, rows);
-	unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	unify(q, p2, p2_ctx, &tmp, q->st.curr_fp);
 	make_int(&tmp, cols);
-	unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
+	unify(q, p3, p3_ctx, &tmp, q->st.curr_fp);
 	return true;
 }
 
@@ -7524,11 +7533,11 @@ static bool bif_sys_gsl_matrix_size_3(query *q)
 	cell tmp;
 	make_uint(&tmp, m->size1);
 
-	if (!unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx))
+	if (!unify(q, p2, p2_ctx, &tmp, q->st.curr_fp))
 		return false;
 
 	make_uint(&tmp, m->size2);
-	return unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
+	return unify(q, p3, p3_ctx, &tmp, q->st.curr_fp);
 }
 
 static bool bif_set_stream_2(query *q)
@@ -7537,11 +7546,79 @@ static bool bif_set_stream_2(query *q)
 	int n = get_stream(q, pstr);
 	stream *str = &q->pl->streams[n];
 	GET_NEXT_ARG(p1,any);
-	cell *name = p1 + 1;
-	name = deref(q, name, p1_ctx);
+
+	if (is_iso_list(p1)) {
+		LIST_HANDLER(p1);
+
+		while (is_iso_list(p1)) {
+			cell *h = LIST_HEAD(p1);
+			cell *c = deref(q, h, p1_ctx);
+			pl_ctx c_ctx = q->latest_ctx;
+			cell *name = c + 1;
+			name = deref(q, name, c_ctx);
+
+			if (is_var(c))
+				return throw_error(q, c, c_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
+
+			if (!CMP_STRING_TO_CSTR(q, c, "alias")) {
+				if (is_var(name))
+					return throw_error(q, name, c_ctx, "instantiation_error", "stream_option");
+
+				if (!is_atom(name))
+					return throw_error(q, c, c_ctx, "domain_error", "stream_property");
+
+				if (!CMP_STRING_TO_CSTR(q, name, "current_input")) {
+					q->pl->current_input = n;
+				} else if (!CMP_STRING_TO_CSTR(q, name, "current_output")) {
+					q->pl->current_output = n;
+				} else if (!CMP_STRING_TO_CSTR(q, name, "current_error")) {
+					q->pl->current_error = n;
+				} else {
+					int n2 = get_named_stream(q->pl, C_STR(q, name), C_STRLEN(q, name));
+
+					if (n2 >= 0) {
+						stream *str2 = &q->pl->streams[n2];
+						sl_del(str2->alias, C_STR(q, name));
+					}
+
+					sl_app(str->alias, DUP_STRING(q, name), NULL);
+				}
+
+				return true;
+			}
+
+			if (!CMP_STRING_TO_CSTR(q, c, "type")) {
+				if (is_var(name))
+					return throw_error(q, name, c_ctx, "instantiation_error", "stream_option");
+
+				if (!is_atom(name))
+					return throw_error(q, c, c_ctx, "domain_error", "stream_property");
+
+				if (!CMP_STRING_TO_CSTR(q, name, "binary")) {
+					str->binary = true;
+				} else if (!CMP_STRING_TO_CSTR(q, name, "text")) {
+					str->binary = false;
+				}
+
+				return true;
+			}
+
+			p1 = LIST_TAIL(p1);
+			p1 = deref(q, p1, p1_ctx);
+			p1_ctx = q->latest_ctx;
+
+			if (is_var(p1))
+				return throw_error(q, p1, p1_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
+		}
+
+		return true;
+	}
 
 	if (!is_structure(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "stream_property");
+
+	cell *name = p1 + 1;
+	name = deref(q, name, p1_ctx);
 
 	if (!CMP_STRING_TO_CSTR(q, p1, "alias")) {
 		if (is_var(name))
@@ -7570,7 +7647,23 @@ static bool bif_set_stream_2(query *q)
 		return true;
 	}
 
-	return false;
+	if (!CMP_STRING_TO_CSTR(q, p1, "type")) {
+		if (is_var(name))
+			return throw_error(q, name, q->latest_ctx, "instantiation_error", "stream_option");
+
+		if (!is_atom(name))
+			return throw_error(q, p1, p1_ctx, "domain_error", "stream_property");
+
+		if (!CMP_STRING_TO_CSTR(q, name, "binary")) {
+			str->binary = true;
+		} else if (!CMP_STRING_TO_CSTR(q, name, "text")) {
+			str->binary = false;
+		}
+
+		return true;
+	}
+
+	return true;
 }
 
 static bool bif_portray_clause_1(query *q)
@@ -7627,7 +7720,7 @@ static bool bif_alias_2(query *q)
 			return throw_error(q, p1, p1_ctx, "resource_error", "too_many_streams");
 
 		stream *str = &q->pl->streams[n];
-		if (!str->alias) str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL);
+		CHECKED(str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL));
 		sl_app(str->alias, DUP_STRING(q, p2), NULL);
 		str->is_alias = true;
 		str->handle = (void*)(size_t)get_smalluint(p1);
@@ -7647,7 +7740,7 @@ static bool bif_alias_2(query *q)
 	else
 		tmp.flags |= FLAG_INT_STREAM;
 
-	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
+	return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
 }
 
 static bool bif_sys_stream_to_file_2(query *q)
@@ -7658,7 +7751,7 @@ static bool bif_sys_stream_to_file_2(query *q)
 	GET_NEXT_ARG(p2,var);
 	cell tmp;
 	make_ptr(&tmp, str->fp);
-	return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
+	return unify(q, p2, p2_ctx, &tmp, q->st.curr_fp);
 }
 
 builtins g_streams_bifs[] =
@@ -7797,6 +7890,7 @@ builtins g_streams_bifs[] =
 	{"$bread", 3, bif_sys_bread_3, "+stream,+integer,-string", false, false, BLAH},
 	{"$bflush", 1, bif_sys_bflush_1, "+stream", false, false, BLAH},
 	{"$bwrite", 2, bif_sys_bwrite_2, "+stream,-string", false, false, BLAH},
+	{"$current_host", 1, bif_sys_current_host_1, "-atom", false, false, BLAH},
 
 	{"$memory_stream_create", 2, fn_sys_memory_stream_create_2, "-stream,+options", false, false, BLAH},
 	{"$memory_stream_to_chars", 2, fn_sys_memory_stream_to_chars_2, "+stream,-string", false, false, BLAH},

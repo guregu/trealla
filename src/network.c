@@ -49,6 +49,34 @@ static SSL_CTX *g_ctx = NULL;
 #include <unistd.h>
 #endif
 
+
+int get_local_port(int clientSock) {
+#if !defined(_WIN32) && !defined(__wasi__)
+    struct sockaddr_in sin;
+    socklen_t addrlen = sizeof(sin);
+
+    if (getsockname(clientSock, (struct sockaddr *)&sin, &addrlen) == 0) {
+         int local_port = ntohs(sin.sin_port);
+         return local_port;
+	}
+#endif
+
+    return -1;
+}
+
+const char *get_local_hostname(char *hostname_buffer, size_t buffer_size) {
+#if !defined(_WIN32) && !defined(__wasi__)
+    if (gethostname(hostname_buffer, buffer_size) == -1) {
+        perror("gethostname error");
+        exit(EXIT_FAILURE);
+    }
+    hostname_buffer[buffer_size - 1] = '\0';
+    return hostname_buffer;
+#else
+	return NULL;
+#endif
+}
+
 int net_domain_connect(const char *name, bool udp)
 {
 #if !defined(_WIN32) && !defined(__wasi__)
@@ -431,7 +459,7 @@ int net_getline(char **lineptr, size_t *n, stream *str)
 	if (str->ssl) {
 		if (!*lineptr) {
 			*lineptr = malloc(*n=1024);
-			ensure(*lineptr);
+			ENSURE(*lineptr);
 		}
 
 		char *dst = *lineptr;
@@ -458,7 +486,7 @@ int net_getline(char **lineptr, size_t *n, stream *str)
 					size_t savelen = dst - *lineptr;
 					*n *= 2;
 					*lineptr = realloc(*lineptr, *n);
-					ensure(*lineptr);
+					ENSURE(*lineptr);
 					dst = *lineptr + savelen;
 					dstlen = *n - savelen;
 				}
@@ -495,7 +523,7 @@ int net_close(stream *str)
 	int ok = 0;
 
 #ifdef pclose
-	if (str->pipe)
+	if (str->is_pipe)
 		ok = pclose(str->fp);
 	else
 #else

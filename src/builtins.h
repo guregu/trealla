@@ -8,8 +8,6 @@
 #include "internal.h"
 #include "heap.h"
 
-#define MAX_FFI 1000
-
 #if USE_FFI
 bool wrap_ffi_function(query *q, builtins *bif_ptr);
 bool wrap_ffi_predicate(query *q, builtins *bif_ptr);
@@ -61,12 +59,11 @@ bool wrap_ffi_predicate(query *q, builtins *bif_ptr);
 #define is_memory_stream(str) ((str)->is_memory)
 #define is_map_stream(str) ((str)->is_map)
 #define is_engine_stream(str) ((str)->is_engine)
-#define is_queue_stream(str) ((str)->is_queue)
-#define is_mutex_stream(str) ((str)->is_mutex)
 #define is_alias_stream(str) ((str)->is_alias)
-#define is_virtual_stream(str) (is_memory_stream(str) || is_map_stream(str) || is_engine_stream(str) || is_mutex_stream(str) || is_queue_stream(str) || is_alias_stream(str))
-#define is_live_stream(str) ((str)->fp || (str)->socket || is_virtual_stream(str))
+#define is_socket_stream(str) ((str)->is_socket)
 #define is_file_stream(str) ((str)->fp)
+#define is_virtual_stream(str) (is_memory_stream(str) || is_map_stream(str) || is_engine_stream(str) || is_alias_stream(str))
+#define is_live_stream(str) (is_file_stream(str) || is_socket_stream(str) || is_virtual_stream(str))
 
 #define GET_SOURCE_SINK(p1, p1_ctx, filename) { \
 	if (is_iso_list(p1)) { \
@@ -89,9 +86,9 @@ bool call_userfun(query *q, cell *c, pl_ctx c_ctx);
 	if (q->did_throw)													\
 		return true; 												\
 	if (is_var(c))													\
-		return throw_error(q, c, q->st.cur_ctx, "instantiation_error", "number"); \
+		return throw_error(q, c, q->st.curr_fp, "instantiation_error", "number"); \
 	if (is_builtin(c) && c->bif_ptr && (c->bif_ptr->fn != bif_iso_float_1) && (c->bif_ptr->fn != bif_iso_integer_1)) \
-		return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
+		return throw_error(q, c, q->st.curr_fp, "type_error", "evaluable");
 
 bool bif_iso_add_2(query *q);
 bool bif_iso_float_1(query *q);
@@ -144,8 +141,8 @@ inline static cell *take_queuen(query *q)
 #define GET_PREV_CHOICE() GET_CHOICE(q->cp-2)
 
 #define GET_FRAME(i) (q->frames+(i))
-#define GET_CURR_FRAME() GET_FRAME(q->st.cur_ctx)
-#define GET_NEW_FRAME() GET_FRAME(q->st.new_fp)
+#define GET_CURR_FRAME() GET_FRAME(q->st.curr_fp)
+#define GET_NEW_FRAME() GET_FRAME(q->st.fp)
 
 inline static slot *get_slot(const query *q, const frame *f, unsigned var_num)
 {
@@ -241,13 +238,13 @@ inline static cell *deref(query *q, cell *c, pl_ctx c_ctx)
 inline static cell *get_first_arg(query *q)
 {
 	q->last_arg = q->st.instr + 1;
-	return deref(q, q->last_arg, q->st.cur_ctx);
+	return deref(q, q->last_arg, q->st.curr_fp);
 }
 
 inline static cell *get_first_arg0(query *q, cell *p0)
 {
 	q->last_arg = p0 + 1;
-	return deref(q, q->last_arg, q->st.cur_ctx);
+	return deref(q, q->last_arg, q->st.curr_fp);
 }
 
 inline static cell *get_first_raw_arg(query *q)
@@ -257,7 +254,7 @@ inline static cell *get_first_raw_arg(query *q)
 	if (is_ref(q->last_arg))
 		q->latest_ctx = q->last_arg->val_ctx;
 	else
-		q->latest_ctx = q->st.cur_ctx;
+		q->latest_ctx = q->st.curr_fp;
 
 	return q->last_arg;
 }
@@ -269,7 +266,7 @@ inline static cell *get_first_raw_arg0(query *q, cell *p0)
 	if (is_ref(q->last_arg))
 		q->latest_ctx = q->last_arg->val_ctx;
 	else
-		q->latest_ctx = q->st.cur_ctx;
+		q->latest_ctx = q->st.curr_fp;
 
 	return q->last_arg;
 }
@@ -277,7 +274,7 @@ inline static cell *get_first_raw_arg0(query *q, cell *p0)
 inline static cell *get_next_arg(query *q)
 {
 	q->last_arg += q->last_arg->num_cells;
-	return deref(q, q->last_arg, q->st.cur_ctx);
+	return deref(q, q->last_arg, q->st.curr_fp);
 }
 
 inline static cell *get_next_raw_arg(query *q)
@@ -287,7 +284,7 @@ inline static cell *get_next_raw_arg(query *q)
 	if (is_ref(q->last_arg))
 		q->latest_ctx = q->last_arg->val_ctx;
 	else
-		q->latest_ctx = q->st.cur_ctx;
+		q->latest_ctx = q->st.curr_fp;
 
 	return q->last_arg;
 }
@@ -302,7 +299,7 @@ inline static cell *get_raw_arg(query *q, int n)
 	if (is_ref(c))
 		q->latest_ctx = c->val_ctx;
 	else
-		q->latest_ctx = q->st.cur_ctx;
+		q->latest_ctx = q->st.curr_fp;
 
 	return c;
 }
@@ -312,9 +309,9 @@ inline static cell *get_raw_arg(query *q, int n)
 
 #define check_error(expr, ...) CHECK_SENTINEL(expr, 0, __VA_ARGS__; return 0)
 
-#define checked(expr, ...) \
+#define CHECKED(expr, ...) \
 	CHECK_SENTINEL(expr, 0, __VA_ARGS__; \
-	return throw_error(q, q->st.instr, q->st.cur_ctx, "resource_error", "memory"))
+	return throw_error(q, q->st.instr, q->st.curr_fp, "resource_error", "memory"))
 
 // This one leaves original state if a cycle detected...
 
@@ -379,7 +376,7 @@ inline static cell *get_raw_arg(query *q, int n)
 	errno = 0; \
 	if (!q->eval) { \
 		if (!q->st.m->flags.unknown) \
-			return throw_error(q, q->st.instr, q->st.cur_ctx, "existence_error", "procedure"); \
+			return throw_error(q, q->st.instr, q->st.curr_fp, "existence_error", "procedure"); \
 		else \
 			return false; \
 	} \
@@ -423,4 +420,3 @@ bool bif_statistics_0(query *q);
 bool bif_sys_module_1(query *q);
 bool bif_sys_undo_1(query *q);
 bool bif_sys_create_var_1(query *q);
-bool bif_sys_match_1(query *q);

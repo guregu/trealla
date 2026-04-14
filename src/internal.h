@@ -38,6 +38,8 @@ typedef uint32_t pl_ctx;
 #define pl_atomic volatile
 #endif
 
+typedef pl_atomic int64_t pl_refcnt;
+
 #include "list.h"
 #include "skiplist.h"
 #include "stringbuf.h"
@@ -60,9 +62,9 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define MAX_SMALL_STRING ((sizeof(void*)*2)-1)
 #define MAX_VAR_POOL_SIZE 16000
 #define MAX_ARITY UINT8_MAX
-#define MAX_IF_DEPTH 255
+#define MAX_IF_DEPTH 256
 #define MAX_VARS 1024
-#define MAX_QUEUES 255
+#define MAX_QUEUES 256
 #define MAX_MODULES 1024
 #define MAX_IGNORES 64000
 #define MAX_STREAMS 1024
@@ -76,7 +78,6 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 
 // Primary type...
 
-#define is_empty(c) ((c)->tag == TAG_EMPTY)
 #define is_var(c) ((c)->tag == TAG_VAR)
 #define is_interned(c) ((c)->tag == TAG_INTERNED)
 #define is_cstring(c) ((c)->tag == TAG_CSTR)
@@ -168,8 +169,6 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 
 
 extern char *g_global_atoms;
-
-typedef pl_atomic int64_t pl_refcnt;
 
 typedef struct {
 	pl_refcnt refcnt;
@@ -458,7 +457,6 @@ struct predicate_ {
 	bool is_dirty:1;
 };
 
-#define BLAH1 false, false, {0}, {0}, 0, NULL, NULL, NULL, NULL, NULL
 #define BLAH false, false, {0}, {0}, 0, NULL, NULL, NULL, NULL, NULL, NULL
 
 #define MAX_FFI_ARGS 64
@@ -543,10 +541,9 @@ struct run_state_ {
 		int64_t cnt;
 	};
 
-	uint64_t timer_started;
-	pl_ctx cur_ctx;
-	pl_idx new_fp, hp, cp, tp, sp, heap_num;
-	uint8_t qnum;
+	uint64_t cpu_time;
+	pl_idx fp, hp, cp, tp, sp, heap_num, qnum;
+	pl_ctx curr_fp;
 };
 
 struct choice_ {
@@ -588,27 +585,23 @@ struct stream_ {
 	};
 
 	size_t data_len, alloc_nbytes;
-	int ungetch, srclen, chan, n;
+	int ungetch, srclen, chan, idx;
 	unsigned rows, cols;
 	uint8_t level, eof_action;
-	bool ignore:1;
 	bool at_end_of_file:1;
 	bool bom:1;
 	bool repo:1;
 	bool binary:1;
 	bool did_getc:1;
-	bool socket:1;
 	bool nodelay:1;
-	bool nonblock:1;
 	bool udp:1;
 	bool ssl:1;
-	bool pipe:1;
 	bool first_time:1;
+	bool is_pipe:1;
+	bool is_socket:1;
 	bool is_map:1;
 	bool is_memory:1;
 	bool is_engine:1;
-	bool is_queue:1;
-	bool is_mutex:1;
 	bool is_alias:1;
 };
 
@@ -695,7 +688,7 @@ struct query_ {
 	uint64_t total_tcos, total_recovs, total_matched, total_no_recovs;
 	uint64_t step, qid, tmo_msecs, chgen, cycle_error;
 	uint64_t get_started, autofail_n, yield_at;
-	uint64_t cpu_started, time_cpu_last_started, future;
+	uint64_t cpu_time, time_cpu_last_started, future;
 	unsigned realloc_frames, realloc_choices, realloc_slots, realloc_trails;
 	unsigned max_depth, max_eval_depth, print_idx, tab_idx, dump_var_num;
 	unsigned varno, tab0_varno, curr_engine, curr_chan, my_chan;
@@ -710,13 +703,13 @@ struct query_ {
 	pl_idx q_size[MAX_QUEUES], tmpq_size[MAX_QUEUES], qp[MAX_QUEUES];
 	prolog_flags flags;
 	enum q_retry retry;
+	pl_refcnt thread_signal;
 	int is_cyclic1, is_cyclic2;
 	uint32_t vgen;
 	int8_t halt_code;
 	int8_t quoted;
 	enum { WAS_OTHER, WAS_SPACE, WAS_COMMA, WAS_SYMBOL } last_thing;
 	bool oom:1;
-	bool thread_signal:1;
 	bool done:1;
 	bool noskip:1;
 	bool parens:1;
@@ -731,6 +724,7 @@ struct query_ {
 	bool portray_vars:1;
 	bool status:1;
 	bool no_recov:1;
+	bool no_recov_compound:1;
 	bool has_vars:1;
 	bool error:1;
 	bool did_throw:1;
@@ -763,6 +757,8 @@ struct query_ {
 	bool end_wait:1;
 	bool did_unhandled_exception:1;
 	bool access_private:1;
+	bool in_retractall:1;
+	bool in_retract:1;
 };
 
 struct parser_ {
@@ -883,7 +879,7 @@ struct prolog_ {
 	FILE *logfp;
 	lock guard;
 	size_t tabs_size;
-	uint64_t s_last, s_cnt, seed, str_cnt, thr_cnt;
+	uint64_t s_last, s_cnt, seed, thr_cnt;
 	pl_refcnt q_cnt, dbgen;
 	unsigned next_mod_id, def_max_depth, my_chan;
 	unsigned current_input, current_output, current_error;
@@ -1046,7 +1042,7 @@ enum clause_type { DO_CLAUSE, DO_RETRACT, DO_RETRACTALL };
 char *formatted(const char *src, int srclen, bool dq, bool json);
 char *slicedup(const char *s, size_t n);
 int slicecmp(const char *s1, size_t len1, const char *s2, size_t len2);
-uint64_t get_time_in_usec(void);
+uint64_t wall_time_in_usec(void);
 uint64_t cpu_time_in_usec(void);
 char *relative_to(const char *basefile, const char *relfile);
 size_t sprint_int(char *dst, size_t size, pl_int n, int base);
@@ -1116,5 +1112,8 @@ int get_named_stream(prolog *pl, const char *name, size_t len);
 #define ERROR_FP stdout
 #define fprintf_to_stream(pl, fp, fmt, ...) fprintf(fp, fmt, __VA_ARGS__)
 #endif
-#define ensure(cond, ...) if (!(cond)) { printf("Error: no memory %s %d\n", __FILE__, __LINE__); abort(); }
+#define ENSURE(cond, ...) if (!(cond)) { printf("Error: no memory %s %d\n", __FILE__, __LINE__); abort(); }
 
+inline static bool is_empty(const cell *c) {
+	return c->tag == TAG_EMPTY;
+}

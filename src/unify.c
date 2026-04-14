@@ -241,26 +241,13 @@ int compare(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx)
 	return compare_internal(q, p1, p1_ctx, p2, p2_ctx, 0);
 }
 
-void add_trail(query *q, pl_ctx c_ctx, unsigned c_var_nbr, cell *attrs)
-{
-	if (!check_trail(q)) {
-		q->error = false;
-		return;
-	}
-
-	trail *tr = q->trails + q->st.tp++;
-	tr->val_ctx = c_ctx;
-	tr->var_num = c_var_nbr;
-	tr->attrs = attrs;
-}
-
 static void set_var(query *q, const cell *c, pl_ctx c_ctx, cell *v, pl_ctx v_ctx)
 {
 	const frame *f = GET_FRAME(c_ctx);
 	slot *e = get_slot(q, f, c->var_num);
 	cell *c_attrs = e->c.val_attrs;
 
-	if (is_managed(v) || (c_ctx != q->st.new_fp))
+	if (is_managed(v) || (c_ctx != q->st.fp))
 		add_trail(q, c_ctx, c->var_num, c_attrs);
 
 	if (c_attrs)
@@ -269,8 +256,8 @@ static void set_var(query *q, const cell *c, pl_ctx c_ctx, cell *v, pl_ctx v_ctx
 	if (is_var(v)) {
 		make_ref(&e->c, v->var_num, v_ctx);
 
-		if ((c_ctx == q->st.new_fp)
-			//&& (v_ctx >= q->st.cur_ctx)
+		if ((c_ctx == q->st.fp)
+			//&& (v_ctx >= q->st.curr_fp)
 			&& !is_temporary(c) && !is_void(c)
 			) {
 			q->no_recov = true;
@@ -278,8 +265,9 @@ static void set_var(query *q, const cell *c, pl_ctx c_ctx, cell *v, pl_ctx v_ctx
 		}
 	} else if (is_compound(v)) {
 		make_indirect(&e->c, v, v_ctx);
+		q->no_recov_compound = true;
 
-		if ((v_ctx >= q->st.cur_ctx)
+		if ((v_ctx >= q->st.curr_fp)
 			&& !is_ground(v)
 			){
 			q->no_recov = true;
@@ -621,7 +609,7 @@ static bool unify_internal(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p
 bool unify(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx)
 {
 	q->is_cyclic1 = q->is_cyclic2 = false;
-	q->has_vars = q->no_recov = false;
+	q->has_vars = q->no_recov = q->no_recov_compound = false;
 	q->before_hook_tp = q->st.tp;
 	if (++q->vgen == 0) q->vgen = 1;
 	bool ok;

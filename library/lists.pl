@@ -8,50 +8,11 @@
 		sum_list/2, max_list/2, min_list/2,	% SWI
 		list_sum/2, list_max/2, list_min/2,	% Modern
 		list_to_set/2, length/2, reverse/2,
-		exclude/3, include/3, permutation/2, flatten/2,
+		exclude/3, include/3, permutation/2,
 		foldl/4, foldl/5, foldl/6,
-		flatten/2, list_to_conjunction/2,
 		maplist/2, maplist/3, maplist/4, maplist/5, maplist/6, maplist/7, maplist/8,
 		tasklist/2, tasklist/3, tasklist/4, tasklist/5, tasklist/6, tasklist/7, tasklist/8
 	]).
-
-list_to_conjunction(List0, T) :-
-	reverse(List0, List),
-	toconjunction_(List, true, T).
-
-toconjunction_([], In, In).
-toconjunction_([H|T], true, Out) :- !,
-	Out2 = H,
-	toconjunction_(T, Out2, Out).
-toconjunction_([H|T], In, Out) :-
-	Out2 = (H, In),
-	toconjunction_(T, Out2, Out).
-
-conjunction_to_list(T, List) :-
-	tolist_(T, List).
-
-tolist_((T1,T2), [T1|Rest]) :- !,
-	tolist_(T2, Rest).
-tolist_(T, [T|[]]).
-
-:- help(list_to_conjunction(?list,?list), [iso(false), desc('Does as it says.')]).
-
-flatten(List, FlatList) :-
-	flatten_(List, [], FlatList0),
-	!,
-	FlatList = FlatList0.
-
-flatten_(Var, Tl, [Var|Tl]) :-
-	var(Var),
-	!.
-flatten_([], Tl, Tl) :- !.
-flatten_([Hd|Tl], Tail, List) :-
-	!,
-	flatten_(Hd, FlatHeadTail, List),
-	flatten_(Tl, Tail, FlatHeadTail).
-flatten_(NonList, Tl, [NonList|Tl]).
-
-:- help(flatten(?list,?list), [iso(false), desc('Does as it says.')]).
 
 reverse(Xs, Ys) :-
 	(	nonvar(Xs) -> reverse_(Xs, Ys, [], Xs)
@@ -620,8 +581,3 @@ tasklist_([E1|T1], [E2|T2], [E3|T3], [E4|T4], [E5|T5], [E6|T6], [E7|T7], G) :-
 :- help(tasklist(:callable,+list,+list,+list,+list,+list), [iso(false)]).
 :- help(tasklist(:callable,+list,+list,+list,+list,+list,+list), [iso(false)]).
 :- help(tasklist(:callable,+list,+list,+list,+list,+list,+list,+list), [iso(false)]).
-
-% TODO: this diverges from upstream, need to get this back in
-flatten(L0, L) :- flatten_(L0, L).
-
-:- help(flatten(+list,-list), [iso(false)]).

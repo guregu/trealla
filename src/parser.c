@@ -31,7 +31,7 @@ bool is_graphic(int ch)
 char *slicedup(const char *s, size_t n)
 {
 	char *ptr = malloc(n+1);
-	ensure (ptr);
+	ENSURE (ptr);
 	memcpy(ptr, s, n);
 	ptr[n] = '\0';
 	return ptr;
@@ -213,7 +213,9 @@ cell *make_nil(void)
 		.val_off = 0
 	};
 
-	tmp.val_off = g_nil_s;
+	if (!tmp.val_off)
+		tmp.val_off = g_nil_s;
+
 	return &tmp;
 }
 
@@ -346,7 +348,7 @@ static bool make_room(parser *p, unsigned num)
 		pl_idx num_cells = (p->cl->num_allocated_cells + num) * 3 / 2;
 
 		clause *cl = realloc(p->cl, sizeof(clause)+(sizeof(cell)*num_cells));
-		ensure(cl);
+		ENSURE(cl);
 		p->cl = cl;
 		p->cl->num_allocated_cells = num_cells;
 	}
@@ -393,18 +395,20 @@ void parser_destroy(parser *p)
 		free(p->cl);
 	}
 
+	p->save_line = NULL;
+	p->cl = NULL;
 	free(p);
 }
 
 parser *parser_create(module *m)
 {
 	parser *p = calloc(1, sizeof(parser));
-	ensure(p);
+	ENSURE(p);
 	p->pl = m->pl;
 	p->m = m;
 	pl_idx num_cells = INITIAL_NBR_CELLS;
 	p->cl = calloc(1, sizeof(clause)+(sizeof(cell)*num_cells));
-	ensure(p->cl, free(p));
+	ENSURE(p->cl, free(p));
 	p->cl->num_allocated_cells = num_cells;
 	p->start_term = true;
 	p->flags = m->flags;
@@ -435,7 +439,7 @@ static void consultall(parser *p, cell *l)
 char *relative_to(const char *basefile, const char *relfile)
 {
 	char *tmpbuf = malloc(strlen(basefile) + strlen(relfile) + 256);
-	ensure(tmpbuf);
+	ENSURE(tmpbuf);
 	char *ptr = tmpbuf;
 
 	if (!strncmp(relfile, "../", 3) || !strchr(relfile, '/')) {
@@ -758,7 +762,7 @@ static bool directives(parser *p, cell *d)
 		q.st.m = p->m;
 		char *dst = print_term_to_strbuf(&q, p1, p1_ctx, 0);
 		builtins *ptr = calloc(1, sizeof(builtins));
-		ensure(ptr);
+		ENSURE(ptr);
 		ptr->name = strdup(C_STR(p, p1));
 		ptr->arity = p1->arity;
 		ptr->m = p->m;
@@ -1596,7 +1600,7 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 	}
 
 	cell *c = make_a_cell(p);
-	ensure(c);
+	ENSURE(c);
 	c->tag = TAG_END;
 	c->num_cells = 1;
 }
@@ -1614,37 +1618,42 @@ static void replace_double_bar(parser *p, pl_idx i, pl_idx last_idx)
 
 	// Build lhs into a list and append rhs + nil
 
-	char *src = C_STR(p, lhs);
-	query *q = query_create(p->m);
-	cell *l = string_to_chars_list(q, lhs);
-	unshare_cells(lhs, lhs->num_cells);
-	cell *tmp = calloc((l->num_cells-1)+rhs->num_cells+1, sizeof(cell));
-	cell *tmp2 = tmp;
-	tmp2 += copy_cells(tmp, l, l->num_cells-1);
-	tmp->num_cells -= 1;
-	tmp2 += dup_cells(tmp2, rhs, rhs->num_cells);
-	tmp->num_cells += rhs->num_cells;
-	*tmp2 = *make_nil();
-	tmp->num_cells += 1;
+	if (is_nil(lhs)) {
+		memmove(lhs, rhs, (p->cl->cidx-(rhs-p->cl->cells))*sizeof(cell));
+		p->cl->cidx -= 2;  // lhs + ||
+	} else {
+		char *src = C_STR(p, lhs);
+		query *q = query_create(p->m);
+		cell *l = string_to_chars_list(q, lhs);
+		unshare_cells(lhs, lhs->num_cells);
+		cell *tmp = calloc((l->num_cells-1)+rhs->num_cells+1, sizeof(cell));
+		cell *tmp2 = tmp;
+		tmp2 += copy_cells(tmp, l, l->num_cells-1);
+		tmp->num_cells -= 1;
+		tmp2 += dup_cells(tmp2, rhs, rhs->num_cells);
+		tmp->num_cells += rhs->num_cells;
+		*tmp2 = *make_nil();
+		tmp->num_cells += 1;
 
-	// Make room then copy
+		// Make room then copy
 
-	unsigned tot_cells = lhs->num_cells+c->num_cells+rhs->num_cells;
-	unsigned extra_cells = tmp->num_cells - tot_cells;
-	//printf("*** tot_cells = %u, extra_cells = %u\n", tot_cells, extra_cells);
+		unsigned tot_cells = lhs->num_cells+c->num_cells+rhs->num_cells;
+		unsigned extra_cells = tmp->num_cells - tot_cells;
+		//printf("*** tot_cells = %u, extra_cells = %u\n", tot_cells, extra_cells);
 
-	make_room(p, extra_cells);
-	c = p->cl->cells + i;
-	lhs = p->cl->cells + last_idx;
-	rhs = c + 1;
+		make_room(p, extra_cells);
+		c = p->cl->cells + i;
+		lhs = p->cl->cells + last_idx;
+		rhs = c + 1;
 
-	cell *end = rhs + rhs->num_cells;
-	memmove(end+extra_cells, end, (p->cl->cidx - (end - p->cl->cells))*sizeof(cell));
-	memmove(lhs, tmp, tmp->num_cells*sizeof(cell));
+		cell *end = rhs + rhs->num_cells;
+		memmove(end+extra_cells, end, (p->cl->cidx - (end - p->cl->cells))*sizeof(cell));
+		memmove(lhs, tmp, tmp->num_cells*sizeof(cell));
 
-	p->cl->cidx += extra_cells;
-	free(tmp);
-	query_destroy(q);
+		p->cl->cidx += extra_cells;
+		free(tmp);
+		query_destroy(q);
+	}
 }
 
 // Reduce a vector of cells in token order to a parse tree. This is
@@ -2092,7 +2101,7 @@ static cell *goal_expansion(parser *p, cell *goal)
 	if (!CMP_STRING_TO_CSTR(p, goal, "phrase") && !p->is_consulting)
 		return goal;
 
-	//if (search_predicate(p->m, goal, NULL))
+	//if (search_predicate(p->m, goal))
 	//	return goal;
 
 	if (p->pl->in_goal_expansion) {
@@ -2872,7 +2881,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 
 		if (mp_int_to_int(&v2, &val) == MP_RANGE) {
 			p->v.val_bigint = malloc(sizeof(bigint));
-			ensure(p->v.val_bigint);
+			ENSURE(p->v.val_bigint);
 			p->v.val_bigint->refcnt = 1;
 			mp_int_init_copy(&p->v.val_bigint->ival, &v2);
 			if (neg) p->v.val_bigint->ival.sign = MP_NEG;
@@ -2894,7 +2903,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 
 		if (mp_int_to_int(&v2, &val) == MP_RANGE) {
 			p->v.val_bigint = malloc(sizeof(bigint));
-			ensure(p->v.val_bigint);
+			ENSURE(p->v.val_bigint);
 			p->v.val_bigint->refcnt = 1;
 			mp_int_init_copy(&p->v.val_bigint->ival, &v2);
 			if (neg) p->v.val_bigint->ival.sign = MP_NEG;
@@ -2916,7 +2925,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 
 		if (mp_int_to_int(&v2, &val) == MP_RANGE) {
 			p->v.val_bigint = malloc(sizeof(bigint));
-			ensure(p->v.val_bigint);
+			ENSURE(p->v.val_bigint);
 			p->v.val_bigint->refcnt = 1;
 			mp_int_init_copy(&p->v.val_bigint->ival, &v2);
 			if (neg) p->v.val_bigint->ival.sign = MP_NEG;
@@ -2981,7 +2990,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 
 	if (mp_int_to_int(&v2, &val) == MP_RANGE) {
 		p->v.val_bigint = malloc(sizeof(bigint));
-		ensure(p->v.val_bigint);
+		ENSURE(p->v.val_bigint);
 		p->v.val_bigint->refcnt = 1;
 		mp_int_init_copy(&p->v.val_bigint->ival, &v2);
 		if (neg) p->v.val_bigint->ival.sign = MP_NEG;
@@ -3328,7 +3337,7 @@ TRY_AGAIN:
 						// Where the string is empty it's
 						// just ignored:
 
-						if (!SB_strlen(p->token)) {
+						if (!SB_strlen(p->token) && 0) {
 							p->quote_char = 0;
 							p->is_quoted = true;
 							goto TRY_AGAIN;
@@ -3862,7 +3871,7 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 		if (!p->quote_char && !SB_strcmp(p->token, "{")) {
 			save_idx = p->cl->cidx;
 			cell *c = make_interned(p, g_braces_s);
-			ensure(c);
+			ENSURE(c);
 			c->arity = 1;
 			p->start_term = true;
 			p->nesting_braces++;
@@ -4152,6 +4161,7 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 				break;
 			}
 
+#if 0
 			int nextch = *s;
 			bool noneg = (!SB_strcmp(p->token, "-") || !SB_strcmp(p->token, "+")) && (nextch == '='); // Hack
 
@@ -4163,6 +4173,7 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 				p->error = true;
 				break;
 			}
+#endif
 
 			priority = search_op(p->m, SB_cstr(p->token), &specifier, last_op);
 		}
@@ -4320,7 +4331,7 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 
 			if (!p->is_number_chars) {
 				c->val_off = new_atom(p->pl, SB_cstr(p->token));
-				ensure(c->val_off != ERR_IDX);
+				ENSURE(c->val_off != ERR_IDX);
 			}
 		} else {
 			c->tag = TAG_CSTR;
@@ -4406,7 +4417,7 @@ bool run(parser *p, const char *prolog_src, bool dump, query **subq, unsigned in
 		}
 
 		query *q = query_create(p->m);
-		checked(q, p->srcptr = NULL, SB_free(pr));
+		CHECKED(q, p->srcptr = NULL, SB_free(pr));
 
 		if (subq)
 			*subq = q;

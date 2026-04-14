@@ -744,7 +744,7 @@ void pl_destroy(prolog *pl)
 		if (is_engine_stream(str))
 			query_destroy(str->engine);
 
-		if (!is_virtual_stream(str) && (i > 2) &&
+		if (is_file_stream(str) && (i > 2) &&
 				((str->fp != stdin)
 				&& (str->fp != stdout)
 				&& (str->fp != stderr))
@@ -787,6 +787,9 @@ prolog *pl_create()
 	}
 
 	if (!g_tpl_lib) {
+#ifdef DEFAULT_LIBRARY_PATH
+		g_tpl_lib = strdup(DEFAULT_LIBRARY_PATH);
+#else
 		g_tpl_lib = realpath(g_argv0, NULL);
 
 		if (g_tpl_lib) {
@@ -800,6 +803,7 @@ prolog *pl_create()
 			strcat(g_tpl_lib, "/library");
 		} else
 			g_tpl_lib = strdup("../library");
+#endif
 	}
 
 	CHECK_SENTINEL(pl->keyval = sl_create((void*)fake_strcmp, (void*)keyval_free, NULL), NULL);
@@ -825,7 +829,7 @@ prolog *pl_create()
 	sl_app(pl->streams[2].alias, strdup("user_error"), NULL);
 	pl->streams[2].eof_action = eof_action_reset;
 
-	pl->streams[3].ignore = true;
+	init_lock(&pl->guard);
 
 #if USE_THREADS
 	thread_initialize(pl);
@@ -854,14 +858,13 @@ prolog *pl_create()
 		return NULL;
 	}
 
-	init_lock(&pl->guard);
 	pl->user_m->flags.strict_iso = false;
 	pl->m = pl->user_m;
 
 	pl->current_input = 0;		// STDIN
 	pl->current_output = 1;		// STDOUT
 	pl->current_error = 2;		// STDERR
-	pl->def_max_depth = 100;
+	pl->def_max_depth = 0;
 	pl->def_quoted = true;
 	pl->def_double_quotes = true;
 	pl->rnd_first_time = true;
@@ -885,38 +888,64 @@ prolog *pl_create()
 
 	// Load some common libraries...
 
-	for (library *lib = g_libs; lib->name; lib++) {
-		if (!strcmp(lib->name, "builtins")
-			|| !strcmp(lib->name, "iso_ext")		// Common
-			|| !strcmp(lib->name, "freeze")			// Common (TODO: removed on upstream?)
+	const char *bootstrap[] = {
+		"builtins",
+		"iso_ext",
+		"dif",
+		"freeze",		// Compat with older trealla?
+		"lists",		// TODO: should probably remove this at some point
 #ifdef __wasi__
-			|| !strcmp(lib->name, "wasm")			// Needed for WASM toplevel
-			|| !strcmp(lib->name, "pseudojson")		// Likewise
+		"wasm",			// Needed for WASM toplevel
+		"pseudojson",	// Likewise
 #endif
 #ifdef WASI_TARGET_JS
-			|| !strcmp(lib->name, "wasm_js")		// Used by trealla-js
+		"wasm_js",		// Used by trealla-js
 #endif
 #ifdef WASI_TARGET_GENERIC
-			|| !strcmp(lib->name, "wasm_generic")
+		"wasm_generic",
 #endif
 #ifdef WASI_TARGET_SPIN
-			|| !strcmp(lib->name, "spin")
+		"spin",
 #endif
-			|| !strcmp(lib->name, "lists")			// Common
-			|| !strcmp(lib->name, "dif")			// ???
-			) {
-			size_t len = *lib->len;
-			char *src = malloc(len+1);
-			check_error(src, pl_destroy(pl));
-			memcpy(src, lib->start, len);
-			src[len] = '\0';
+		NULL
+	};
+
+	for (int i = 0; bootstrap[i]; i++) {
+		bool found = false;
+
+		for (library *lib = g_libs; lib->name; lib++) {
+			if (!strcmp(lib->name, bootstrap[i])) {
+				size_t len = *lib->len;
+				char *src = malloc(len+1);
+				check_error(src, pl_destroy(pl));
+				memcpy(src, lib->start, len);
+				src[len] = '\0';
+				SB(s1);
+				SB_sprintf(s1, "library/%s", lib->name);
+				module *m = load_text(pl->user_m, src, SB_cstr(s1));
+				m->prebuilt = true;
+				SB_free(s1);
+				free(src);
+				check_error(m, pl_destroy(pl));
+				found = true;
+				break;
+			}
+		}
+
+		if (!found) {
 			SB(s1);
-			SB_sprintf(s1, "library/%s", lib->name);
-			module *m = load_text(pl->user_m, src, SB_cstr(s1));
+			SB_sprintf(s1, "%s/%s.pl", g_tpl_lib, bootstrap[i]);
+			module *m = load_file(pl->user_m, SB_cstr(s1), false, true);
+
+			if (!m || m->error) {
+				fprintf(stderr, "Error: could not find library(%s) at %s\n", bootstrap[i], SB_cstr(s1));
+				SB_free(s1);
+				pl_destroy(pl);
+				return NULL;
+			}
+
 			m->prebuilt = true;
 			SB_free(s1);
-			free(src);
-			check_error(m, pl_destroy(pl));
 		}
 	}
 
