@@ -1,15 +1,20 @@
 #include <ctype.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/time.h>
-#include <sys/stat.h>
+
+#if !defined(_WIN32) && !defined(__wasi__) && !defined(__ANDROID__)
+#include <spawn.h>
+#include <sys/wait.h>
+#endif
 
 #include "history.h"
 #include "module.h"
 #include "parser.h"
-#include "prolog.h"
 #include "query.h"
 
 #ifdef _WIN32
@@ -27,6 +32,72 @@ static void msleep(int ms)
 	tv.tv_nsec = ((ms) % 1000) * 1000 * 1000;
 	nanosleep(&tv, &tv);
 }
+#endif
+
+#define MAX_ARGS 128
+
+#ifdef __APPLE__
+
+#include <dispatch/dispatch.h>
+
+// Emulated timer struct for macOS
+typedef struct timer {
+	dispatch_source_t timer_source;
+	struct sigevent evp;
+	int interval_ms;
+} timer_t;
+
+static int timer_create(clockid_t clockid, struct sigevent *sevp, timer_t *timerid)
+{
+	if (timerid == NULL)
+		return -1;
+
+	if (sevp != NULL) {
+		timerid->evp = *sevp;
+	} else {
+		timerid->evp.sigev_notify = SIGEV_SIGNAL;
+		timerid->evp.sigev_signo = SIGALRM;
+	}
+
+	timerid->timer_source = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0));
+	return 0;
+}
+
+struct itimerspec {
+	struct timespec it_interval;  // Period for periodic timer
+	struct timespec it_value;     // Initial expiration
+};
+
+static int timer_settime(timer_t timerid, int flags, const struct itimerspec *new_value, struct itimerspec *old_value)
+{
+	if (!new_value)
+		return -1;
+
+	uint64_t start_nsec = (new_value->it_value.tv_sec * NSEC_PER_SEC) + new_value->it_value.tv_nsec;
+	uint64_t interval_nsec = (new_value->it_interval.tv_sec * NSEC_PER_SEC) + new_value->it_interval.tv_nsec;
+
+	dispatch_time_t start_time = dispatch_time(DISPATCH_TIME_NOW, start_nsec);
+	dispatch_source_set_timer(timerid.timer_source, start_time, interval_nsec, 0);
+
+	dispatch_source_set_event_handler(timerid.timer_source, ^{
+		if (timerid.evp.sigev_notify == SIGEV_SIGNAL) {
+			raise(timerid.evp.sigev_signo);
+		} else if (timerid.evp.sigev_notify == SIGEV_THREAD) {
+			timerid.evp.sigev_notify_function(timerid.evp.sigev_value);
+		}
+	});
+
+	dispatch_resume(timerid.timer_source);
+	return 0;
+}
+
+static int timer_delete(timer_t timerid)
+{
+	dispatch_source_cancel(timerid.timer_source);
+	dispatch_release(timerid.timer_source);
+	return 0;
+}
+
 #endif
 
 #ifdef _WIN32
@@ -85,8 +156,8 @@ static int my_clock_gettime(clockid_t type, struct timespec *tp)
 	else if (type == CLOCK_REALTIME)
 		return clock_gettime_realtime(tp);
 
-    errno = ENOTSUP;
-    return -1;
+	errno = ENOTSUP;
+	return -1;
 }
 #else
 #define my_clock_gettime clock_gettime
@@ -117,7 +188,7 @@ static bool bif_shell_1(query *q)
 	char *filename;
 	GET_SOURCE_SINK(p1, p1_ctx, filename);
 	int status = system(filename);
-	free(filename);
+	TPL_free(filename);
 
 	if (status == 0)
 		return true;
@@ -132,10 +203,10 @@ static bool bif_shell_2(query *q)
 	char *filename;
 	GET_SOURCE_SINK(p1, p1_ctx, filename);
 	int status = system(filename);
-	free(filename);
+	TPL_free(filename);
 	cell tmp;
 	make_int(&tmp, status);
-	return unify(q, p2, p2_ctx, &tmp, q->st.curr_fp);
+	return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 }
 #else
 static bool bif_shell_1(query *q)
@@ -156,7 +227,7 @@ static bool bif_getenv_2(query *q)
 	char *filename;
 	GET_SOURCE_SINK(p1, p1_ctx, filename);
 	const char *value = getenv(filename);
-	free(filename);
+	TPL_free(filename);
 
 	if (!value)
 		return false;
@@ -168,7 +239,7 @@ static bool bif_getenv_2(query *q)
 	else
 		make_cstring(&tmp, value);
 
-	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.curr_fp);
+	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 	unshare_cell(&tmp);
 	return ok;
 }
@@ -181,8 +252,8 @@ static bool bif_setenv_2(query *q)
 	GET_SOURCE_SINK(p1, p1_ctx, filename);
 	GET_SOURCE_SINK(p2, p2_ctx, filename2);
 	setenv(filename, filename2, 1);
-	free(filename2);
-	free(filename);
+	TPL_free(filename2);
+	TPL_free(filename);
 	return true;
 }
 
@@ -192,7 +263,7 @@ static bool bif_unsetenv_1(query *q)
 	char *filename;
 	GET_SOURCE_SINK(p1, p1_ctx, filename);
 	unsetenv(filename);
-	free(filename);
+	TPL_free(filename);
 	return true;
 }
 
@@ -209,15 +280,19 @@ static bool bif_sleep_1(query *q)
 	if (is_bigint(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "small_integer_range");
 
+	int ms = (is_float(p1) ? get_float(p1) : get_smallint(p1)) * 1000;
+
 	if (q->is_task)
-		return do_yield(q, get_smallint(p1)*1000);
+		return do_yield(q, ms);
 
-	int ms = (is_float(p1) ? (double)get_float(p1) : (double)get_smallint(p1)) * 1000;
-
-	while ((ms > 0) && !q->halt) {
+	while ((ms > 0) && !q->halt && !q->pl->halt) {
 		CHECK_INTERRUPT();
-		msleep(100);
-		ms -= 100;
+		msleep(10);
+
+		if (errno == EINTR)
+			return throw_error(q, q->st.instr, q->st.cur_ctx, "time_limit_exceeded", "timed_out");
+
+		ms -= 10;
 	}
 
 	return true;
@@ -237,7 +312,7 @@ static bool bif_now_1(query *q)
 	pl_int secs = wall_time_in_usec() / 1000 / 1000;
 	cell tmp;
 	make_int(&tmp, secs);
-	return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
+	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 }
 
 static bool bif_get_time_1(query *q)
@@ -249,7 +324,7 @@ static bool bif_get_time_1(query *q)
 	double frac = v / 1000 / 1000;
 	cell tmp;
 	make_float(&tmp, secs + frac);
-	return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
+	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 }
 
 static bool bif_wall_time_1(query *q)
@@ -261,16 +336,16 @@ static bool bif_wall_time_1(query *q)
 	double frac = v / 1000 / 1000;
 	cell tmp;
 	make_float(&tmp, secs + frac);
-	return unify (q, p1, p1_ctx, &tmp, q->st.curr_fp);
+	return unify (q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 }
 
 static bool bif_cpu_time_1(query *q)
 {
 	GET_FIRST_ARG(p1,var);
-	double v = ((double)cpu_time_in_usec() - q->cpu_time) / 1000 / 1000;
+	double v = ((double)cpu_time_in_usec() - q->st.cpu_time) / 1000 / 1000;
 	cell tmp;
 	make_float(&tmp, (pl_flt)v);
-	return unify (q, p1, p1_ctx, &tmp, q->st.curr_fp);
+	return unify (q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 }
 
 static bool bif_date_time_7(query *q)
@@ -288,19 +363,19 @@ static bool bif_date_time_7(query *q)
 	localtime_r((const time_t*)&cur_time.tv_sec, &tm);
 	cell tmp;
 	make_int(&tmp, tm.tm_year+1900);
-	unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
+	unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 	make_int(&tmp, tm.tm_mon+1);
-	unify(q, p2, p2_ctx, &tmp, q->st.curr_fp);
+	unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 	make_int(&tmp, tm.tm_mday);
-	unify(q, p3, p3_ctx, &tmp, q->st.curr_fp);
+	unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
 	make_int(&tmp, tm.tm_hour);
-	unify(q, p4, p4_ctx, &tmp, q->st.curr_fp);
+	unify(q, p4, p4_ctx, &tmp, q->st.cur_ctx);
 	make_int(&tmp, tm.tm_min);
-	unify(q, p5, p5_ctx, &tmp, q->st.curr_fp);
+	unify(q, p5, p5_ctx, &tmp, q->st.cur_ctx);
 	make_int(&tmp, tm.tm_sec);
-	unify(q, p6, p6_ctx, &tmp, q->st.curr_fp);
+	unify(q, p6, p6_ctx, &tmp, q->st.cur_ctx);
 	make_int(&tmp, cur_time.tv_usec/1000);
-	unify(q, p7, p7_ctx, &tmp, q->st.curr_fp);
+	unify(q, p7, p7_ctx, &tmp, q->st.cur_ctx);
 	return true;
 }
 
@@ -317,56 +392,113 @@ static bool bif_date_time_6(query *q)
 	localtime_r(&now, &tm);
 	cell tmp;
 	make_int(&tmp, tm.tm_year+1900);
-	unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
+	unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 	make_int(&tmp, tm.tm_mon+1);
-	unify(q, p2, p2_ctx, &tmp, q->st.curr_fp);
+	unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 	make_int(&tmp, tm.tm_mday);
-	unify(q, p3, p3_ctx, &tmp, q->st.curr_fp);
+	unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx);
 	make_int(&tmp, tm.tm_hour);
-	unify(q, p4, p4_ctx, &tmp, q->st.curr_fp);
+	unify(q, p4, p4_ctx, &tmp, q->st.cur_ctx);
 	make_int(&tmp, tm.tm_min);
-	unify(q, p5, p5_ctx, &tmp, q->st.curr_fp);
+	unify(q, p5, p5_ctx, &tmp, q->st.cur_ctx);
 	make_int(&tmp, tm.tm_sec);
-	unify(q, p6, p6_ctx, &tmp, q->st.curr_fp);
+	unify(q, p6, p6_ctx, &tmp, q->st.cur_ctx);
 	return true;
 }
 
-static bool bif_sys_alarm_1(query *q)
+#if !defined(_WIN32) && !defined(__wasi__)
+typedef struct  {
+	timer_t my_timer;
+	pthread_t thread_id;
+} timer_entry;
+
+static void timer_callback(union sigval sv)
 {
-#if defined(_WIN32) || !defined(ITIMER_REAL)
-	return false;
-#else
+	timer_entry *e = sv.sival_ptr;
+	pthread_kill(e->thread_id, SIGALRM);
+	timer_delete(e->my_timer);
+	memset(e, 0, sizeof(timer_entry));
+}
+
+static void s_sigfn(int s)
+{
+	for (int i = 0; i < g_tpl_count; i++) {
+		prolog *pl = g_prologs[i];
+		thread *t = get_self(pl);
+
+		if (t) {
+			if (t->q)
+				t->q->timedout = true;
+			else
+				g_tpl_interrupt = s;
+
+			break;
+		}
+	}
+}
+
+static bool bif_sys_alarm_2(query *q)
+{
 	GET_FIRST_ARG(p1,number);
-	int time0 = 0;
+	GET_NEXT_ARG(p2,integer_or_var);
+	int time_ms = 0;
 
 	if (is_bigint(p1))
 		return throw_error(q, p1, p1_ctx, "domain_error", "positive_integer");
 
-	if (is_float(p1))
-		time0 = get_float(p1) * 1000;
-	else
-		time0 = get_smallint(p1);
+	g_tpl_interrupt = 0;
 
-	if (time0 < 0)
+	if (is_float(p1))
+		time_ms = get_float(p1) * 1000;
+	else
+		time_ms = get_smallint(p1);
+
+	if (time_ms < 0)
 		return throw_error(q, p1, p1_ctx, "domain_error", "positive_integer");
 
 	struct itimerval it = {0};
 
-	if (time0 == 0) {
-		setitimer(ITIMER_REAL, &it, NULL);
+	if (time_ms == 0) {
+		timer_entry *e = get_voidptr(p2);
+
+		if (e->thread_id)
+			timer_delete(e->my_timer);
+
+		TPL_free(e);
 		return true;
 	}
 
-	int ms = time0;
-	int secs = ms / 1000;
-	ms -= secs * 1000;
+	struct sigaction sa = {0};
+    sa.sa_handler = s_sigfn;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0; // Notice we DO NOT use SA_RESTART
+    sigaction(SIGALRM, &sa, NULL);
 
-	it.it_value.tv_sec = secs;
-	it.it_value.tv_usec = ms * 1000;
-	setitimer(ITIMER_REAL, &it, NULL);
-	return true;
-#endif
+	timer_entry *e = malloc(sizeof(timer_entry));
+
+	struct sigevent sevp = {0};
+	sevp.sigev_notify = SIGEV_THREAD;
+	sevp.sigev_notify_function = timer_callback;
+	sevp.sigev_value.sival_ptr = e;
+
+	timer_t my_timer;
+	timer_create(CLOCK_REALTIME, &sevp, &my_timer);
+
+	e->my_timer = my_timer;
+	e->thread_id = pthread_self();
+
+	struct itimerspec value = {0};
+	value.it_value.tv_sec = time_ms / 1000;
+	value.it_value.tv_nsec = (time_ms % 1000) * 1000;
+	value.it_interval.tv_sec = 0;
+	value.it_interval.tv_nsec = 0;
+	timer_settime(my_timer, 0, &value, NULL);
+
+	cell tmp;
+	make_ptr(&tmp, e);
+	return unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 }
+#endif
 
 static bool bif_busy_1(query *q)
 {
@@ -388,7 +520,7 @@ static bool bif_busy_1(query *q)
 	pl_uint started = wall_time_in_usec() / 1000;
 	pl_uint end = started + elapse;
 
-	while ((wall_time_in_usec() / 1000)  < end) {
+	while (((wall_time_in_usec() / 1000)  < end) && !q->halt && !q->pl->halt) {
 		CHECK_INTERRUPT();
 	}
 
@@ -432,7 +564,7 @@ static bool bif_time_1(query *q)
 	pl_idx num_cells = p1->num_cells;
 	make_instr(tmp+num_cells++, g_sys_elapsed_s, bif_sys_elapsed_0, 0, 0);
 	make_instr(tmp+num_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
-	make_uint(tmp+num_cells++, q->cp);
+	make_uint(tmp+num_cells++, q->st.cp);
 	make_call(q, tmp+num_cells);
 	CHECKED(push_barrier(q));
 	q->st.instr = tmp;
@@ -454,13 +586,13 @@ static bool bif_get_unbuffered_code_1(query *q)
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,binary_stream");
+		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,binary_stream");
 	}
 
 	if (str->at_end_of_file && (str->eof_action == eof_action_error)) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,past_end_of_stream");
+		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,past_end_of_stream");
 	}
 
 	int ch = history_getch_fd(fileno(str->fp));
@@ -484,7 +616,7 @@ static bool bif_get_unbuffered_code_1(query *q)
 
 		cell tmp;
 		make_int(&tmp, -1);
-		return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
+		return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 	}
 
 	str->ungetch = 0;
@@ -494,7 +626,7 @@ static bool bif_get_unbuffered_code_1(query *q)
 
 	cell tmp;
 	make_int(&tmp, ch);
-	return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
+	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 }
 
 static bool bif_get_unbuffered_char_1(query *q)
@@ -512,13 +644,13 @@ static bool bif_get_unbuffered_char_1(query *q)
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,binary_stream");
+		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,binary_stream");
 	}
 
 	if (str->at_end_of_file && (str->eof_action == eof_action_error)) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "input,past_end_of_stream");
+		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "input,past_end_of_stream");
 	}
 
 	int ch = history_getch_fd(fileno(str->fp));
@@ -542,7 +674,7 @@ static bool bif_get_unbuffered_char_1(query *q)
 
 		cell tmp;
 		make_atom(&tmp, g_eof_s);
-		return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
+		return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 	}
 
 	str->ungetch = 0;
@@ -553,15 +685,477 @@ static bool bif_get_unbuffered_char_1(query *q)
 	if (ch == -1) {
 		cell tmp;
 		make_atom(&tmp, g_eof_s);
-		return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
+		return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 	}
 
 	char tmpbuf[MAX_BYTES_PER_CODEPOINT+1];
 	n = put_char_utf8(tmpbuf, ch);
 	cell tmp;
 	make_smalln(&tmp, tmpbuf, n);
-	return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
+	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 }
+
+#if !defined(_WIN32) && !defined(__wasi__)
+static bool bif_popen_4(query *q)
+{
+	GET_FIRST_ARG(p1,source_sink);
+	GET_NEXT_ARG(p2,atom);
+	GET_NEXT_ARG(p3,var);
+	GET_NEXT_ARG(p4,list_or_nil);
+	int n = new_stream(q->pl);
+	char *src = NULL;
+
+	if (n < 0)
+		return throw_error(q, p1, p1_ctx, "resource_error", "too_many_streams");
+
+	char *filename = NULL;
+
+	if (is_atom(p1))
+		filename = src = DUP_STRING(q, p1);
+	else if (!is_iso_list(p1))
+		return throw_error(q, p1, p1_ctx, "domain_error", "source_sink");
+
+	if (is_iso_list(p1)) {
+		size_t len = scan_is_chars_list(q, p1, p1_ctx, true);
+
+		if (!len)
+			return throw_error(q, p1, p1_ctx, "type_error", "atom");
+
+		src = chars_list_to_string(q, p1, p1_ctx);
+		filename = src;
+	}
+
+	stream *str = &q->pl->streams[n];
+	str->is_pipe = true;
+	CHECKED(str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL));
+	CHECKED(str->filename = strdup(filename));
+	CHECKED(str->mode = DUP_STRING(q, p2));
+	bool binary = false;
+	uint8_t eof_action = eof_action_eof_code;
+	bool is_alias = false;
+	LIST_HANDLER(p4);
+
+	while (is_list(p4)) {
+		cell *h = LIST_HEAD(p4);
+		cell *c = deref(q, h, p4_ctx);
+
+		if (is_var(c))
+			return throw_error(q, c, q->latest_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
+
+		if (is_compound(c) && (c->arity == 1)) {
+			cell *name = c + 1;
+			name = deref(q, name, q->latest_ctx);
+
+
+			if (get_named_stream(q->pl, C_STR(q, name), C_STRLEN(q, name)) >= 0)
+				return throw_error(q, c, q->latest_ctx, "permission_error", "open,source_sink");
+
+			if (!CMP_STRING_TO_CSTR(q, c, "alias")) {
+				if (!CMP_STRING_TO_CSTR(q, name, "current_input")) {
+					q->pl->current_input = n;
+				} else if (!CMP_STRING_TO_CSTR(q, name, "current_output")) {
+					q->pl->current_output = n;
+				} else if (!CMP_STRING_TO_CSTR(q, name, "current_error")) {
+					q->pl->current_error = n;
+				} else {
+					sl_app(str->alias, DUP_STRING(q, name), NULL);
+#if 0
+					cell tmp;
+					make_atom(&tmp, new_atom(q->pl, C_STR(q, name)));
+
+					if (!unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx))
+						return false;
+
+					is_alias = true;
+#endif
+				}
+			} else if (!CMP_STRING_TO_CSTR(q, c, "type")) {
+				if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "binary")) {
+					binary = true;
+				} else if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "text"))
+					binary = false;
+			} else if (!CMP_STRING_TO_CSTR(q, c, "eof_action")) {
+				if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "error")) {
+					eof_action = eof_action_error;
+				} else if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "eof_code")) {
+					eof_action = eof_action_eof_code;
+				} else if (is_atom(name) && !CMP_STRING_TO_CSTR(q, name, "reset")) {
+					eof_action = eof_action_reset;
+				}
+			}
+		} else
+			return throw_error(q, c, q->latest_ctx, "domain_error", "stream_option");
+
+		p4 = LIST_TAIL(p4);
+		p4 = deref(q, p4, p4_ctx);
+		p4_ctx = q->latest_ctx;
+
+		if (is_var(p4))
+			return throw_error(q, p4, p4_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
+	}
+
+	str->binary = binary;
+	str->eof_action = eof_action;
+
+	if (!strcmp(str->mode, "read"))
+		str->fp = popen(filename, binary?"rb":"r");
+	else if (!strcmp(str->mode, "write"))
+		str->fp = popen(filename, binary?"wb":"w");
+	else
+		return throw_error(q, p2, p2_ctx, "domain_error", "io_mode");
+
+	TPL_free(src);
+
+	if (!str->fp) {
+		if ((errno == EACCES) || (strcmp(str->mode, "read") && (errno == EROFS)))
+			return throw_error(q, p1, p1_ctx, "permission_error", "open,source_sink");
+		else
+			return throw_error(q, p1, p1_ctx, "existence_error", "source_sink");
+	}
+
+	if (!is_alias) {
+		cell tmp;
+		make_int(&tmp, n);
+		tmp.flags |= FLAG_INT_STREAM;
+
+		if (!unify(q, p3, p3_ctx, &tmp, q->st.cur_ctx))
+			return false;
+	}
+
+	return true;
+}
+#endif
+
+extern char **g_envp;
+
+#if !defined(_WIN32) && !defined(__wasi__) && !defined(__ANDROID__)
+static bool bif_process_create_3(query *q)
+{
+	GET_FIRST_ARG(p1,atom);
+	GET_NEXT_ARG(p2,list_or_nil);
+	GET_NEXT_ARG(p3,list_or_nil);
+	char *src = NULL;
+	char *filename;
+
+	if (is_atom(p1))
+		filename = src = DUP_STRING(q, p1);
+	else
+		return throw_error(q, p1, p1_ctx, "domain_error", "source_sink");
+
+	if (is_iso_list(p1)) {
+		size_t len = scan_is_chars_list(q, p1, p1_ctx, true);
+
+		if (!len)
+			return throw_error(q, p1, p1_ctx, "type_error", "atom");
+
+		src = chars_list_to_string(q, p1, p1_ctx);
+		filename = src;
+	}
+
+	int args = 0, envs = 0;
+	char *arguments[MAX_ARGS] = {NULL};
+	char *environments[MAX_ARGS] = {NULL};
+	arguments[args++] = strdup(filename);
+
+	for (int i = 0; g_envp[i] != NULL; i++)
+		environments[envs++] = strdup(g_envp[i]);
+
+	LIST_HANDLER(p2);
+
+	while (is_iso_list(p2)) {
+		assert(args < MAX_ARGS);
+		cell *h = LIST_HEAD(p2);
+		cell *c = deref(q, h, p2_ctx);
+		pl_ctx c_ctx = q->latest_ctx;
+
+		if (!is_atom(c))
+			return throw_error(q, c, c_ctx, "domain_error", "args");
+
+		arguments[args++] = DUP_STRING(q, c);
+		p2 = LIST_TAIL(p2);
+		p2 = deref(q, p2, p2_ctx);
+		p2_ctx = q->latest_ctx;
+	}
+
+	arguments[args] = NULL;
+	posix_spawn_file_actions_t file_actions;
+	posix_spawn_file_actions_init(&file_actions);
+	posix_spawnattr_t attrp;
+	posix_spawnattr_init(&attrp);
+	cell *ppid = NULL;
+	pl_ctx ppid_ctx = 0;
+	LIST_HANDLER(p3);
+
+	while (is_iso_list(p3)) {
+		cell *h = LIST_HEAD(p3);
+		cell *c = deref(q, h, p3_ctx);
+		pl_ctx c_ctx = q->latest_ctx;
+
+		if (is_compound(c) && (c->arity == 1)) {
+			cell *name = c + 1;
+			name = deref(q, name, c_ctx);
+			pl_ctx name_ctx = q->latest_ctx;
+
+			if (!CMP_STRING_TO_CSTR(q, c, "process") || !CMP_STRING_TO_CSTR(q, c, "pid")) {
+				ppid = name;
+				ppid_ctx = name_ctx;
+			} else if (!CMP_STRING_TO_CSTR(q, c, "detached")) {
+#if (defined(__GLIBC__) && (__GLIBC__ < 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ < 26))) || !defined(POSIX_SPAWN_SETSID)
+				return throw_error(q, c, c_ctx, "not available", "posix_spawnattr_setflags");
+#else
+				posix_spawnattr_setflags(&attrp, POSIX_SPAWN_SETSID);
+#endif
+			} else if (!CMP_STRING_TO_CSTR(q, c, "cwd")) {
+#ifndef posix_spawn_file_actions_addchdir_np
+				return throw_error(q, c, c_ctx, "not available", "posix_spawn_file_actions_addchdir_np");
+#else
+				cwd = C_STR(q, name);
+				posix_spawn_file_actions_addchdir_np(&file_actions, cwd);
+#endif
+			} else if (!CMP_STRING_TO_CSTR(q, c, "env") && is_list_or_nil(name)) {
+				LIST_HANDLER(name);
+				memset(environments, 0, sizeof(environments));
+				envs = 0;
+
+				while (is_iso_list(name)) {
+					cell *h = LIST_HEAD(name);
+					cell *c = deref(q, h, name_ctx);
+
+					if (is_compound(c) && (c->arity == 2) && (c->val_off == g_eq_s)) {
+						cell *p1 = c + 1, *p2 = c + 2;
+						SB(pr);
+
+						if (is_atom(p1) && is_atom(p2)) {
+							SB_sprintf(pr, "%s=%s", C_STR(q, p1), C_STR(q, p2));
+						} else if (is_atom(p1) && is_smallint(p2)) {
+							SB_sprintf(pr, "%s=%d", C_STR(q, p1), (int)get_smallint(p2));
+						}
+
+						environments[envs++] = SB_cstr(pr);
+					}
+
+					name = LIST_TAIL(name);
+					name = deref(q, name, name_ctx);
+					name_ctx = q->latest_ctx;
+				}
+
+			} else if (!CMP_STRING_TO_CSTR(q, c, "environment") && is_list_or_nil(name)) {
+				LIST_HANDLER(name);
+
+				while (is_iso_list(name)) {
+					cell *h = LIST_HEAD(name);
+					cell *c = deref(q, h, name_ctx);
+
+					if (is_compound(c) && (c->arity == 2) && (c->val_off == g_eq_s)) {
+						cell *p1 = c + 1, *p2 = c + 2;
+						SB(pr);
+
+						if (is_atom(p1) && is_atom(p2)) {
+							SB_sprintf(pr, "%s=%s", C_STR(q, p1), C_STR(q, p2));
+						} else if (is_atom(p1) && is_smallint(p2)) {
+							SB_sprintf(pr, "%s=%d", C_STR(q, p1), (int)get_smallint(p2));
+						}
+
+						environments[envs++] = SB_cstr(pr);
+					}
+
+					name = LIST_TAIL(name);
+					name = deref(q, name, name_ctx);
+					name_ctx = q->latest_ctx;
+				}
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stdin") && !CMP_STRING_TO_CSTR(q, name, "std")) {
+				posix_spawn_file_actions_adddup2(&file_actions, q->pl->current_input, 0);
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stdin") && !CMP_STRING_TO_CSTR(q, name, "null")) {
+				posix_spawn_file_actions_addopen(&file_actions, 0, "/dev/null", O_RDONLY, 0);
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stdin") && !CMP_STRING_TO_CSTR(q, name, "pipe")
+				&& is_compound(name) && (name->arity == 1) && is_var(name+1)) {
+				cell *ns = deref(q, name+1, name_ctx);
+				pl_ctx ns_ctx = q->latest_ctx;
+				int n = new_stream(q->pl);
+				int fds[2];
+				if (pipe(fds)) return false;
+				posix_spawn_file_actions_adddup2(&file_actions, fds[0], 0);
+				q->pl->streams[n].fp = fdopen(fds[1], "w");
+				q->pl->streams[n].is_pipe = true;
+				CHECKED(q->pl->streams[n].mode = strdup("write"));
+				cell tmp;
+				make_int(&tmp, n);
+				tmp.flags |= FLAG_INT_STREAM;
+				unify(q, ns, ns_ctx, &tmp, q->st.cur_ctx);
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stdin") && !CMP_STRING_TO_CSTR(q, name, "stream")) {
+				cell *ns = deref(q, name, name_ctx);
+				int n = get_stream(q, ns);
+				posix_spawn_file_actions_adddup2(&file_actions, fileno(q->pl->streams[n].fp), 0);
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stdout") && !CMP_STRING_TO_CSTR(q, name, "std")) {
+				posix_spawn_file_actions_adddup2(&file_actions, q->pl->current_output, 1);
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stdout") && !CMP_STRING_TO_CSTR(q, name, "null")) {
+				posix_spawn_file_actions_addopen(&file_actions, 1, "/dev/null", O_WRONLY, 0);
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stdout") && !CMP_STRING_TO_CSTR(q, name, "pipe")
+				&& is_compound(name) && (name->arity == 1) && is_var(name+1)) {
+				cell *ns = deref(q, name+1, name_ctx);
+				pl_ctx ns_ctx = q->latest_ctx;
+				int n = new_stream(q->pl);
+				int fds[2];
+				if (pipe(fds)) return false;
+				posix_spawn_file_actions_adddup2(&file_actions, fds[1], 1);
+				q->pl->streams[n].fp = fdopen(fds[0], "r");
+				q->pl->streams[n].is_pipe = true;
+				CHECKED(q->pl->streams[n].mode = strdup("read"));
+				cell tmp;
+				make_int(&tmp, n);
+				tmp.flags |= FLAG_INT_STREAM;
+				unify(q, ns, ns_ctx, &tmp, q->st.cur_ctx);
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stdout") && !CMP_STRING_TO_CSTR(q, name, "stream")) {
+				cell *ns = deref(q, name, name_ctx);
+				int n = get_stream(q, ns);
+				posix_spawn_file_actions_adddup2(&file_actions, fileno(q->pl->streams[n].fp), 1);
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stderr") && !CMP_STRING_TO_CSTR(q, name, "std")) {
+				posix_spawn_file_actions_adddup2(&file_actions, q->pl->current_error, 2);
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stderr") && !CMP_STRING_TO_CSTR(q, name, "null")) {
+				posix_spawn_file_actions_addopen(&file_actions, 2, "/dev/null", O_WRONLY, 0);
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stderr") && !CMP_STRING_TO_CSTR(q, name, "pipe")
+				&& is_compound(name) && (name->arity == 1) && is_var(name+1)) {
+				cell *ns = deref(q, name+1, name_ctx);
+				pl_ctx ns_ctx = q->latest_ctx;
+				int n = new_stream(q->pl);
+				int fds[2];
+				if (pipe(fds)) return false;
+				posix_spawn_file_actions_adddup2(&file_actions, fds[1], 2);
+				q->pl->streams[n].fp = fdopen(fds[0], "r");
+				q->pl->streams[n].is_pipe = true;
+				CHECKED(q->pl->streams[n].mode = strdup("read"));
+				cell tmp;
+				make_int(&tmp, n);
+				tmp.flags |= FLAG_INT_STREAM;
+				unify(q, ns, ns_ctx, &tmp, q->st.cur_ctx);
+			} else if (!CMP_STRING_TO_CSTR(q, c, "stderr") && !CMP_STRING_TO_CSTR(q, name, "stream")) {
+				cell *ns = deref(q, name, name_ctx);
+				int n = get_stream(q, ns);
+				posix_spawn_file_actions_adddup2(&file_actions, fileno(q->pl->streams[n].fp), 2);
+			}
+		} else
+			return throw_error(q, c, q->latest_ctx, "domain_error", "process_create_option");
+
+		p3 = LIST_TAIL(p3);
+		p3 = deref(q, p3, p3_ctx);
+		p3_ctx = q->latest_ctx;
+	}
+
+	pid_t pid;
+	int ok = posix_spawnp(&pid, C_STR(q, p1), &file_actions, &attrp, (char * const*)arguments, (char * const*)environments);
+	posix_spawn_file_actions_destroy(&file_actions);
+	posix_spawnattr_destroy(&attrp);
+	TPL_free(src);
+
+	for (int i = 0; i < args; i++)
+		TPL_free(arguments[i]);
+
+	for (int i = 0; i < envs; i++)
+		TPL_free(environments[i]);
+
+	if (ok != 0)
+		return throw_error(q, p1, p1_ctx, "system_error", "posix_spawnp");
+
+	if (ppid) {
+		cell tmp;
+		make_uint(&tmp, pid);
+		return unify(q, ppid, ppid_ctx, &tmp, q->st.cur_ctx);
+	} else {
+		waitpid(pid, NULL, 0);
+	}
+
+	return true;
+}
+
+static bool bif_process_wait_3(query *q)
+{
+	GET_FIRST_ARG(p1,integer);
+	GET_NEXT_ARG(p2,any);
+	GET_NEXT_ARG(p3,list_or_nil);
+	LIST_HANDLER(p3);
+	int secs = -1;
+
+	while (is_iso_list(p3)) {
+		cell *h = LIST_HEAD(p3);
+		cell *c = deref(q, h, p3_ctx);
+
+		if (is_compound(c) && (c->arity == 1) && !CMP_STRING_TO_CSTR(q, c, "timeout")) {
+			if (is_integer(FIRST_ARG(c)))
+				secs = get_smallint(FIRST_ARG(c));
+			else if (is_atom(FIRST_ARG(c)) && !CMP_STRING_TO_CSTR(q, FIRST_ARG(c), "infinite"))
+				secs = -1;
+		} else
+			return throw_error(q, c, q->latest_ctx, "domain_error", "process_wait_option");
+
+		p3 = LIST_TAIL(p3);
+		p3 = deref(q, p3, p3_ctx);
+		p3_ctx = q->latest_ctx;
+	}
+
+	int status = 0, pid = get_smalluint(p1);
+	pid_t ok = waitpid(pid, &status, secs != -1 ? WNOHANG : 0);
+
+	if (ok != pid)
+		return false;
+
+	cell *tmp = alloc_heap(q, 2);
+
+	if ( WIFSIGNALED(status)) {
+		int sig = WTERMSIG(status);
+		make_struct(tmp+0, g_killed_s, 1, 1);
+		make_uint(tmp+1, sig);
+	} else {
+		int code = WEXITSTATUS(status);
+		make_struct(tmp+0, g_exit_s, 1, 1);
+		make_uint(tmp+1, code);
+	}
+
+	return unify(q, p2, p2_ctx, tmp, q->st.cur_ctx);
+}
+
+static bool bif_process_wait_2(query *q)
+{
+	GET_FIRST_ARG(p1,integer);
+	GET_NEXT_ARG(p2,any);
+	int secs = -1;
+	int status = 0, pid = get_smalluint(p1);
+	pid_t ok = waitpid(pid, &status, secs != -1 ? WNOHANG : 0);
+
+	if (ok != pid)
+		return false;
+
+	cell *tmp = alloc_heap(q, 2);
+
+	if ( WIFSIGNALED(status)) {
+		int sig = WTERMSIG(status);
+		make_struct(tmp+0, g_killed_s, 1, 1);
+		make_uint(tmp+1, sig);
+	} else {
+		int code = WEXITSTATUS(status);
+		make_struct(tmp+0, g_exit_s, 1, 1);
+		make_uint(tmp+1, code);
+	}
+
+	return unify(q, p2, p2_ctx, tmp, q->st.cur_ctx);
+}
+
+static bool bif_process_kill_2(query *q)
+{
+	GET_FIRST_ARG(p1,integer);
+	GET_NEXT_ARG(p2,integer);
+	int pid = get_smalluint(p1), sig = get_smallint(p2);
+	kill(pid, sig);
+	return true;
+}
+
+static bool bif_process_kill_1(query *q)
+{
+	GET_FIRST_ARG(p1,integer);
+	int pid = get_smalluint(p1);
+	kill(pid, SIGKILL);
+	return true;
+}
+#endif
 
 builtins g_os_bifs[] =
 {
@@ -585,7 +1179,21 @@ builtins g_os_bifs[] =
 	{"get_unbuffered_code", 1, bif_get_unbuffered_code_1, "?integer", false, false, BLAH},
 	{"get_unbuffered_char", 1, bif_get_unbuffered_char_1, "?character", false, false, BLAH},
 
-	{"$alarm", 1, bif_sys_alarm_1, "+integer", false, false, BLAH},
+#if !defined(_WIN32) && !defined(__wasi__) && !defined(__ANDROID__)
+	{"process_create", 3, bif_process_create_3, "+atom,+list,+list", false, false, BLAH},
+	{"$process_wait", 3, bif_process_wait_3, "+integer,-term,+list", false, false, BLAH},
+	{"$process_wait", 2, bif_process_wait_2, "+integer,-term", false, false, BLAH},
+	{"process_kill", 2, bif_process_kill_2, "+integer,+integer", false, false, BLAH},
+	{"process_kill", 1, bif_process_kill_1, "+integer", false, false, BLAH},
+#endif
+
+#if !defined(_WIN32) && !defined(__wasi__)
+	{"popen", 4, bif_popen_4, "+source_sink,+atom,--stream,+list", false, false, BLAH},
+#endif
+
+#if !defined(_WIN32) && !defined(__wasi__)
+	{"$alarm", 2, bif_sys_alarm_2, "+integer,-integer", false, false, BLAH},
+#endif
 	{"$timer", 0, bif_sys_timer_0, NULL, false, false, BLAH},
 	{"$elapsed", 0, bif_sys_elapsed_0, NULL, false, false, BLAH},
 

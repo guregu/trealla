@@ -81,8 +81,12 @@ EXPORT(set_opt)
 extern void set_opt(prolog*, int onoff);
 EXPORT(set_autofail)
 void set_autofail(prolog*);
-
-void convert_path(char *filename);
+EXPORT(set_quiet)
+void set_quiet(prolog*);
+EXPORT(set_opt)
+void set_opt(prolog*, int onoff);
+EXPORT(set_limit)
+void set_limit(prolog*, int onoff);
 
 #ifdef __wasi__
 EXPORT(pl_global_init)

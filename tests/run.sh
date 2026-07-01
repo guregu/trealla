@@ -9,7 +9,7 @@ trap "rm -f $TMP" EXIT
 failed_count=0
 succeeded_count=0
 
-for source in tests/tests/* tests/issues*/*
+for source in tests/tests/* tests/issues*/* tests/slow/* tests/misc/*
 
 do
 	case "$source" in
@@ -24,7 +24,7 @@ do
 	esac
 
 	echo "Running $source ..."
-	timeout 30 $cmd "$source" >$TMP
+	timeout 300 $cmd "$source" >$TMP
 	diff -a --strip-trailing-cr "${source%.*}.expected" $TMP
 	if [ $? -eq 0 ]
 	then

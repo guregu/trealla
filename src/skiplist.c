@@ -62,17 +62,11 @@ skiplist *sl_create(int (*cmpkey)(const void*, const void*, const void*, void *)
 	init_lock(&l->guard);
 	l->header = new_node_of_level(MAX_LEVELS);
 	if (!l->header) {
-		free(l);
+		TPL_free(l);
 		return NULL;
 	}
 
-#ifdef NDEBUG
-	l->seed = (unsigned)(size_t)(l + time(NULL));
-#else
-	static unsigned seed = 0xdeadbeef;
-	l->seed = ++seed;
-#endif
-
+	l->seed = (unsigned)(size_t)(l + clock());
 	l->level = 1;
 
 	for (int i = 0; i < MAX_LEVELS; i++)
@@ -94,7 +88,7 @@ void sl_destroy(skiplist *l)
 	slnode_t *p, *q;
 	p = l->header;
 	q = p->forward[0];
-	free(p);
+	TPL_free(p);
 	p = q;
 
 	while (p) {
@@ -104,19 +98,19 @@ void sl_destroy(skiplist *l)
 			l->delkey(p->key, p->val, l->p);
 		}
 
-		free(p);
+		TPL_free(p);
 		p = q;
 	}
 
 	while (l->iters) {
 		sliter *iter = l->iters;
 		l->iters = iter->next;
-		free(iter);
+		TPL_free(iter);
 	}
 
 	l->is_destroyed = true;
 	deinit_lock(&l->guard);
-	free(l);
+	TPL_free(l);
 }
 
 void sl_set_wild_card(skiplist *l) { if (l) l->wild_card = true; }
@@ -240,15 +234,21 @@ bool sl_app(skiplist *l, const void *key, const void *val)
 
 bool sl_rem(skiplist *l, const void *key, const void *val)
 {
-	if (!l || l->is_destroyed)
+	if (!l || l->is_destroyed || !key)
 		return false;
 
 	slnode_t *update[MAX_LEVELS+1], *p = l->header, *q = NULL;
 	int k;
 
 	for (k = l->level; k >= 0; k--) {
-		while ((q = p->forward[k]) && (l->cmpkey(q->key, key, l->p, l) < 0))
+		while ((q = p->forward[k]) && (l->cmpkey(q->key, key, l->p, l) <= 0)) {
+			if (l->cmpkey(q->key, key, l->p, l) == 0) {
+				if (q->val == val)
+					break;
+			}
+
 			p = q;
+		}
 
 		update[k] = p;
 	}
@@ -257,9 +257,6 @@ bool sl_rem(skiplist *l, const void *key, const void *val)
 		return false;
 
 	if (l->cmpkey(q->key, key, l->p, l) != 0)
-		return false;
-
-	if (q->val != val)
 		return false;
 
 	if (l->delkey)
@@ -283,13 +280,13 @@ bool sl_rem(skiplist *l, const void *key, const void *val)
 
 	l->level = m + 1;
 	l->count--;
-	free(q);
+	TPL_free(q);
 	return true;
 }
 
 bool sl_del(skiplist *l, const void *key)
 {
-	if (!l || l->is_destroyed)
+	if (!l || l->is_destroyed || !key)
 		return false;
 
 	slnode_t *update[MAX_LEVELS+1], *p = l->header, *q = NULL;
@@ -329,7 +326,7 @@ bool sl_del(skiplist *l, const void *key)
 
 	l->level = m + 1;
 	l->count--;
-	free(q);
+	TPL_free(q);
 	return true;
 }
 
@@ -407,8 +404,7 @@ sliter *sl_find_key(skiplist *l, const void *key)
 	if (!l || l->is_destroyed)
 		return NULL;
 
-	slnode_t *p, *q = 0;
-	p = l->header;
+	slnode_t *p = l->header, *q = NULL;
 	l->wild_card = false;
 	l->is_find = true;
 
@@ -417,7 +413,7 @@ sliter *sl_find_key(skiplist *l, const void *key)
 			p = q;
 	}
 
-	if (!(q = p->forward[0]))
+	if (!p || !(q = p->forward[0]))
 		return false;
 
 	sliter *iter;

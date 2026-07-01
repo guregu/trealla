@@ -21,7 +21,7 @@ static int compare_lists(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_
 		DEREF_VAR(any1, both, save_vgen2, e2, e2->vgen2, c2, c2_ctx, q->vgen);
 
 		if (both != 2) {
-			int val = compare_internal(q, c1, c1_ctx, c2, c2_ctx, depth+1);
+			int val = compare_internal(q, c1, c1_ctx, c2, c2_ctx, depth);
 			if (val) return val;
 		}
 
@@ -108,6 +108,34 @@ static int compare_internal(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx 
 	if (is_var(p2))
 		return 1;
 
+	if (is_bigint(p1) && is_bigint(p2))
+		return mp_int_compare(&p1->val_bigint->ival, &p2->val_bigint->ival);
+
+	if (is_bigint(p1) && is_smallint(p2))
+		return mp_int_compare_value(&p1->val_bigint->ival, p2->val_int);
+
+	if (is_bigint(p1) && is_float(p2))
+		return 1;
+
+	if (is_bigint(p1))
+		return 1;
+
+	if (is_smallint(p1) && is_rational(p2))
+		return -mp_rat_compare_value(&p2->val_bigint->irat, p1->val_int, 1);
+
+	if (is_smallint(p1) && is_bigint(p2))
+		return -mp_int_compare_value(&p2->val_bigint->ival, p1->val_int);
+
+	if (is_smallint(p1)) {
+		if (is_smallint(p2))
+			return p1->val_int < p2->val_int ? -1 : p1->val_int > p2->val_int ? 1 : 0;
+
+		if (is_float(p2))
+			return 1;
+
+		return -1;
+	}
+
 	if (is_rational(p1) && is_rational(p2))
 		return mp_rat_compare(&p1->val_bigint->irat, &p2->val_bigint->irat);
 
@@ -133,34 +161,6 @@ static int compare_internal(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx 
 		int ok = mp_rat_compare(&p2->val_bigint->irat, &tmp);
 		mp_rat_clear(&tmp);
 		return ok;
-	}
-
-	if (is_bigint(p1) && is_bigint(p2))
-		return mp_int_compare(&p1->val_bigint->ival, &p2->val_bigint->ival);
-
-	if (is_bigint(p1) && is_smallint(p2))
-		return mp_int_compare_value(&p1->val_bigint->ival, p2->val_int);
-
-	if (is_bigint(p1) && is_float(p2))
-		return 1;
-
-	if (is_bigint(p2))
-		return 1;
-
-	if (is_smallint(p1) && is_rational(p2))
-		return -mp_rat_compare_value(&p2->val_bigint->irat, p1->val_int, 1);
-
-	if (is_smallint(p1) && is_bigint(p2))
-		return -mp_int_compare_value(&p2->val_bigint->ival, p1->val_int);
-
-	if (is_smallint(p1)) {
-		if (is_smallint(p2))
-			return p1->val_int < p2->val_int ? -1 : p1->val_int > p2->val_int ? 1 : 0;
-
-		if (is_float(p2))
-			return 1;
-
-		return -1;
 	}
 
 	if (is_float(p1)) {
@@ -257,7 +257,7 @@ static void set_var(query *q, const cell *c, pl_ctx c_ctx, cell *v, pl_ctx v_ctx
 		make_ref(&e->c, v->var_num, v_ctx);
 
 		if ((c_ctx == q->st.fp)
-			//&& (v_ctx >= q->st.curr_fp)
+			&& (c_ctx != v_ctx)
 			&& !is_temporary(c) && !is_void(c)
 			) {
 			q->no_recov = true;
@@ -265,9 +265,9 @@ static void set_var(query *q, const cell *c, pl_ctx c_ctx, cell *v, pl_ctx v_ctx
 		}
 	} else if (is_compound(v)) {
 		make_indirect(&e->c, v, v_ctx);
-		q->no_recov_compound = true;
 
-		if ((v_ctx >= q->st.curr_fp)
+		if ((v_ctx >= q->st.cur_ctx)
+			&& (c_ctx != v_ctx)
 			&& !is_ground(v)
 			){
 			q->no_recov = true;
@@ -417,7 +417,7 @@ static bool unify_lists(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_c
 		DEREF_VAR(any1, both, save_vgen2, e2, e2->vgen2, c2, c2_ctx, q->vgen);
 
 		if (both != 2) {
-			if (!unify_internal(q, c1, c1_ctx, c2, c2_ctx, depth+1))
+			if (!unify_internal(q, c1, c1_ctx, c2, c2_ctx, depth))
 				return false;
 		}
 
@@ -452,7 +452,7 @@ static bool unify_structs(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2
 	if (p1->val_off != p2->val_off)
 		return false;
 
-	unsigned arity = p1->arity;
+	int arity = p1->arity;
 	p1++; p2++;
 
 	while (arity--) {
@@ -609,7 +609,8 @@ static bool unify_internal(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p
 bool unify(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx)
 {
 	q->is_cyclic1 = q->is_cyclic2 = false;
-	q->has_vars = q->no_recov = q->no_recov_compound = false;
+	q->has_vars = q->no_recov = false;
+	q->run_hook = false;
 	q->before_hook_tp = q->st.tp;
 	if (++q->vgen == 0) q->vgen = 1;
 	bool ok;
@@ -620,16 +621,15 @@ bool unify(query *q, cell *p1, pl_ctx p1_ctx, cell *p2, pl_ctx p2_ctx)
 		ok = unify_internal(q, p1, p1_ctx, p2, p2_ctx, 0);
 
 	if (q->cycle_error) {
-		if (q->flags.occurs_check == OCCURS_CHECK_ERROR)
+		if (q->flags.occurs_check == OCCURS_CHECK_ERROR) {
+			q->run_hook = false;
 			return throw_error(q, p2, p2_ctx, "representation_error", "term");
+		}
 	}
 
-	if (!ok)
+	if (!ok) {
+		q->run_hook = false;
 		return false;
-
-	if (q->no_recov) {
-		frame *f = GET_CURR_FRAME();
-		f->no_recov = true;
 	}
 
 	return true;

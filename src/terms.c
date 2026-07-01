@@ -12,29 +12,33 @@ static bool accum_var(query *q, const cell *c, pl_ctx c_ctx)
 
 	if (sl_get(q->vars, e, &v)) {
 		size_t idx = (size_t)v;
-		q->pl->tabs[idx].cnt++;
+		q->tabs[idx].cnt++;
 		return true;
 	}
 
 	sl_app(q->vars, e, (void*)(size_t)q->tab_idx);
 
-	if (!q->pl->tabs) {
-		q->pl->tabs_size = 4000;
-		q->pl->tabs = malloc(sizeof(var_item)*q->pl->tabs_size);
-		check_error(!q->pl->tabs);
+	if (!q->tabs) {
+		q->tabs_size = MAX_ARITY;
+		q->tabs = TPL_malloc(sizeof(var_item)*q->tabs_size);
+
+		if (!q->tabs)
+			return false;
 	}
 
-	if (q->tab_idx == q->pl->tabs_size) {
-		q->pl->tabs_size *= 2;
-		q->pl->tabs = realloc(q->pl->tabs, sizeof(var_item)*q->pl->tabs_size);
-		check_error(!q->pl->tabs);
+	if (q->tab_idx == q->tabs_size) {
+		q->tabs_size *= 2;
+		q->tabs = TPL_realloc(q->tabs, sizeof(var_item)*q->tabs_size);
+
+		if (!q->tabs)
+			return false;
 	}
 
-	q->pl->tabs[q->tab_idx].val_off = c->val_off;
-	q->pl->tabs[q->tab_idx].var_num = c->var_num;
-	q->pl->tabs[q->tab_idx].ctx = c_ctx;
-	q->pl->tabs[q->tab_idx].is_anon = is_anon(c) ? true : false;
-	q->pl->tabs[q->tab_idx].cnt = 1;
+	q->tabs[q->tab_idx].val_off = c->val_off;
+	q->tabs[q->tab_idx].var_num = c->var_num;
+	q->tabs[q->tab_idx].ctx = c_ctx;
+	q->tabs[q->tab_idx].is_anon = is_anon(c) ? true : false;
+	q->tabs[q->tab_idx].cnt = 1;
 	q->tab_idx++;
 	return false;
 }
@@ -103,7 +107,7 @@ static void collect_vars_internal(query *q, cell *p1, pl_idx p1_ctx, unsigned de
 	}
 
 	bool any = false;
-	unsigned arity = p1->arity;
+	int arity = p1->arity;
 	p1++;
 
 	while (arity--) {
@@ -129,6 +133,9 @@ void collect_vars(query *q, cell *p1, pl_ctx p1_ctx)
 {
 	if (++q->vgen == 0) q->vgen = 1;
 	q->tab_idx = 0;
+	TPL_free(q->tabs);
+	q->tabs = NULL;
+	q->tabs_size = MAX_ARITY;
 	ENSURE(q->vars = sl_create(NULL, NULL, NULL));
 	collect_vars_internal(q, p1, p1_ctx, 0);
 	sl_destroy(q->vars);
@@ -196,7 +203,7 @@ static bool has_vars_internal(query *q, cell *p1, pl_ctx p1_ctx, unsigned depth)
 	// Transform recursion into stack iteration...
 
 	list stack = {0};
-	snode *n = malloc(sizeof(snode));
+	snode *n = TPL_malloc(sizeof(snode));
 	n->c = p1;
 	n->c_ctx = p1_ctx;
 	list_push_back(&stack, n);
@@ -204,12 +211,12 @@ static bool has_vars_internal(query *q, cell *p1, pl_ctx p1_ctx, unsigned depth)
 	while ((n = (snode*)list_pop_front(&stack)) != NULL) {
 		cell *p1 = n->c;
 		pl_ctx p1_ctx = n->c_ctx;
-		free(n);
+		TPL_free(n);
 
 		if (!is_compound(p1) || is_iso_list(p1)) {
 			if (has_vars_internal(q, p1, p1_ctx, depth+1)) {
 				while ((n = (snode*)list_pop_front(&stack)) != NULL)
-					free(n);
+					TPL_free(n);
 
 				return true;
 			}
@@ -218,7 +225,7 @@ static bool has_vars_internal(query *q, cell *p1, pl_ctx p1_ctx, unsigned depth)
 		}
 
 		bool any = false;
-		unsigned arity = p1->arity;
+		int arity = p1->arity;
 		p1++;
 
 		while (arity--) {
@@ -232,13 +239,13 @@ static bool has_vars_internal(query *q, cell *p1, pl_ctx p1_ctx, unsigned depth)
 
 			if (is_var(c)) {
 				while ((n = (snode*)list_pop_front(&stack)) != NULL)
-					free(n);
+					TPL_free(n);
 
 				return true;
 			}
 
 			if (!both && is_compound(c) && !is_ground(c)) {
-				n = malloc(sizeof(snode));
+				n = TPL_malloc(sizeof(snode));
 				n->c = c;
 				n->c_ctx = c_ctx;
 				list_push_back(&stack, n);
@@ -318,7 +325,7 @@ static bool is_cyclic_term_internal(query *q, cell *p1, pl_ctx p1_ctx, unsigned 
 	if (is_iso_list(p1))
 		return is_cyclic_term_lists(q, p1, p1_ctx, depth);
 
-	unsigned arity = p1->arity;
+	int arity = p1->arity;
 	p1++;
 
 	while (arity--) {
@@ -498,6 +505,7 @@ bool check_list(query *q, cell *p1, pl_ctx p1_ctx, bool *is_partial, pl_int *ski
 
 	if (is_partial)
 		*is_partial = false;
+
 	cell *c = skip_max_list(q, p1, &c_ctx, max, &skip, &tmp);
 	unshare_cell(&tmp);
 

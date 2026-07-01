@@ -43,10 +43,9 @@ void *g_tpl = NULL;
 }
 #endif
 
-void sigfn(int s)
+void g_sigfn(int s)
 {
 	g_tpl_interrupt = s;
-	signal(SIGINT, &sigfn);
 }
 
 #ifndef __wasi__
@@ -65,25 +64,23 @@ static int daemonize(int argc, char *argv[])
 			watchdog = 1;
 #endif
 		} else if (!strncmp(argv[i], "--cd=", 5))
-			strcpy(path, argv[i] + 5);
+			snprintf(path, sizeof(path), "%s", argv[i] + 5);
 	}
 
 #ifdef _WIN32
 	char cmd[1024], args[1024 * 8];
+	size_t args_len = 0;
 	args[0] = 0;
-	strcpy(cmd, argv[0]);
-	strcat(cmd, ".exe");
+	snprintf(cmd, sizeof(cmd), "%s.exe", argv[0]);
 
 	for (int i = 0; i < argc; i++) {
 		if (!strcmp(argv[i], "-d") || !strcmp(argv[i], "--daemon"))
 			continue;
 
 		if (!args[0])
-			strcat(args, " ");
+			args_len += snprintf(args + args_len, sizeof(args) - args_len, " ");
 
-		strcat(args, "\"");
-		strcat(args, argv[i]);
-		strcat(args, "\"");
+		args_len += snprintf(args + args_len, sizeof(args) - args_len, "\"%s\"", argv[i]);
 	}
 
 	STARTUPINFO startInfo = {0};
@@ -192,7 +189,6 @@ int main(int ac, char *av[], char * envp[])
 
 	char histfile[1024];
 	snprintf(histfile, sizeof(histfile), "%s/%s", homedir, ".tpl_history");
-	convert_path(histfile);
 	//bool did_load = false;
 	int i, do_goal = 0, do_lib = 0, do_log = 0, do_restore = 0;
 	int version = 0, daemon = 0;
@@ -205,8 +201,6 @@ int main(int ac, char *av[], char * envp[])
 		if (!strcmp(av[i], "--library")) {
 			if (++i < ac) {
 				g_tpl_lib = strdup(av[i]);
-				library_opt = g_tpl_lib;
-				convert_path(g_tpl_lib);
 			}
 		}
 	}
@@ -239,16 +233,20 @@ int main(int ac, char *av[], char * envp[])
 		} else if (!strcmp(av[i], "-q") || !strcmp(av[i], "--quiet")) {
 			quiet = true;
 			set_quiet(pl);
-		} else if (!strcmp(av[i], "-O0") || !strcmp(av[i], "--noopt"))
+		} else if (!strcmp(av[i], "--nolimit")) {
+			set_limit(pl, 0);
+		} else if (!strcmp(av[i], "-O0") || !strcmp(av[i], "--noopt")) {
 			set_opt(pl, 0);
-		else if (!strcmp(av[i], "-t") || !strcmp(av[i], "--trace"))
+		} else if (!strcmp(av[i], "-t") || !strcmp(av[i], "--trace")) {
 			set_trace(pl);
-		else if (!strcmp(av[i], "-d") || !strcmp(av[i], "--daemon"))
+		} else if (!strcmp(av[i], "-d") || !strcmp(av[i], "--daemon")) {
 			daemon = 1;
-		else if (!strcmp(av[i], "--emulatewasm"))
+		} else if (!strcmp(av[i], "--emulatewasm")) {
 			emulate = true;
-		else if (!strcmp(av[i], "--autofail")) {
+		} else if (!strcmp(av[i], "--autofail")) {
 			set_autofail(pl);
+		} else if (!strcmp(av[i], "-f")) {
+			no_res = true;
 		}
 	}
 
@@ -259,9 +257,14 @@ int main(int ac, char *av[], char * envp[])
 			return 0;
 		}
 	} else {
-		signal(SIGINT, &sigfn);
 #ifndef _WIN32
-		signal(SIGALRM, &sigfn);
+		struct sigaction sa;
+		sa.sa_handler = &g_sigfn;
+		sigemptyset(&sa.sa_mask);
+		sa.sa_flags = 0;
+		sigaction(SIGINT, &sa, NULL);
+#else
+		signal(SIGINT, &g_sigfn);
 #endif
 	}
 #endif
@@ -269,6 +272,29 @@ int main(int ac, char *av[], char * envp[])
 #if !defined(_WIN32) && !defined(__wasi__)
 	signal(SIGPIPE, SIG_IGN);
 #endif
+
+	for (library *lib = g_libs; lib->name; lib++) {
+		if (!strcmp(lib->name, "main")) {
+			no_res = true;
+			do_lib = do_goal = 0;
+			size_t len = *lib->len;
+			char *src = malloc(len+1);
+			check_error(src, pl_destroy(pl));
+			memcpy(src, lib->start, len);
+			src[len] = '\0';
+			SB(s1);
+			SB_sprintf(s1, "library/%s", lib->name);
+			module *m = load_text(pl->user_m, src, SB_cstr(s1));
+			m->prebuilt = true;
+			SB_free(s1);
+			free(src);
+			check_error(m, pl_destroy(pl));
+		}
+	}
+
+	if (!no_res && !version)
+		pl_consult(pl, "~/.tplrc");
+
 	const char *goal = NULL;
 
 	for (i = 1; i < ac; i++) {
@@ -311,7 +337,6 @@ int main(int ac, char *av[], char * envp[])
 			continue;
 		} else if (do_lib) {
 			g_tpl_lib = strdup(av[i]);
-			convert_path(g_tpl_lib);
 			do_lib = 0;
 		} else if (do_goal) {
 			do_goal = 0;
@@ -334,32 +359,6 @@ int main(int ac, char *av[], char * envp[])
 			}
 		}
 	}
-
-	for (library *lib = g_libs; lib->name; lib++) {
-		if (!strcmp(lib->name, "main")) {
-			no_res = true;
-			do_lib = do_goal = 0;
-			size_t len = *lib->len;
-			char *src = malloc(len+1);
-			check_error(src, pl_destroy(pl));
-			memcpy(src, lib->start, len);
-			src[len] = '\0';
-			SB(s1);
-			SB_sprintf(s1, "library/%s", lib->name);
-			module *m = load_text(pl->user_m, src, SB_cstr(s1));
-			m->prebuilt = true;
-			SB_free(s1);
-			free(src);
-			check_error(m, pl_destroy(pl));
-		}
-	}
-
-	if (!no_res && !version)
-#ifdef _WIN32
-		pl_consult(pl, "~\\.tplrc");
-#else
-		pl_consult(pl, "~/.tplrc");
-#endif
 
 	if (restore_file) {
 		if (!pl_restore(pl, restore_file)) {
@@ -405,6 +404,7 @@ int main(int ac, char *av[], char * envp[])
 		fprintf(stdout, "  --autofail\t\t- autofail queries\n");
 		fprintf(stdout, "  --consult\t\t- consult from STDIN\n");
 		fprintf(stdout, "  --log file\t\t- enable log file\n");
+		fprintf(stdout, "  --nolimit\t\t- no memory limit\n");
 		//fprintf(stdout, "  --restore file\t\t- reload log file\n");
 	}
 

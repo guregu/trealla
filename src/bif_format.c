@@ -5,7 +5,6 @@
 
 #include "module.h"
 #include "network.h"
-#include "prolog.h"
 #include "query.h"
 
 int format_integer(char *dst, cell *c, int grouping, int sep, int decimals, int radix)
@@ -15,16 +14,22 @@ int format_integer(char *dst, cell *c, int grouping, int sep, int decimals, int 
 
 	if (is_smallint(c)) {
 		pl_int v = get_smallint(c);
-		sprint_int(xtmpbuf1, sizeof(xtmpbuf1), v, radix);
+
+		if (v < 0) {
+			xtmpbuf1[0] = '-';
+			sprint_int(xtmpbuf1+1, sizeof(xtmpbuf1)-1, llabs(v), radix);
+		} else
+			sprint_int(xtmpbuf1, sizeof(xtmpbuf1), v, radix);
+
 		tmpbuf1 = xtmpbuf1;
 		tmpbuf2 = xtmpbuf2;
 	} else {
-		size_t len = mp_int_string_len(&c->val_bigint->ival, radix) - 1;
-		tmpbuf1 = malloc(len+1);
+		size_t len = mp_int_string_len(&c->val_bigint->ival, abs(radix)) - 1;
+		tmpbuf1 = TPL_malloc(len+1);
 		check_error(tmpbuf1);
-		mp_int_to_string(&c->val_bigint->ival, radix, tmpbuf1, len+1);
+		mp_int_to_string(&c->val_bigint->ival, abs(radix), tmpbuf1, len+1);
 		len *= 2;
-		tmpbuf2 = malloc(len+1);
+		tmpbuf2 = TPL_malloc(len+1);
 		check_error(tmpbuf2);
 	}
 
@@ -56,8 +61,8 @@ int format_integer(char *dst, cell *c, int grouping, int sep, int decimals, int 
 	*dst2 = '\0';
 
 	if (!is_smallint(c)) {
-		free(tmpbuf1);
-		free(tmpbuf2);
+		TPL_free(tmpbuf1);
+		TPL_free(tmpbuf2);
 	}
 
 	return dst2 - dst;
@@ -142,7 +147,7 @@ static bool is_more_data(query *q, list_reader_t *fmt)
 	if (n >= tmpbuf_free) {									\
 		size_t save_offset = dst - tmpbuf;					\
 		tmpbuf_size += n;									\
-		tmpbuf = realloc(tmpbuf, (tmpbuf_size*=2));			\
+		tmpbuf = TPL_realloc(tmpbuf, (tmpbuf_size*=2));			\
 		CHECKED(tmpbuf);							\
 		dst = tmpbuf + save_offset;							\
 		tmpbuf_free = tmpbuf_size - save_offset;			\
@@ -163,26 +168,28 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 	fmt2.p_ctx = p2_ctx;
 
 	size_t tmpbuf_size = 1024*8;
-	char *tmpbuf = malloc(tmpbuf_size);
+	char *tmpbuf = TPL_malloc(tmpbuf_size);
 	CHECKED(tmpbuf);
 	char *dst = tmpbuf;
 	*dst = '\0';
 	size_t tmpbuf_free = tmpbuf_size;
 	bool redo = false, start_of_line = true;
 	int tab_at = 1, tabs = 0, diff = 0, last_at = 0, tab_char = ' ';
+	int remainder = 0, tabs_seen = 0;
 	save_fmt1 = fmt1;
 	save_fmt2 = fmt2;
 
 	bool is_partial = false;
 
-	if (p2 && !check_list(q, p2, p2_ctx, &is_partial, NULL) && is_partial)
+	if (p2 && !check_list(q, p2, p2_ctx, &is_partial, NULL) && is_partial) {
+		TPL_free(tmpbuf);
 		return throw_error(q, p2, p2_ctx, "instantiation_error", "atom");
+	}
 
 	while (is_more_data(q, &fmt1)) {
 		int argval = 0, noargval = 1, argval_specified = 0;
-		int pos = dst - tmpbuf + 1;
+		int pos = strlen_utf8(tmpbuf) + 1;
 		list_reader_t tmp_fmt1 = fmt1, tmp_fmt2 = fmt2;
-
 		int ch = get_next_char(q, &fmt1);
 
 		if (ch != '~') {
@@ -199,30 +206,34 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			bool is_var;
 			cell *c = get_next_cell(q, &fmt2, &is_var, &c_ctx);
 
-			if (is_var)
+			if (is_var) {
+				TPL_free(tmpbuf);
 				return throw_error(q, p2, p2_ctx, "instantiation_error", "atom");
+			}
 
-			if (is_negative(c))
+			if (is_negative(c)) {
+				TPL_free(tmpbuf);
 				return throw_error(q, p2, p2_ctx, "domain_error", "positive");
+			}
 
 			cell p1 = eval(q, c);
 			c = &p1;
 
 			if (is_float(c)) {
-				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_fp, "type_error", "integer");
+				TPL_free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}
 
 			if (!is_integer(c)) {
-				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_fp, "type_error", "evaluable");
+				TPL_free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
 			}
 
 			noargval = 0;
 
 			if (!c || !is_integer(c)) {
-				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_fp, "type_error", "integer");
+				TPL_free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}
 
 			argval = get_smallint(c);
@@ -274,8 +285,10 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 				tabs++;
 			} else if (redo) {
 				tab_char = argval ? argval : ' ';
+				tabs_seen++;
+				int n = diff + (tabs_seen > tabs - remainder ? 1 : 0);
 
-				for (int i = 0; i < diff; i++) {
+				for (int i = 0; i < n; i++) {
 					CHECK_BUF(MAX_BYTES_PER_CODEPOINT);
 					dst += put_char_utf8(dst, tab_char);
 				}
@@ -313,7 +326,10 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 					fmt1 = save_fmt1;
 					fmt2 = save_fmt2;
 					dst = tmpbuf + tab_at - 1;
-					diff = ((at - pos) + 1) / tabs;
+					int total = (at - pos) + 1;
+					diff = total / tabs;
+					remainder = total - (diff * tabs);
+					tabs_seen = 0;
 				}
 			} else {
 				tabs = 0;
@@ -340,7 +356,10 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 					fmt1 = save_fmt1;
 					fmt2 = save_fmt2;
 					dst = tmpbuf + tab_at - 1;
-					diff = ((at - pos) + 1) / tabs;
+					int total = (at - pos) + 1;
+					diff = total / tabs;
+					remainder = total - (diff * tabs);
+					tabs_seen = 0;
 				}
 			} else {
 				tabs = 0;
@@ -357,17 +376,23 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			continue;
 		}
 
-		if (!p2 || !is_list(p2))
-			return throw_error(q, make_nil(), q->st.curr_fp, "domain_error", "non_empty_list");
+		if (!p2 || !is_list(p2)) {
+			TPL_free(tmpbuf);
+			return throw_error(q, make_nil(), q->st.cur_ctx, "domain_error", "non_empty_list");
+		}
 
 		bool is_var;
 		cell *c = get_next_cell(q, &fmt2, &is_var, &c_ctx);
 
-		if (is_var)
+		if (is_var) {
+			TPL_free(tmpbuf);
 			return throw_error(q, p2, p2_ctx, "instantiation_error", "atom");
+		}
 
-		if (!c)
+		if (!c) {
+			TPL_free(tmpbuf);
 			return throw_error(q, make_nil(), p2_ctx, "domain_error", "non_empty_list");
+		}
 
 		if (ch == 'i')
 			continue;
@@ -376,8 +401,8 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 		size_t len = 0;
 
 		if ((ch == 'a') && !is_atom(c)) {
-			free(tmpbuf);
-			return throw_error(q, c, q->st.curr_fp, "type_error", "atom");
+			TPL_free(tmpbuf);
+			return throw_error(q, c, q->st.cur_ctx, "type_error", "atom");
 		}
 
 		switch(ch) {
@@ -430,13 +455,13 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			c = &p1;
 
 			if (is_float(c)) {
-				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_fp, "type_error", "integer");
+				TPL_free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}
 
 			if (!is_integer(c)) {
-				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_fp, "type_error", "evaluable");
+				TPL_free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
 			}
 
 			while (argval-- > 1) {
@@ -455,8 +480,8 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			c = &p1;
 
 			if (!is_float(c)) {
-				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_fp, "type_error", "evaluable");
+				TPL_free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
 			}
 
 			len = argval < 4096 ? 4096 : argval;
@@ -484,8 +509,8 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			c = &p1;
 
 			if (!is_float(c)) {
-				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_fp, "type_error", "evaluable");
+				TPL_free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
 			}
 
 			len = argval < 4096 ? 4096 : argval;
@@ -512,8 +537,8 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			c = &p1;
 
 			if (!is_float(c)) {
-				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_fp, "type_error", "evaluable");
+				TPL_free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
 			}
 
 			len = argval < 4096 ? 4096 : argval;
@@ -532,18 +557,18 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			c = &p1;
 
 			if (is_float(c)) {
-				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_fp, "type_error", "integer");
+				TPL_free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}
 
 			if (!is_integer(c)) {
-				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_fp, "type_error", "evaluable");
+				TPL_free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
 			}
 
 			char *tmpbuf2 = print_term_to_strbuf(q, c, 0, 0);
 			len = strlen(tmpbuf2);
-			free(tmpbuf2);
+			TPL_free(tmpbuf2);
 			CHECK_BUF(len*2+1);
 			len = format_integer(dst, c, noargval?3:argval, '_', 0, 10);
 			break;
@@ -553,18 +578,18 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			c = &p1;
 
 			if (is_float(c)) {
-				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_fp, "type_error", "integer");
+				TPL_free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}
 
 			if (!is_integer(c)) {
-				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_fp, "type_error", "evaluable");
+				TPL_free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
 			}
 
 			char *tmpbuf2 = print_term_to_strbuf(q, c, 0, 0);
 			len = strlen(tmpbuf2);
-			free(tmpbuf2);
+			TPL_free(tmpbuf2);
 			CHECK_BUF(len*2+1);
 			len = format_integer(dst, c, 0, ',', noargval?0:argval, 10);
 			break;
@@ -574,26 +599,26 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			c = &p1;
 
 			if (is_float(c)) {
-				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_fp, "type_error", "integer");
+				TPL_free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}
 
 			if (!is_integer(c)) {
-				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_fp, "type_error", "evaluable");
+				TPL_free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
 			}
 
 
 			char *tmpbuf2 = print_term_to_strbuf(q, c, 0, 0);
 			len = strlen(tmpbuf2);
-			free(tmpbuf2);
+			TPL_free(tmpbuf2);
 			CHECK_BUF(len*2+1);
 			len = format_integer(dst, c, 3, ',', noargval?0:argval, 10);
 			break;
 		}
 		case 'r': {
 			if (!noargval && ((argval < 2) || (argval > 36))) {
-				free(tmpbuf);
+				TPL_free(tmpbuf);
 				return throw_error(q, p1, p1_ctx, "domain_error", "radix_invalid");
 			}
 
@@ -601,25 +626,25 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			c = &p1;
 
 			if (is_float(c)) {
-				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_fp, "type_error", "integer");
+				TPL_free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}
 
 			if (!is_integer(c)) {
-				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_fp, "type_error", "evaluable");
+				TPL_free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
 			}
 
 			char *tmpbuf2 = print_term_to_strbuf(q, c, 0, 0);
 			len = strlen(tmpbuf2);
-			free(tmpbuf2);
+			TPL_free(tmpbuf2);
 			CHECK_BUF(len*10);
 			len = format_integer(dst, c, 0, ',', 0, !argval?8:argval);
 			break;
 		}
 		case 'R': {
 			if (!noargval && ((argval < 2) || (argval > 36))) {
-				free(tmpbuf);
+				TPL_free(tmpbuf);
 				return throw_error(q, p1, p1_ctx, "domain_error", "radix_invalid");
 			}
 
@@ -627,18 +652,18 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			c = &p1;
 
 			if (is_float(c)) {
-				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_fp, "type_error", "integer");
+				TPL_free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "integer");
 			}
 
 			if (!is_integer(c)) {
-				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_fp, "type_error", "evaluable");
+				TPL_free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "type_error", "evaluable");
 			}
 
 			char *tmpbuf2 = print_term_to_strbuf(q, c, 0, 0);
 			len = strlen(tmpbuf2);
-			free(tmpbuf2);
+			TPL_free(tmpbuf2);
 			CHECK_BUF(len*10);
 			len = format_integer(dst, c, 0, ',', 0, !argval?-8:-argval);
 			break;
@@ -658,13 +683,13 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 					make_instr(p1+0, new_atom(q->pl, "$portray"), NULL, 2, 1+c->num_cells);
 					p1[1] = *str;
 					dup_cells_by_ref(p1+2, c, c_ctx, c->num_cells);
-					tmp = prepare_call(q, CALL_SKIP, p1, q->st.curr_fp, 1);
+					tmp = prepare_call(q, CALL_SKIP, p1, q->st.cur_ctx, 1);
 					num_cells = p1->num_cells;
 				} else {
 					cell p1[1+c->num_cells];
 					make_instr(p1+0, new_atom(q->pl, "$portray"), NULL, 1, c->num_cells);
 					dup_cells_by_ref(p1+1, c, c_ctx, c->num_cells);
-					tmp = prepare_call(q, CALL_SKIP, p1, q->st.curr_fp, 1);
+					tmp = prepare_call(q, CALL_SKIP, p1, q->st.cur_ctx, 1);
 					num_cells = p1->num_cells;
 				}
 
@@ -740,14 +765,14 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			char *tmpbuf2 = print_term_to_strbuf(q, c, c_ctx, 1);
 
 			if (q->cycle_error) {
-				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_fp, "resource_error", "cyclic");
+				TPL_free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "resource_error", "cyclic");
 			}
 
 			len = strlen(tmpbuf2);
 			CHECK_BUF(len);
 			strcpy(dst, tmpbuf2);
-			free(tmpbuf2);
+			TPL_free(tmpbuf2);
 			clear_write_options(q);
 			q->quoted = saveq;
 			break;
@@ -765,8 +790,10 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			pl_ctx c2_ctx;
 			cell *c2 = get_next_cell(q, &fmt2, &is_var, &c2_ctx);
 
-			if (!c2)
+			if (!c2) {
+				TPL_free(tmpbuf);
 				return throw_error(q, c, c_ctx, "domain_error", "empty_list1");
+			}
 
 			q->flags = q->st.m->flags;
 			q->numbervars = false;
@@ -790,11 +817,13 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			}
 
 			if (is_var(c2)) {
+				TPL_free(tmpbuf);
 				clear_write_options(q);
 				return throw_error(q, c2, c2_ctx, "instantiation_error", "write_option");
 			}
 
 			if (!is_nil(c2)) {
+				TPL_free(tmpbuf);
 				clear_write_options(q);
 				return throw_error(q, c2, c2_ctx, "type_error", "list");
 			}
@@ -803,22 +832,23 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			char *tmpbuf2 = print_term_to_strbuf(q, c, c_ctx, 1);
 
 			if (q->cycle_error) {
-				free(tmpbuf);
-				return throw_error(q, c, q->st.curr_fp, "resource_error", "cyclic");
+				TPL_free(tmpbuf2);
+				TPL_free(tmpbuf);
+				return throw_error(q, c, q->st.cur_ctx, "resource_error", "cyclic");
 			}
 
 			len = strlen(tmpbuf2);
 			CHECK_BUF(len);
 			strcpy(dst, tmpbuf2);
-			free(tmpbuf2);
+			TPL_free(tmpbuf2);
 			clear_write_options(q);
 			q->quoted = saveq;
 			break;
 		}
 
 		default:
-			free(tmpbuf);
-			return throw_error(q, c, q->st.curr_fp, "existence_error", "format_character");
+			TPL_free(tmpbuf);
+			return throw_error(q, c, q->st.cur_ctx, "existence_error", "format_character");
 		}
 
 		dst += len;
@@ -833,11 +863,15 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 		bool is_var;
 		cell *c = get_next_cell(q, &fmt2, &is_var, &c_ctx);
 
-		if (is_var)
+		if (is_var) {
+			TPL_free(tmpbuf);
 			return throw_error(q, p2, p2_ctx, "instantiation_error", "atom");
+		}
 
-		if (c)
+		if (c) {
+			TPL_free(tmpbuf);
 			return throw_error(q, save_l, save_l_ctx, "domain_error", "empty_list");
+		}
 	}
 
 	if (str == NULL) {
@@ -846,11 +880,11 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 		const char *tmpsrc = tmpbuf;
 
 		while (len) {
-			size_t tmpbuf_free = net_write(tmpsrc, len, str);
+			size_t tmpbuf_free = tpl_write(tmpsrc, len, str);
 
 			if (!tmpbuf_free) {
 				if (feof(str->fp) || ferror(str->fp)) {
-					free(tmpbuf);
+					TPL_free(tmpbuf);
 					fprintf(stderr, "Error: end of file on write\n");
 					return false;
 				}
@@ -860,29 +894,32 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			len -= tmpbuf_free;
 			tmpsrc += tmpbuf_free;
 		}
+
+		if (fflush(str->fp))
+			return throw_error(q, q->st.instr, q->st.cur_ctx, "io_error", strerror(errno));
 	} else if (is_compound(str)
 		&& ((CMP_STRING_TO_CSTR(q, str, "atom")
 		&& CMP_STRING_TO_CSTR(q, str, "chars")
 		&& CMP_STRING_TO_CSTR(q, str, "string"))
 		|| (str->arity > 1) || !is_var(str+1))) {
-		free(tmpbuf);
+		TPL_free(tmpbuf);
 		return throw_error(q, str, str_ctx, "type_error", "structure");
 	} else if (is_compound(str) && !CMP_STRING_TO_CSTR(q, str, "atom")) {
 		cell *c = deref(q, str+1, str_ctx);
 		cell tmp;
-		CHECKED(make_cstringn(&tmp, tmpbuf, len), free(tmpbuf));
-		unify(q, c, q->latest_ctx, &tmp, q->st.curr_fp);
+		CHECKED(make_cstringn(&tmp, tmpbuf, len), TPL_free(tmpbuf));
+		unify(q, c, q->latest_ctx, &tmp, q->st.cur_ctx);
 		unshare_cell(&tmp);
 	} else if (is_compound(str)) {
 		cell *c = deref(q, str+1, str_ctx);
 		cell tmp;
 
 		if (strlen(tmpbuf))
-			CHECKED(make_stringn(&tmp, tmpbuf, len), free(tmpbuf));
+			CHECKED(make_stringn(&tmp, tmpbuf, len), TPL_free(tmpbuf));
 		else
 			make_atom(&tmp, g_nil_s);
 
-		unify(q, c, q->latest_ctx, &tmp, q->st.curr_fp);
+		unify(q, c, q->latest_ctx, &tmp, q->st.cur_ctx);
 		unshare_cell(&tmp);
 	} else if (is_stream(str)) {
 		int n = get_stream(q, str);
@@ -890,11 +927,11 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 		const char *tmpsrc = tmpbuf;
 
 		while (len) {
-			size_t tmpbuf_free = net_write(tmpsrc, len, str);
+			size_t tmpbuf_free = tpl_write(tmpsrc, len, str);
 
 			if (!tmpbuf_free && str->fp) {
 				if (feof(str->fp) || ferror(str->fp)) {
-					free(tmpbuf);
+					TPL_free(tmpbuf);
 					fprintf(stderr, "Error: end of file on write\n");
 					return false;
 				}
@@ -906,12 +943,15 @@ bool do_format(query *q, cell *str, pl_ctx str_ctx, cell *p1, pl_ctx p1_ctx, cel
 			len -= tmpbuf_free;
 			tmpsrc += tmpbuf_free;
 		}
+
+		if (fflush(str->fp))
+			return throw_error(q, q->st.instr, q->st.cur_ctx, "io_error", strerror(errno));
 	} else {
-		free(tmpbuf);
+		TPL_free(tmpbuf);
 		return throw_error(q, str, str_ctx, "domain_error", "stream_or_alias");
 	}
 
-	free(tmpbuf);
+	TPL_free(tmpbuf);
 	return true;
 }
 
@@ -924,10 +964,10 @@ static bool bif_format_1(query *q)
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "output,binary_stream");
+		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "output,binary_stream");
 	}
 
-	return do_format(q, NULL, 0, p1, p1_ctx, NULL, q->st.curr_fp);
+	return do_format(q, NULL, 0, p1, p1_ctx, NULL, q->st.cur_ctx);
 }
 
 static bool bif_format_2(query *q)
@@ -940,7 +980,7 @@ static bool bif_format_2(query *q)
 	if (str->binary) {
 		cell tmp;
 		make_int(&tmp, n);
-		return throw_error(q, &tmp, q->st.curr_fp, "permission_error", "output,binary_stream");
+		return throw_error(q, &tmp, q->st.cur_ctx, "permission_error", "output,binary_stream");
 	}
 
 	if (is_nil(p1)) {

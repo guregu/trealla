@@ -30,13 +30,13 @@ static SSL_CTX *g_ctx = NULL;
 //#define close closesocket
 //#define ioctl ioctlsocket
 #ifdef errno
-#undef errno
+//#undef errno
 #endif
-#define errno WSAGetLastError()
+//#define errno WSAGetLastError()
 #ifdef EWOULDBLOCK
 #undef EWOULDBLOCK
 #endif
-#define EWOULDBLOCK WSAEWOULDBLOCK
+//#define EWOULDBLOCK WSAEWOULDBLOCK
 #else
 #ifndef __wasi__
 #include <netdb.h>
@@ -77,13 +77,15 @@ const char *get_local_hostname(char *hostname_buffer, size_t buffer_size) {
 #endif
 }
 
-int net_domain_connect(const char *name, bool udp)
+int tpl_domain_connect(const char *name, bool udp)
 {
 #if !defined(_WIN32) && !defined(__wasi__)
 	int fd = socket(AF_UNIX, udp?SOCK_DGRAM:SOCK_STREAM, 0);
 
-	if (fd == -1)
-	   return -1;
+	if (fd == -1) {
+		perror("socket");
+		return -1;
+   }
 
 	struct sockaddr_un addr;
 	memset(&addr, 0, sizeof(struct sockaddr_un));
@@ -91,6 +93,7 @@ int net_domain_connect(const char *name, bool udp)
     strncpy(addr.sun_path, name, sizeof(addr.sun_path) - 1);
 
 	if (connect(fd, (struct sockaddr *) &addr, sizeof(struct sockaddr_un)) == -1) {
+		//perror("connect");
 		close(fd);
 		return -1;
 	}
@@ -101,15 +104,17 @@ int net_domain_connect(const char *name, bool udp)
 #endif
 }
 
-int net_domain_server(const char *name, bool udp)
+int tpl_domain_server(const char *name, bool udp)
 {
 #if !defined(_WIN32) && !defined(__wasi__)
     struct sockaddr_un server_sockaddr;
     memset(&server_sockaddr, 0, sizeof(struct sockaddr_un));
     int fd = socket(AF_UNIX, udp?SOCK_DGRAM:SOCK_STREAM, 0);
 
-    if (fd == -1)
+    if (fd == -1) {
+		perror("socket");
 		return -1;
+	}
 
     server_sockaddr.sun_family = AF_UNIX;
     strcpy(server_sockaddr.sun_path, name);
@@ -117,6 +122,7 @@ int net_domain_server(const char *name, bool udp)
     int rc = bind(fd, (struct sockaddr *) &server_sockaddr, sizeof(server_sockaddr));
 
     if (rc == -1) {
+		//perror("bind");
 		close(fd);
 		return -1;
 	}
@@ -124,14 +130,17 @@ int net_domain_server(const char *name, bool udp)
 	if (udp)
 		return fd;
 
-	listen(fd, -1);
+	if (listen(fd, -1)) {
+		perror("listen");
+	}
+
 	return fd;
 #else
 	return -1;
 #endif
 }
 
-int net_connect(const char *hostname, unsigned port, bool udp, bool nodelay)
+int tpl_connect(const char *hostname, unsigned port, bool udp, bool nodelay)
 {
 #if !defined(_WIN32) && !defined(__wasi__)
 	struct addrinfo hints, *result, *rp;
@@ -142,7 +151,7 @@ int net_connect(const char *hostname, unsigned port, bool udp, bool nodelay)
 	hints.ai_socktype = udp ? SOCK_DGRAM : SOCK_STREAM;
 	hints.ai_flags = hostname ? 0 : AI_PASSIVE;
 	char svc[20];
-	sprintf(svc, "%u", port);
+	snprintf(svc, sizeof(svc), "%u", port);
 
 	if ((status = getaddrinfo(hostname, svc, &hints, &result)) != 0)
 		return -1;
@@ -150,26 +159,29 @@ int net_connect(const char *hostname, unsigned port, bool udp, bool nodelay)
 	for (rp = result; rp != NULL; rp = rp->ai_next) {
 		fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
 
-		if (fd == -1)
-		   continue;
+		if (fd == -1) {
+			perror("socket");
+			continue;
+		}
 
 		int flag = 1;
 		setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char *)&flag, sizeof(flag));
-#ifdef SO_REUSEPORT
-		int flag2 = 1;
-		setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, (char *)&flag2, sizeof(flag2));
-#endif
+		//flag = 1;
+		//setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, (char *)&flag, sizeof(flag));
 
 		if (connect(fd, rp->ai_addr, rp->ai_addrlen) != -1)
 			break;
 
+		//perror("connect");
 		close(fd);
 	}
 
 	freeaddrinfo(result);
 
-	if (rp == NULL)
+	if (rp == NULL) {
+		//perror("freeaddrinfo");
 		return -1;
+	}
 
 	struct linger l;
 	l.l_onoff = 0;
@@ -185,7 +197,7 @@ int net_connect(const char *hostname, unsigned port, bool udp, bool nodelay)
 #endif
 }
 
-int net_server(const char *hostname, unsigned port, bool udp, const char *keyfile, const char *certfile)
+int tpl_server(const char *hostname, unsigned port, bool udp, const char *keyfile, const char *certfile)
 {
 #if !defined(_WIN32) && !defined(__wasi__)
 	(void) hostname;
@@ -197,29 +209,30 @@ int net_server(const char *hostname, unsigned port, bool udp, const char *keyfil
 	hints.ai_socktype = udp ? SOCK_DGRAM : SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE;
 	char svc[20];
-	sprintf(svc, "%u", port);
+	snprintf(svc, sizeof(svc), "%u", port);
 
 	if ((status = getaddrinfo(NULL, svc, &hints, &result)) != 0) {
-		perror("getaddrinfo");
+		//perror("getaddrinfo");
 		return -1;
 	}
 
 	for (rp = result; rp != NULL; rp = rp->ai_next) {
 		fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
 
-		if (fd == -1)
-		   continue;
+		if (fd == -1) {
+			perror("socket");
+			continue;
+		}
 
 		int flag = 1;
 		setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char *)&flag, sizeof(flag));
-#ifdef SO_REUSEPORT
-		int flag2 = 1;
-		setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, (char *)&flag2, sizeof(flag2));
-#endif
+		//flag = 1;
+		//setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, (char *)&flag, sizeof(flag));
 
 		if (bind(fd, rp->ai_addr, rp->ai_addrlen) == 0)
 			break;
 
+		perror("bind");
 		close(fd);
 	}
 
@@ -261,22 +274,27 @@ int net_server(const char *hostname, unsigned port, bool udp, const char *keyfil
 	(void) certfile;
 #endif
 
-	listen(fd, -1);
+	if (listen(fd, -1)) {
+		perror("listen");
+	}
+
 	return fd;
 #else
 	return -1;
 #endif
 }
 
-int net_accept(stream *str)
+int tpl_accept(stream *str)
 {
 #if !defined(_WIN32) && !defined(__wasi__)
 	struct sockaddr_in addr = {0};
 	socklen_t len = 0;
 	int fd = accept(fileno(str->fp), (struct sockaddr*)&addr, &len);
 
-	if ((fd == -1) && ((errno == EWOULDBLOCK) || (errno == EAGAIN)))
+	if ((fd == -1) && ((errno == EWOULDBLOCK) || (errno == EAGAIN))) {
+		perror("accept");
 		return -1;
+	}
 
 	struct linger l;
 	l.l_onoff = 0;
@@ -292,7 +310,7 @@ int net_accept(stream *str)
 #endif
 }
 
-void net_set_nonblocking(stream *str)
+void tpl_set_nonblocking(stream *str)
 {
 #if !defined(_WIN32) && !defined(__wasi__)
 	unsigned long flag = 1;
@@ -300,7 +318,7 @@ void net_set_nonblocking(stream *str)
 #endif
 }
 
-void *net_enable_ssl(int fd, const char *hostname, bool is_server, int level, const char *certfile)
+void *tpl_enable_ssl(int fd, const char *hostname, bool is_server, int level, const char *certfile)
 {
 #if USE_OPENSSL
 	if (!g_ctx_use_cnt++) {
@@ -359,7 +377,7 @@ void *net_enable_ssl(int fd, const char *hostname, bool is_server, int level, co
 #endif
 }
 
-size_t net_write(const void *ptr, size_t nbytes, stream *str)
+size_t tpl_write(const void *ptr, size_t nbytes, stream *str)
 {
 #if USE_OPENSSL
 	if (str->ssl)
@@ -369,11 +387,17 @@ size_t net_write(const void *ptr, size_t nbytes, stream *str)
 	if (is_memory_stream(str)) {
 		SB_fwrite(str->sb, ptr, nbytes);
 		return nbytes;
-	} else
-		return fwrite(ptr, 1, nbytes, str->fp);
+	} else {
+		size_t len = fwrite(ptr, 1, nbytes, str->fp);
+
+		if (str->is_socket || str->is_pipe)
+			fflush(str->fp);
+
+		return len;
+	}
 }
 
-int net_peekc(stream *str)
+int tpl_getc(stream *str)
 {
 #if USE_OPENSSL
 	if (str->ssl) {
@@ -393,45 +417,26 @@ int net_peekc(stream *str)
 		if (SSL_read((SSL*)str->sslptr, ptr, len) == 0)
 			return EOF;
 
-		return ptr[0];
-	}
-#endif
-
-	int ch = fgetc(str->fp);
-	ungetc(ch, str->fp);
-	return ch;
-}
-
-int net_getc(stream *str)
-{
-#if USE_OPENSSL
-	if (str->ssl) {
-		size_t len = 1;
-		char ptr[2];
-		char *dst = ptr;
-
-		while (len && str->srclen) {
-			*dst++ = *str->src++;
-			str->srclen--;
-			len--;
-		}
-
-		if (dst != ptr)
-			return ptr[0];
-
-		if (SSL_read((SSL*)str->sslptr, ptr, len) == 0)
+		if (errno == EINTR)
 			return EOF;
 
 		return ptr[0];
 	}
 #endif
+
 	if (!str->fp) {
 		return EOF;
 	}
-	return fgetc(str->fp);
+
+	int ok = fgetc(str->fp);
+
+	if (errno == EINTR)
+		ok = EOF;
+
+	return ok;
 }
 
-size_t net_read(void *ptr, size_t len, stream *str)
+size_t tpl_read(void *ptr, size_t len, stream *str)
 {
 #if USE_OPENSSL
 	if (str->ssl) {
@@ -446,14 +451,75 @@ size_t net_read(void *ptr, size_t len, stream *str)
 		if (dst != ptr)
 			return dst - (char*)ptr;
 
-		return SSL_read((SSL*)str->sslptr, ptr, len);
+		int ok = SSL_read((SSL*)str->sslptr, ptr, len);
+
+		if (errno == EINTR)
+			return EOF;
+
+		return ok;
 	}
 #endif
 
-	return fread(ptr, 1, len, str->fp);
+	int ok = fread(ptr, 1, len, str->fp);
+
+	if (errno == EINTR)
+		ok = EOF;
+
+	return ok;
 }
 
-int net_getline(char **lineptr, size_t *n, stream *str)
+#ifdef _WIN32
+ssize_t getline(char **lineptr, size_t *n, FILE *stream) {
+    size_t pos;
+    int c;
+
+    if (lineptr == NULL || stream == NULL || n == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    c = getc(stream);
+    if (c == EOF) {
+        return -1;
+    }
+
+    if (*lineptr == NULL) {
+        *lineptr = TPL_malloc(128);
+ 		check_error(*lineptr);
+       if (*lineptr == NULL) {
+            return -1;
+        }
+        *n = 128;
+    }
+
+    pos = 0;
+    while(c != EOF) {
+        if (pos + 1 >= *n) {
+            size_t new_size = *n + (*n >> 2);
+            if (new_size < 128) {
+                new_size = 128;
+            }
+            char *new_ptr = TPL_realloc(*lineptr, new_size);
+            if (new_ptr == NULL) {
+                return -1;
+            }
+            *n = new_size;
+            *lineptr = new_ptr;
+        }
+
+        ((unsigned char *)(*lineptr))[pos ++] = c;
+        if (c == '\n') {
+            break;
+        }
+        c = getc(stream);
+    }
+
+    (*lineptr)[pos] = '\0';
+    return pos;
+}
+#endif
+
+int tpl_getline(char **lineptr, size_t *n, stream *str)
 {
 #if USE_OPENSSL
 	if (str->ssl) {
@@ -469,6 +535,9 @@ int net_getline(char **lineptr, size_t *n, stream *str)
 		while (!done) {
 			if (str->srclen <= 0) {
 				int rlen = SSL_read((SSL*)str->sslptr, str->srcbuf, STREAM_BUFLEN);
+
+				if (errno == EINTR)
+					return EOF;
 
 				if (rlen <= 0)
 					return -1;
@@ -503,10 +572,15 @@ int net_getline(char **lineptr, size_t *n, stream *str)
 	}
 #endif
 
-	return getline(lineptr, n, str->fp);
+	int ok = getline(lineptr, n, str->fp);
+
+	if (errno == EINTR)
+		ok = EOF;
+
+	return ok;
 }
 
-int net_close(stream *str)
+int tpl_close(stream *str)
 {
 #if USE_OPENSSL
 	if (str->ssl) {
@@ -520,23 +594,26 @@ int net_close(stream *str)
 	}
 #endif
 
-	int ok = 0;
+	int ok = 1;
 
 #ifdef pclose
-	if (str->is_pipe)
+	if (str->is_pipe) {
 		ok = pclose(str->fp);
-	else
+	} else
 #else
 	{
-		ok = fclose(str->fp);
+		if (str->is_socket)
+			shutdown(fileno(str->fp), SHUT_RDWR);
 
-		if (str->is_memory) {
+		if (!str->is_memory)
+			ok = fclose(str->fp);
+
+		if (str->is_memory)
 			SB_free(str->sb);
-			str->is_memory = false;
-		}
 	}
 #endif
 
+	str->is_active = false;
 	str->fp = NULL;
 	return ok;
 }

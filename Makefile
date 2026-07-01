@@ -9,6 +9,7 @@ EMBED ?= 1
 HOST_CC ?= cc
 
 GIT_VERSION := "$(shell git describe --abbrev=4 --dirty --always --tags)"
+GIT_VERSION := "$(shell git describe --abbrev=4 --dirty --always --tags)"
 COMPILER_IS_GCC := $(shell $(CC) --version | grep -E -o 'g?cc')
 
 CFLAGS = -Isrc -I/usr/local/include -DVERSION='$(GIT_VERSION)' \
@@ -17,13 +18,20 @@ CFLAGS = -Isrc -I/usr/local/include -DVERSION='$(GIT_VERSION)' \
 	-Wall -Wextra \
 	-Wno-unused-but-set-variable \
 	-Wno-unused-parameter \
-	-Wno-unused-variable
+	-Wno-unused-variable     \
+	-Wno-unused-function
 
 ifeq ($(EMBED), 1)
 CFLAGS += -DEMBED=1
 endif
 
 LDFLAGS = -L/usr/local/lib -lm
+
+UNAME_S := $(shell uname -s)
+
+ifeq ($(UNAME_S), FreeBSD)
+LDFLAGS += -lrt
+endif
 
 ifdef HOMEBREW_PREFIX
 LDFLAGS += -L$(HOMEBREW_PREFIX)/opt/libffi/lib -L$(HOMEBREW_PREFIX)/opt/openssl@3/lib
@@ -87,12 +95,14 @@ ifdef WASI
 CFLAGS += -DUSE_ISOCLINE=1
 endif
 
+ifndef ISOCLINE
 ifndef EDITLINE
 ifndef READLINE
 ifndef WASI
 ifndef WIN
 CFLAGS += -DUSE_EDITLINE=1
 LDFLAGS += -ledit
+endif
 endif
 endif
 endif
@@ -140,6 +150,7 @@ SRCOBJECTS = tpl.o \
 	src/bif_format.o \
 	src/bif_functions.o \
 	src/bif_maps.o \
+	src/bif_net.o \
 	src/bif_os.o \
 	src/bif_posix.o \
 	src/bif_predicates.o \
@@ -179,6 +190,7 @@ LIBOBJECTS +=  \
 	library/builtins.o \
 	library/charsio.o \
 	library/concurrent.o \
+	library/clpb.o \
 	library/clpz.o \
 	library/curl.o \
 	library/dcgs.o \
@@ -255,7 +267,10 @@ profile:
 	$(MAKE) 'OPT=$(OPT) -O0 -pg -DDEBUG'
 
 debug:
-	$(MAKE) 'OPT=$(OPT) -fsanitize=address -O0 -g3 -DDEBUG'
+	$(MAKE) 'OPT=$(OPT) -fsanitize=address -O0 -g -DDEBUG'
+
+sanitize:
+	$(MAKE) 'OPT=$(OPT) -fsanitize=undefined,integer,address -O0 -g -DDEBUG'
 
 release:
 	$(MAKE) 'OPT=$(OPT) -DNDEBUG'
@@ -347,6 +362,12 @@ compile: util/bin2c
 test:
 	./tests/run.sh
 
+misc:
+	./tests/run_misc.sh
+
+valgrind:
+	./tests/run_valgrind.sh
+
 clean:
 	rm -f tpl tpl.wasm tpl*.wasm libtpl*.wasm \
 		src/*.o src/imath/*.o src/isocline/src/*.o src/sre/*.o src/wasm/*.o \
@@ -398,6 +419,10 @@ src/bif_functions.o: src/bif_functions.c src/threads.h src/heap.h src/internal.h
  src/utf8.h src/module.h src/prolog.h src/query.h src/parser.h \
  src/builtins.h
 src/bif_maps.o: src/bif_maps.c src/threads.h src/heap.h src/internal.h src/trealla.h \
+ src/stringbuf.h src/imath/imath.h src/imath/imrat.h \
+ src/imath/imath.h src/skiplist.h src/list.h src/utf8.h \
+ src/prolog.h src/query.h src/parser.h src/builtins.h
+src/bif_net.o: src/bif_net.c src/threads.h src/heap.h src/internal.h src/trealla.h \
  src/stringbuf.h src/imath/imath.h src/imath/imrat.h \
  src/imath/imath.h src/skiplist.h src/list.h src/utf8.h \
  src/prolog.h src/query.h src/parser.h src/builtins.h

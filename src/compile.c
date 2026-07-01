@@ -168,7 +168,7 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 
 	if (((*src)->val_off == g_call_s) && ((*src)->arity > 1) && !is_var(c)) {
 		unsigned var_num = cl->num_vars++;
-		unsigned arity = (*src)->arity - 1;
+		int arity = (*src)->arity - 1;
 		unsigned save_num_cells = (*src)->num_cells;
 		*src += 1;
 		make_instr((*dst)++, g_sys_fail_on_retry_s, bif_sys_fail_on_retry_1, 1, 1);
@@ -194,8 +194,12 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		*src += 1;
 		make_instr((*dst)++, g_sys_fail_on_retry_s, bif_sys_fail_on_retry_1, 1, 1);
 		make_var((*dst)++, g_anon_s, var_num);
-		make_instr((*dst)++, g_sys_call_check_s, bif_sys_call_check_1, 1, (*src)->num_cells);
-		*dst += copy_cells(*dst, *src, (*src)->num_cells);
+
+		if (is_builtin(*src)) {
+			make_instr((*dst)++, g_sys_call_check_s, bif_sys_call_check_1, 1, (*src)->num_cells);
+			*dst += copy_cells(*dst, *src, (*src)->num_cells);		// Arg2
+		}
+
 		compile_term(pr, cl, dst, src);								// Arg1
 		make_instr((*dst)++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
 		make_var((*dst)++, g_anon_s, var_num);
@@ -207,8 +211,12 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		*src += 1;
 		make_instr((*dst)++, g_sys_fail_on_retry_s, bif_sys_fail_on_retry_1, 1, 1);
 		make_var((*dst)++, g_anon_s, var_num);
-		make_instr((*dst)++, g_sys_call_check_s, bif_sys_call_check_1, 1, (*src)->num_cells);
-		*dst += copy_cells(*dst, *src, (*src)->num_cells);
+
+		if (is_builtin(*src)) {
+			make_instr((*dst)++, g_sys_call_check_s, bif_sys_call_check_1, 1, (*src)->num_cells);
+			*dst += copy_cells(*dst, *src, (*src)->num_cells);		// Arg2
+		}
+
 		compile_term(pr, cl, dst, src);								// Arg1
 		make_instr((*dst)++, g_cut_s, bif_iso_cut_0, 0, 0);
 		make_instr((*dst)++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
@@ -223,8 +231,12 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_instr((*dst)++, g_sys_succeed_on_retry_s, bif_sys_succeed_on_retry_2, 2, 2);
 		make_var((*dst)++, g_anon_s, var_num);
 		make_uint((*dst)++, 0);										// Dummy value
-		make_instr((*dst)++, g_sys_call_check_s, bif_sys_call_check_1, 1, (*src)->num_cells);
-		*dst += copy_cells(*dst, *src, (*src)->num_cells);
+
+		if (is_builtin(*src)) {
+			make_instr((*dst)++, g_sys_call_check_s, bif_sys_call_check_1, 1, (*src)->num_cells);
+			*dst += copy_cells(*dst, *src, (*src)->num_cells);		// Arg2
+		}
+
 		compile_term(pr, cl, dst, src);								// Arg1
 		make_instr((*dst)++, g_cut_s, bif_iso_cut_0, 0, 0);
 		make_instr((*dst)++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
@@ -234,7 +246,9 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		return;
 	}
 
-	if (((*src)->val_off == g_negation_s) && ((*src)->arity == 1)) {
+	if (((*src)->val_off == g_negation_s) && ((*src)->arity == 1)
+		&& (c->val_off != g_negation_s)								// Hack???
+	) {
 		unsigned var_num = cl->num_vars++;
 		*src += 1;
 		cell *save_dst = *dst;
@@ -296,8 +310,12 @@ static void compile_term(predicate *pr, clause *cl, cell **dst, cell **src)
 		make_var((*dst)++, g_anon_s, var_num1);
 		make_instr((*dst)++, g_sys_module_s, bif_sys_module_1, 1, (*src)->num_cells);
 		copy_term(dst, src);										// Arg1
-		make_instr((*dst)++, g_sys_call_check_s, bif_sys_call_check_1, 1, (*src)->num_cells);
-		*dst += copy_cells(*dst, *src, (*src)->num_cells);			// Arg2
+
+		if (is_builtin(*src) && is_op(*src)) {
+			make_instr((*dst)++, g_sys_call_check_s, bif_sys_call_check_1, 1, (*src)->num_cells);
+			*dst += copy_cells(*dst, *src, (*src)->num_cells);		// Arg2
+		}
+
 		copy_term(dst, src);										// Arg2
 		make_instr((*dst)++, g_sys_module_s, bif_sys_module_1, 1, 1);
 		make_var((*dst)++, g_anon_s, var_num1);
@@ -322,10 +340,10 @@ void compile_clause(predicate *pr, clause *cl, cell *body)
 		return;
 
 	pl_idx num_cells = cl->cidx - (body - cl->cells);
-	cl->alt = malloc(sizeof(cell)*num_cells*100+1024); // FIXME
+	cl->alt = TPL_malloc(sizeof(cell)*num_cells*100+1024); // FIXME
 	cell *dst = cl->alt, *src = body;
 	compile_term(pr, cl, &dst, &src);
 	assert(src->tag == TAG_END);
 	dst += copy_cells(dst, src, 1);
-	cl->alt = realloc(cl->alt, sizeof(cell)*((dst-cl->alt)));
+	cl->alt = TPL_realloc(cl->alt, sizeof(cell)*((dst-cl->alt)));
 }

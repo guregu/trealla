@@ -1,11 +1,7 @@
 #include <ctype.h>
 #include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
 
 #include "module.h"
-#include "parser.h"
-#include "prolog.h"
 #include "query.h"
 
 static const char *find_attribute(query *q, cell *attr, unsigned arity, bool *found)
@@ -32,7 +28,7 @@ static bool bif_attribute_3(query *q)
 	if (!found) return false;
 	cell tmp;
 	make_atom(&tmp, new_atom(q->pl, m_name));
-	return unify(q, p1, p1_ctx, &tmp, q->st.curr_fp);
+	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 }
 
 static bool do_put_atts(query *q, cell *attr, pl_ctx attr_ctx, bool is_minus)
@@ -103,15 +99,23 @@ static bool do_put_atts(query *q, cell *attr, pl_ctx attr_ctx, bool is_minus)
 		}
 	}
 
+	pl_idx hp = q->st.hp, hp_num = q->st.hp_num;
 	cell *l = end_list(q);
 	CHECKED(l);
 
 	if (is_nil(l)) {
-		e->c.flags = 0;
-		e->c.val_attrs = NULL;
+		memset(e, 0, sizeof(slot));
 		return true;
 	}
 
+	cell *tmp = TPL_malloc(sizeof(cell)*l->num_cells);
+	CHECKED(tmp);
+	dup_cells(tmp, l, l->num_cells);
+	l = tmp;
+	q->st.hp = hp;
+	q->st.hp_num = hp_num;
+	trim_heap(q);
+	CHECKED(undo_on_backtrack(q, l, UNDO_CELLS));
 	e->c.val_attrs = l;
 	return true;
 }
@@ -185,7 +189,7 @@ static bool bif_get_atts_2(query *q)
 		if (is_nil(l))
 			return false;
 
-		return unify(q, p2, p2_ctx, l, q->st.curr_fp);
+		return unify(q, p2, p2_ctx, l, q->st.cur_ctx);
 	}
 
 	cell *attr = p2;
@@ -292,25 +296,25 @@ static bool bif_sys_list_attributed_2(query *q)
 		collect_vars(q, c->val_attrs, c_ctx);
 
 		for (unsigned k = 0; k < q->tab_idx; k++) {
-			const frame *f = GET_FRAME(q->pl->tabs[k].ctx);
-			slot *e = get_slot(q, f, q->pl->tabs[k].var_num);
+			const frame *f = GET_FRAME(q->tabs[k].ctx);
+			slot *e = get_slot(q, f, q->tabs[k].var_num);
 			cell *c = deref(q, &e->c, e->c.val_ctx);
 
 			if (!c->val_attrs)
 				continue;
 
-			//if (!q->pl->tabs[k].ctx)
+			//if (!q->tabs[k].ctx)
 			//	continue;
 
 			cell tmp;
-			make_ref(&tmp, q->pl->tabs[k].var_num, q->pl->tabs[k].ctx);
+			make_ref(&tmp, q->tabs[k].var_num, q->tabs[k].ctx);
 			append_list(q, &tmp);
 		}
 	}
 
 	cell *l = end_list(q);
 	CHECKED(l);
-	return unify(q, p2, p2_ctx, l, q->st.curr_fp);
+	return unify(q, p2, p2_ctx, l, q->st.cur_ctx);
 }
 
 static bool bif_sys_attributed_var_1(query *q)
@@ -326,7 +330,7 @@ static bool bif_sys_attributed_var_1(query *q)
 
 	cell *l = c->val_attrs;
 	pl_ctx l_ctx = c_ctx;
-	init_tmp_heap(q);
+	bool any = false;
 	LIST_HANDLER(l);
 
 	while (is_iso_list(l)) {
@@ -334,21 +338,17 @@ static bool bif_sys_attributed_var_1(query *q)
 		h = deref(q, h, l_ctx);
 		cell *h1 = deref(q, h+1, l_ctx);
 
-		if (!is_nil(h1))
-			append_list(q, h1);
+		if (!is_nil(h1)) {
+			any = true;
+			break;
+		}
 
 		l = LIST_TAIL(l);
 		l = deref(q, l, l_ctx);
 		l_ctx = q->latest_ctx;
 	}
 
-	l = end_list(q);
-	CHECKED(l);
-
-	if (is_nil(l))
-		return false;
-
-	return true;
+	return any;
 }
 
 static bool bif_sys_unattributed_var_1(query *q)
@@ -364,7 +364,7 @@ typedef struct {
 
 static void set_occurs(unsigned var_num, pl_ctx val_ctx, cell *c, pl_ctx c_ctx)
 {
-	for (unsigned num_cells = c->num_cells; num_cells--; c++) {
+	for (int num_cells = c->num_cells; num_cells--; c++) {
 		if (!is_var(c))
 			continue;
 
@@ -388,18 +388,14 @@ static bool bif_sys_undo_trail_2(query *q)
 	GET_FIRST_ARG(p1,var);
 	GET_NEXT_ARG(p2,var);
 
-	if (q->undo_hi_tp == q->undo_lo_tp) {
-		unify(q, p1, p1_ctx, make_nil(), q->st.curr_fp);
-		return true;
-	}
-
+	assert(q->undo_hi_tp > q->undo_lo_tp);
 	pl_idx slots = q->undo_hi_tp - q->undo_lo_tp;
-	bind_state *save = malloc(sizeof(bind_state)+(sizeof(slot)*slots));
+	bind_state *save = TPL_malloc(sizeof(bind_state)+(sizeof(slot)*slots));
 	CHECKED(save);
 	save->b.ptr = save->b.ptr2 = NULL;
 	save->lo_tp = q->undo_lo_tp;
 	save->hi_tp = q->undo_hi_tp;
-	CHECKED(init_tmp_heap(q), free(save));
+	CHECKED(init_tmp_heap(q), TPL_free(save));
 
 	for (pl_idx i = q->undo_lo_tp, j = 0; i < q->undo_hi_tp; i++, j++) {
 		const trail *tr = q->trails + i;
@@ -423,16 +419,16 @@ static bool bif_sys_undo_trail_2(query *q)
 		tmp[1] = lhs;
 		tmp[2] = rhs;
 		append_list(q, tmp);
-		init_cell(&e->c);
+		memset(e, 0, sizeof(slot));
 		e->c.val_attrs = tr->attrs;
 	}
 
 	cell *tmp = end_list(q);
-	CHECKED(tmp, free(save));
-	unify(q, p1, p1_ctx, tmp, q->st.curr_fp);
+	CHECKED(tmp, TPL_free(save));
+	unify(q, p1, p1_ctx, tmp, q->st.cur_ctx);
 	cell tmp2;
 	make_blob(&tmp2, &save->b);
-	unify(q, p2, p2_ctx, &tmp2, q->st.curr_fp);
+	unify(q, p2, p2_ctx, &tmp2, q->st.cur_ctx);
 	return true;
 }
 
@@ -456,7 +452,7 @@ static bool bif_sys_mark_start_1(query * q)
 	GET_FIRST_ARG(p1,var);
 	cell mark;
 	make_uint(&mark, q->st.tp);
-	unify(q, p1, p1_ctx, &mark, q->st.curr_fp);
+	unify(q, p1, p1_ctx, &mark, q->st.cur_ctx);
 	return true;
 }
 
@@ -465,6 +461,7 @@ bool do_post_unify_hook(query *q, bool is_builtin)
 	q->run_hook = false;
 	q->undo_lo_tp = q->before_hook_tp;
 	q->undo_hi_tp = q->st.tp;
+	//printf("*** post_unify_hook lo=%u, hi=%u\n", q->undo_lo_tp, q->undo_hi_tp);
 	cell *tmp = alloc_heap(q, 3);
 	CHECKED(tmp);
 	make_instr(tmp+0, g_true_s, bif_iso_true_0, 0, 0);

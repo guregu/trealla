@@ -23,7 +23,6 @@ typedef struct {
 	list_refcnt cnt;
 } list;
 
-void list_init(list *l);
 void list_push_front(list *l, void *new);
 void list_push_back(list *l, void *new);
 void list_insert_after(list *l, void *old, void *new);
@@ -31,28 +30,12 @@ void *list_remove(list *l, void *old);
 void *list_pop_front(list *l);
 void *list_pop_back(list *l);
 
-unsigned long long list_count(list *l);
 void *list_front(list *l);
 void *list_back(list *l);
 void *list_prev(void *n);
 void *list_next(void *n);
 
-// This is an external list
+inline static void list_init(list *l) { l->front = l->back = 0; l->cnt = 0; }
 
-typedef struct lxnode_ {
-	struct lxnode_ *prev, *next;
-	void *entry;
-} lxnode;
+inline static int64_t list_count(list *l) { return l->cnt; }
 
-typedef struct {
-	lxnode *front, *back;
-	unsigned long long cnt;
-} listx;
-
-void listx_init(listx *l);
-void listx_push_front(listx *l, void *e);
-void listx_push_back(listx *l, void *e);
-void *listx_pop_front(listx *l);
-void *listx_pop_back(listx *l);
-
-unsigned long long listx_count(listx *l);

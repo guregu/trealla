@@ -66,10 +66,11 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define MAX_VARS 1024
 #define MAX_QUEUES 256
 #define MAX_MODULES 1024
-#define MAX_IGNORES 64000
-#define MAX_STREAMS 1024
-#define MAX_THREADS 2048
-#define MAX_ACTUAL_THREADS 256	// Does nothing
+#define MAX_IGNORES (1024*8)
+#define MAX_TABS 64000
+#define MAX_STREAMS 4096
+#define MAX_THREADS 4096
+#define MAX_ACTUAL_THREADS MAX_THREADS
 
 #define STREAM_BUFLEN 1024
 
@@ -85,8 +86,6 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define is_float(c) ((c)->tag == TAG_FLOAT)
 #define is_rational(c) ((c)->tag == TAG_RATIONAL)
 #define is_indirect(c) ((c)->tag == TAG_INDIRECT)
-#define is_dbid(c) ((c)->tag == TAG_DBID)
-#define is_kvid(c) ((c)->tag == TAG_KVID)
 #define is_blob(c) ((c)->tag == TAG_BLOB)
 #define is_end(c) ((c)->tag == TAG_END)
 
@@ -142,6 +141,7 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define set_smallint(c,v) (c)->val_int = (v)
 #define get_smalluint(c) (c)->val_uint
 #define set_smalluint(c,v) (c)->val_uint = (v)
+#define get_voidptr(c) (c)->val_voidptr
 
 #define neg_bigint(c) (c)->val_bigint->ival.sign = MP_NEG
 #define neg_smallint(c) (c)->val_int = -llabs((c)->val_int)
@@ -236,9 +236,7 @@ enum {
 	TAG_RATIONAL=6,
 	TAG_INDIRECT=7,
 	TAG_BLOB=8,
-	TAG_DBID=9,
-	TAG_KVID=10,
-	TAG_END=11
+	TAG_END=9
 };
 
 enum {
@@ -273,6 +271,7 @@ enum {
 	FLAG_INTERNED_EVALUABLE=1<<3,
 	FLAG_INTERNED_GROUND=1<<4,
 
+	FLAG_LIVE=1<<11,					// used by bb_b_put/2
 	FLAG_MANAGED=1<<12,					// any ref-counted object
 	FLAG_END=1<<13						// DO NOT USE
 };
@@ -351,6 +350,7 @@ struct cell_ {
 
 	union {
 
+		void *val_voidptr;
 		pl_uint val_uint;
 		pl_int val_int;
 		pl_flt val_float;
@@ -515,9 +515,9 @@ struct frame_ {
 	cell *instr;
 	module *m;
 	uint64_t dbgen, chgen;
+	uint32_t hp_num, initial_slots, actual_slots, max_vars;
+	pl_idx base, op, hp;
 	pl_ctx prev;
-	pl_idx base, op, hp, heap_num, frame_size;
-	unsigned initial_slots, actual_slots, max_vars;
 	bool no_recov:1;
 };
 
@@ -542,12 +542,25 @@ struct run_state_ {
 	};
 
 	uint64_t cpu_time;
-	pl_idx fp, hp, cp, tp, sp, heap_num, qnum;
-	pl_ctx curr_fp;
+	pl_idx fp, hp, cp, tp, sp, hp_num, qnum;
+	pl_ctx cur_ctx;
 };
+
+typedef struct {
+	lnode hdr;							// must be first
+	module *m;
+	union {
+		char *key;
+		cell *c;
+	};
+
+	bool is_bboard:1;
+	bool is_cells:1;
+} undo_item;
 
 struct choice_ {
 	run_state st;
+	list undo;
 	uint64_t gen, chgen, dbgen;
 	pl_idx base, op, initial_slots, actual_slots, skip;
 	bool catchme_retry:1;
@@ -557,7 +570,6 @@ struct choice_ {
 	bool block_catcher:1;
 	bool fail_on_retry:1;
 	bool succeed_on_retry:1;
-	bool no_recov:1;
 	bool reset:1;
 };
 
@@ -580,14 +592,16 @@ struct stream_ {
 	union {
 		char srcbuf[STREAM_BUFLEN];
 		struct {
-			cell *pattern, *curr_yield;
+			cell *pattern, *cur_yield;
 		};
 	};
 
+	unsigned timeout_ms;
 	size_t data_len, alloc_nbytes;
 	int ungetch, srclen, chan, idx;
 	unsigned rows, cols;
 	uint8_t level, eof_action;
+	bool is_active:1;
 	bool at_end_of_file:1;
 	bool bom:1;
 	bool repo:1;
@@ -609,19 +623,19 @@ typedef struct thread_ thread;
 
 struct thread_ {
 	const char *filename;
+	char *alias;
 	prolog *pl;
 	query *q;
-	skiplist *alias;
-	cell *goal, *exit_code, *at_exit, *ball;
+	cell *goal, *exit_code, *at_exit_goal, *ball;
 	list signals, queue;
 #if USE_THREADS
     pthread_t id;
     pthread_cond_t cond;
     pthread_mutex_t mutex;
 #endif
-	unsigned num_vars, at_exit_num_vars, num_locks;
-	int chan, locked_by;
 	lock guard;
+	unsigned num_vars, at_exit_goal_num_vars, num_locks;
+	int chan, locked_by;
 	pl_atomic bool is_active;
 	bool is_init:1;
 	bool is_finished:1;
@@ -635,13 +649,12 @@ struct page_ {
 	page *next;
 	union {
 		cell *cells;
-		frame *frames;
 	};
 	pl_idx idx, page_size;
 	unsigned num;
 };
 
-enum q_retry { QUERY_OK=0, QUERY_NOOP=1, QUERY_RETRY=2, QUERY_EXCEPTION=3 };
+enum q_retry { QUERY_OK=0, QUERY_NOOP=1, QUERY_RETRY=2, QUERY_EXCEPTION=3, QUERY_ABORT=4 };
 enum unknowns { UNK_FAIL=0, UNK_ERROR=1, UNK_WARNING=2, UNK_CHANGEABLE=3 };
 enum occurs { OCCURS_CHECK_FALSE=0, OCCURS_CHECK_TRUE=1, OCCURS_CHECK_ERROR = 2 };
 
@@ -659,6 +672,13 @@ struct prolog_flags_ {
 	bool var_prefix:1;
 };
 
+typedef struct {
+	pl_ctx ctx;
+	pl_idx val_off;
+	unsigned var_num, cnt;
+	bool is_anon;
+} var_item;
+
 struct query_ {
 	lnode hdr;							// must be first
 	query *prev, *next, *parent;
@@ -675,40 +695,40 @@ struct query_ {
 	slot *save_e;
 	query *tasks;
 	skiplist *vars;
-	void *thread_ptr;
-	list dirty;
+	thread *thread_ptr;
+	var_item *tabs;
+	size_t tabs_size;
+	list dirty, undo;
 	cell accum;
 	mpz_t tmp_ival;
 	mpq_t tmp_irat;
 	run_state st;
 	stringbuf sb_buf;
-	char tmpbuf[256];
 	bool ignores[MAX_IGNORES];
 	uint64_t total_goals, total_backtracks, total_retries, total_matches, total_inferences;
 	uint64_t total_tcos, total_recovs, total_matched, total_no_recovs;
 	uint64_t step, qid, tmo_msecs, chgen, cycle_error;
-	uint64_t get_started, autofail_n, yield_at;
+	uint64_t get_started, yield_at;
 	uint64_t cpu_time, time_cpu_last_started, future;
-	unsigned realloc_frames, realloc_choices, realloc_slots, realloc_trails;
 	unsigned max_depth, max_eval_depth, print_idx, tab_idx, dump_var_num;
-	unsigned varno, tab0_varno, curr_engine, curr_chan, my_chan;
-	unsigned s_cnt, retries, popp;
+	unsigned varno, tab0_varno, cur_engine, cur_chan, my_chan;
+	unsigned s_cnt, retries, popp, rand_seed;
+	int autofail_n;
 	pl_ctx latest_ctx, variable_names_ctx, dump_var_ctx, ball_ctx, cont_ctx;
 	pl_idx tmphp;
 	pl_idx frames_size, slots_size, trails_size, choices_size;
-	pl_idx hw_choices, hw_frames, hw_slots, hw_trails, hw_heap_num, hw_deref;
-	pl_idx cp, before_hook_tp, qcnt[MAX_QUEUES];
-	pl_idx heap_size, tmph_size, total_heaps, total_heapsize;
+	pl_idx before_hook_tp, qcnt[MAX_QUEUES];
+	pl_idx heap_size, tmph_size;
 	pl_idx undo_lo_tp, undo_hi_tp;
 	pl_idx q_size[MAX_QUEUES], tmpq_size[MAX_QUEUES], qp[MAX_QUEUES];
 	prolog_flags flags;
 	enum q_retry retry;
-	pl_refcnt thread_signal;
 	int is_cyclic1, is_cyclic2;
 	uint32_t vgen;
 	int8_t halt_code;
 	int8_t quoted;
 	enum { WAS_OTHER, WAS_SPACE, WAS_COMMA, WAS_SYMBOL } last_thing;
+	volatile bool timedout;
 	bool oom:1;
 	bool done:1;
 	bool noskip:1;
@@ -724,7 +744,6 @@ struct query_ {
 	bool portray_vars:1;
 	bool status:1;
 	bool no_recov:1;
-	bool no_recov_compound:1;
 	bool has_vars:1;
 	bool error:1;
 	bool did_throw:1;
@@ -736,6 +755,7 @@ struct query_ {
 	bool no_yield:1;
 	bool silent_toplevel:1;
 	bool is_task:1;
+	bool is_thread:1;
 	bool json:1;
 	bool nl:1;
 	bool fullstop:1;
@@ -757,7 +777,6 @@ struct query_ {
 	bool end_wait:1;
 	bool did_unhandled_exception:1;
 	bool access_private:1;
-	bool in_retractall:1;
 	bool in_retract:1;
 };
 
@@ -838,7 +857,7 @@ struct module_ {
 	parser *p;
 	FILE *fp;
 	const char *filename, *name, *actual_filename;
-	skiplist *index, *ops, *defops;
+	skiplist *index, *ops, *defops, *keyval;
 	loaded_file *loaded_files;
 	lock guard;
 	list predicates;
@@ -859,33 +878,23 @@ struct module_ {
 	bool run_init:1;
 };
 
-typedef struct {
-	pl_ctx ctx;
-	pl_idx val_off;
-	unsigned var_num, cnt;
-	bool is_anon;
-} var_item;
-
 struct prolog_ {
 	stream streams[MAX_STREAMS];
 	thread threads[MAX_THREADS];
 	module *modmap[MAX_MODULES];
-	struct { pl_idx tab1[MAX_IGNORES], tab2[MAX_IGNORES]; };
+	struct { pl_idx tab1[MAX_TABS], tab2[MAX_TABS]; };
 	list modules;
 	module *system_m, *user_m, *m, *dcgs;
-	var_item *tabs;
 	parser *p;
-	skiplist *biftab, *keyval, *help, *fortab;
+	skiplist *biftab, *help, *fortab, *alias;
 	FILE *logfp;
 	lock guard;
-	size_t tabs_size;
 	uint64_t s_last, s_cnt, seed, thr_cnt;
 	pl_refcnt q_cnt, dbgen;
 	unsigned next_mod_id, def_max_depth, my_chan;
 	unsigned current_input, current_output, current_error;
-	pl_uint rnd_seed;
-	int8_t halt_code, opt;
-	bool rnd_first_time:1;
+	int8_t halt_code, opt, limit;
+	pl_refcnt rnd_first_time;
 	bool def_quoted:1;
 	bool def_double_quotes:1;
 	bool is_redo:1;
@@ -924,10 +933,6 @@ inline static void share_cell_(const cell *c)
 		c->val_bigint->refcnt++;
 	else if (is_blob(c))
 		c->val_blob->refcnt++;
-	else if (is_dbid(c))
-		c->val_blob->refcnt++;
-	else if (is_kvid(c))
-		c->val_blob->refcnt++;
 }
 
 #define unshare_cell(c) if (is_managed(c)) unshare_cell_(c)
@@ -936,44 +941,26 @@ inline static void unshare_cell_(cell *c)
 {
 	if (is_strbuf(c)) {
 		if (--c->val_strb->refcnt == 0) {
-			free(c->val_strb);
+			TPL_free(c->val_strb);
 			c->tag = TAG_EMPTY;
 		}
 	} else if (is_bigint(c)) {
 		if (--c->val_bigint->refcnt == 0)	{
 			mp_int_clear(&c->val_bigint->ival);
-			free(c->val_bigint);
+			TPL_free(c->val_bigint);
 			c->tag = TAG_EMPTY;
 		}
 	} else if (is_rational(c)) {
 		if (--c->val_bigint->refcnt == 0)	{
 			mp_rat_clear(&c->val_bigint->irat);
-			free(c->val_bigint);
+			TPL_free(c->val_bigint);
 			c->flags = 0;
 		}
 	} else if (is_blob(c)) {
 		if (--c->val_blob->refcnt == 0) {
-			free(c->val_blob->ptr2);
-			free(c->val_blob->ptr);
-			free(c->val_blob);
-			c->tag = TAG_EMPTY;
-		}
-	} else if (is_dbid(c)) {
-		if (--c->val_blob->refcnt == 0) {
-			module *m = (module*)c->val_blob->ptr;
-			const char *ref = (char*)c->val_blob->ptr2;
-			do_erase(m, ref);
-			free(c->val_blob->ptr2);
-			free(c->val_blob);
-			c->tag = TAG_EMPTY;
-		}
-	} else if (is_kvid(c)) {
-		if (--c->val_blob->refcnt == 0) {
-			module *m = (module*)c->val_blob->ptr;
-			const char *ref = (char*)c->val_blob->ptr2;
-			sl_del(m->pl->keyval, ref);
-			free(c->val_blob->ptr2);
-			free(c->val_blob);
+			TPL_free(c->val_blob->ptr2);
+			TPL_free(c->val_blob->ptr);
+			TPL_free(c->val_blob);
 			c->tag = TAG_EMPTY;
 		}
 	}
@@ -1057,15 +1044,6 @@ inline static int fake_strcmp(const void *ptr1, const void *ptr2, const void *pa
 	return strcmp(ptr1, ptr2);
 }
 
-inline static void init_cell(cell *c)
-{
-	c->tag = TAG_EMPTY;
-	c->flags = 0;
-	c->num_cells = 0;
-	c->arity = 0;
-	c->val_attrs = NULL;
-}
-
 inline static void predicate_delink(predicate *pr, rule *r)
 {
 	if (r->prev) r->prev->next = r->next;
@@ -1102,7 +1080,7 @@ int get_named_stream(prolog *pl, const char *name, size_t len);
 	size_t tmp_print_len = snprintf(tmp_print_buf,							\
 		sizeof(tmp_print_buf), fmt, __VA_ARGS__);							\
 	if ((pl) && is_live_stream(FD_TO_STREAM(pl, fp)))						\
-		net_write(tmp_print_buf, tmp_print_len, FD_TO_STREAM(pl, fp));		\
+		tpl_write(tmp_print_buf, tmp_print_len, FD_TO_STREAM(pl, fp));		\
 	else																	\
 		fprintf(fp, fmt, __VA_ARGS__); 										\
 } while(0)
@@ -1117,3 +1095,8 @@ int get_named_stream(prolog *pl, const char *name, size_t len);
 inline static bool is_empty(const cell *c) {
 	return c->tag == TAG_EMPTY;
 }
+
+#define CHECK_SENTINEL(expr, err_sentinel, ...) CHECK_SENTINEL_((expr), err_sentinel, ## __VA_ARGS__, error=true)
+#define CHECK_SENTINEL_(expr, err_sentinel, on_error, ...) do { if((expr) == err_sentinel){on_error;}} while (0)
+
+#define check_error(expr, ...) CHECK_SENTINEL(expr, 0, __VA_ARGS__; return 0)

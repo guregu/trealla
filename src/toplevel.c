@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <errno.h>
 #include <signal.h>
 
 #include "history.h"
@@ -11,7 +12,7 @@ static void show_goals(query *q, int num)
 {
 	frame *f = GET_CURR_FRAME();
 	cell *c = q->st.instr;
-	pl_ctx c_ctx = q->st.curr_fp;
+	pl_ctx c_ctx = q->st.cur_ctx;
 
 	while (c && num--) {
 		printf(" [%llu] ", (long long unsigned)c_ctx);
@@ -34,16 +35,26 @@ static void show_goals(query *q, int num)
 
 int check_interrupt(query *q)
 {
+#ifndef __wasi__
 #ifndef _WIN32
-	if (g_tpl_interrupt == SIGALRM) {
-		g_tpl_interrupt = 0;
-		signal(SIGINT, &sigfn);
+	if (q->timedout) {
+		q->timedout = false;
 
-		if (!throw_error(q, q->st.instr, q->st.curr_fp, "time_limit_exceeded", "timed_out"))
+		if (!throw_error(q, q->st.instr, q->st.cur_ctx, "time_limit_exceeded", "timed_out"))
 			q->retry = true;
 
 		return 0;
 	}
+
+	if (g_tpl_interrupt == SIGALRM) {
+		g_tpl_interrupt = 0;
+
+		if (!throw_error(q, q->st.instr, q->st.cur_ctx, "time_limit_exceeded", "timed_out"))
+			q->retry = true;
+
+		return 0;
+	}
+#endif
 #endif
 
 	if (!q || !q->top || !q->top->interactive) {
@@ -52,7 +63,7 @@ int check_interrupt(query *q)
 	}
 
 	g_tpl_interrupt = 0;
-	signal(SIGINT, &sigfn);
+	signal(SIGINT, &g_sigfn);
 
 	for (;;) {
 		printf("\nAction or (h)elp: ");
@@ -96,7 +107,7 @@ int check_interrupt(query *q)
 
 		if (isdigit(ch)) {
 			q->fail_on_retry = true;
-			q->autofail_n = isdigit(ch) ? (unsigned)ch - '0' : UINT_MAX;
+			q->autofail_n = isdigit(ch) ? (unsigned)ch - '0' : INT_MAX;
 			break;
 		}
 
@@ -136,7 +147,7 @@ bool check_redo(query *q)
 
 	q->retries++;
 
-	if (q->do_dump_vars && q->cp) {
+	if (q->do_dump_vars && q->st.cp) {
 		dump_vars(q, true);
 
 		if (!q->pl->did_dump_vars) {
@@ -155,7 +166,7 @@ bool check_redo(query *q)
 	fflush(stdout);
 
 	if (q->pl->is_query)
-		return q->cp;
+		return q->st.cp;
 
 	if (q->pl->autofail || (q->fail_on_retry && (q->autofail_n > 1))) {
 		q->autofail_n--;
@@ -204,7 +215,7 @@ bool check_redo(query *q)
 			q->retry = QUERY_RETRY;
 			q->pl->did_dump_vars = false;
 			q->fail_on_retry = true;
-			q->autofail_n = isdigit(ch) ? (unsigned)ch - '0' : ch == 'f' ? 5-(q->retries%5) : UINT_MAX;
+			q->autofail_n = isdigit(ch) ? (unsigned)ch - '0' : ch == 'f' ? 5-(q->retries%5) : INT_MAX;
 			break;
 		}
 
@@ -234,7 +245,7 @@ bool check_redo(query *q)
 
 		if (isdigit(ch)) {
 			q->fail_on_retry = true;
-			q->autofail_n = isdigit(ch) ? (unsigned)ch - '0' : UINT_MAX;
+			q->autofail_n = isdigit(ch) ? (unsigned)ch - '0' : INT_MAX;
 			break;
 		}
 
@@ -276,13 +287,13 @@ static void	clear_results()
 	while (g_items) {
 		item *save = g_items;
 		g_items = g_items->next;
-		free(save);
+		TPL_free(save);
 	}
 }
 
 static void add_result(int num, cell *c, pl_ctx c_ctx)
 {
-	item *ptr = malloc(sizeof(item));
+	item *ptr = TPL_malloc(sizeof(item));
 	ENSURE(ptr);
 	ptr->c = c;
 	ptr->c_ctx = c_ctx;
@@ -331,7 +342,7 @@ static int varunformat(const char *s)
 
 bool query_redo(query *q)
 {
-	if (!q->cp)
+	if (!q->st.cp)
 		return false;
 
 	q->is_redo = true;
@@ -350,11 +361,6 @@ void dump_vars(query *q, bool partial)
 	q->is_dump_vars = true;
 	q->tab_idx = 0;
 	clear_write_options(q);
-
-	// Build the ignore list for var name clashes....
-
-	for (unsigned i = 0; i < MAX_IGNORES; i++)
-		q->ignores[i] = false;
 
 	for (unsigned i = 0; i < p->num_vars; i++) {
 		int j;
@@ -489,7 +495,7 @@ void dump_vars(query *q, bool partial)
 		any = true;
 	}
 
-	bool any_atts = /*any &&*/ any_attributed(q);
+	bool any_atts = /*any &&*/ p->num_vars && any_attributed(q);
 
 	if (!q->pl->is_query) {
 		if (any && any_atts)
@@ -511,7 +517,7 @@ void dump_vars(query *q, bool partial)
 		cell p1[2];
 		make_instr(p1+0, new_atom(q->pl, "dump_attvars_"), NULL, 1, 1);
 		make_atom(p1+1, any ? g_true_s : g_false_s);
-		cell *tmp = prepare_call(q, CALL_SKIP, p1, q->st.curr_fp, 1);
+		cell *tmp = prepare_call(q, CALL_SKIP, p1, q->st.cur_ctx, 1);
 		pl_idx num_cells = 2;
 		make_end(tmp+num_cells);
 		q->st.instr = tmp;

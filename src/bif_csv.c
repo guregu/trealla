@@ -97,9 +97,9 @@ bool do_parse_csv_line(query *q, parser *p, csv *params, const char *src, cell *
 				cell tmp;
 				int vnbr = create_vars(q, 1);
 				CHECKED(vnbr != -1);
-				make_ref(&tmp, vnbr, q->st.curr_fp);
+				make_ref(&tmp, vnbr, q->st.cur_ctx);
 				CHECKED(make_stringn(&tmpc, SB_cstr(pr), SB_strlen(pr)));
-				unify(q, &tmpc, q->st.curr_fp, &tmp, q->st.curr_fp);
+				unify(q, &tmpc, q->st.cur_ctx, &tmp, q->st.cur_ctx);
 				unshare_cell(&tmpc);
 			} else
 				make_atom(&tmpc, g_nil_s);
@@ -107,9 +107,9 @@ bool do_parse_csv_line(query *q, parser *p, csv *params, const char *src, cell *
 			cell tmp;
 			int vnbr = create_vars(q, 1);
 			CHECKED(vnbr != -1);
-			make_ref(&tmp, vnbr, q->st.curr_fp);
+			make_ref(&tmp, vnbr, q->st.cur_ctx);
 			CHECKED(make_cstringn(&tmpc, SB_cstr(pr), SB_strlen(pr)));
-			unify(q, &tmpc, q->st.curr_fp, &tmp, q->st.curr_fp);
+			unify(q, &tmpc, q->st.cur_ctx, &tmp, q->st.cur_ctx);
 			unshare_cell(&tmpc);
 		}
 
@@ -146,9 +146,9 @@ bool do_parse_csv_line(query *q, parser *p, csv *params, const char *src, cell *
 				cell tmp;
 				int vnbr = create_vars(q, 1);
 				CHECKED(vnbr != -1);
-				make_ref(&tmp, vnbr, q->st.curr_fp);
+				make_ref(&tmp, vnbr, q->st.cur_ctx);
 				CHECKED(make_stringn(&tmpc, SB_cstr(pr), SB_strlen(pr)));
-				unify(q, &tmpc, q->st.curr_fp, &tmp, q->st.curr_fp);
+				unify(q, &tmpc, q->st.cur_ctx, &tmp, q->st.cur_ctx);
 				unshare_cell(&tmpc);
 			} else
 				make_atom(&tmpc, g_nil_s);
@@ -156,9 +156,9 @@ bool do_parse_csv_line(query *q, parser *p, csv *params, const char *src, cell *
 			cell tmp;
 			int vnbr = create_vars(q, 1);
 			CHECKED(vnbr != -1);
-			make_ref(&tmp, vnbr, q->st.curr_fp);
+			make_ref(&tmp, vnbr, q->st.cur_ctx);
 			CHECKED(make_cstringn(&tmpc, SB_cstr(pr), SB_strlen(pr)));
-			unify(q, &tmpc, q->st.curr_fp, &tmp, q->st.curr_fp);
+			unify(q, &tmpc, q->st.cur_ctx, &tmp, q->st.cur_ctx);
 			unshare_cell(&tmpc);
 		}
 
@@ -184,24 +184,24 @@ bool do_parse_csv_line(query *q, parser *p, csv *params, const char *src, cell *
 	if ((params->arity > 0) && (args != params->arity)) {
 		cell tmp;
 		make_int(&tmp, params->arity);
-		return throw_error(q, &tmp, q->st.curr_fp, "domain_error", "row_arity");
+		return throw_error(q, &tmp, q->st.cur_ctx, "domain_error", "row_arity");
 	}
 
-	cell *l = params->functor ? end_structure(q) : end_list(q);
+	cell *l = params->functor ? end_structure_heap(q) : end_list(q);
 	CHECKED(l);
 
 	if (p2)
-		return unify(q, p2, p2_ctx, l, q->st.curr_fp);
+		return unify(q, p2, p2_ctx, l, q->st.cur_ctx);
 
 	bool found = false, evaluable = false;
 
 	if (get_builtin_term(q->st.m, l, &found, &evaluable), found && !evaluable) {
 		if (!GET_OP(l))
-			return throw_error(q, l, q->st.curr_fp, "permission_error", "modify,static_procedure");
+			return throw_error(q, l, q->st.cur_ctx, "permission_error", "modify,static_procedure");
 	}
 
 	if (!assertz_to_db(q->st.m, 0, l, false))
-		return throw_error(q, l, q->st.curr_fp, "permission_error", "modify_static_procedure");
+		return throw_error(q, l, q->st.cur_ctx, "permission_error", "modify_static_procedure");
 
 	return true;
 }
@@ -225,7 +225,7 @@ bool bif_parse_csv_line_3(query *q)
 	bool trim = false, numbers = false, use_strings = is_string(p1), do_assert = false;
 	const char *functor = NULL;
 	int sep = ',', quote = '"';
-	unsigned arity = 0;
+	int arity = 0;
 	LIST_HANDLER(p3);
 
 	while (is_list(p3)) {
@@ -275,7 +275,7 @@ bool bif_parse_csv_file_2(query *q)
 	bool header = false, comments = false;
 	const char *functor = NULL;
 	int sep = ',', quote = '"', comment = '#';
-	unsigned arity = 0;
+	int arity = 0;
 	LIST_HANDLER(p3);
 	const char *ext = strrchr(C_STR(q, p1), '.');
 	parser *p = parser_create(q->st.m);
@@ -346,7 +346,7 @@ bool bif_parse_csv_file_2(query *q)
 
 		if (!do_parse_csv_line(q, p, &params, line, NULL, 0)) {
 			//fprintf(stderr, "Error: line %u\n", line_num);
-			free(p->save_line);
+			TPL_free(p->save_line);
 			p->save_line = NULL;
 			fclose(p->fp);
 			p->fp = NULL;
@@ -358,7 +358,7 @@ bool bif_parse_csv_file_2(query *q)
 		q->st.hp = save_hp;
 	}
 
-	free(p->save_line);
+	TPL_free(p->save_line);
 	fclose(p->fp);
 	parser_destroy(p);
 
@@ -386,7 +386,7 @@ static bool do_write_csv_line(query *q, parser* p, csv *params, cell *l, pl_ctx 
 			return false;
 		}
 
-		free(dst);
+		TPL_free(dst);
 
 		l = LIST_TAIL(l);
 		l = deref(q,l,l_ctx);
@@ -409,7 +409,7 @@ bool bif_write_csv_file_3(query *q)
 	bool header = false, comments = false, append = false;
 	const char *functor = NULL;
 	int sep = ',', quote = '"', comment = '#';
-	unsigned arity = 0;
+	int arity = 0;
 	LIST_HANDLER(p3);
 	const char *ext = strrchr(C_STR(q, p1), '.');
 	parser *p = parser_create(q->st.m);

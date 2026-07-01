@@ -13,39 +13,35 @@ typedef struct {
 	size_t buf_size;
 } stringbuf;
 
-#define SB(pr) stringbuf pr##_buf;								\
-	SB_init(pr);
-
-#define SB_alloc(pr,len) stringbuf pr##_buf; 					\
-	pr##_buf.buf_size = len;									\
-	pr##_buf.buf = malloc((len)+1);								\
-	ENSURE(pr##_buf.buf);										\
-	pr##_buf.dst = pr##_buf.buf;								\
-	*pr##_buf.dst = '\0';
-
-#define SB_check(pr,len) {										\
-	size_t rem = pr##_buf.buf_size - SB_strlen(pr);				\
-	if ((size_t)((len)+1) >= rem) {								\
-		size_t offset = SB_strlen(pr);							\
-		if (pr##_buf.buf != pr##_buf.tmpbuf) {					\
-			pr##_buf.buf = realloc(pr##_buf.buf, 				\
-				(pr##_buf.buf_size += ((len)-rem)) + 256 + 1);	\
-		} else {												\
-			pr##_buf.buf = malloc((pr##_buf.buf_size += 		\
-				((len)-rem)) + 256 + 1); 						\
-			if (pr##_buf.buf) 									\
-				memcpy(pr##_buf.buf, pr##_buf.tmpbuf, offset+1);\
-		}														\
-		ENSURE(pr##_buf.buf);									\
-		pr##_buf.dst = pr##_buf.buf + offset;					\
-	}															\
-}
+#define SB(pr) stringbuf pr##_buf; SB_init(pr);
 
 #define SB_init(pr) {											\
 	pr##_buf.buf_size = sizeof(pr##_buf.tmpbuf);				\
 	pr##_buf.buf = pr##_buf.tmpbuf;								\
 	pr##_buf.dst = pr##_buf.buf;								\
 	if (pr##_buf.buf) pr##_buf.dst[0] = '\0';					\
+}
+
+#define SB_alloc(pr,len) stringbuf pr##_buf; 					\
+	pr##_buf.buf_size = len;									\
+	pr##_buf.buf = TPL_malloc((len)+1024+1);								\
+	ENSURE(pr##_buf.buf);										\
+	pr##_buf.dst = pr##_buf.buf;								\
+	*pr##_buf.dst = '\0';
+
+#define SB_check(pr,len) {												\
+	if ((pr##_buf.dst + (len)) >= (pr##_buf.buf + pr##_buf.buf_size)) {	\
+		size_t offset = SB_strlen(pr);									\
+		if (pr##_buf.buf != pr##_buf.tmpbuf) {							\
+			pr##_buf.buf = TPL_realloc(pr##_buf.buf, pr##_buf.buf_size += (len + 1024));	\
+			ENSURE(pr##_buf.buf);										\
+		} else {														\
+			pr##_buf.buf = TPL_malloc(pr##_buf.buf_size += (len + 1024));	\
+			ENSURE(pr##_buf.buf);										\
+			memcpy(pr##_buf.buf, pr##_buf.tmpbuf, offset+1);			\
+		}																\
+		pr##_buf.dst = pr##_buf.buf + offset;							\
+	}																	\
 }
 
 #define SB_strlen(pr) (pr##_buf.dst - pr##_buf.buf)
@@ -93,7 +89,7 @@ typedef struct {
 	char *s2 = (s);												\
 	if (s2) {													\
 		SB_strcpy(pr, s2);										\
-		free(s2);												\
+		TPL_free(s2);												\
 	}															\
 }
 
@@ -110,7 +106,7 @@ typedef struct {
 	char *s2 = (s);												\
 	if (s2) {													\
 		SB_strcat(pr, s2);										\
-		free(s2);												\
+		TPL_free(s2);												\
 	}															\
 }
 
@@ -125,7 +121,7 @@ typedef struct {
 #define SB_sprintf(pr,fmt,...) {								\
 	size_t len = snprintf(NULL, 0, fmt, __VA_ARGS__);			\
 	SB_check(pr, len);											\
-	sprintf(pr##_buf.dst, fmt, __VA_ARGS__);					\
+	snprintf(pr##_buf.dst, (pr##_buf.buf_size-(pr##_buf.dst-pr##_buf.buf))+1, fmt, __VA_ARGS__);\
 	pr##_buf.dst += len;										\
 	*pr##_buf.dst = '\0';										\
 }
@@ -146,6 +142,6 @@ typedef struct {
 
 #define SB_free(pr) {											\
 	if (pr##_buf.buf != pr##_buf.tmpbuf)						\
-		free(pr##_buf.buf);										\
+		TPL_free(pr##_buf.buf);										\
 	SB_init(pr);												\
 }

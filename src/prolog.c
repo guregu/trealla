@@ -22,16 +22,16 @@
 #ifndef isatty
 #define isatty(fd) (0)
 #endif
-#else
-#include <unistd.h>
 #endif
-
-void convert_path(char *filename);
 
 static lock g_symtab_guard;
 static skiplist *g_symtab = NULL;
 static size_t s_global_atoms_size = 64000, s_global_atoms_offset = 0;
-static pl_atomic int g_tpl_count = 0;
+pl_atomic int g_tpl_count = 0;
+
+#define MAX_PROLOGS 64
+
+prolog *g_prologs[MAX_PROLOGS] = {0};
 
 pl_idx g_empty_s, g_dot_s, g_cut_s, g_nil_s, g_true_s, g_fail_s;
 pl_idx g_anon_s, g_neck_s, g_eof_s, g_lt_s, g_gt_s, g_eq_s, g_false_s;
@@ -41,7 +41,7 @@ pl_idx g_plus_s, g_minus_s, g_once_s, g_post_unify_hook_s, g_sys_record_key_s;
 pl_idx g_conjunction_s, g_disjunction_s, g_at_s, g_sys_ne_s, g_sys_incr_s;
 pl_idx g_dcg_s, g_throw_s, g_sys_block_catcher_s, g_sys_drop_barrier_s;
 pl_idx g_if_then_s, g_soft_cut_s, g_negation_s, g_none_s;
-pl_idx g_error_s, g_slash_s, g_sys_cleanup_if_det_s;
+pl_idx g_error_s, g_slash_s, g_sys_cleanup_if_det_s, g_dcg_translate_s;
 pl_idx g_goal_expansion_s, g_term_expansion_s, g_tm_s, g_float_s;
 pl_idx g_sys_cut_if_det_s, g_as_s, g_colon_s, g_member_s;
 pl_idx g_caret_s, g_sys_counter_s, g_catch_s, g_memberchk_s;
@@ -52,7 +52,8 @@ pl_idx g_reset_s, g_sys_get_level_s, g_sys_jump_s, g_if_s;
 pl_idx g_sys_call_s, g_sys_cut_s, g_notunify_s, g_sys_module_s;
 pl_idx g_sys_reunify_s, g_sys_undo_s, g_sys_jump_if_nil_s;
 pl_idx g_sys_loop_s, g_sys_end_s, g_sys_create_var_s;
-pl_idx g_sys_match_s, g_double_bar_s;
+pl_idx g_sys_match_s, g_double_bar_s, g_sys_list_s, g_ge_s;
+pl_idx g_sys_abort_s, g_count_s, g_exit_s, g_killed_s;
 pl_idx g_dummy_s;
 
 char *g_global_atoms = NULL;
@@ -87,7 +88,7 @@ static pl_idx add_to_global_atoms(const char *name)
 
 	while ((offset+len+1+1) >= s_global_atoms_size) {
 		size_t nbytes = (size_t)s_global_atoms_size * 3 / 2;
-		void *tmp = realloc(g_global_atoms, nbytes);
+		void *tmp = TPL_realloc(g_global_atoms, nbytes);
 		if (!tmp) return ERR_IDX;
 		g_global_atoms = tmp;
 		memset(g_global_atoms + s_global_atoms_size, 0, nbytes - s_global_atoms_size);
@@ -95,9 +96,7 @@ static pl_idx add_to_global_atoms(const char *name)
 	}
 
 	const size_t s_lim = 1024*1024*1024;
-
-	if ((offset + len + 1) >= s_lim)
-		return ERR_IDX;
+	assert((offset + len + 1) < s_lim);
 
 	memcpy(g_global_atoms + offset, name, len+1);
 	s_global_atoms_offset += len + 1;
@@ -147,6 +146,7 @@ void set_trace(prolog *pl) { pl->trace = true; }
 void set_autofail(prolog *pl) { pl->autofail = true; }
 void set_quiet(prolog *pl) { pl->quiet = true; }
 void set_opt(prolog *pl, int level) { pl->opt = level; }
+void set_limit(prolog *pl, int level) { pl->limit = level; }
 
 bool pl_isatty(prolog* pl) { return isatty(fileno(pl->streams[0].fp)); }
 FILE *pl_stdin(prolog *pl) { return pl->streams[0].fp; }
@@ -163,7 +163,6 @@ bool pl_eval(prolog *pl, const char *s, bool interactive)
 		pl->p->fp = stdin;
 
 	pl->p->interactive = interactive;
-	pl->p->is_command = true;
 	bool ok = run(pl->p, s, true, NULL, 0);
 	if (get_status(pl)) pl->m = pl->p->m;
 	parser_destroy(pl->p);
@@ -178,7 +177,6 @@ bool pl_query(prolog *pl, const char *s, pl_sub_query **subq, unsigned int yield
 
 	pl->p = parser_create(pl->m);
 	if (!pl->p) return false;
-	pl->p->is_command = true;
 	pl->is_query = true;
 	bool ok = run(pl->p, s, true, (query**)subq, yield_time_in_ms);
 	if (get_status(pl)) pl->m = pl->p->m;
@@ -302,10 +300,13 @@ bool pl_restore(prolog *pl, const char *filename)
 
 static void g_destroy()
 {
+// TODO: we want to keep these around in WASI mode
+#ifndef __wasi__
 	sl_destroy(g_symtab);
-	free(g_global_atoms);
-	free(g_tpl_lib);
+	TPL_free(g_global_atoms);
+	TPL_free(g_tpl_lib);
 	deinit_lock(&g_symtab_guard);
+#endif
 }
 
 void ptrfree(const void *key, const void *val, const void *p)
@@ -313,30 +314,22 @@ void ptrfree(const void *key, const void *val, const void *p)
 	builtins *ptr = (void*)val;
 
 	if (ptr->via_directive) {
-		if (ptr->help2) free((void*)ptr->help2);
-		if (ptr->desc) free((void*)ptr->desc);
-		if (ptr->name) free((void*)ptr->name);
-		free((void*)ptr);
+		if (ptr->help2) TPL_free((void*)ptr->help2);
+		if (ptr->desc) TPL_free((void*)ptr->desc);
+		if (ptr->name) TPL_free((void*)ptr->name);
+		TPL_free((void*)ptr);
 	}
 }
 
 void keyfree(const void *key, const void *val, const void *p)
 {
-	free((void*)key);
+	TPL_free((void*)key);
 }
 
 void fake_free(const void *key, const void *val, const void *p)
 {
-	free((void*)key);
-	free((void*)val);
-}
-
-static void keyval_free(const void *key, const void *val, const void *p)
-{
-	free((void*)key);
-	cell *c = (cell*)val;
-	unshare_cells(c, c->num_cells);
-	free((void*)val);
+	TPL_free((void*)key);
+	TPL_free((void*)val);
 }
 
 builtins *get_help(prolog *pl, const char *name, unsigned arity, bool *found, bool *evaluable)
@@ -457,6 +450,11 @@ builtins *get_fn_ptr(void *fn)
 			return ptr;
 	}
 
+	for (builtins *ptr = g_net_bifs; ptr->name; ptr++) {
+		if (ptr->fn == fn)
+			return ptr;
+	}
+
 	for (builtins *ptr = g_ffi_bifs; ptr->name; ptr++) {
 		if (ptr->fn == fn)
 			return ptr;
@@ -537,6 +535,12 @@ void load_builtins(prolog *pl)
 		sl_app(pl->help, ptr->name, ptr);
 	}
 
+	for (const builtins *ptr = g_net_bifs; ptr->name; ptr++) {
+		sl_app(pl->biftab, ptr->name, ptr);
+		if (ptr->name[0] == '$') continue;
+		sl_app(pl->help, ptr->name, ptr);
+	}
+
 	for (const builtins *ptr = g_os_bifs; ptr->name; ptr++) {
 		sl_app(pl->biftab, ptr->name, ptr);
 		if (ptr->name[0] == '$') continue;
@@ -597,7 +601,6 @@ void g_init_lib() {
 
 	if (ptr) {
 		g_tpl_lib = strdup(ptr);
-		convert_path(g_tpl_lib);
 	}
 }
 
@@ -606,7 +609,7 @@ static bool g_init(prolog *pl)
 	bool error = false;
 
 	init_lock(&g_symtab_guard);
-	g_global_atoms = calloc(s_global_atoms_size, 1);
+	g_global_atoms = TPL_calloc(s_global_atoms_size, 1);
 	s_global_atoms_offset = 0;
 
 	CHECK_SENTINEL(g_symtab = sl_create((void*)fake_strcmp, (void*)keyfree, NULL), NULL);
@@ -626,6 +629,7 @@ static bool g_init(prolog *pl)
 	CHECK_SENTINEL(g_empty_s = new_atom(pl, ""), ERR_IDX);
 	CHECK_SENTINEL(g_anon_s = new_atom(pl, "_"), ERR_IDX);
 	CHECK_SENTINEL(g_dcg_s = new_atom(pl, "-->"), ERR_IDX);
+	CHECK_SENTINEL(g_dcg_translate_s = new_atom(pl, "dcg_translate"), ERR_IDX);
 	CHECK_SENTINEL(g_maplist_s = new_atom(pl, "maplist"), ERR_IDX);
 	CHECK_SENTINEL(g_call_s = new_atom(pl, "call"), ERR_IDX);
 	CHECK_SENTINEL(g_catch_s = new_atom(pl, "catch"), ERR_IDX);
@@ -645,6 +649,7 @@ static bool g_init(prolog *pl)
 	CHECK_SENTINEL(g_eof_s = new_atom(pl, "end_of_file"), ERR_IDX);
 	CHECK_SENTINEL(g_lt_s = new_atom(pl, "<"), ERR_IDX);
 	CHECK_SENTINEL(g_gt_s = new_atom(pl, ">"), ERR_IDX);
+	CHECK_SENTINEL(g_ge_s = new_atom(pl, ">="), ERR_IDX);
 	CHECK_SENTINEL(g_eq_s = new_atom(pl, "="), ERR_IDX);
 	CHECK_SENTINEL(g_sys_reunify_s = new_atom(pl, "$reunify"), ERR_IDX);
 	CHECK_SENTINEL(g_sys_undo_s = new_atom(pl, "$undo"), ERR_IDX);
@@ -655,6 +660,7 @@ static bool g_init(prolog *pl)
 	CHECK_SENTINEL(g_slash_s = new_atom(pl, "/"), ERR_IDX);
 	CHECK_SENTINEL(g_goal_expansion_s = new_atom(pl, "goal_expansion"), ERR_IDX);
 	CHECK_SENTINEL(g_term_expansion_s = new_atom(pl, "term_expansion"), ERR_IDX);
+	CHECK_SENTINEL(g_dcg_translate_s = new_atom(pl, "dcg_translate"), ERR_IDX);
 	CHECK_SENTINEL(g_tm_s = new_atom(pl, "tm"), ERR_IDX);
 	CHECK_SENTINEL(g_float_s = new_atom(pl, "float"), ERR_IDX);
 	CHECK_SENTINEL(g_sys_elapsed_s = new_atom(pl, "$elapsed"), ERR_IDX);
@@ -685,13 +691,26 @@ static bool g_init(prolog *pl)
 	CHECK_SENTINEL(g_reset_s = new_atom(pl, "reset"), ERR_IDX);
 	CHECK_SENTINEL(g_ignore_s = new_atom(pl, "ignore"), ERR_IDX);
 	CHECK_SENTINEL(g_if_s = new_atom(pl, "if"), ERR_IDX);
+	CHECK_SENTINEL(g_count_s = new_atom(pl, "count"), ERR_IDX);
 	CHECK_SENTINEL(g_sys_call_s = new_atom(pl, "$call"), ERR_IDX);
 	CHECK_SENTINEL(g_sys_cut_s = new_atom(pl, "$cut"), ERR_IDX);
 	CHECK_SENTINEL(g_sys_module_s = new_atom(pl, "$module"), ERR_IDX);
 	CHECK_SENTINEL(g_sys_loop_s = new_atom(pl, "$LOOP:"), ERR_IDX);
 	CHECK_SENTINEL(g_sys_end_s = new_atom(pl, "$:END"), ERR_IDX);
 	CHECK_SENTINEL(g_sys_create_var_s = new_atom(pl, "$create_var"), ERR_IDX);
+	CHECK_SENTINEL(g_sys_list_s = new_atom(pl, "$list"), ERR_IDX);
+	CHECK_SENTINEL(g_sys_abort_s = new_atom(pl, "$abort"), ERR_IDX);
 	CHECK_SENTINEL(g_double_bar_s = new_atom(pl, DOUBLE_BAR), ERR_IDX);
+	CHECK_SENTINEL(g_exit_s = new_atom(pl, "exit"), ERR_IDX);
+	CHECK_SENTINEL(g_killed_s = new_atom(pl, "killed"), ERR_IDX);
+
+	// We want to avoid touching env vars in WASI mode because Wizer pre-bakes the init during the compile
+#ifndef __wasi__
+	char *ptr = getenv("TPL_LIBRARY_PATH");
+
+	if (ptr)
+		g_tpl_lib = strdup(ptr);
+#endif
 
 #if !defined(_WIN32) && !defined(__wasi__) && !defined(__ANDROID__)
 	struct rlimit rlp;
@@ -725,9 +744,8 @@ void pl_destroy(prolog *pl)
 		module_destroy(m);
 
 	sl_destroy(pl->fortab);
-	sl_destroy(pl->keyval);
 	sl_destroy(pl->help);
-	free(pl->tabs);
+	sl_destroy(pl->alias);
 
 	for (int i = 0; i < MAX_STREAMS; i++) {
 		stream *str = &pl->streams[i];
@@ -735,6 +753,7 @@ void pl_destroy(prolog *pl)
 		if (!is_live_stream(str))
 			continue;
 
+		// TODO: double check these...
 		if (is_map_stream(str))
 			sl_destroy(str->keyval);
 
@@ -744,20 +763,20 @@ void pl_destroy(prolog *pl)
 		if (is_engine_stream(str))
 			query_destroy(str->engine);
 
+#if 0
 		if (is_file_stream(str) && (i > 2) &&
 				((str->fp != stdin)
 				&& (str->fp != stdout)
 				&& (str->fp != stderr))
 			) {
 			fclose(str->fp);
-		}
-
+#endif
 		parser_destroy(str->p);
 		str->p = NULL;
 		sl_destroy(str->alias);
-		free(str->mode);
-		free(str->filename);
-		free(str->data);
+		TPL_free(str->filename);
+		TPL_free(str->mode);
+		TPL_free(str->data);
 	}
 
 	if (pl->p)
@@ -766,7 +785,7 @@ void pl_destroy(prolog *pl)
 	if (!--g_tpl_count)
 		g_destroy();
 
-	free(pl);
+	TPL_free(pl);
 }
 
 prolog *pl_create()
@@ -774,15 +793,14 @@ prolog *pl_create()
 	//printf("*** sizeof(cell) = %u bytes\n", (unsigned)sizeof(cell));
 	//assert(sizeof(cell) == 24);
 
-	prolog *pl = calloc(1, sizeof(prolog));
+	prolog *pl = TPL_calloc(1, sizeof(prolog));
 	if (!pl) return NULL;
 	bool error = false;
 	pl->opt = 1;
 
+	g_prologs[g_tpl_count] = pl;
+
 	if (!g_tpl_count++) {
-#ifndef __wasi__
-		g_init_lib();
-#endif
 		g_init(pl);
 	}
 
@@ -799,14 +817,12 @@ prolog *pl_create()
 				src--;
 
 			*src = '\0';
-			g_tpl_lib = realloc(g_tpl_lib, strlen(g_tpl_lib)+40);
+			g_tpl_lib = TPL_realloc(g_tpl_lib, strlen(g_tpl_lib)+40);
 			strcat(g_tpl_lib, "/library");
 		} else
 			g_tpl_lib = strdup("../library");
 #endif
 	}
-
-	CHECK_SENTINEL(pl->keyval = sl_create((void*)fake_strcmp, (void*)keyval_free, NULL), NULL);
 
 	pl->streams[0].fp = stdin;
 	CHECK_SENTINEL(pl->streams[0].alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL), NULL);
@@ -838,6 +854,7 @@ prolog *pl_create()
 	pl->help = sl_create((void*)fake_strcmp, (void*)ptrfree, NULL);
 	pl->fortab = sl_create((void*)fake_strcmp, NULL, NULL);
 	pl->biftab = sl_create((void*)fake_strcmp, NULL, NULL);
+	pl->alias = sl_create((void*)fake_strcmp, NULL, NULL);
 
 	if (pl->biftab)
 		load_builtins(pl);
@@ -860,28 +877,36 @@ prolog *pl_create()
 
 	pl->user_m->flags.strict_iso = false;
 	pl->m = pl->user_m;
-
+	pl->limit = 1;
 	pl->current_input = 0;		// STDIN
 	pl->current_output = 1;		// STDOUT
 	pl->current_error = 2;		// STDERR
 	pl->def_max_depth = 0;
 	pl->def_quoted = true;
 	pl->def_double_quotes = true;
-	pl->rnd_first_time = true;
+	pl->rnd_first_time = 1;
 	pl->global_bb = true;		// Fow now, as tabling seems to need it
 
 	// In user space...
 
+	set_discontiguous_in_db(pl->user_m, "term_expansion", 2);
+	set_discontiguous_in_db(pl->user_m, "goal_expansion", 2);
 	set_discontiguous_in_db(pl->user_m, "$predicate_property", 3);
-	set_multifile_in_db(pl->user_m, "$predicate_property", 3);
-	set_multifile_in_db(pl->user_m, "portray", 1);
 
+	set_multifile_in_db(pl->user_m, "term_expansion", 2);
+	set_multifile_in_db(pl->user_m, "goal_expansion", 2);
+	set_multifile_in_db(pl->user_m, "portray", 1);
+	set_multifile_in_db(pl->user_m, "$predicate_property", 3);
+	set_multifile_in_db(pl->user_m, "$directive", 1);
+
+	set_dynamic_in_db(pl->user_m, "term_expansion", 2);
+	set_dynamic_in_db(pl->user_m, "goal_expansion", 2);
+	set_dynamic_in_db(pl->user_m, "portray", 1);
 	set_dynamic_in_db(pl->user_m, "$op", 3);
 	set_dynamic_in_db(pl->user_m, "$predicate_property", 3);
 	set_dynamic_in_db(pl->user_m, "$current_prolog_flag", 2);
 	set_dynamic_in_db(pl->user_m, "$stream_property", 2);
 	set_dynamic_in_db(pl->user_m, "$directive", 1);
-	set_dynamic_in_db(pl->user_m, "portray", 1);
 
 	pl->user_m->prebuilt = true;
 	const char *save_filename = pl->user_m->filename;
@@ -916,7 +941,7 @@ prolog *pl_create()
 		for (library *lib = g_libs; lib->name; lib++) {
 			if (!strcmp(lib->name, bootstrap[i])) {
 				size_t len = *lib->len;
-				char *src = malloc(len+1);
+				char *src = TPL_malloc(len+1);
 				check_error(src, pl_destroy(pl));
 				memcpy(src, lib->start, len);
 				src[len] = '\0';
@@ -925,7 +950,7 @@ prolog *pl_create()
 				module *m = load_text(pl->user_m, src, SB_cstr(s1));
 				m->prebuilt = true;
 				SB_free(s1);
-				free(src);
+				TPL_free(src);
 				check_error(m, pl_destroy(pl));
 				found = true;
 				break;

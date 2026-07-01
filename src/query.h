@@ -32,7 +32,7 @@ void do_yield_at(query *q, unsigned int time_in_ms);
 bool check_slot(query *q, unsigned cnt);
 bool check_trail(query *q);
 
-char *url_encode(const char *src, int len, char *dstbuf);
+char *url_encode(const char *src, int len, char *dstbuf, size_t dstlen);
 char *url_decode(const char *src, char *dstbuf);
 bool query_redo(query *q);
 bool has_next_key(query *q);
@@ -43,10 +43,8 @@ int retry_choice(query *q);
 void assign_vars(parser *p, unsigned start, bool rebase);
 bool start(query *q);
 bool match_rule(query *q, cell *p1, pl_ctx p1_ctx, enum clause_type is_retract);
-bool match_clause(query *q, cell *p1, pl_ctx p1_ctx, enum clause_type retract);
-void try_me(query *q, unsigned vars);
+bool match_clause(query *q, cell *p1, pl_ctx p1_ctx, cell **body, enum clause_type retract);
 void call_attrs(query *q, cell *attrs);
-void stash_frame(query *q, unsigned num_vars, bool last_match);
 bool check_redo(query *q);
 void dump_vars(query *q, bool partial);
 int check_interrupt(query *q);
@@ -57,6 +55,9 @@ bool call_check(query *q, cell *tmp2, bool *status, bool calln);
 bool make_slice(query *q, cell *d, const cell *orig, size_t off, size_t n);
 bool match_head(query *q);
 bool check_frame(query *q, unsigned max_vars);
+
+enum undo_item {UNDO_BBOARD, UNDO_CELLS};
+bool undo_on_backtrack(query *q, void *v, enum undo_item type);
 
 bool throw_error(query *q, cell *c, pl_ctx c_ctx, const char *err_type, const char *expected);
 bool throw_error3(query *q, cell *c, pl_ctx c_ctx, const char *err_type, const char *expected, cell *goal);
@@ -88,11 +89,13 @@ void undo_var(query *q, const cell *c, pl_ctx c_ctx);
 bool valid_list(query *q, cell *c, pl_ctx c_ctx);
 void make_call(query *q, cell *tmp);
 void make_call_redo(query *q, cell *tmp);
+void make_call_engine(query *q, cell *tmp, cell* c);
 bool do_post_unify_hook(query *q, bool is_builtin);
 bool any_attributed(query *q);
 bool do_load_file(query *q, cell *p1, pl_ctx p1_ctx);
 bool stream_close(query *q, int n);
 void leave_predicate(query *q, predicate *pr, bool is_final);
+void drop_choice(query *q);
 
 #if USE_THREADS
 bool do_signal(query *q, void *thread_ptr);
@@ -214,12 +217,6 @@ inline static cell *get_body(cell *c)
 	return NULL;
 }
 
-inline static void drop_choice(query *q)
-{
-	if (q->cp)
-		--q->cp;
-}
-
 inline static pl_idx get_ordered_slot_num(const query *q, const frame *f, unsigned var_num)
 {
 	return ((f - q->frames) * 100) + var_num;
@@ -229,7 +226,6 @@ inline static pl_idx get_actual_slot_num(const query *q, const frame *f, unsigne
 {
 	return get_slot(q, f, var_num) - q->slots;
 }
-
 
 #ifdef _WIN32
 typedef intptr_t ssize_t;

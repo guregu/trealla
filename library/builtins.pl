@@ -2,6 +2,39 @@
 :- use_module(library(error)).
 :- use_module(library(lists)).
 
+goal_expansion(maplist(G, L1), Goal) :-
+	nonvar(G), !,
+	term_variables(G, Args),
+	gensym:gensym(maplist_, U),
+	Goal =.. [U,L1,Args],
+	G1 =.. [U,[],Args],
+	'$assertz_static'(G1),
+	G2a =.. [U,[E1|T1],Args],
+	G2b =.. [U,T1,Args],
+	'$assertz_static'((G2a :- call(G, E1), G2b)),
+	true.
+goal_expansion(maplist(G, L1), maplist(G, L1)).
+
+goal_expansion(maplist(G, L1, L2), Goal) :-
+	nonvar(G), !,
+	term_variables(G, Args),
+	gensym:gensym(maplist_, U),
+	Goal =.. [U,L1,L2,Args],
+	G1 =.. [U,[],[],Args],
+	'$assertz_static'(G1),
+	G2a =.. [U,[E1|T1],[E2|T2],Args],
+	G2b =.. [U,T1,T2,Args],
+	'$assertz_static'((G2a :- call(G, E1, E2), G2b)),
+	true.
+goal_expansion(maplist(G, L1, L2), maplist(G, L1, L2)).
+
+goal_expansion(call_det(G, Det), Goal) :-
+	nonvar(G),
+	!,
+	Goal = ('$get_level'(L1), call(G), '$get_level'(L2), (L1 = L2 -> Det = true; Det = false)),
+	true.
+goal_expansion(call_det(G, V), call_det(G, V)).
+
 expand_term((H --> B), Out) :-
 	dcg_translate((H --> B), Out), !.
 
@@ -12,8 +45,8 @@ dcg_translate(TermIn, Term) :-
 :- help(writeln(+term), [iso(false),deprecated(true)]).
 :- help(writeln(+stream,+term), [iso(false),deprecated(true)]).
 
-writeln(T) :- write(T), nl.				% SWI
-writeln(S, T) :- write(S, T), nl.		% SWI
+writeln(T) :- write_term(stdout,T,[nl(true)]).		% SWI-compatible
+writeln(S, T) :- write_term(S,T,[nl(true)]).		% SWI-compatible
 
 :- help(predicate_property(+callable,+term), [iso(true)]).
 
@@ -94,13 +127,8 @@ raw_argv(L) :- current_prolog_flag(raw_argv, L).
 	'$undo_trail'(Vars, State),
 	process_vars_(Vars, [], Goals),
 	'$redo_trail'(State),
-	xmaplist_(Goals).
-
-xmaplist_([]).
-xmaplist_([E|T]) :-
-	once(E),
-	xmaplist_(T).
-
+	maplist(once, Goals),
+	!.
 
 process_vars_([], Goals, Goals).
 process_vars_([Var-Val|Vars], SoFar, Goals) :-
@@ -110,13 +138,38 @@ process_vars_([Var-Val|Vars], SoFar, Goals) :-
 	;	process_vars_(Vars, SoFar, Goals)
 	).
 
-process_var_([], _, _, Goals, Goals).
-process_var_([Att|Atts], Var, Val, SoFar, Goals) :-
+process_var_(Atts, Var, Val, SoFar, Goals) :-
+	% A variable may carry several attributes owned by the same module
+	% (e.g. clpb/clpb_hash). verify_attributes/3 is a per-module hook, so
+	% it must be called once per distinct module, not once per attribute.
+	atts_modules_(Atts, Ms0),
+	sort(Ms0, Ms),
+	process_modules_(Ms, Var, Val, SoFar, Goals).
+
+atts_modules_([], []).
+atts_modules_([Att|Atts], Ms) :-
 	functor(Att, F, A),
-	attribute(M, F, A),
-	M:verify_attributes(Var, Val, NewGoals),
+	(	attribute(M, F, A) ->
+		Ms = [M|Ms0]
+	;	Ms = Ms0
+	),
+	atts_modules_(Atts, Ms0).
+
+process_modules_([], _, _, Goals, Goals).
+process_modules_([M|Ms], Var, Val, SoFar, Goals) :-
+	M:verify_attributes(Var, Val, NewGoals0),
+	modularize(NewGoals0, M, [], NewGoals),
 	append(SoFar, NewGoals, MoreGoals),
-	process_var_(Atts, Var, Val, MoreGoals, Goals).
+	process_modules_(Ms, Var, Val, MoreGoals, Goals).
+
+modularize([], _, Goals, Goals).
+modularize([H|T], M, SoFar, Goals) :-
+	functor(H, F, _),
+	(F = ',' ->
+		modularize(T, M, [H|SoFar], Goals)
+	;
+		modularize(T, M, [M:H|SoFar], Goals)
+	).
 
 term_attvars_([], VsIn, VsIn).
 term_attvars_([H|T], VsIn, VsOut) :-
@@ -378,10 +431,13 @@ print(S, T) :- format(S, "~p", [T]).
 open(F, M, S) :- open(F, M, S, []).
 
 :- meta_predicate(engine_create(?,0,?)).
+:- meta_predicate(engine_create(?,0,?,?)).
 
-engine_create(T, G, S) :- engine_create(T, G, S, []).
+engine_create(T, G, S) :- '$engine_create'(T, G, S, []).
+engine_create(T, G, S, L) :- '$engine_create'(T, G, S, L).
 
 :- help(engine_create(+term,+callable,?stream), [iso(false)]).
+:- help(engine_create(+term,+callable,?stream,+list), [iso(false)]).
 
 engine_post(E, T, R) :-
 	engine_post(E, T),
@@ -410,17 +466,17 @@ term_to_atom(T, S) :- write_term_to_chars(T, [], S).
 
 absolute_file_name(R, A) :- absolute_file_name(R, A, []).
 
-:- help(client(+atom,-atom,-atom,--stream), [iso(false)]).
+:- help('$client'(+atom,-atom,-atom,--stream), [iso(false)]).
 
-client(Url, S) :- client(Url, _, _, S, []).
+'$client'(Url, S) :- '$client'(Url, _, _, S, []).
 
-:- help(client(+atom,-atom,-atom,--stream), [iso(false)]).
+:- help('$client'(+atom,-atom,-atom,--stream), [iso(false)]).
 
-client(Url, Host, Path, S) :- client(Url, Host, Path, S, []).
+'$client'(Url, Host, Path, S) :- '$client'(Url, Host, Path, S, []).
 
-:- help(server(+atom,--stream), [iso(false)]).
+:- help('$server'(+atom,--stream), [iso(false)]).
 
-server(Host, S) :- server(Host, S, []).
+'$server'(Host, S) :- '$server'(Host, S, []).
 
 :- help(load_files(+list), [iso(false)]).
 
@@ -442,15 +498,16 @@ deconsult(Files) :- unload_files(Files).
 
 ?=(X, Y) :- \+ unifiable(X, Y, [_|_]).
 
-:- help(atom_number(+atom,-number), [iso(false)]).
+:- help(atom_number(?atom,?number), [iso(false)]).
 
-atom_number(A, N) :- atom_codes(A,Codes), number_codes(N, Codes).
+atom_number(A, N) :-
+	atom(A),
+	atom_codes(A,Codes), number_codes(N, Codes),
+	!.
+atom_number(A, N) :-
+	number(N),
+	number_codes(N,Codes), atom_codes(A, Codes).
 
-:- help(rational_numerator_denominator(+rational,-integer,-integer), [iso(false)]).
-
-rational_numerator_denominator(R, N, D) :-
-	N is numerator(R),
-	D is denominator(R).
 
 '$skip_list'(Skip, Xs0, Xs) :- '$skip_max_list'(Skip,_, Xs0, Xs).
 
@@ -509,12 +566,6 @@ numberlist_(['$VAR'(N0)|Vars], N0, N) :-
    N1 is N0+1,
    numberlist_(Vars, N1, N).
 
-:- help(read_line_to_codes(+stream,?list), [iso(false)]).
-
-read_line_to_codes(Stream, Codes) :-
-	read_line_to_string(Stream, String),
-	string_codes(String, Codes).
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %
 
@@ -531,6 +582,9 @@ with_mutex(Id, Goal) :-
 
 thread_create(Goal, Id) :-
 	thread_create(Goal, Id, []).
+
+thread_join(Id) :-
+	thread_join(Id, []).
 
 thread_send_message(Term) :-
 	thread_self(Id),
@@ -737,97 +791,34 @@ sre_subst_all_(Reg, TextIn, Subst, L0, L) :-
 		)
 	).
 
-/********************************************************/
-/* Float Approximation                                  */
-/********************************************************/
+% SWI-compatible library(option)
 
-:- help(rationalize(+number,-rational), [iso(false)]).
+option(Opt, Options, _Default) :-
+	memberchk(Opt, Options), !.
+option(Opt, _, Default) :-
+	functor(Opt, _, 1),
+	arg(1, Opt, Default).
 
-/**
- * See also:
- * Continued Fractions on the Stern-Brocot Tree
- * https://www.cut-the-knot.org/blue/ContinuedFractions.shtml
- */
+option(Opt, Options) :-
+	memberchk(Opt, Options).
 
-/**
- * rationalize(X):
- * If X is a number then the function returns an approximate rational number.
- */
-% rationalize(+Number, -Rational)
-rationalize(F, C/B) :- F < 0, !,
-   H is -F,
-   rationalize(H, A/B),
-   C is -A.
-rationalize(F, R) :-
-   rat_start(F, V, W),
-   divmod(V, W, D, U),
-   rat_iter(W/U, D/1, 1/0, F, R).
+findnsols(P1,P2,P3,P4) :-
+	copy_term(f(P2,P3),f(P2b,P3b)),
+	'$findnsols'(P1,P2b,P3b,P4).
 
-% rat_start(+Number, -Integer, -Integer)
-rat_start(F, V, W) :-
-   parts(F, M, E),
-   (E < 0 ->
-       V = M, W is 2^(-E);
-       V is M*E^2, W = 1).
+:- help(findnsols(+integer,+term,+callable,?list), [iso(false)]).
 
-% rat_iter(+Rational, +Rational, +Rational, +Number, -Rational)
-rat_iter(_, X, _, Y, X) :- X =:= Y, !.
-rat_iter(_/0, X, _, _, X) :- !.
-rat_iter(V/W, M/N, P/Q, Y, X) :-
-   divmod(V, W, D, U),
-   R is D*M+P,
-   S is D*N+Q,
-   rat_iter(W/U, R/S, M/N, Y, X).
+process_wait(Pid, Status, Opts) :-
+	'$process_wait'(Pid, Status, Opts).
 
-/********************************************************/
-/* IEEE Simulation                                      */
-/********************************************************/
+:- help(process_wait(+integer,-term,?list), [iso(false)]).
 
-% parts(+Number, -Integer, -Integer)
-parts(F, M, E) :-
-   logb(F, G),
-   E is G-52,
-   U is -E,
-   scalb(F, U, N),
-   M is truncate(N).
+process_wait(Pid, Status) :-
+	'$process_wait'(Pid, Status).
 
-% scalb(+Number, +Integer, -Number)
-scalb(M, E, R) :-
-   R is M*2**E.
+:- help(process_wait(+integer,-term), [iso(false)]).
 
-% logb(+NUmber, -Integer)
-logb(M, E) :-
-   E is floor(log(M)/log(2)).
+thread_join(Tid, Status) :-
+	'$thread_join'(Tid, Status).
 
-goal_expansion(maplist(G, L1), Goal) :-
-	nonvar(G), !,
-	term_variables(G, Args),
-	gensym:gensym(maplist_, U),
-	Goal =.. [U,Args,L1],
-	G1 =.. [U,Args,[]],
-	user:'$assertz'(G1),							% not dynamic
-	G2a =.. [U,Args,[E1|T1]],
-	G2b =.. [U,Args,T1],
-	user:'$assertz'((G2a :- call(G, E1), G2b)),		% not dynamic
-	true.
-goal_expansion(maplist(G, L1), maplist(G, L1)).
-
-goal_expansion(maplist(G, L1, L2), Goal) :-
-	nonvar(G), !,
-	term_variables(G, Args),
-	gensym:gensym(maplist_, U),
-	Goal =.. [U,Args,L1,L2],
-	G1 =.. [U,Args,[],[]],
-	user:'$assertz'(G1),							% not dynamic
-	G2a =.. [U,Args,[E1|T1],[E2|T2]],
-	G2b =.. [U,Args,T1,T2],
-	user:'$assertz'((G2a :- call(G, E1, E2), G2b)),	% not dynamic
-	true.
-goal_expansion(maplist(G, L1, L2), maplist(G, L1, L2)).
-
-goal_expansion(call_det(G, Det), Goal) :-
-	nonvar(G),
-	!,
-	Goal = ('$get_level'(L1), call(G), '$get_level'(L2), (L1 = L2 -> Det = true; Det = false)),
-	true.
-goal_expansion(call_det(G, V), call_det(G, V)).
+:- help(thread_join(+thread,-term), [iso(false)]).

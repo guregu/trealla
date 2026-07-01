@@ -2,10 +2,7 @@
 #include <stdio.h>
 
 #include "module.h"
-#include "prolog.h"
 #include "query.h"
-
-#define is_smallatomic(c) (is_atom(c) || is_smallint(c))
 
 #define DO_DUMP 0
 
@@ -32,7 +29,7 @@ static bool bif_bb_b_put_2(query *q)
 		cell *p1_m = p1 + 1;
 		p1 = p1_m + p1_m->num_cells;
 
-		if (!is_atom(p1_m) || !is_smallatomic(p1))
+		if (!is_atom(p1_m) || !is_smallint_or_atom(p1))
 			return throw_error(q, p1, p1_ctx, "type_error", "atom");
 
 		m = find_module(q->pl, C_STR(q, p1_m));
@@ -49,30 +46,20 @@ static bool bif_bb_b_put_2(query *q)
 
 	if (DO_DUMP) DUMP_TERM2("bb_b_put", tmpbuf, p2, p2_ctx, 1);
 
-	char *key = strdup(tmpbuf);
 	CHECKED(init_tmp_heap(q));
-	cell *tmp = copy_term_to_tmp(q, p2, p2_ctx, false);
+	cell *tmp = clone_term_to_tmp(q, p2, p2_ctx);
 	CHECKED(tmp);
 	pl_idx num_cells = tmp->num_cells;
-	cell *val = malloc(sizeof(cell)*num_cells);
+	cell *val = TPL_malloc(sizeof(cell)*num_cells);
 	CHECKED(val);
 	dup_cells(val, tmp, tmp->num_cells);
-
-	int var_num = create_vars(q, 1);
-	CHECKED(var_num != -1);
-
-	cell c, v;
-	make_ref(&c, var_num, q->st.curr_fp);
-	blob *b = calloc(1, sizeof(blob));
-	b->ptr = (void*)m;
-	b->ptr2 = (void*)strdup(key);
-	make_kvref(&v, b);
-
-	if (!unify(q, &c, q->st.curr_fp, &v, q->st.curr_fp))
-		return false;
+	val->flags |= FLAG_LIVE;
+	char *key = strdup(tmpbuf);
+	CHECKED(key);
+	CHECKED(undo_on_backtrack(q, key, UNDO_BBOARD));
 
 	prolog_lock(q->pl);
-	sl_set(q->pl->keyval, key, val);
+	sl_set(q->st.m->keyval, key, val);
 	prolog_unlock(q->pl);
 
 	return true;
@@ -94,7 +81,7 @@ static bool bif_bb_put_2(query *q)
 		cell *p1_m = p1 + 1;
 		p1 = p1_m + p1_m->num_cells;
 
-		if (!is_atom(p1_m) || !is_smallatomic(p1))
+		if (!is_atom(p1_m) || !is_smallint_or_atom(p1))
 			return throw_error(q, p1, p1_ctx, "type_error", "atom");
 
 		m = find_module(q->pl, C_STR(q, p1_m));
@@ -123,22 +110,31 @@ static bool bif_bb_put_2(query *q)
 	cell *tmp = copy_term_to_tmp(q, p2, p2_ctx, false);
 	CHECKED(tmp);
 	pl_idx num_cells = tmp->num_cells;
-	cell *val = malloc(sizeof(cell)*num_cells);
+	cell *val = TPL_malloc(sizeof(cell)*num_cells);
 	CHECKED(val);
 	dup_cells(val, tmp, tmp->num_cells);
 
 	prolog_lock(q->pl);
 
-	while (sl_del(q->pl->keyval, key1))
+	while (sl_del(q->st.m->keyval, key1))
 		;
 
-	while (sl_del(q->pl->keyval, key2))
+	while (sl_del(q->st.m->keyval, key2))
 		;
 
-	sl_app(q->pl->keyval, key2, val);
+	sl_app(q->st.m->keyval, key2, val);
 	prolog_unlock(q->pl);
 
 	return true;
+}
+
+static cell *bb_import_term_to_heap(query *q, cell *c, pl_ctx c_ctx)
+{
+	const frame *f = GET_CURR_FRAME();
+	cell *tmp = alloc_heap(q, c->num_cells);
+	if (!tmp) return NULL;
+	dup_cells_by_ref(tmp, c, c_ctx, c->num_cells);
+	return tmp;
 }
 
 static bool bif_bb_get_2(query *q)
@@ -156,7 +152,7 @@ static bool bif_bb_get_2(query *q)
 		cell *p1_m = p1 + 1;
 		p1 = p1_m + p1_m->num_cells;
 
-		if (!is_atom(p1_m) || !is_smallatomic(p1))
+		if (!is_atom(p1_m) || !is_smallint_or_atom(p1))
 			return throw_error(q, p1, p1_ctx, "type_error", "atom");
 
 		m = find_module(q->pl, C_STR(q, p1_m));
@@ -172,11 +168,11 @@ static bool bif_bb_get_2(query *q)
 		snprintf(tmpbuf, sizeof(tmpbuf), "%s:%d:b", m->name, (int)get_smallint(p1));
 
 	const char *key = tmpbuf;
-	const void *val;
+	cell *val;
 
 	prolog_lock(q->pl);
 
-	if (!sl_get(q->pl->keyval, key, &val)) {
+	if (!sl_get(q->st.m->keyval, key, (void*)&val)) {
 		if (is_atom(p1))
 			snprintf(tmpbuf, sizeof(tmpbuf), "%s:%s", m->name, C_STR(q, p1));
 		else
@@ -184,25 +180,24 @@ static bool bif_bb_get_2(query *q)
 
 		key = tmpbuf;
 
-		if (!sl_get(q->pl->keyval, key, &val)) {
+		if (!sl_get(q->st.m->keyval, key, (void*)&val)) {
 			prolog_unlock(q->pl);
 			return false;
 		}
 	}
 
 	prolog_unlock(q->pl);
-
-	CHECKED(check_frame(q, MAX_ARITY));
-	try_me(q, MAX_ARITY);
-	cell *tmp = copy_term_to_heap(q, (cell*)val, q->st.fp, false);
+	cell *tmp = val->flags & FLAG_LIVE ?
+		bb_import_term_to_heap(q, val, q->st.cur_ctx) :
+		import_term(q, val, q->st.cur_ctx);
 	CHECKED(tmp);
 	GET_FIRST_ARG(p1x,nonvar);
 	GET_NEXT_ARG(p2,any);
 
-	if (DO_DUMP) DUMP_TERM2("bb_get", tmpbuf, tmp, q->st.curr_fp, 1);
+	if (DO_DUMP) DUMP_TERM2("bb_get", tmpbuf, tmp, q->st.cur_ctx, 1);
 
 	if (is_var(p2) && is_var(tmp)) {
-		const frame *f = GET_FRAME(q->st.curr_fp);
+		const frame *f = GET_FRAME(q->st.cur_ctx);
 		const slot *e = get_slot(q, f, tmp->var_num);
 		const frame *f2 = GET_FRAME(p2_ctx);
 		slot *e2 = get_slot(q, f2, p2->var_num);
@@ -210,7 +205,7 @@ static bool bif_bb_get_2(query *q)
 		return true;
 	}
 
-	return unify(q, p2, p2_ctx, tmp, q->st.curr_fp);
+	return unify(q, p2, p2_ctx, tmp, q->st.cur_ctx);
 }
 
 static bool bif_bb_delete_2(query *q)
@@ -228,7 +223,7 @@ static bool bif_bb_delete_2(query *q)
 		cell *p1_m = p1 + 1;
 		p1 = p1_m + p1_m->num_cells;
 
-		if (!is_atom(p1_m) || !is_smallatomic(p1))
+		if (!is_atom(p1_m) || !is_smallint_or_atom(p1))
 			return throw_error(q, p1, p1_ctx, "type_error", "atom");
 
 		m = find_module(q->pl, C_STR(q, p1_m));
@@ -248,40 +243,38 @@ static bool bif_bb_delete_2(query *q)
 
 	prolog_lock(q->pl);
 
-	if (!sl_get(q->pl->keyval, key, &val)) {
+	if (!sl_get(q->st.m->keyval, key, &val)) {
 		prolog_unlock(q->pl);
 		return false;
 	}
 
-	CHECKED(check_frame(q, MAX_ARITY), prolog_unlock(q->pl));
-	try_me(q, MAX_ARITY);
-	cell *tmp = copy_term_to_heap(q, (cell*)val, q->st.fp, false);
+	cell *tmp = import_term(q, (cell*)val, q->st.cur_ctx);
 	CHECKED(tmp, prolog_unlock(q->pl));
 	GET_FIRST_ARG(p1x,nonvar);
 	GET_NEXT_ARG(p2,any);
 
-	if (DO_DUMP) DUMP_TERM2("bb_delete", tmpbuf, tmp, q->st.curr_fp, 1);
+	if (DO_DUMP) DUMP_TERM2("bb_delete", tmpbuf, tmp, q->st.cur_ctx, 1);
 
 	if (is_var(p2) && is_var(tmp)) {
-		const frame *f = GET_FRAME(q->st.curr_fp);
+		const frame *f = GET_FRAME(q->st.cur_ctx);
 		const slot *e = get_slot(q, f, tmp->var_num);
 		const frame *f2 = GET_FRAME(p2_ctx);
 		slot *e2 = get_slot(q, f2, p2->var_num);
 		*e2 = *e;
-		bool ok = sl_del(q->pl->keyval, key);
+		bool ok = sl_del(q->st.m->keyval, key);
 		prolog_unlock(q->pl);
 		return ok;
 	}
 
-	if (!unify(q, p2, p2_ctx, tmp, q->st.curr_fp)) {
+	if (!unify(q, p2, p2_ctx, tmp, q->st.cur_ctx)) {
 		prolog_unlock(q->pl);
 		return false;
 	}
 
-	bool ok = sl_del(q->pl->keyval, key);
+	bool ok = sl_del(q->st.m->keyval, key);
 
 	if (ok) {
-		while (sl_del(q->pl->keyval, key))
+		while (sl_del(q->st.m->keyval, key))
 			;
 	}
 
@@ -304,7 +297,7 @@ static bool bif_bb_update_3(query *q)
 		cell *p1_m = p1 + 1;
 		p1 = p1_m + p1_m->num_cells;
 
-		if (!is_atom(p1_m) || !is_smallatomic(p1))
+		if (!is_atom(p1_m) || !is_smallint_or_atom(p1))
 			return throw_error(q, p1, p1_ctx, "type_error", "atom");
 
 		m = find_module(q->pl, C_STR(q, p1_m));
@@ -324,15 +317,13 @@ static bool bif_bb_update_3(query *q)
 
 	prolog_lock(q->pl);
 
-	if (!sl_get(q->pl->keyval, key, &val)) {
+	if (!sl_get(q->st.m->keyval, key, &val)) {
 		prolog_unlock(q->pl);
 		return false;
 	}
 
-	CHECKED(check_frame(q, MAX_ARITY), prolog_unlock(q->pl));
-	try_me(q, MAX_ARITY);
 	q->noderef = true;
-	cell *tmp = copy_term_to_heap(q, (cell*)val, q->st.fp, false);
+	cell *tmp = import_term(q, (cell*)val, q->st.cur_ctx);
 	q->noderef = false;
 	CHECKED(tmp, prolog_unlock(q->pl));
 	GET_FIRST_ARG(p1x,nonvar);
@@ -341,7 +332,7 @@ static bool bif_bb_update_3(query *q)
 
 	if (DO_DUMP) DUMP_TERM2("bb_update", tmpbuf, p2, p2_ctx, 1);
 
-	if (!unify(q, p2, p2_ctx, tmp, q->st.curr_fp)) {
+	if (!unify(q, p2, p2_ctx, tmp, q->st.cur_ctx)) {
 		prolog_unlock(q->pl);
 		return false;
 	}
@@ -349,14 +340,14 @@ static bool bif_bb_update_3(query *q)
 	key = strdup(tmpbuf);
 	tmp = copy_term_to_heap(q, p3, p3_ctx, false);
 	CHECKED(tmp, prolog_unlock(q->pl));
-	cell *value = malloc(sizeof(cell)*tmp->num_cells);
+	cell *value = TPL_malloc(sizeof(cell)*tmp->num_cells);
 	CHECKED(value, prolog_unlock(q->pl));
 	dup_cells(value, tmp, tmp->num_cells);
 
-	while (sl_del(q->pl->keyval, key))
+	while (sl_del(q->st.m->keyval, key))
 		;
 
-	sl_app(q->pl->keyval, key, value);
+	sl_app(q->st.m->keyval, key, value);
 
 	prolog_unlock(q->pl);
 

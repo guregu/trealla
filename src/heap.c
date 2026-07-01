@@ -16,10 +16,13 @@ size_t alloc_grow(query *q, void **addr, size_t elem_size, size_t min_elements, 
 		max_elements = min_elements;
 
 	size_t elements = max_elements;
-	void *mem;
+	void *mem = NULL;
 
 	do {
-		mem = realloc(*addr, elem_size * elements);
+		if (q->pl->limit && (elem_size * elements) > (1024LL*1024*1024*4))
+			break;
+
+		mem = TPL_realloc(*addr, elem_size * elements);
 		if (mem) break;
 		elements = min_elements + (elements - min_elements) / 2;
 	}
@@ -37,7 +40,7 @@ size_t alloc_grow(query *q, void **addr, size_t elem_size, size_t min_elements, 
 cell *init_tmp_heap(query *q)
 {
 	if (!q->tmp_heap) {
-		q->tmp_heap = malloc(q->tmph_size * sizeof(cell));
+		q->tmp_heap = TPL_malloc(q->tmph_size * sizeof(cell));
 		if (!q->tmp_heap) return NULL;
 	}
 
@@ -46,7 +49,7 @@ cell *init_tmp_heap(query *q)
 }
 
 // The tmp heap is used for temporary allocations (a scratch-pad)
-// for work in progress. As such it can survive a realloc() call.
+// for work in progress. As such it can survive a TPL_realloc() call.
 // No need to incr refcnt on tmp heap cells.
 
 cell *alloc_tmp(query *q, unsigned num_cells)
@@ -65,7 +68,7 @@ cell *alloc_tmp(query *q, unsigned num_cells)
 }
 
 #define deep_copy(c) \
-	(!q->noderef || (is_ref(c) && (c->val_ctx <= q->st.curr_fp) && !is_anon(c)))
+	(!q->noderef || (is_ref(c) && (c->val_ctx <= q->st.cur_ctx) && !is_anon(c)))
 
 // Note: convert vars to refs
 // Note: doesn't increment ref counts
@@ -160,7 +163,7 @@ static cell *clone_term_to_tmp_internal(query *q, cell *p1, pl_ctx p1_ctx, unsig
 		return tmp;
 	}
 
-	unsigned arity = p1->arity;
+	int arity = p1->arity;
 	p1++;
 
 	while (arity--) {
@@ -204,12 +207,15 @@ cell *append_to_tmp(query *q, cell *p1, pl_ctx p1_ctx)
 	return tmp;
 }
 
-static int accum_slot(const query *q, size_t slot_nbr, unsigned var_num)
+static int accum_slot(query *q, size_t slot_nbr, unsigned var_num)
 {
 	const void *vnbr;
 
-	if (sl_get(q->vars, (void*)slot_nbr, &vnbr))
+	if (q->vars && sl_get(q->vars, (void*)slot_nbr, &vnbr))
 		return (unsigned)(size_t)vnbr;
+
+	if (!q->vars)
+		q->vars = sl_create(NULL, NULL, NULL);
 
 	sl_app(q->vars, (void*)slot_nbr, (void*)(size_t)var_num);
 	return -1;
@@ -232,7 +238,7 @@ static bool copy_vars(query *q, cell *c, bool copy_attrs, cell *from, pl_ctx fro
 		} else {
 			const frame *f = GET_FRAME(c->val_ctx);
 			const slot *e = get_slot(q, f, c->var_num);
-			cell *attrs = c->tmp_attrs ? c->tmp_attrs : e->c.val_attrs;
+			cell *attrs = copy_attrs && c->tmp_attrs ? c->tmp_attrs : e->c.val_attrs;
 			const size_t slot_nbr = get_ordered_slot_num(q, f, c->var_num);
 			int var_num;
 
@@ -250,7 +256,7 @@ static bool copy_vars(query *q, cell *c, bool copy_attrs, cell *from, pl_ctx fro
 			}
 
 			c->var_num = var_num;
-			c->val_ctx = q->st.curr_fp;
+			c->val_ctx = q->st.cur_ctx;
 
 			if (copy_attrs && attrs) {
 				cell *save_tmp_heap = q->tmp_heap;
@@ -259,13 +265,13 @@ static bool copy_vars(query *q, cell *c, bool copy_attrs, cell *from, pl_ctx fro
 
 				if (!c->tmp_attrs) {
 					cell *tmp =
-						from ?copy_term_to_heap_with_replacement(q, attrs, q->st.curr_fp, false, from, from_ctx, to, to_ctx)
-						:copy_term_to_heap(q, attrs, q->st.curr_fp, false);
+						from ?copy_term_to_heap_with_replacement(q, attrs, q->st.cur_ctx, false, from, from_ctx, to, to_ctx)
+						:copy_term_to_heap(q, attrs, q->st.cur_ctx, false);
 					CHECKED(tmp);
 					c->tmp_attrs = tmp;
 				}
 
-				free(q->tmp_heap);
+				TPL_free(q->tmp_heap);
 				q->tmp_heap = save_tmp_heap;
 				q->tmphp = save_tmp_hp;
 			}
@@ -275,20 +281,24 @@ static bool copy_vars(query *q, cell *c, bool copy_attrs, cell *from, pl_ctx fro
 	return true;
 }
 
-unsigned rebase_term(query *q, cell *c, unsigned start_nbr)
+unsigned rebase_term(query *q, cell *c, unsigned start_nbr, bool copy_attrs)
 {
-	q->vars = sl_create(NULL, NULL, NULL);
+	q->vars = NULL;
 	q->varno = start_nbr;
 	q->tab_idx = 0;
 
-	if (!copy_vars(q, c, true, NULL, 0, NULL, 0)) {
-		sl_destroy(q->vars);
+	if (!copy_vars(q, c, copy_attrs, NULL, 0, NULL, 0)) {
+		if (q->vars)
+			sl_destroy(q->vars);
+
 		q->vars = NULL;
-		return start_nbr;
+		return q->varno;
 	}
 
-	sl_destroy(q->vars);
-	q->vars = NULL;
+	if (q->vars) {
+		sl_destroy(q->vars);
+		q->vars = NULL;
+	}
 
 	// Turn refs back into vars to recontextualize
 
@@ -316,7 +326,6 @@ static cell *copy_term_to_tmp_with_replacement(query *q, cell *p1, pl_ctx p1_ctx
 	bool created = false;
 
 	if (!q->vars) {
-		q->vars = sl_create(NULL, NULL, NULL);
 		created = true;
 		const frame *f = GET_CURR_FRAME();
 		q->varno = f->actual_slots;
@@ -326,14 +335,16 @@ static cell *copy_term_to_tmp_with_replacement(query *q, cell *p1, pl_ctx p1_ctx
 	bool ok = copy_vars(q, tmp, copy_attrs, from, from_ctx, to, to_ctx);
 
 	if (created) {
-		sl_destroy(q->vars);
+		if (q->vars)
+			sl_destroy(q->vars);
+
 		q->vars = NULL;
 	}
 
 	c = tmp;
 
 	for (pl_idx i = 0; i < tmp->num_cells; i++, c++) {
-		if (is_var(c) && c->tmp_attrs) {
+		if (is_var(c) && copy_attrs && c->tmp_attrs) {
 			const frame *f = GET_FRAME(c->val_ctx);
 			slot *e = get_slot(q, f, c->var_num);
 			e->c.val_attrs = c->tmp_attrs;
@@ -353,22 +364,19 @@ cell *copy_term_to_tmp(query *q, cell *p1, pl_ctx p1_ctx, bool copy_attrs)
 
 cell *alloc_heap(query *q, unsigned num_cells)
 {
-	size_t page_size = q->heap_pages ? q->heap_pages->page_size * 2 : q->heap_size;
+	size_t page_size = q->heap_pages ? q->heap_pages->page_size*2 : q->heap_size;
 
 	if (!q->heap_pages || ((q->st.hp + num_cells) >= q->heap_pages->page_size))  {
-		page *a = calloc(1, sizeof(page));
+		page *a = TPL_calloc(1, sizeof(page));
 		if (!a) return NULL;
 		a->next = q->heap_pages;
 		unsigned n = MAX_OF(page_size, num_cells);
-		a->cells = calloc(a->page_size=n, sizeof(cell));
-		if (!a->cells) { free(a); return NULL; }
-		a->num = ++q->st.heap_num;
+		a->cells = TPL_calloc(a->page_size=n, sizeof(cell));
+		if (!a->cells) { TPL_free(a); return NULL; }
+		a->num = q->st.hp_num++;
 		q->heap_pages = a;
 		q->st.hp = 0;
 	}
-
-	if (q->st.heap_num > q->hw_heap_num)
-		q->hw_heap_num = q->st.heap_num;
 
 	cell *c = q->heap_pages->cells + q->st.hp;
 	q->st.hp += num_cells;
@@ -379,7 +387,7 @@ cell *alloc_heap(query *q, unsigned num_cells)
 void trim_heap(query *q)
 {
 	for (page *a = q->heap_pages; a;) {
-		if (a->num <= q->st.heap_num)
+		if (a->num <= q->st.hp_num)
 			break;
 
 		cell *c = a->cells;
@@ -389,8 +397,8 @@ void trim_heap(query *q)
 
 		page *save = a;
 		q->heap_pages = a = a->next;
-		free(save->cells);
-		free(save);
+		TPL_free(save->cells);
+		TPL_free(save);
 	}
 
 	if (!q->heap_pages)
@@ -400,7 +408,6 @@ void trim_heap(query *q)
 		cell *c = q->heap_pages->cells + --q->heap_pages->idx;
 		unshare_cell(c);
 		c->tag = TAG_EMPTY;
-		c->flags = 0;
 		c->val_attrs = NULL;
 	}
 }
@@ -436,7 +443,7 @@ cell *copy_term_to_heap_with_replacement(query *q, cell *p1, pl_ctx p1_ctx, bool
 	cell *c = tmp2;
 
 	for (pl_idx i = 0; i < tmp2->num_cells; i++, c++) {
-		if (is_var(c) && c->tmp_attrs) {
+		if (is_var(c) && copy_attrs && c->tmp_attrs) {
 			const frame *f = GET_FRAME(c->val_ctx);
 			slot *e = get_slot(q, f, c->var_num);
 			e->c.val_attrs = c->tmp_attrs;
@@ -465,7 +472,7 @@ cell *copy_term_to_heap(query *q, cell *p1, pl_ctx p1_ctx, bool copy_attrs)
 	cell *c = tmp2;
 
 	for (pl_idx i = 0; i < tmp2->num_cells; i++, c++) {
-		if (is_var(c) && c->tmp_attrs) {
+		if (is_var(c) && copy_attrs && c->tmp_attrs) {
 			const frame *f = GET_FRAME(c->val_ctx);
 			slot *e = get_slot(q, f, c->var_num);
 			e->c.val_attrs = c->tmp_attrs;
@@ -489,8 +496,6 @@ void fix_list(cell *c)
 	}
 }
 
-// Defer check until end_list()
-
 cell *allocate_list(query *q, const cell *c)
 {
 	if (!init_tmp_heap(q))
@@ -499,8 +504,6 @@ cell *allocate_list(query *q, const cell *c)
 	append_list(q, c);
 	return get_tmp_heap(q, 0);
 }
-
-// Defer check until end_list()
 
 cell *append_list(query *q, const cell *c)
 {
@@ -525,13 +528,13 @@ cell *end_list(query *q)
 	tmp->num_cells = 1;
 	tmp->val_off = g_nil_s;
 	tmp->arity = tmp->flags = 0;
-	pl_idx num_cells = tmp_heap_used(q);
 
 	if (is_nil(get_tmp_heap(q, 0))) {
 		init_tmp_heap(q);
 		return make_nil();
 	}
 
+	pl_idx num_cells = tmp_heap_used(q);
 	tmp = alloc_heap(q, num_cells);
 	if (!tmp) return NULL;
 	dup_cells(tmp, get_tmp_heap(q, 0), num_cells);
@@ -549,17 +552,20 @@ cell *end_list_unsafe(query *q)
 	tmp->num_cells = 1;
 	tmp->val_off = g_nil_s;
 	tmp->arity = tmp->flags = 0;
-	pl_idx num_cells = tmp_heap_used(q);
 
+	if (is_nil(get_tmp_heap(q, 0))) {
+		init_tmp_heap(q);
+		return make_nil();
+	}
+	pl_idx num_cells = tmp_heap_used(q);
 	tmp = alloc_heap(q, num_cells);
 	if (!tmp) return NULL;
 	copy_cells(tmp, get_tmp_heap(q, 0), num_cells);
 	tmp->num_cells = num_cells;
 	fix_list(tmp);
+	init_tmp_heap(q);
 	return tmp;
 }
-
-// Defer check until end_list()
 
 cell *allocate_structure(query *q, const char *functor, const cell *c)
 {
@@ -577,8 +583,6 @@ cell *allocate_structure(query *q, const char *functor, const cell *c)
 	return get_tmp_heap(q, 0);
 }
 
-// Defer check until end_list()
-
 cell *append_structure(query *q, const cell *c)
 {
 	cell *tmp = alloc_tmp(q, c->num_cells);
@@ -589,7 +593,7 @@ cell *append_structure(query *q, const cell *c)
 	return tmp;
 }
 
-cell *end_structure(query *q)
+cell *end_structure_heap(query *q)
 {
 	pl_idx num_cells = tmp_heap_used(q);
 	cell *tmp = alloc_heap(q, num_cells);
@@ -598,7 +602,7 @@ cell *end_structure(query *q)
 	tmp->num_cells = num_cells;
 
 	if (q->tmp_heap && (q->tmph_size > 1000)) {
-		free(q->tmp_heap);
+		TPL_free(q->tmp_heap);
 		q->tmp_heap = NULL;
 		q->tmph_size = 1000;
 	}
@@ -609,13 +613,13 @@ cell *end_structure(query *q)
 cell *alloc_queuen(query *q, unsigned qnum, const cell *c)
 {
 	if (!q->queue[qnum]) {
-		q->queue[qnum] = malloc(sizeof(cell)*q->q_size[qnum]);
+		q->queue[qnum] = TPL_malloc(sizeof(cell)*q->q_size[qnum]);
 		if (!q->queue[qnum]) return NULL;
 	}
 
 	while ((q->qp[qnum]+c->num_cells) >= q->q_size[qnum]) {
 		size_t n = q->q_size[qnum] + q->q_size[qnum] / 2;
-		void *ptr = realloc(q->queue[qnum], sizeof(cell)*n);
+		void *ptr = TPL_realloc(q->queue[qnum], sizeof(cell)*n);
 		if (!ptr) return NULL;
 		q->queue[qnum] = ptr;
 		q->q_size[qnum] = n;
@@ -627,3 +631,13 @@ cell *alloc_queuen(query *q, unsigned qnum, const cell *c)
 	return dst;
 }
 
+cell *import_term(query *q, cell *c, pl_ctx c_ctx)
+{
+	cell *tmp = TPL_malloc(sizeof(cell) * c->num_cells);
+	if (!tmp) return NULL;
+	dup_cells_by_ref(tmp, c, c_ctx, c->num_cells);
+	const frame *f = GET_CURR_FRAME();
+	rebase_term(q, tmp, f->actual_slots, false);
+	undo_on_backtrack(q, tmp, UNDO_CELLS);
+	return tmp;
+}

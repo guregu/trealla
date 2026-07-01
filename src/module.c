@@ -40,7 +40,6 @@ static const op_table g_ops[] =
 	//{"discontiguous", OP_FX, 1150},
 	//{"multifile", OP_FX, 1150},
 	//{"op", OP_FX, 1150},
-	//{"table", OP_FX, 1150},
 	//{"dynamic", OP_FX, 1150},
 	//{"initialization", OP_FX, 1150},
 	//{"set_prolog_flag", OP_FX, 1150},
@@ -134,7 +133,7 @@ static const char *set_known(module *m, const char *filename)
 		ptr = ptr->next;
 	}
 
-	ptr = malloc(sizeof(loaded_file));
+	ptr = TPL_malloc(sizeof(loaded_file));
 	ENSURE(ptr);
 	ptr->next = m->loaded_files;
 	ptr->orig_filename = strdup(filename);
@@ -158,7 +157,7 @@ static const char *set_loaded(module *m, const char *filename, const char *orig_
 		ptr = ptr->next;
 	}
 
-	ptr = malloc(sizeof(loaded_file));
+	ptr = TPL_malloc(sizeof(loaded_file));
 	ENSURE(ptr);
 	ptr->next = m->loaded_files;
 	ptr->orig_filename = strdup(orig_filename);
@@ -247,9 +246,9 @@ static void clear_loaded(const module *m)
 	while (ptr) {
 		loaded_file *save = ptr;
 		ptr = ptr->next;
-		if (save->orig_filename) free(save->orig_filename);
-		if (save->filename) free(save->filename);
-		free(save);
+		if (save->orig_filename) TPL_free(save->orig_filename);
+		if (save->filename) TPL_free(save->filename);
+		TPL_free(save);
 	}
 }
 
@@ -272,7 +271,7 @@ void make(module *m)
 
 				unload_file(m, parent_filename);
 				load_file(m, parent_filename, false, true);
-				free(parent_filename);
+				TPL_free(parent_filename);
 			}
 		}
 
@@ -282,7 +281,7 @@ void make(module *m)
 	m->make = false;
 }
 
- predicate *find_predicate(module *m, cell *c)
+predicate *find_predicate(module *m, cell *c)
 {
 	cell tmp = *c;
 	tmp.tag = TAG_INTERNED;
@@ -315,20 +314,6 @@ predicate *search_predicate(module *m, cell *c)
 	if (pr)
 		return pr;
 
-	for (unsigned i = 0; i < m->idx_used; i++) {
-		module *tmp_m = m->used[i];
-
-		// Only search modules if CLPZ... ???
-
-		if (strcmp(tmp_m->name, "clpz"))
-			continue;
-
-		pr = find_predicate(tmp_m, c);
-
-		if (pr)
-			return pr;
-	}
-
 	if (m->pl->user_m) {
 		pr = find_predicate(m->pl->user_m, c);
 
@@ -357,7 +342,7 @@ predicate *create_predicate(module *m, cell *c, bool *created)
 		return NULL;
 	}
 
-	predicate *pr = calloc(1, sizeof(predicate));
+	predicate *pr = TPL_calloc(1, sizeof(predicate));
 	ENSURE(pr);
 	list_push_back(&m->predicates, pr);
 
@@ -380,7 +365,7 @@ static void abolish_predicate(predicate *pr)
 		rule *tmp = pr->head;
 		pr->head = pr->head->next;
 		clear_clause(&tmp->cl);
-		free(tmp);
+		TPL_free(tmp);
 		pr->cnt--;
 	}
 
@@ -391,7 +376,7 @@ static void abolish_predicate(predicate *pr)
 
 	if (pr->meta_args) {
 		unshare_cells(pr->meta_args, pr->meta_args->num_cells);
-		free(pr->meta_args);
+		TPL_free(pr->meta_args);
 		pr->meta_args = NULL;
 	}
 }
@@ -404,7 +389,7 @@ static void destroy_predicate(module *m, predicate *pr)
 		rule *tmp = pr->head;
 		pr->head = pr->head->next;
 		clear_clause(&tmp->cl);
-		free(tmp);
+		TPL_free(tmp);
 	}
 
 	pr->head = pr->tail = NULL;
@@ -413,11 +398,11 @@ static void destroy_predicate(module *m, predicate *pr)
 
 	if (pr->meta_args) {
 		unshare_cells(pr->meta_args, pr->meta_args->num_cells);
-		free(pr->meta_args);
+		TPL_free(pr->meta_args);
 	}
 
 	list_remove(&m->predicates, pr);
-	free(pr);
+	TPL_free(pr);
 }
 
 bool find_goal_expansion(module *m, cell *c)
@@ -430,7 +415,7 @@ bool find_goal_expansion(module *m, cell *c)
 			return true;
 	}
 
-	return NULL;
+	return false;
 }
 
 bool search_goal_expansion(module *m, cell *c)
@@ -468,7 +453,7 @@ void create_goal_expansion(module *m, cell *c)
 	if (find_goal_expansion(m, c))
 		return;
 
-	pi *g = calloc(1, sizeof(pi));
+	pi *g = TPL_calloc(1, sizeof(pi));
 	ENSURE(g);
 	g->prev = m->gex_tail;
 
@@ -701,7 +686,7 @@ static void purge_properties(predicate *pr)
 				pr->tail = save->next;
 
 			clear_clause(&save->cl);
-			free(save);
+			TPL_free(save);
 		}
 	}
 }
@@ -749,6 +734,8 @@ void clear_property(module *m, const char *name, unsigned arity)
 			retract_from_db(m, save);
 		else {
 			predicate_delink(pr, save);
+
+#if 0
 			cell *c = get_head(save->cl.cells);
 
 			if (pr->key.arity > 1) {
@@ -758,8 +745,12 @@ void clear_property(module *m, const char *name, unsigned arity)
 			}
 
 			sl_rem(pr->idx1, c, save);
+#else
+			pr->idx1 = pr->idx2 = NULL;
+#endif
+
 			clear_clause(&save->cl);
-			free(save);
+			TPL_free(save);
 		}
 	}
 }
@@ -846,16 +837,16 @@ void set_meta_predicate_in_db(module *m, cell *c)
 		char *dst = print_canonical_to_strbuf(&q, c, 0, 0);
 		char tmpbuf[1024];
 		snprintf(tmpbuf, sizeof(tmpbuf), "meta_predicate(%s)", dst);
-		free(dst);
+		TPL_free(dst);
 		push_property(m, name, arity, tmpbuf);
 
 		if (pr->meta_args) {
 			unshare_cells(pr->meta_args, pr->meta_args->num_cells);
-			free(pr->meta_args);
+			TPL_free(pr->meta_args);
 		}
 
 		pr->is_meta_predicate = true;
-		pr->meta_args = malloc(sizeof(cell)*c->num_cells);
+		pr->meta_args = TPL_malloc(sizeof(cell)*c->num_cells);
 		dup_cells(pr->meta_args, c, c->num_cells);
 	} else if (!pr)
 		m->error = true;
@@ -869,11 +860,11 @@ static bool is_check_directive(const cell *c)
 	return false;
 }
 
-static bool do_use_module(module *curr_m, cell *c, module **mptr)
+static bool do_use_module(module *cur_m, cell *c, module **mptr)
 {
 	*mptr = NULL;
 	cell *p1 = c + 1;
-	const char *name = C_STR(curr_m, p1);
+	const char *name = C_STR(cur_m, p1);
 	char dstbuf[1024*4];
 	bool is_library = false;
 
@@ -882,8 +873,8 @@ static bool do_use_module(module *curr_m, cell *c, module **mptr)
 		p1 = p1 + 1;
 		if (!is_interned(p1)) return false;
 		snprintf(dstbuf, sizeof(dstbuf), "%s", g_tpl_lib);
-		name = C_STR(curr_m, p1);
-		unsigned cnt = 1;
+		name = C_STR(cur_m, p1);
+		int cnt = 1;
 
 		while ((p1->arity == 2) && !strcmp(name, "/")) {
 			cnt++;
@@ -891,7 +882,7 @@ static bool do_use_module(module *curr_m, cell *c, module **mptr)
 		}
 
 		while (cnt-- && is_interned(p1) && !p1->arity && (p1->val_off != g_nil_s)) {
-			name = C_STR(curr_m, p1);
+			name = C_STR(cur_m, p1);
 			strcat(dstbuf, "/");
 			strcat(dstbuf, name);
 			p1++;
@@ -899,19 +890,19 @@ static bool do_use_module(module *curr_m, cell *c, module **mptr)
 
 		module *m;
 
-		if ((m = find_module(curr_m->pl, name)) != NULL) {
-			if (m != curr_m) {
+		if ((m = find_module(cur_m->pl, name)) != NULL) {
+			if (m != cur_m) {
 				bool found = false;
 
-				for (unsigned i = 0; i < curr_m->idx_used; i++) {
-					if (curr_m->used[i] == m) {
+				for (unsigned i = 0; i < cur_m->idx_used; i++) {
+					if (cur_m->used[i] == m) {
 						found = true;
 						break;
 					}
 				}
 
 				if (!found)
-					curr_m->used[curr_m->idx_used++] = m;
+					cur_m->used[cur_m->idx_used++] = m;
 			}
 
 			*mptr = m;
@@ -931,6 +922,7 @@ static bool do_use_module(module *curr_m, cell *c, module **mptr)
 		    || !strcmp(name, "apply")
 		    || !strcmp(name, "cont")
 		    || !strcmp(name, "os")
+		    || !strcmp(name, "option")
 		    )
 			return true;
 
@@ -938,18 +930,18 @@ static bool do_use_module(module *curr_m, cell *c, module **mptr)
 			if (strcmp(lib->name, name))
 				continue;
 
-			char *src = malloc(*lib->len+1);
+			char *src = TPL_malloc(*lib->len+1);
 			ENSURE(src);
 			memcpy(src, lib->start, *lib->len);
 			src[*lib->len] = '\0';
 			SB(s1);
 			SB_sprintf(s1, "library%c%s", '/', lib->name);
-			m = load_text(curr_m, src, SB_cstr(s1));
+			m = load_text(cur_m, src, SB_cstr(s1));
 			SB_free(s1);
-			free(src);
+			TPL_free(src);
 
-			if (m != curr_m)
-				curr_m->used[curr_m->idx_used++] = m;
+			if (m != cur_m)
+				cur_m->used[cur_m->idx_used++] = m;
 
 			*mptr = m;
 			return !m->error;
@@ -958,9 +950,9 @@ static bool do_use_module(module *curr_m, cell *c, module **mptr)
 
 	module *m;
 
-	if ((m = find_module(curr_m->pl, name)) != NULL) {
-		if (m != curr_m)
-			curr_m->used[curr_m->idx_used++] = m;
+	if ((m = find_module(cur_m->pl, name)) != NULL) {
+		if (m != cur_m)
+			cur_m->used[cur_m->idx_used++] = m;
 
 		*mptr = m;
 		return true;
@@ -970,67 +962,53 @@ static bool do_use_module(module *curr_m, cell *c, module **mptr)
 		if (strcmp(lib->name, name))
 			continue;
 
-		char *src = malloc(*lib->len+1);
+		char *src = TPL_malloc(*lib->len+1);
 		ENSURE(src);
 		memcpy(src, lib->start, *lib->len);
 		src[*lib->len] = '\0';
 		SB(s1);
 		SB_sprintf(s1, "library/%s", lib->name);
-		m = load_text(curr_m, src, SB_cstr(s1));
+		m = load_text(cur_m, src, SB_cstr(s1));
 		SB_free(s1);
-		free(src);
+		TPL_free(src);
 
-		if (m != curr_m)
-			curr_m->used[curr_m->idx_used++] = m;
+		if (m != cur_m)
+			cur_m->used[cur_m->idx_used++] = m;
 
 		*mptr = m;
 		return !m->error;
 	}
 
-	char *filename = relative_to(curr_m->filename, is_library?dstbuf:name);
+	char *filename = relative_to(cur_m->filename, is_library?dstbuf:name);
 
-	if (!(m = load_file(curr_m, filename, false, true))) {
-		fprintf_to_stream(curr_m->pl, WARN_FP, "Warning: module file not found: %s\n", filename);
-		free(filename);
+	if (!(m = load_file(cur_m, filename, false, true))) {
+		fprintf_to_stream(cur_m->pl, WARN_FP, "Warning: module file not found: %s\n", filename);
+		TPL_free(filename);
 		return false;
 	}
 
-	free(filename);
+	TPL_free(filename);
 
-	if (m != curr_m)
-		curr_m->used[curr_m->idx_used++] = m;
+	if (m != cur_m)
+		cur_m->used[cur_m->idx_used++] = m;
 
 	*mptr = m;
 	return !m->error;
 }
 
-static bool do_import_predicate(module *curr_m, module *m, predicate *pr, cell *as)
+static bool do_import_predicate(module *cur_m, module *m, predicate *pr, cell *as)
 {
-	predicate *tmp_pr;
-
-	if (((tmp_pr = find_predicate(curr_m, as)) != NULL)
-		&& (curr_m != pr->m)
-		&& strcmp(pr->m->name, "format")			// Hack???
-		// wasm:ask_js/2 ends up becoming the curr_m too much
-		// TODO: need to improve this...
-		&& strcmp(curr_m->name, "wasm")				// Hack???
-		&& !pr->m->prebuilt
-		&& 0
-		) {
-		fprintf_to_stream(curr_m->pl, ERROR_FP, "Error: permission to import failed: %s:%s/%u from %s, see %s\n", curr_m->name, C_STR(curr_m, as), as->arity, pr->m->name, get_loaded(m, tmp_pr->filename));
-		m->error = true;
-		return false;
-	}
-
-	clear_property(curr_m, C_STR(m, &pr->key), pr->key.arity);
-	predicate *pr2 = create_predicate(curr_m, as, NULL);
-	pr2->alias = pr;
+	clear_property(cur_m, C_STR(m, &pr->key), pr->key.arity);
+	predicate *pr2 = find_predicate(cur_m, as);
+	//if (pr2) printf("*** %s:%s/%u => %s\n", cur_m->name, C_STR(q,&pr2->key), pr2->key.arity, m->name);
+	if (!pr2) pr2 = create_predicate(cur_m, as, NULL);
+	pr2->alias = pr->alias ? pr->alias : pr;
 	char tmpbuf[1024];
 	snprintf(tmpbuf, sizeof(tmpbuf), "imported_from(%s)", m->name);
-	push_property(curr_m, C_STR(m, &pr->key), pr->key.arity, tmpbuf);
+	push_property(cur_m, C_STR(m, &pr->key), pr->key.arity, tmpbuf);
 
 	if (pr->is_dynamic)
-		push_property(curr_m, C_STR(m, as), as->arity, "dynamic");
+		push_property(cur_m, C_STR(m, as), as->arity, "dynamic");
 
 	if (!pr->meta_args)
 		return true;
@@ -1046,20 +1024,20 @@ static bool do_import_predicate(module *curr_m, module *m, predicate *pr, cell *
 		if (is_smallint(key)) {
 			SB_sprintf(pr, "%d", (int)get_smallint(key));
 		} else {
-			SB_strcat(pr, C_STR(curr_m, key));
+			SB_strcat(pr, C_STR(cur_m, key));
 		}
 	}
 
 	SB_strcat(pr, "))");
-	push_property(curr_m, C_STR(m, as), as->arity, SB_cstr(pr));
+	push_property(cur_m, C_STR(m, as), as->arity, SB_cstr(pr));
 	return true;
 }
 
-bool do_use_module_1(module *curr_m, cell *c)
+bool do_use_module_1(module *cur_m, cell *c)
 {
 	module *m;
 
-	if (!do_use_module(curr_m, c, &m))
+	if (!do_use_module(cur_m, c, &m))
 		return false;
 
 	if (!m)
@@ -1070,18 +1048,18 @@ bool do_use_module_1(module *curr_m, cell *c)
 		if (!pr->is_public)
 			continue;
 
-		if (!do_import_predicate(curr_m, m, pr, &pr->key))
+		if (!do_import_predicate(cur_m, m, pr, &pr->key))
 			return false;
 	}
 
 	return true;
 }
 
-bool do_use_module_2(module *curr_m, cell *c)
+bool do_use_module_2(module *cur_m, cell *c)
 {
 	module *m;
 
-	if (!do_use_module(curr_m, c, &m))
+	if (!do_use_module(cur_m, c, &m))
 		return false;
 
 	if (!m)
@@ -1107,7 +1085,7 @@ bool do_use_module_2(module *curr_m, cell *c)
 				predicate *pr = find_predicate(m, &tmp);
 				if (!pr) return false;
 				tmp.val_off = rhs->val_off;
-				do_import_predicate(curr_m, m, pr, &tmp);
+				do_import_predicate(cur_m, m, pr, &tmp);
 			} else if (is_structure(lhs) && (lhs->arity == 2)
 				&& (lhs->val_off == g_slash_s)
 				&& is_structure(lhs) && (lhs->arity == rhs->arity)) {
@@ -1116,7 +1094,7 @@ bool do_use_module_2(module *curr_m, cell *c)
 				predicate *pr = find_predicate(m, &tmp);
 				if (!pr) return false;
 				tmp.val_off = (rhs+1)->val_off;
-				do_import_predicate(curr_m, m, pr, &tmp);
+				do_import_predicate(cur_m, m, pr, &tmp);
 			}
 		} else {
 			cell *lhs = head;
@@ -1127,7 +1105,7 @@ bool do_use_module_2(module *curr_m, cell *c)
 				tmp.arity = get_smalluint(lhs+2);
 				predicate *pr = find_predicate(m, &tmp);
 				if (!pr) return false;
-				do_import_predicate(curr_m, m, pr, &pr->key);
+				do_import_predicate(cur_m, m, pr, &pr->key);
 			}
 		}
 
@@ -1273,7 +1251,7 @@ static bool set_op_internal(module *m, const char *name, unsigned specifier, uns
 	}
 
 	sl_done(iter);
-	op_table *tmp = malloc(sizeof(op_table));
+	op_table *tmp = TPL_malloc(sizeof(op_table));
 	ENSURE(tmp);
 	tmp->name = set_known(m, name);
 	tmp->priority = priority;
@@ -1593,7 +1571,7 @@ static bool check_not_multifile(module *m, predicate *pr, rule *r)
 				rule *tmp = pr->head;
 				pr->head = pr->head->next;
 				clear_clause(&tmp->cl);
-				free(tmp);
+				TPL_free(tmp);
 			}
 
 			pr->head = pr->tail = NULL;
@@ -1605,7 +1583,7 @@ static bool check_not_multifile(module *m, predicate *pr, rule *r)
 			sl_destroy(pr->idx2);
 			sl_destroy(pr->idx1);
 			pr->idx2 = pr->idx1 = NULL;
-			free(r);
+			TPL_free(r);
 			return false;
 		}
 	}
@@ -1790,8 +1768,6 @@ bool module_dump_term(module* m, cell *p1)
 				tmp->tag == TAG_RATIONAL ? "rational" :
 				tmp->tag == TAG_INDIRECT ? "indirect" :
 				tmp->tag == TAG_BLOB ? "blob" :
-				tmp->tag == TAG_DBID ? "dbid" :
-				tmp->tag == TAG_KVID ? "kvid" :
 				"other"
 			),
 			tmp->num_cells, tmp->arity);
@@ -1944,7 +1920,7 @@ static rule *assert_begin(module *m, unsigned num_vars, cell *p1, bool consultin
 		pr->max_vars = num_vars;
 
 	size_t dbe_size = sizeof(rule) + (sizeof(cell) * (p1->num_cells+1));
-	rule *r = calloc(1, dbe_size);
+	rule *r = TPL_calloc(1, dbe_size);
 	ENSURE(r);
 	copy_cells(r->cl.cells, p1, p1->num_cells);
 	r->cl.cells[p1->num_cells] = (cell){0};
@@ -1973,9 +1949,9 @@ static void assert_commit(module *m, rule *r, predicate *pr, bool append)
 		return;
 
 	if (!pr->idx1) {
-		unsigned INDEX_THRESHHOLD = 500;
+		unsigned INDEX_THRESHOLD = 500;
 
-		if (pr->cnt < INDEX_THRESHHOLD)
+		if (pr->cnt < INDEX_THRESHOLD)
 			return;
 
 		pr->idx1 = sl_create(index_cmpkey, NULL, m);
@@ -2205,7 +2181,7 @@ static bool unload_realfile(module *m, const char *filename)
 bool unload_file(module *m, const char *filename)
 {
 	size_t len = strlen(filename);
-	char *tmpbuf = malloc(len + 20);
+	char *tmpbuf = TPL_malloc(len + 20);
 	ENSURE(tmpbuf);
 	memcpy(tmpbuf, filename, len+1);
 
@@ -2213,11 +2189,10 @@ bool unload_file(module *m, const char *filename)
 		const char *ptr = getenv("HOME");
 
 		if (ptr) {
-			tmpbuf = realloc(tmpbuf, strlen(ptr) + 10 + strlen(filename) + 20);
+			tmpbuf = TPL_realloc(tmpbuf, strlen(ptr) + 10 + strlen(filename) + 20);
 			ENSURE(tmpbuf);
 			strcpy(tmpbuf, ptr);
 			strcat(tmpbuf, filename+1);
-			convert_path(tmpbuf);
 		}
 	}
 
@@ -2229,17 +2204,17 @@ bool unload_file(module *m, const char *filename)
 		strcat(tmpbuf, ".pl");
 
 		if (!(realbuf = realpath(tmpbuf, NULL))) {
-			free(savebuf);
-			free(tmpbuf);
+			TPL_free(savebuf);
+			TPL_free(tmpbuf);
 			return false;
 		}
 	}
 
-	free(savebuf);
-	free(tmpbuf);
+	TPL_free(savebuf);
+	TPL_free(tmpbuf);
 	filename = realbuf;
 	bool ok = unload_realfile(m, filename);
-	free(realbuf);
+	TPL_free(realbuf);
 	return ok;
 }
 
@@ -2330,7 +2305,7 @@ bool restore_log(module *m, const char *filename)
 		size_t n = 0;
 
 		if (getline(&line, &n, fp) < 0) {
-			free(line);
+			TPL_free(line);
 			break;
 		}
 
@@ -2396,7 +2371,7 @@ module *load_file(module *m, const char *filename, bool including, bool init)
 	}
 
 	size_t len = strlen(filename);
-	char *tmpbuf = malloc(len + 20);
+	char *tmpbuf = TPL_malloc(len + 20);
 	check_error(tmpbuf);
 	memcpy(tmpbuf, filename, len+1);
 
@@ -2404,11 +2379,10 @@ module *load_file(module *m, const char *filename, bool including, bool init)
 		const char *ptr = getenv("HOME");
 
 		if (ptr) {
-			tmpbuf = realloc(tmpbuf, strlen(ptr) + 10 + strlen(filename) + 20);
+			tmpbuf = TPL_realloc(tmpbuf, strlen(ptr) + 10 + strlen(filename) + 20);
 			check_error(tmpbuf);
 			strcpy(tmpbuf, ptr);
 			strcat(tmpbuf, filename+1);
-			convert_path(tmpbuf);
 		}
 	}
 
@@ -2463,8 +2437,8 @@ module *load_file(module *m, const char *filename, bool including, bool init)
 		}
 	}
 
-	free(savebuf);
-	free(tmpbuf);
+	TPL_free(savebuf);
+	TPL_free(tmpbuf);
 
 	if (!realbuf)
 		return NULL;
@@ -2473,7 +2447,7 @@ module *load_file(module *m, const char *filename, bool including, bool init)
 		set_unloaded(m, realbuf);
 
 	else if (is_loaded(m, realbuf)) {
-		free(realbuf);
+		TPL_free(realbuf);
 		return m;
 	}
 
@@ -2481,13 +2455,13 @@ module *load_file(module *m, const char *filename, bool including, bool init)
 	stat(filename, &st);
 
 	if ((st.st_mode & S_IFMT) == S_IFDIR) {
-		char *tmpbuf = malloc(strlen(orig_filename)+20);
+		char *tmpbuf = TPL_malloc(strlen(orig_filename)+20);
 		ENSURE(tmpbuf);
 		strcpy(tmpbuf, orig_filename);
 		strcat(tmpbuf, ".pl");
 		m = load_file(m, tmpbuf, including, init);
-		free(tmpbuf);
-		free(realbuf);
+		TPL_free(tmpbuf);
+		TPL_free(realbuf);
 		return m;
 	}
 
@@ -2495,7 +2469,7 @@ module *load_file(module *m, const char *filename, bool including, bool init)
 	FILE *fp = fopen(filename, "r");
 
 	if (!fp) {
-		free(realbuf);
+		TPL_free(realbuf);
 		return NULL;
 	}
 
@@ -2511,7 +2485,7 @@ module *load_file(module *m, const char *filename, bool including, bool init)
 	clearerr(fp);
 	module *save_m = load_fp(m, fp, filename, including, init);
 	fclose(fp);
-	free(realbuf);
+	TPL_free(realbuf);
 	return save_m;
 }
 
@@ -2562,14 +2536,14 @@ void module_destroy(module *m)
 	op_table *opptr;
 
 	while (sl_next(iter, (void**)&opptr))
-		free(opptr);
+		TPL_free(opptr);
 
 	sl_done(iter);
 	sl_destroy(m->defops);
 	iter = sl_first(m->ops);
 
 	while (sl_next(iter, (void**)&opptr))
-		free(opptr);
+		TPL_free(opptr);
 
 	sl_done(iter);
 	sl_destroy(m->ops);
@@ -2581,17 +2555,18 @@ void module_destroy(module *m)
 	while (m->gex_head) {
 		pi *save = m->gex_head;
 		m->gex_head = m->gex_head->next;
-		free(save);
+		TPL_free(save);
 	}
 
 	if (m->fp)
 		fclose(m->fp);
 
 	sl_destroy(m->index);
+	sl_destroy(m->keyval);
 	parser_destroy(m->p);
 	clear_loaded(m);
 	list_remove(&m->pl->modules, m);
-	free(m);
+	TPL_free(m);
 }
 
 void module_duplicate(prolog *pl, module *m, const char *name, unsigned arity)
@@ -2601,9 +2576,17 @@ void module_duplicate(prolog *pl, module *m, const char *name, unsigned arity)
 	tmp_m->arity = arity;
 }
 
+static void keyval_free(const void *key, const void *val, const void *p)
+{
+	TPL_free((void*)key);
+	cell *c = (cell*)val;
+	unshare_cells(c, c->num_cells);
+	TPL_free((void*)val);
+}
+
 module *module_create(prolog *pl, const char *name)
 {
-	module *m = calloc(1, sizeof(module));
+	module *m = TPL_calloc(1, sizeof(module));
 	ENSURE(m);
 
 	m->pl = pl;
@@ -2617,11 +2600,12 @@ module *module_create(prolog *pl, const char *name)
 	m->error = false;
 	m->id = ++pl->next_mod_id;
 	m->defops = sl_create((void*)fake_strcmp, NULL, NULL);
+	m->keyval = sl_create((void*)fake_strcmp, (void*)keyval_free, NULL);
 	pl->modmap[m->id] = m;
 
 	if (strcmp(name, "system")) {
 		for (const op_table *ptr = g_ops; ptr->name; ptr++) {
-			op_table *tmp = malloc(sizeof(op_table));
+			op_table *tmp = TPL_malloc(sizeof(op_table));
 			ENSURE(tmp);
 			memcpy(tmp, ptr, sizeof(op_table));
 			sl_app(m->defops, tmp->name, tmp);
@@ -2647,15 +2631,15 @@ module *module_create(prolog *pl, const char *name)
 		return m;
 	}
 
-	set_discontiguous_in_db(m, "term_expansion", 2);
-	set_discontiguous_in_db(m, "goal_expansion", 2);
+	//set_discontiguous_in_db(m, "term_expansion", 2);
+	//set_discontiguous_in_db(m, "goal_expansion", 2);
 
-	set_multifile_in_db(m, "term_expansion", 2);
-	set_multifile_in_db(m, "goal_expansion", 2);
+	//set_multifile_in_db(m, "term_expansion", 2);
+	//set_multifile_in_db(m, "goal_expansion", 2);
 	set_multifile_in_db(m, "$directive", 1);
 
-	set_dynamic_in_db(m, "term_expansion", 2);
-	set_dynamic_in_db(m, "goal_expansion", 2);
+	//set_dynamic_in_db(m, "term_expansion", 2);
+	//set_dynamic_in_db(m, "goal_expansion", 2);
 	set_dynamic_in_db(m, "$directive", 1);
 
 	init_lock(&m->guard);

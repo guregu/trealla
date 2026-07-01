@@ -30,7 +30,7 @@ bool is_graphic(int ch)
 
 char *slicedup(const char *s, size_t n)
 {
-	char *ptr = malloc(n+1);
+	char *ptr = TPL_malloc(n+1);
 	ENSURE (ptr);
 	memcpy(ptr, s, n);
 	ptr[n] = '\0';
@@ -147,7 +147,7 @@ size_t slicecpy(char *dst, size_t dstlen, const char *src, size_t len)
 
 static void *make_string_internal(cell *c, const char *s, size_t n, size_t off)
 {
-	strbuf *strb = malloc(sizeof(strbuf) + n + 1);
+	strbuf *strb = TPL_malloc(sizeof(strbuf) + n + 1);
 	if (!strb) return NULL;
 	memcpy(strb->cstr, s, n);
 	strb->cstr[n] = 0;
@@ -300,26 +300,6 @@ void make_blob(cell *tmp, void *ptr)
 	tmp->val_blob->refcnt = 0;
 }
 
-void make_dbref(cell *tmp, void *ptr)
-{
-	*tmp = (cell){0};
-	tmp->tag = TAG_DBID;
-	tmp->flags = FLAG_MANAGED;
-	tmp->num_cells = 1;
-	tmp->val_blob = ptr;
-	tmp->val_blob->refcnt = 0;
-}
-
-void make_kvref(cell *tmp, void *ptr)
-{
-	*tmp = (cell){0};
-	tmp->tag = TAG_KVID;
-	tmp->flags = FLAG_MANAGED;
-	tmp->num_cells = 1;
-	tmp->val_blob = ptr;
-	tmp->val_blob->refcnt = 0;
-}
-
 void share_cells(cell *src, pl_idx num_cells)
 {
 	for (pl_idx i = 0; i < num_cells; i++, src++)
@@ -332,11 +312,10 @@ void unshare_cells(cell *src, pl_idx num_cells)
 		unshare_cell(src);
 }
 
-
 void clear_clause(clause *cl)
 {
 	unshare_cells(cl->cells, cl->cidx);
-	free(cl->alt);
+	TPL_free(cl->alt);
 	cl->alt = NULL;
 	cl->num_vars = 0;
 	cl->cidx = 0;
@@ -347,7 +326,7 @@ static bool make_room(parser *p, unsigned num)
 	if ((p->cl->cidx+num) >= p->cl->num_allocated_cells) {
 		pl_idx num_cells = (p->cl->num_allocated_cells + num) * 3 / 2;
 
-		clause *cl = realloc(p->cl, sizeof(clause)+(sizeof(cell)*num_cells));
+		clause *cl = TPL_realloc(p->cl, sizeof(clause)+(sizeof(cell)*num_cells));
 		ENSURE(cl);
 		p->cl = cl;
 		p->cl->num_allocated_cells = num_cells;
@@ -388,27 +367,27 @@ void parser_destroy(parser *p)
 {
 	if (!p) return;
 	SB_free(p->token);
-	free(p->save_line);
+	TPL_free(p->save_line);
 
 	if (p->cl) {
 		clear_clause(p->cl);
-		free(p->cl);
+		TPL_free(p->cl);
 	}
 
 	p->save_line = NULL;
 	p->cl = NULL;
-	free(p);
+	TPL_free(p);
 }
 
 parser *parser_create(module *m)
 {
-	parser *p = calloc(1, sizeof(parser));
+	parser *p = TPL_calloc(1, sizeof(parser));
 	ENSURE(p);
 	p->pl = m->pl;
 	p->m = m;
 	pl_idx num_cells = INITIAL_NBR_CELLS;
-	p->cl = calloc(1, sizeof(clause)+(sizeof(cell)*num_cells));
-	ENSURE(p->cl, free(p));
+	p->cl = TPL_calloc(1, sizeof(clause)+(sizeof(cell)*num_cells));
+	ENSURE(p->cl, TPL_free(p));
 	p->cl->num_allocated_cells = num_cells;
 	p->start_term = true;
 	p->flags = m->flags;
@@ -438,7 +417,7 @@ static void consultall(parser *p, cell *l)
 
 char *relative_to(const char *basefile, const char *relfile)
 {
-	char *tmpbuf = malloc(strlen(basefile) + strlen(relfile) + 256);
+	char *tmpbuf = TPL_malloc(strlen(basefile) + strlen(relfile) + 256);
 	ENSURE(tmpbuf);
 	char *ptr = tmpbuf;
 
@@ -492,11 +471,11 @@ static void do_op(parser *p, cell *c, bool make_public)
 		if (!p->do_read_term)
 			fprintf_to_stream(p->pl, ERROR_FP, "Error: unknown op spec tag, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
 
-		free(spec);
+		TPL_free(spec);
 		return;
 	}
 
-	free(spec);
+	TPL_free(spec);
 	LIST_HANDLER(p3);
 
 	while (is_list(p3)) {
@@ -512,7 +491,7 @@ static void do_op(parser *p, cell *c, bool make_public)
 				if (!p->do_read_term)
 					fprintf(stderr, "Error: permission error set op, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
 
-				free(name);
+				TPL_free(name);
 				return;
 			}
 
@@ -520,7 +499,7 @@ static void do_op(parser *p, cell *c, bool make_public)
 				if (!p->do_read_term)
 					fprintf(stderr, "Error: permission error set op, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
 
-				free(name);
+				TPL_free(name);
 				return;
 			}
 
@@ -528,7 +507,7 @@ static void do_op(parser *p, cell *c, bool make_public)
 				if (!p->do_read_term)
 					fprintf_to_stream(p->pl, ERROR_FP, "Error: could not set op, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
 
-				free(name);
+				TPL_free(name);
 				continue;
 			}
 
@@ -537,12 +516,12 @@ static void do_op(parser *p, cell *c, bool make_public)
 					if (!p->do_read_term)
 						fprintf_to_stream(p->pl, ERROR_FP, "Error: could not set op, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
 
-					free(name);
+					TPL_free(name);
 					continue;
 				}
 			}
 
-			free(name);
+			TPL_free(name);
 		}
 
 		p3 = LIST_TAIL(p3);
@@ -557,7 +536,7 @@ static void do_op(parser *p, cell *c, bool make_public)
 			if (!p->do_read_term)
 				fprintf(stderr, "Error: permission error set op, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
 
-			free(name);
+			TPL_free(name);
 			return;
 		}
 
@@ -565,7 +544,7 @@ static void do_op(parser *p, cell *c, bool make_public)
 			if (!p->do_read_term)
 				fprintf(stderr, "Error: permission error set op, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
 
-			free(name);
+			TPL_free(name);
 			return;
 		}
 
@@ -573,7 +552,7 @@ static void do_op(parser *p, cell *c, bool make_public)
 			if (!p->do_read_term)
 				fprintf_to_stream(p->pl, ERROR_FP, "Error: could not set op, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
 
-			free(name);
+			TPL_free(name);
 			return;
 		}
 
@@ -582,12 +561,12 @@ static void do_op(parser *p, cell *c, bool make_public)
 				if (!p->do_read_term)
 					fprintf_to_stream(p->pl, ERROR_FP, "Error: could not set op, %s:%u\n", get_loaded(p->m, p->m->filename), p->line_num);
 
-				free(name);
+				TPL_free(name);
 				return;
 			}
 		}
 
-		free(name);
+		TPL_free(name);
 	}
 }
 
@@ -761,7 +740,7 @@ static bool directives(parser *p, cell *d)
 		q.pl = p->pl;
 		q.st.m = p->m;
 		char *dst = print_term_to_strbuf(&q, p1, p1_ctx, 0);
-		builtins *ptr = calloc(1, sizeof(builtins));
+		builtins *ptr = TPL_calloc(1, sizeof(builtins));
 		ENSURE(ptr);
 		ptr->name = strdup(C_STR(p, p1));
 		ptr->arity = p1->arity;
@@ -801,14 +780,14 @@ static bool directives(parser *p, cell *d)
 			if (!p->do_read_term)
 				fprintf_to_stream(p->pl, ERROR_FP, "Error: not found: %s:%d\n", filename, p->line_num);
 
-			free(filename);
+			TPL_free(filename);
 			p->line_num = save_line_nbr;
 			p->error = true;
 			return true;
 		}
 
 		set_parent(p->m, p->m->actual_filename, p->m->filename);
-		free(filename);
+		TPL_free(filename);
 		p->line_num = save_line_nbr;
 		return true;
 	}
@@ -823,13 +802,13 @@ static bool directives(parser *p, cell *d)
 			if (!p->do_read_term)
 				fprintf_to_stream(p->pl, ERROR_FP, "Error: not found: %s:%d\n", filename, p->line_num);
 
-			free(filename);
+			TPL_free(filename);
 			p->line_num = save_line_nbr;
 			p->error = true;
 			return true;
 		}
 
-		free(filename);
+		TPL_free(filename);
 		p->line_num = save_line_nbr;
 		return true;
 	}
@@ -955,9 +934,6 @@ static bool directives(parser *p, cell *d)
 			module *tmp_m;
 
 			if ((tmp_m = find_module(p->pl, name)) != NULL) {
-				//if (!p->do_read_term)
-				//	fprintf_to_stream(p->pl, ERROR_FP, "Error: module already loaded: %s, %s:%d\n", name, get_loaded(p->m, p->m->filename), p->line_num);
-				//
 				p->already_loaded_error = true;
 				p->m = tmp_m;
 				return true;
@@ -1385,7 +1361,7 @@ static pl_idx get_varno(parser *p, const char *src, bool in_body, unsigned depth
 {
 	int anon = !strcmp(src, "_");
 	size_t offset = 0;
-	unsigned i = 0, nesting_offset = p->is_consulting ? 0 : 2;
+	unsigned i = 0, nesting_offset = p->is_consulting ? 0 : 1;
 
 	while (p->vartab.pool[offset]) {
 		if (!strcmp(p->vartab.pool+offset, src) && !anon) {
@@ -1419,7 +1395,9 @@ static pl_idx get_varno(parser *p, const char *src, bool in_body, unsigned depth
 	else
 		p->vartab.in_head[i]++;
 
-	p->vartab.depth[i] = depth - nesting_offset;
+	if (depth > p->vartab.depth[i])
+		p->vartab.depth[i] = depth - nesting_offset;
+
 	p->vartab.num_vars++;
 	return i;
 }
@@ -1626,7 +1604,7 @@ static void replace_double_bar(parser *p, pl_idx i, pl_idx last_idx)
 		query *q = query_create(p->m);
 		cell *l = string_to_chars_list(q, lhs);
 		unshare_cells(lhs, lhs->num_cells);
-		cell *tmp = calloc((l->num_cells-1)+rhs->num_cells+1, sizeof(cell));
+		cell *tmp = TPL_calloc((l->num_cells-1)+rhs->num_cells+1, sizeof(cell));
 		cell *tmp2 = tmp;
 		tmp2 += copy_cells(tmp, l, l->num_cells-1);
 		tmp->num_cells -= 1;
@@ -1651,7 +1629,7 @@ static void replace_double_bar(parser *p, pl_idx i, pl_idx last_idx)
 		memmove(lhs, tmp, tmp->num_cells*sizeof(cell));
 
 		p->cl->cidx += extra_cells;
-		free(tmp);
+		TPL_free(tmp);
 		query_destroy(q);
 	}
 }
@@ -1828,7 +1806,7 @@ static bool reduce(parser *p, pl_idx start_idx, bool last_op)
 
 			cell *lhs = p->cl->cells + last_idx;
 			save.num_cells += lhs->num_cells;
-			pl_idx cells_to_move = lhs->num_cells;
+			int cells_to_move = lhs->num_cells;
 			cell *save_c = lhs;
 			const cell *src = c - 1;
 			cell *dst = c;
@@ -1882,7 +1860,7 @@ static bool reduce(parser *p, pl_idx start_idx, bool last_op)
 		}
 
 		save.num_cells += lhs->num_cells;
-		pl_idx cells_to_move = lhs->num_cells;
+		int cells_to_move = lhs->num_cells;
 		lhs = c - 1;
 
 		while (cells_to_move--)
@@ -1937,6 +1915,8 @@ static bool analyze(parser *p, pl_idx start_idx, bool last_op)
 	return !p->error;
 }
 
+static bool term_expansion(parser *p);
+
 static bool dcg_expansion(parser *p)
 {
 	query *q = query_create(p->m);
@@ -1945,7 +1925,7 @@ static bool dcg_expansion(parser *p)
 	q->trace = false;
 	cell *c = p->cl->cells;
 	cell *tmp = alloc_heap(q, 1+c->num_cells+1+1);
-	make_instr(tmp, new_atom(p->pl, "dcg_translate"), NULL, 2, c->num_cells+1);
+	make_instr(tmp, g_dcg_translate_s, NULL, 2, c->num_cells+1);
 	dup_cells(tmp+1, p->cl->cells, c->num_cells);
 	make_ref(tmp+1+c->num_cells, p->cl->num_vars, 0);
 	make_end(tmp+1+c->num_cells+1);
@@ -1985,14 +1965,15 @@ static bool dcg_expansion(parser *p)
 	}
 
 	process_clause(p2->m, p2->cl, NULL);
-	free(src);
+	TPL_free(src);
 
 	clear_clause(p->cl);
-	free(p->cl);
+	TPL_free(p->cl);
 	p->cl = p2->cl;					// Take the completed clause
 	p->num_vars = p2->num_vars;
 	p2->cl = NULL;
 	parser_destroy(p2);
+
 	return true;
 }
 
@@ -2001,9 +1982,13 @@ static bool term_expansion(parser *p)
 	if (p->error || p->internal || !is_interned(p->cl->cells))
 		return false;
 
-	if (p->cl->cells->val_off == g_dcg_s)
-		return dcg_expansion(p);
+	cell *c = p->cl->cells;
 
+	if ((c->val_off == g_dcg_s) && (c->arity == 2)) {
+		dcg_expansion(p); // FIXME: need to term_expand & may be a list?
+	}
+
+	c = p->cl->cells;
 	module *m = p->m;
 	predicate *pr = find_functor(m, "term_expansion", 2);
 
@@ -2015,10 +2000,10 @@ static bool term_expansion(parser *p)
 	if (!pr || !pr->head)
 		return false;
 
-	cell *h = get_head(p->cl->cells);
+	cell *h = get_head(c);
 
-	if (h->val_off == g_term_expansion_s)
-		return false;
+	//if (h->val_off == g_term_expansion_s)
+	//	return false;
 
 	if (h->val_off == g_colon_s)
 		return false;
@@ -2026,11 +2011,10 @@ static bool term_expansion(parser *p)
 	query *q = query_create(m);
 	check_error(q);
 	q->trace = false;
-	cell *c = p->cl->cells;
 	cell *tmp = alloc_heap(q, 1+c->num_cells+2);
 	unsigned num_cells = 0;
-	make_instr(tmp+num_cells++, new_atom(p->pl, "term_expansion"), NULL, 2, c->num_cells+1);
-	dup_cells(tmp+num_cells, p->cl->cells, c->num_cells);
+	make_instr(tmp+num_cells++, g_term_expansion_s, NULL, 2, c->num_cells+1);
+	dup_cells(tmp+num_cells, c, c->num_cells);
 	num_cells += c->num_cells;
 	make_ref(tmp+num_cells++, p->cl->num_vars, 0);
 	make_end(tmp+num_cells);
@@ -2053,6 +2037,8 @@ static bool term_expansion(parser *p)
 		return false;
 	}
 
+	//fprintf(stderr, "+++ term_expansion %s/%u ==> ", C_STR(p, h), h->arity);
+
 	strcat(src, ".");
 	parser *p2 = parser_create(p->m);
 	check_error(p2);
@@ -2067,15 +2053,16 @@ static bool term_expansion(parser *p)
 	}
 
 	process_clause(p2->m, p2->cl, NULL);
-	free(src);
+	TPL_free(src);
 
 	clear_clause(p->cl);
-	free(p->cl);
+	TPL_free(p->cl);
 	p->cl = p2->cl;					// Take the completed clause
 	p->num_vars = p2->num_vars;
 	p2->cl = NULL;
 
 	parser_destroy(p2);
+	//DUMP_TERM("old", get_head(p->cl->cells), 0, 1);
 	query_destroy(q);
 
 	return term_expansion(p);
@@ -2109,6 +2096,8 @@ static cell *goal_expansion(parser *p, cell *goal)
 		return goal;
 	}
 
+	//printf("*** [%s] goal_expansion %s/%u, p->is_command=%d\n", p->m->name, C_STR(p, goal), goal->arity, p->is_command);
+
 	query *q = query_create(p->m);
 	check_error(q);
 	q->trace = false;
@@ -2118,7 +2107,7 @@ static cell *goal_expansion(parser *p, cell *goal)
 	q->varnames = false;
 	SB(s);
 	SB_sprintf(s, "goal_expansion((%s),_TermOut), !.", dst);
-	free(dst);
+	TPL_free(dst);
 
 	//DUMP_TERM("old", p->cl->cells, 0, 0);
 
@@ -2152,13 +2141,16 @@ static cell *goal_expansion(parser *p, cell *goal)
 	execute(q, p2->cl->cells, p2->cl->num_vars);
 	SB_free(s);
 	p->pl->in_goal_expansion = false;
-	//printf("-- goal_expansion %s/%u\n", C_STR(p, goal), goal->arity);
 
 	if (q->retry != QUERY_OK) {
 		parser_destroy(p2);
 		query_destroy(q);
 		return goal;
 	}
+
+	//printf("-- goal_expansion %s/%u\n", C_STR(p, goal), goal->arity);
+
+	clear_write_options(q);
 
 	for (unsigned i = 0; i < p->cl->num_vars; i++)
 		q->ignores[i] = true;
@@ -2195,7 +2187,7 @@ static cell *goal_expansion(parser *p, cell *goal)
 		parser_destroy(p2);
 		query_destroy(q);
 		p->error = true;
-		free(src);
+		TPL_free(src);
 		return goal;
 	}
 
@@ -2218,12 +2210,12 @@ static cell *goal_expansion(parser *p, cell *goal)
 		parser_destroy(p2);
 		query_destroy(q);
 		p->error = true;
-		free(src);
+		TPL_free(src);
 		return goal;
 	}
 
 	process_clause(p2->m, p2->cl, NULL);
-	free(src);
+	TPL_free(src);
 
 	// Push the updated vartab back...
 
@@ -2261,17 +2253,17 @@ static cell *goal_expansion(parser *p, cell *goal)
 	parser_destroy(p2);
 	query_destroy(q);
 
-	return goal;
+	return goal_expansion(p, goal);
 }
 
 static void expand_meta_predicate(parser *p, predicate *pr, cell *goal)
 {
-	unsigned arity = goal->arity;
+	int arity = goal->arity;
 
 	for (cell *k = goal+1, *m = pr->meta_args+1; arity--; k += k->num_cells, m += m->num_cells) {
 		cell tmpbuf[2];
 
-		if (is_interned(k) && (k->val_off == g_call_s))
+		if (is_interned(k) && ((k->val_off == g_call_s) || (k->val_off == g_once_s) || (k->val_off == g_ignore_s)))
 			continue;
 		else if ((k->arity == 2) && (k->val_off == g_colon_s) && is_atom(FIRST_ARG(k)))
 			continue;
@@ -2332,7 +2324,7 @@ static cell *insert_call_here(parser *p, cell *c, cell *p1)
 	make_room(p, 1);
 
 	cell *last = p->cl->cells + (p->cl->cidx - 1);
-	pl_idx cells_to_move = p->cl->cidx - p1_idx;
+	int cells_to_move = p->cl->cidx - p1_idx;
 	cell *dst = last + 1;
 
 	while (cells_to_move--)
@@ -2346,9 +2338,10 @@ static cell *insert_call_here(parser *p, cell *c, cell *p1)
 
 static cell *term_to_body_conversion(parser *p, cell *c)
 {
-	//printf("*** %s/%u, p->is_command=%d\n", C_STR(p, c), c->arity, p->is_command);
+	//printf("*** term_to_body_conversion %s/%u, p->is_command=%d\n", C_STR(p, c), c->arity, p->is_command);
+
 	pl_idx c_idx = c - p->cl->cells;
-	bool is_head = (c_idx == 0) /*&& !p->is_command */;
+	bool is_head = c_idx == 0;
 
 	if (is_xfx(c) || is_xfy(c)) {
 		if ((c->val_off == g_conjunction_s)
@@ -2434,12 +2427,12 @@ static cell *term_to_body_conversion(parser *p, cell *c)
 		}
 
 		cell *arg = c + 1;
-		unsigned arity = c->arity, i = 0;
+		int arity = c->arity, i = 0;
 
 		while (arity--) {
 			int extra = 0;
 			bool meta = pr ? is_meta_arg(pr, c, i, &extra) : false;
-			c->num_cells -= arg->num_cells;
+			int save_num_cells = arg->num_cells;
 			arg->arity += extra;
 
 			if (meta)
@@ -2449,7 +2442,7 @@ static cell *term_to_body_conversion(parser *p, cell *c)
 				arg = term_to_body_conversion(p, arg);
 
 			arg->arity -= extra;
-			c->num_cells += arg->num_cells;
+			c->num_cells += arg->num_cells - save_num_cells;
 			arg += arg->num_cells;
 			i++;
 		}
@@ -2880,7 +2873,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 		read_integer(p, &v2, 2, &s);
 
 		if (mp_int_to_int(&v2, &val) == MP_RANGE) {
-			p->v.val_bigint = malloc(sizeof(bigint));
+			p->v.val_bigint = TPL_malloc(sizeof(bigint));
 			ENSURE(p->v.val_bigint);
 			p->v.val_bigint->refcnt = 1;
 			mp_int_init_copy(&p->v.val_bigint->ival, &v2);
@@ -2902,7 +2895,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 		read_integer(p, &v2, 8, &s);
 
 		if (mp_int_to_int(&v2, &val) == MP_RANGE) {
-			p->v.val_bigint = malloc(sizeof(bigint));
+			p->v.val_bigint = TPL_malloc(sizeof(bigint));
 			ENSURE(p->v.val_bigint);
 			p->v.val_bigint->refcnt = 1;
 			mp_int_init_copy(&p->v.val_bigint->ival, &v2);
@@ -2924,7 +2917,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 		read_integer(p, &v2, 16, &s);
 
 		if (mp_int_to_int(&v2, &val) == MP_RANGE) {
-			p->v.val_bigint = malloc(sizeof(bigint));
+			p->v.val_bigint = TPL_malloc(sizeof(bigint));
 			ENSURE(p->v.val_bigint);
 			p->v.val_bigint->refcnt = 1;
 			mp_int_init_copy(&p->v.val_bigint->ival, &v2);
@@ -2989,7 +2982,7 @@ static bool parse_number(parser *p, const char **srcptr, bool neg)
 	}
 
 	if (mp_int_to_int(&v2, &val) == MP_RANGE) {
-		p->v.val_bigint = malloc(sizeof(bigint));
+		p->v.val_bigint = TPL_malloc(sizeof(bigint));
 		ENSURE(p->v.val_bigint);
 		p->v.val_bigint->refcnt = 1;
 		mp_int_init_copy(&p->v.val_bigint->ival, &v2);
@@ -3211,8 +3204,6 @@ bool get_token(parser *p, bool last_op, bool was_postfix)
 
 	const char *src = p->srcptr;
 
-TRY_AGAIN:
-
 	SB_init(p->token);
 	p->v.tag = TAG_INTERNED;
 	p->v.flags = 0;
@@ -3334,13 +3325,11 @@ TRY_AGAIN:
 					src = eat_space(p);
 
 					if (*src != '"') {
-						// Where the string is empty it's
-						// just ignored:
-
-						if (!SB_strlen(p->token) && 0) {
+						if ((src[0] == '[') && (src[1] == ']')) {
 							p->quote_char = 0;
-							p->is_quoted = true;
-							goto TRY_AGAIN;
+							p->is_string = true;
+							src += 2;
+							break;
 						}
 
 						p->double_bar = true;
@@ -3666,6 +3655,58 @@ static bool process_term(parser *p, cell *p1)
 	return true;
 }
 
+bool expand_term(parser *p, cell *c)
+{
+	LIST_HANDLER(c);
+	bool tail = false;
+
+	while (is_iso_list(c)) {
+		cell *h = LIST_HEAD(c);
+		parser *p2 = parser_create(p->m);
+		check_error(p2);
+		TPL_free(p2->cl);
+		p2->cl = TPL_calloc(1, sizeof(clause) + (sizeof(cell)*h->num_cells+1));
+		check_error(p2->cl, parser_destroy(p2));
+		dup_cells(p2->cl->cells, h, h->num_cells);
+		p2->cl->num_allocated_cells = h->num_cells;
+		p2->cl->cidx = h->num_cells;
+		p2->cl->num_vars = p->cl->num_vars;
+		term_expansion(p2);
+
+		if (is_iso_list(p2->cl->cells)) {
+			if (!expand_term(p2, p2->cl->cells)) {
+				parser_destroy(p2);
+				return false;
+			}
+		} else {
+			cell *c2 = p2->cl->cells;
+
+			if (!process_term(p2, c2)) {
+				parser_destroy(p2);
+				return false;
+			}
+
+			if (p2->already_loaded_error) {
+				parser_destroy(p2);
+				return false;
+			}
+		}
+
+		parser_destroy(p2);
+		c = LIST_TAIL(c);
+
+		if (is_nil(c) || is_var(c))
+			tail = true;
+	}
+
+	if (!tail && !process_term(p, c)) {
+		p->error = true;
+		return false;
+	}
+
+	return true;
+}
+
 unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 {
 	pl_idx arg_idx = p->cl->cidx, save_idx = 0;
@@ -3735,7 +3776,7 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 
 				if (p->error) return 0;
 
-				if ((p->is_consulting /*|| p->is_command*/) && !p->skip && check_body_callable(p->cl->cells)) {
+				if (p->is_consulting && !p->skip && check_body_callable(p->cl->cells)) {
 					if (!p->do_read_term)
 						fprintf_to_stream(p->pl, ERROR_FP, "Error: type error, not callable, %s:%d\n", get_loaded(p->m, p->m->filename), p->line_num);
 
@@ -3749,7 +3790,7 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 				if (!p->one_shot /*|| p->is_command*/)
 					term_to_body(p);
 
-				if ((p->is_consulting /*|| p->is_command*/) && !p->skip) {
+				if (p->is_consulting && !p->skip) {
 					term_expansion(p);
 					cell *p1 = p->cl->cells;
 
@@ -3770,31 +3811,10 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 				}
 
 				if (p->is_consulting && !p->skip) {
-					// Term expansion can return a list...
+					cell *c = p->cl->cells;
 
-					cell *p1 = p->cl->cells;
-					LIST_HANDLER(p1);
-					bool tail = false;
-
-					while (is_iso_list(p1)) {
-						cell *h = LIST_HEAD(p1);
-
-						if (!process_term(p, h))
-							return 0;
-
-						if (p->already_loaded_error)
-							return 0;
-
-						p1 = LIST_TAIL(p1);
-
-						if (is_nil(p1) || is_var(p1))
-							tail = true;
-					}
-
-					if (!tail && !process_term(p, p1)) {
-						p->error = true;
+					if (!expand_term(p, c))
 						return 0;
-					}
 
 					if (p->already_loaded_error)
 						return 0;
@@ -4384,7 +4404,7 @@ bool run(parser *p, const char *prolog_src, bool dump, query **subq, unsigned in
 		p->line_num_start = 0;
 		p->line_num = 1;
 		p->one_shot = true;
-		//p->is_command = true;
+		p->is_command = true;
 		p->is_consulting = false;
 		tokenize(p, false, false);
 
@@ -4454,12 +4474,11 @@ bool run(parser *p, const char *prolog_src, bool dump, query **subq, unsigned in
 	stream *str = &p->pl->streams[0];
 	if (is_file_stream(str)) {
 		fflush(str->fp);
-		free(str->data);
+		TPL_free(str->data);
 		str->data = NULL;
 		str->data_len = 0;
 		str->srclen = 0;
 	}
-
 	p->srcptr = NULL;
 	SB_free(pr);
 	return ok;
