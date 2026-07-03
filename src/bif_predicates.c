@@ -5690,6 +5690,11 @@ static bool fn_sys_host_call_2(query *q) {
 	GET_FIRST_ARG(p1,any);
 	GET_NEXT_ARG(p2,var);
 
+	if (q->pl->streams[1].fp)
+		fflush(q->pl->streams[1].fp);
+	if (q->pl->streams[2].fp)
+		fflush(q->pl->streams[2].fp);
+
 	int32_t status = 0;
 	char *reply = {0};
 	size_t reply_len;
