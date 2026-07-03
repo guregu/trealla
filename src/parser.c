@@ -3083,8 +3083,12 @@ char *eat_space(parser *p)
 				continue;
 			}
 
-			if (p->no_fp || getline(&p->save_line, &p->n_line, p->fp) == -1)
+			if (p->no_fp || getline(&p->save_line, &p->n_line, p->fp) == -1) {
+				if (errno == EINTR)
+					p->error = true;
+
 				return p->srcptr = "";
+			}
 
 			p->did_getline = true;
 			src = p->srcptr = p->save_line;
@@ -4471,14 +4475,13 @@ bool run(parser *p, const char *prolog_src, bool dump, query **subq, unsigned in
 			break;
 	}
 
+	// TODO: double check
 	stream *str = &p->pl->streams[0];
-	if (is_file_stream(str)) {
-		fflush(str->fp);
-		TPL_free(str->data);
-		str->data = NULL;
-		str->data_len = 0;
-		str->srclen = 0;
-	}
+	fflush(str->fp);
+	TPL_free(str->data);
+	str->data = NULL;
+	str->data_len = 0;
+	str->srclen = 0;
 	p->srcptr = NULL;
 	SB_free(pr);
 	return ok;

@@ -418,10 +418,9 @@ int new_stream(prolog *pl)
 	for (int i = 3; i < MAX_STREAMS; i++) {
 		stream *str = &pl->streams[i];
 
-		if (is_live_stream(str))
+		if (str->is_active)
 			continue;
 
-		str->is_active = true;
 		str->timeout_ms = 0;
 		str->is_pipe = false;
 		str->is_socket = false;
@@ -434,6 +433,8 @@ int new_stream(prolog *pl)
 		str->repo = false;
 		str->binary = false;
 		str->at_end_of_file = false;
+		str->fp_in = str->fp_out = NULL;
+		str->is_active = true;
 		prolog_unlock(pl);
 		return i;
 	}
@@ -465,7 +466,7 @@ static void add_stream_properties(query *q, int n)
 	off_t pos = is_file_stream(str) && !is_socket_stream(str) && !is_virtual_stream(str) ? ftello(str->fp) : 0;
 	bool at_end_of_file = false;
 
-	if (!str->at_end_of_file && (n > 2) && !is_socket_stream(str) && !is_virtual_stream(str) && !str->p && str->filename) {
+	if (!str->at_end_of_file && (n > 2) && !is_socket_stream(str) && !is_virtual_stream(str) && !str->is_pipe && !str->p && str->filename) {
 #if 0
 		if (str->p) {
 			if (str->p->srcptr && *str->p->srcptr) {
@@ -1087,8 +1088,10 @@ static bool bif_iso_open_4(query *q)
 			str->fp = fdopen(fd, str->binary?"ab":"a");
 		else if (!strcmp(str->mode, "update"))
 			str->fp = fdopen(fd, str->binary?"rb+":"r+");
-		else
+		else {
+			str->is_active = false;
 			return throw_error(q, p2, p2_ctx, "domain_error", "io_mode");
+		}
 	} else {
 		if (!strcmp(str->mode, "read"))
 			str->fp = fopen(str->filename, str->binary?"rb":"r");
@@ -1098,11 +1101,15 @@ static bool bif_iso_open_4(query *q)
 			str->fp = fopen(str->filename, str->binary?"ab":"a");
 		else if (!strcmp(str->mode, "update"))
 			str->fp = fopen(str->filename, str->binary?"rb+":"r+");
-		else
+		else {
+			str->is_active = false;
 			return throw_error(q, p2, p2_ctx, "domain_error", "io_mode");
+		}
 	}
 
 	if (!str->fp) {
+		str->is_active = false;
+
 		if ((errno == EACCES) || (strcmp(str->mode, "read")
 			&& ((errno == EROFS) || (errno == EISDIR))
 			))
@@ -1112,6 +1119,8 @@ static bool bif_iso_open_4(query *q)
 		else
 			return throw_error(q, p1, p1_ctx, "existence_error", "source_sink");
 	}
+
+	str->fp_out = str->fp;
 
 	if (S_ISFIFO(st.st_mode))
 		setvbuf(str->fp, NULL, _IONBF, 0);
@@ -1235,8 +1244,7 @@ bool stream_close(query *q, int n)
 
 	sl_destroy(str->alias);
 	str->alias = NULL;
-	str->is_active = false;
-	str->fp = NULL;
+	str->fp_in = str->fp_out = NULL;
 	TPL_free(str->mode);
 	str->mode = NULL;
 	TPL_free(str->filename);
@@ -1244,6 +1252,7 @@ bool stream_close(query *q, int n)
 	TPL_free(str->data);
 	str->data = NULL;
 	str->at_end_of_file = true;
+	str->is_active = false;
 
 	if (!ok)
 		return throw_error(q, q->st.instr, q->st.cur_ctx, "io_error", strerror(errno));
@@ -1419,10 +1428,6 @@ static bool bif_iso_nl_1(query *q)
 		return throw_error(q, pstr, q->st.cur_ctx, "permission_error", "output,binary_stream");
 
 	tpl_write("\n", 1, str);
-
-	if (is_memory_stream(str))
-		return true;
-
 	int err = fflush(str->fp);
 
 	if ((err == EOF) && !str->is_socket)
@@ -1585,6 +1590,9 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_ctx p1_ctx, cell *p2, pl_c
 				return do_yield(q, 1);
 			}
 
+			if (errno == EINTR)
+				return throw_error(q, q->st.instr, q->st.cur_ctx, "time_limit_exceeded", "timed_out");
+
 			str->p->srcptr = "";
 		} else
 			str->p->srcptr = str->p->save_line;
@@ -1596,6 +1604,9 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_ctx p1_ctx, cell *p2, pl_c
 	if (str->p->srcptr) {
 		char *src = (char*)eat_space(str->p);
 
+		if (errno == EINTR)
+			return throw_error(q, q->st.instr, q->st.cur_ctx, "time_limit_exceeded", "timed_out");
+
 		if (str->p->error)
 			return throw_error(q, q->st.instr, q->st.cur_ctx, "syntax_error", str->p->error_desc?str->p->error_desc:"read_term");
 
@@ -1604,13 +1615,6 @@ bool do_read_term(query *q, stream *str, cell *p1, pl_ctx p1_ctx, cell *p2, pl_c
 	}
 
 	for (;;) {
-#if 0
-		if (isatty(fileno(str->fp)) && !src) {
-			fprintf(str->fp, "%s", PROMPT);
-			fflush(str->fp);
-		}
-#endif
-
 		if (!src && (!str->p->srcptr || !*str->p->srcptr || (*str->p->srcptr == '\n'))) {
 			if (str->p->srcptr && (*str->p->srcptr == '\n'))
 				str->p->line_num++;
@@ -3720,6 +3724,9 @@ static bool bif_sys_read_term_from_chars_4(query *q)
 
 	char *rest = str->p->srcptr = eat_space(str->p);
 
+	if (errno == EINTR)
+		return throw_error(q, q->st.instr, q->st.cur_ctx, "time_limit_exceeded", "timed_out");
+
 	if (str->p->error) {
 		parser_destroy(str->p);
 		return throw_error(q, q->st.instr, q->st.cur_ctx, "syntax_error", str->p->error_desc?str->p->error_desc:"read_term");
@@ -4076,8 +4083,12 @@ static bool bif_edin_seen_0(query *q)
 
 	if ((str->fp != stdin)
 		&& (str->fp != stdout)
-		&& (str->fp != stderr))
-		fclose(str->fp);
+		&& (str->fp != stderr)) {
+		fclose(str->fp_in);
+
+		if (str->fp_out != str->fp_in)
+			fclose(str->fp_out);
+	}
 
 	sl_destroy(str->alias);
 	TPL_free(str->filename);
@@ -4097,8 +4108,12 @@ static bool bif_edin_told_0(query *q)
 
 	if ((str->fp != stdin)
 		&& (str->fp != stdout)
-		&& (str->fp != stderr))
-		fclose(str->fp);
+		&& (str->fp != stderr)) {
+		fclose(str->fp_in);
+
+		if (str->fp_out != str->fp_in)
+			fclose(str->fp_out);
+	}
 
 	sl_destroy(str->alias);
 	TPL_free(str->filename);
@@ -4160,6 +4175,9 @@ static bool bif_read_line_to_string_2(query *q)
 			return do_yield(q, 1);
 		}
 
+		if (errno == EINTR)
+			return throw_error(q, q->st.instr, q->st.cur_ctx, "time_limit_exceeded", "timed_out");
+
 		cell tmp;
 		make_atom(&tmp, g_eof_s);
 		return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
@@ -4210,6 +4228,9 @@ static bool bif_read_line_to_codes_2(query *q)
 			clearerr(str->fp);
 			return do_yield(q, 1);
 		}
+
+		if (errno == EINTR)
+			return throw_error(q, q->st.instr, q->st.cur_ctx, "time_limit_exceeded", "timed_out");
 
 		cell tmp;
 		make_atom(&tmp, g_eof_s);
@@ -6147,7 +6168,6 @@ static bool fn_sys_memory_stream_to_chars_2(query *q)
 	size_t len = SB_strlen(str->sb);
 	cell tmp;
 	CHECKED(make_stringn(&tmp, src, len));
-	// str->is_memory = false;
 	SB_free(str->sb);
 	bool ok = unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 	unshare_cell(&tmp);

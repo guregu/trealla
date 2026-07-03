@@ -750,33 +750,33 @@ void pl_destroy(prolog *pl)
 	for (int i = 0; i < MAX_STREAMS; i++) {
 		stream *str = &pl->streams[i];
 
-		if (!is_live_stream(str))
-			continue;
-
-		// TODO: double check these...
-		if (is_map_stream(str))
-			sl_destroy(str->keyval);
-
-		if (is_memory_stream(str))
-			SB_free(str->sb);
-
-		if (is_engine_stream(str))
-			query_destroy(str->engine);
-
-#if 0
-		if (is_file_stream(str) && (i > 2) &&
-				((str->fp != stdin)
+		if (is_live_stream(str)) {
+			if ((str->fp != stdin)
 				&& (str->fp != stdout)
-				&& (str->fp != stderr))
+				&& (str->fp != stderr)
 			) {
-			fclose(str->fp);
-#endif
-		parser_destroy(str->p);
-		str->p = NULL;
-		sl_destroy(str->alias);
-		TPL_free(str->filename);
-		TPL_free(str->mode);
-		TPL_free(str->data);
+				if (str->is_alias)
+					;
+				else if (str->is_map)
+					sl_destroy(str->keyval);
+				else if (str->is_engine)
+					query_destroy(str->engine);
+				else if (str->is_memory) {
+					SB_free(str->sb);
+				} else if (str->fp && (i > 2)) {
+					fclose(str->fp_in);
+
+					if (str->fp_in != str->fp_out)
+						fclose(str->fp_out);
+				}
+			}
+
+			parser_destroy(str->p);
+			sl_destroy(str->alias);
+			TPL_free(str->filename);
+			TPL_free(str->mode);
+			TPL_free(str->data);
+		}
 	}
 
 	if (pl->p)
@@ -824,21 +824,24 @@ prolog *pl_create()
 #endif
 	}
 
-	pl->streams[0].fp = stdin;
+	pl->streams[0].fp_in = stdin;
+	pl->streams[0].fp_out = stdin;
 	CHECK_SENTINEL(pl->streams[0].alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL), NULL);
 	CHECK_SENTINEL(pl->streams[0].filename = strdup("stdin"), NULL);
 	CHECK_SENTINEL(pl->streams[0].mode = strdup("read"), NULL);
 	sl_app(pl->streams[0].alias, strdup("user_input"), NULL);
 	pl->streams[0].eof_action = eof_action_reset;
 
-	pl->streams[1].fp = stdout;
+	pl->streams[1].fp_in = stdout;
+	pl->streams[1].fp_out = stdout;
 	CHECK_SENTINEL(pl->streams[1].alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL), NULL);
 	CHECK_SENTINEL(pl->streams[1].filename = strdup("stdout"), NULL);
 	CHECK_SENTINEL(pl->streams[1].mode = strdup("append"), NULL);
 	sl_app(pl->streams[1].alias, strdup("user_output"), NULL);
 	pl->streams[1].eof_action = eof_action_reset;
 
-	pl->streams[2].fp = stderr;
+	pl->streams[2].fp_in = stderr;
+	pl->streams[2].fp_out = stderr;
 	CHECK_SENTINEL(pl->streams[2].alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL), NULL);
 	CHECK_SENTINEL(pl->streams[2].filename = strdup("stderr"), NULL);
 	CHECK_SENTINEL(pl->streams[2].mode = strdup("append"), NULL);

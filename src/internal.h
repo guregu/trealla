@@ -68,8 +68,8 @@ char *realpath(const char *path, char resolved_path[PATH_MAX]);
 #define MAX_MODULES 1024
 #define MAX_IGNORES (1024*8)
 #define MAX_TABS 64000
-#define MAX_STREAMS 4096
-#define MAX_THREADS 4096
+#define MAX_STREAMS 1024
+#define MAX_THREADS 2048
 #define MAX_ACTUAL_THREADS MAX_THREADS
 
 #define STREAM_BUFLEN 1024
@@ -578,11 +578,13 @@ enum { eof_action_eof_code, eof_action_error, eof_action_reset };
 struct stream_ {
 	union {
 		FILE *fp;
+		FILE *fp_in;
 		skiplist *keyval;
 		query *engine;
 		void *handle;
 	};
 
+	FILE *fp_out;
 	stringbuf sb_buf;
 	char *mode, *filename, *data, *src;
 	skiplist *alias;

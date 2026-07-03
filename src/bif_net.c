@@ -176,8 +176,10 @@ static bool bif_sys_server_3(query *q)
 	str->ssl = ssl;
 	str->level = level;
 	str->fp = fdopen(fd, "r");
+	str->fp_out = str->fp;
 
 	if (str->fp == NULL) {
+		str->is_active = false;
 		close(fd);
 		return throw_error(q, p1, p1_ctx, "existence_error", "cannot_open_stream");
 	}
@@ -224,15 +226,31 @@ static bool bif_sys_accept_2(query *q)
 	str2->fp = fdopen(fd, "r+");
 
 	if (str2->fp == NULL) {
+		str2->is_active = false;
 		close(fd);
 		return throw_error(q, p1, p1_ctx, "existence_error", "cannot_open_stream");
 	}
+
+#ifndef __wasi__
+	int fd2 = dup(fd);
+	str2->fp_out = fdopen(fd2, "r+");
+
+	if (str2->fp_out == NULL) {
+		close(fd2);
+		fclose(str2->fp);
+		str2->is_active = false;
+		return throw_error(q, p1, p1_ctx, "existence_error", "cannot_open_stream");
+	}
+#else
+	str2->fp_out = str2->fp;
+#endif
 
 	if (str->ssl) {
 		str2->sslptr = tpl_enable_ssl(fd, str->filename, 1, str->level, NULL);
 
 		if (!str2->sslptr) {
 			close(fd);
+			str2->is_active = false;
 			return false;
 		}
 	}
@@ -658,17 +676,33 @@ static bool bif_sys_client_5(query *q)
 		sl_destroy(str->alias);
 		TPL_free(str->filename);
 		TPL_free(str->mode);
+		str->is_active = false;
 		return false;
 	}
 
 	if (str->fp == NULL) {
+		str->is_active = false;
 		close(fd);
 		return throw_error(q, p1, p1_ctx, "existence_error", "cannot_open_stream");
 	}
 
+#ifndef __wasi__
+	int fd2 = dup(fd);
+	str->fp_out = fdopen(fd2, "r+");
+
+	if (str->fp_out == NULL) {
+		close(fd2);
+		fclose(str->fp);
+		str->is_active = false;
+		return throw_error(q, p1, p1_ctx, "existence_error", "cannot_open_stream");
+	}
+#else
+	str->fp_out = str->fp;
+#endif
+
 	if (str->ssl) {
 		str->sslptr = tpl_enable_ssl(fd, hostname, 0, str->level, certfile);
-		CHECKED(str->sslptr, close(fd));
+		CHECKED(str->sslptr);
 	}
 
 	if (!str->ssl && q->is_task)

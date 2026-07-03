@@ -165,9 +165,8 @@ int tpl_connect(const char *hostname, unsigned port, bool udp, bool nodelay)
 		}
 
 		int flag = 1;
-		setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char *)&flag, sizeof(flag));
-		//flag = 1;
-		//setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, (char *)&flag, sizeof(flag));
+		setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag));
+		//setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &flag, sizeof(flag));
 
 		if (connect(fd, rp->ai_addr, rp->ai_addrlen) != -1)
 			break;
@@ -184,8 +183,8 @@ int tpl_connect(const char *hostname, unsigned port, bool udp, bool nodelay)
 	}
 
 	struct linger l;
-	l.l_onoff = 0;
-	l.l_linger = 1;
+	l.l_onoff = 1;
+	l.l_linger = 0;
 	setsockopt(fd, SOL_SOCKET, SO_LINGER, (char*)&l, sizeof(l));
 	int flag = 1;
 	setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, (char*)&flag, sizeof(flag));
@@ -225,9 +224,8 @@ int tpl_server(const char *hostname, unsigned port, bool udp, const char *keyfil
 		}
 
 		int flag = 1;
-		setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char *)&flag, sizeof(flag));
-		//flag = 1;
-		//setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, (char *)&flag, sizeof(flag));
+		setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag));
+		//setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &flag, sizeof(flag));
 
 		if (bind(fd, rp->ai_addr, rp->ai_addrlen) == 0)
 			break;
@@ -297,8 +295,8 @@ int tpl_accept(stream *str)
 	}
 
 	struct linger l;
-	l.l_onoff = 0;
-	l.l_linger = 1;
+	l.l_onoff = 1;
+	l.l_linger = 0;
 	setsockopt(fd, SOL_SOCKET, SO_LINGER, (char*)&l, sizeof(l));
 	int flag = 1;
 	setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, (char*)&flag, sizeof(flag));
@@ -314,7 +312,7 @@ void tpl_set_nonblocking(stream *str)
 {
 #if !defined(_WIN32) && !defined(__wasi__)
 	unsigned long flag = 1;
-	ioctl(fileno(str->fp), FIONBIO, &flag);
+	ioctl(fileno(str->fp_in), FIONBIO, &flag);
 #endif
 }
 
@@ -388,10 +386,10 @@ size_t tpl_write(const void *ptr, size_t nbytes, stream *str)
 		SB_fwrite(str->sb, ptr, nbytes);
 		return nbytes;
 	} else {
-		size_t len = fwrite(ptr, 1, nbytes, str->fp);
+		size_t len = fwrite(ptr, 1, nbytes, str->fp_out?str->fp_out:str->fp);
 
 		if (str->is_socket || str->is_pipe)
-			fflush(str->fp);
+			fflush(str->fp_out);
 
 		return len;
 	}
@@ -424,11 +422,7 @@ int tpl_getc(stream *str)
 	}
 #endif
 
-	if (!str->fp) {
-		return EOF;
-	}
-
-	int ok = fgetc(str->fp);
+	int ok = fgetc(str->fp_in);
 
 	if (errno == EINTR)
 		ok = EOF;
@@ -460,7 +454,7 @@ size_t tpl_read(void *ptr, size_t len, stream *str)
 	}
 #endif
 
-	int ok = fread(ptr, 1, len, str->fp);
+	int ok = fread(ptr, 1, len, str->fp_in);
 
 	if (errno == EINTR)
 		ok = EOF;
@@ -572,7 +566,7 @@ int tpl_getline(char **lineptr, size_t *n, stream *str)
 	}
 #endif
 
-	int ok = getline(lineptr, n, str->fp);
+	int ok = getline(lineptr, n, str->fp_in);
 
 	if (errno == EINTR)
 		ok = EOF;
@@ -603,10 +597,14 @@ int tpl_close(stream *str)
 #else
 	{
 		if (str->is_socket)
-			shutdown(fileno(str->fp), SHUT_RDWR);
+			shutdown(fileno(str->fp_in), SHUT_RDWR);
 
-		if (!str->is_memory)
-			ok = fclose(str->fp);
+		if (!str->is_memory) {
+			ok = fclose(str->fp_in);
+
+			if (str->fp_out != str->fp_in)
+				fclose(str->fp_out);
+		}
 
 		if (str->is_memory)
 			SB_free(str->sb);
@@ -614,6 +612,5 @@ int tpl_close(stream *str)
 #endif
 
 	str->is_active = false;
-	str->fp = NULL;
 	return ok;
 }
