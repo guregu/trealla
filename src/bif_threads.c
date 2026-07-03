@@ -143,7 +143,6 @@ static int new_thread(prolog *pl)
 				t->chan = n;
 			}
 
-			t->is_active = true;
 			t->id = pthread_self();
 			t->is_detached = false;
 			t->is_queue_only = false;
@@ -157,6 +156,7 @@ static int new_thread(prolog *pl)
 			t->ball = NULL;
 			t->alias = NULL;
 			t->q = NULL;
+			t->is_active = true;
 			prolog_unlock(pl);
 			return n;
 		}
@@ -864,12 +864,7 @@ static bool bif_thread_create_3(query *q)
 		cell tmp;
 		make_int(&tmp, n);
 		tmp.flags |= FLAG_INT_THREAD;
-
-		if (!unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx)) {
-			t->is_finished = false;
-			t->is_active = false;
-			return false;
-		}
+		unify(q, p2, p2_ctx, &tmp, q->st.cur_ctx);
 	}
 
 	THREAD_DEBUG DUMP_TERM(" - ", q->st.instr, q->st.cur_ctx, 1);
