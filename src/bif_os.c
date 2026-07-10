@@ -727,6 +727,7 @@ static bool bif_popen_4(query *q)
 
 	stream *str = &q->pl->streams[n];
 	str->is_pipe = true;
+	str->is_popen = true;
 	CHECKED(str->alias = sl_create((void*)fake_strcmp, (void*)keyfree, NULL));
 	CHECKED(str->filename = strdup(filename));
 	CHECKED(str->mode = DUP_STRING(q, p2));
@@ -830,6 +831,19 @@ static bool bif_popen_4(query *q)
 
 	return true;
 }
+static bool bif_pclose_1(query *q)
+{
+	GET_FIRST_ARG(pstr,stream);
+	int n = get_stream(q, pstr);
+	stream *str = &q->pl->streams[n];
+
+	if (!str->is_pipe || !str->is_popen)
+		return throw_error(q, pstr, pstr_ctx, "domain_error", "popen");
+
+	pclose(str->fp);
+	stream_close(q, n);
+	return true;
+}
 #endif
 
 extern char **g_envp;
@@ -890,6 +904,7 @@ static bool bif_process_create_3(query *q)
 	posix_spawnattr_init(&attrp);
 	cell *ppid = NULL;
 	pl_ctx ppid_ctx = 0;
+	int child_stdin_fd = -1, child_stdout_fd = -1, child_stderr_fd = -1;
 	LIST_HANDLER(p3);
 
 	while (is_iso_list(p3)) {
@@ -981,7 +996,9 @@ static bool bif_process_create_3(query *q)
 				int fds[2];
 				if (pipe(fds)) return false;
 				posix_spawn_file_actions_adddup2(&file_actions, fds[0], 0);
+				child_stdin_fd = fds[0];
 				q->pl->streams[n].fp = fdopen(fds[1], "w");
+				q->pl->streams[n].fp_out = q->pl->streams[n].fp;
 				q->pl->streams[n].is_pipe = true;
 				CHECKED(q->pl->streams[n].mode = strdup("write"));
 				cell tmp;
@@ -989,9 +1006,9 @@ static bool bif_process_create_3(query *q)
 				tmp.flags |= FLAG_INT_STREAM;
 				unify(q, ns, ns_ctx, &tmp, q->st.cur_ctx);
 			} else if (!CMP_STRING_TO_CSTR(q, c, "stdin") && !CMP_STRING_TO_CSTR(q, name, "stream")) {
-				cell *ns = deref(q, name, name_ctx);
+				cell *ns = deref(q, name+1, name_ctx);
 				int n = get_stream(q, ns);
-				posix_spawn_file_actions_adddup2(&file_actions, fileno(q->pl->streams[n].fp), 0);
+				posix_spawn_file_actions_adddup2(&file_actions, fileno(q->pl->streams[n].fp_in), 0);
 			} else if (!CMP_STRING_TO_CSTR(q, c, "stdout") && !CMP_STRING_TO_CSTR(q, name, "std")) {
 				posix_spawn_file_actions_adddup2(&file_actions, q->pl->current_output, 1);
 			} else if (!CMP_STRING_TO_CSTR(q, c, "stdout") && !CMP_STRING_TO_CSTR(q, name, "null")) {
@@ -1004,7 +1021,9 @@ static bool bif_process_create_3(query *q)
 				int fds[2];
 				if (pipe(fds)) return false;
 				posix_spawn_file_actions_adddup2(&file_actions, fds[1], 1);
+				child_stdin_fd = fds[1];
 				q->pl->streams[n].fp = fdopen(fds[0], "r");
+				q->pl->streams[n].fp_out = q->pl->streams[n].fp;
 				q->pl->streams[n].is_pipe = true;
 				CHECKED(q->pl->streams[n].mode = strdup("read"));
 				cell tmp;
@@ -1012,9 +1031,9 @@ static bool bif_process_create_3(query *q)
 				tmp.flags |= FLAG_INT_STREAM;
 				unify(q, ns, ns_ctx, &tmp, q->st.cur_ctx);
 			} else if (!CMP_STRING_TO_CSTR(q, c, "stdout") && !CMP_STRING_TO_CSTR(q, name, "stream")) {
-				cell *ns = deref(q, name, name_ctx);
+				cell *ns = deref(q, name+1, name_ctx);
 				int n = get_stream(q, ns);
-				posix_spawn_file_actions_adddup2(&file_actions, fileno(q->pl->streams[n].fp), 1);
+				posix_spawn_file_actions_adddup2(&file_actions, fileno(q->pl->streams[n].fp_out), 1);
 			} else if (!CMP_STRING_TO_CSTR(q, c, "stderr") && !CMP_STRING_TO_CSTR(q, name, "std")) {
 				posix_spawn_file_actions_adddup2(&file_actions, q->pl->current_error, 2);
 			} else if (!CMP_STRING_TO_CSTR(q, c, "stderr") && !CMP_STRING_TO_CSTR(q, name, "null")) {
@@ -1027,7 +1046,9 @@ static bool bif_process_create_3(query *q)
 				int fds[2];
 				if (pipe(fds)) return false;
 				posix_spawn_file_actions_adddup2(&file_actions, fds[1], 2);
+				child_stdin_fd = fds[1];
 				q->pl->streams[n].fp = fdopen(fds[0], "r");
+				q->pl->streams[n].fp_out = q->pl->streams[n].fp;
 				q->pl->streams[n].is_pipe = true;
 				CHECKED(q->pl->streams[n].mode = strdup("read"));
 				cell tmp;
@@ -1035,10 +1056,11 @@ static bool bif_process_create_3(query *q)
 				tmp.flags |= FLAG_INT_STREAM;
 				unify(q, ns, ns_ctx, &tmp, q->st.cur_ctx);
 			} else if (!CMP_STRING_TO_CSTR(q, c, "stderr") && !CMP_STRING_TO_CSTR(q, name, "stream")) {
-				cell *ns = deref(q, name, name_ctx);
+				cell *ns = deref(q, name+1, name_ctx);
 				int n = get_stream(q, ns);
-				posix_spawn_file_actions_adddup2(&file_actions, fileno(q->pl->streams[n].fp), 2);
-			}
+				posix_spawn_file_actions_adddup2(&file_actions, fileno(q->pl->streams[n].fp_out), 2);
+			} else
+				return throw_error(q, c, q->latest_ctx, "domain_error", "process_create_option");
 		} else
 			return throw_error(q, c, q->latest_ctx, "domain_error", "process_create_option");
 
@@ -1052,6 +1074,10 @@ static bool bif_process_create_3(query *q)
 	posix_spawn_file_actions_destroy(&file_actions);
 	posix_spawnattr_destroy(&attrp);
 	TPL_free(src);
+
+	if (child_stdin_fd  != -1) close(child_stdin_fd);
+	if (child_stdout_fd != -1) close(child_stdout_fd);
+	if (child_stderr_fd != -1) close(child_stderr_fd);
 
 	for (int i = 0; i < args; i++)
 		TPL_free(arguments[i]);
@@ -1119,32 +1145,6 @@ static bool bif_process_wait_3(query *q)
 	return unify(q, p2, p2_ctx, tmp, q->st.cur_ctx);
 }
 
-static bool bif_process_wait_2(query *q)
-{
-	GET_FIRST_ARG(p1,integer);
-	GET_NEXT_ARG(p2,any);
-	int secs = -1;
-	int status = 0, pid = get_smalluint(p1);
-	pid_t ok = waitpid(pid, &status, secs != -1 ? WNOHANG : 0);
-
-	if (ok != pid)
-		return false;
-
-	cell *tmp = alloc_heap(q, 2);
-
-	if ( WIFSIGNALED(status)) {
-		int sig = WTERMSIG(status);
-		make_struct(tmp+0, g_killed_s, 1, 1);
-		make_uint(tmp+1, sig);
-	} else {
-		int code = WEXITSTATUS(status);
-		make_struct(tmp+0, g_exit_s, 1, 1);
-		make_uint(tmp+1, code);
-	}
-
-	return unify(q, p2, p2_ctx, tmp, q->st.cur_ctx);
-}
-
 static bool bif_process_kill_2(query *q)
 {
 	GET_FIRST_ARG(p1,integer);
@@ -1188,13 +1188,13 @@ builtins g_os_bifs[] =
 #if !defined(_WIN32) && !defined(__wasi__) && !defined(__ANDROID__)
 	{"process_create", 3, bif_process_create_3, "+atom,+list,+list", false, false, BLAH},
 	{"$process_wait", 3, bif_process_wait_3, "+integer,-term,+list", false, false, BLAH},
-	{"$process_wait", 2, bif_process_wait_2, "+integer,-term", false, false, BLAH},
 	{"process_kill", 2, bif_process_kill_2, "+integer,+integer", false, false, BLAH},
 	{"process_kill", 1, bif_process_kill_1, "+integer", false, false, BLAH},
 #endif
 
 #if !defined(_WIN32) && !defined(__wasi__)
 	{"popen", 4, bif_popen_4, "+source_sink,+atom,--stream,+list", false, false, BLAH},
+	{"pclose", 1, bif_pclose_1, "+stream", false, false, BLAH},
 #endif
 
 #if !defined(_WIN32) && !defined(__wasi__)

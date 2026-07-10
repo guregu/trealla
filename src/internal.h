@@ -588,7 +588,7 @@ struct stream_ {
 
 	FILE *fp_out;
 	stringbuf sb_buf;
-	char *mode, *filename, *data, *src;
+	char *mode, *filename, *data, *src, *addr;
 	skiplist *alias;
 	void *sslptr;
 	parser *p;
@@ -602,7 +602,7 @@ struct stream_ {
 
 	unsigned timeout_ms;
 	size_t data_len, alloc_nbytes;
-	int ungetch, srclen, chan, idx;
+	int ungetch, srclen, chan, idx, port;
 	unsigned rows, cols;
 	uint8_t level, eof_action;
 	bool is_active:1;
@@ -616,6 +616,7 @@ struct stream_ {
 	bool ssl:1;
 	bool first_time:1;
 	bool is_pipe:1;
+	bool is_popen:1;
 	bool is_socket:1;
 	bool is_map:1;
 	bool is_memory:1;

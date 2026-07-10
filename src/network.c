@@ -35,12 +35,15 @@ static SSL_CTX *g_ctx = NULL;
 //#define errno WSAGetLastError()
 #ifdef EWOULDBLOCK
 #undef EWOULDBLOCK
+#define SHUT_RD SD_RECEIVE
+#define SHUT_WR SD_SEND
 #endif
 //#define EWOULDBLOCK WSAEWOULDBLOCK
 #else
 #ifndef __wasi__
 #include <netdb.h>
 #endif
+#include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <sys/ioctl.h>
@@ -130,7 +133,7 @@ int tpl_domain_server(const char *name, bool udp)
 	if (udp)
 		return fd;
 
-	if (listen(fd, -1)) {
+	if (listen(fd, SOMAXCONN)) {
 		perror("listen");
 	}
 
@@ -272,7 +275,7 @@ int tpl_server(const char *hostname, unsigned port, bool udp, const char *keyfil
 	(void) certfile;
 #endif
 
-	if (listen(fd, -1)) {
+	if (listen(fd, SOMAXCONN)) {
 		perror("listen");
 	}
 
@@ -282,16 +285,26 @@ int tpl_server(const char *hostname, unsigned port, bool udp, const char *keyfil
 #endif
 }
 
-int tpl_accept(stream *str)
+int tpl_accept(stream *str, char **addr, int *port)
 {
 #if !defined(_WIN32) && !defined(__wasi__)
-	struct sockaddr_in addr = {0};
-	socklen_t len = 0;
-	int fd = accept(fileno(str->fp), (struct sockaddr*)&addr, &len);
+	struct sockaddr_in sa = {0};
+	socklen_t len = sizeof(sa);
+	int fd = accept(fileno(str->fp), (struct sockaddr*)&sa, &len);
 
 	if ((fd == -1) && ((errno == EWOULDBLOCK) || (errno == EAGAIN))) {
-		perror("accept");
 		return -1;
+	}
+
+	if (fd != -1) {
+		if (addr) {
+			char buf[INET_ADDRSTRLEN];
+			inet_ntop(AF_INET, &sa.sin_addr, buf, sizeof(buf));
+			*addr = strdup(buf);
+		}
+
+		if (port)
+			*port = ntohs(sa.sin_port);
 	}
 
 	struct linger l;
@@ -307,6 +320,7 @@ int tpl_accept(stream *str)
 	return -1;
 #endif
 }
+
 
 void tpl_set_nonblocking(stream *str)
 {
@@ -377,7 +391,7 @@ void *tpl_enable_ssl(int fd, const char *hostname, bool is_server, int level, co
 
 const char *tpl_servername(stream *str)
 {
-#if !defined(_WIN32) && !defined(__wasi__)
+#if !defined(_WIN32) && !defined(__wasi__) && defined(USE_SSL)
 	return SSL_get_servername(str->sslptr, TLSEXT_NAMETYPE_host_name);
 #else
 	return NULL;
@@ -599,27 +613,22 @@ int tpl_close(stream *str)
 
 	int ok = 1;
 
-#ifdef pclose
-	if (str->is_pipe) {
-		ok = pclose(str->fp);
-	} else
-#else
-	{
-		if (str->is_socket)
-			shutdown(fileno(str->fp_in), SHUT_RDWR);
-
-		if (!str->is_memory) {
-			ok = fclose(str->fp_in);
-
-			if (str->fp_out != str->fp_in)
-				fclose(str->fp_out);
+	if (!str->is_memory && !str->is_popen) {
+		if (str->is_socket) {
+#if !defined(_WIN32) && !defined(__wasi__)
+			shutdown(fileno(str->fp_in), SHUT_RD);
+			shutdown(fileno(str->fp_out), SHUT_WR);
+#endif
 		}
 
-		if (str->is_memory)
-			SB_free(str->sb);
-	}
-#endif
+		ok = fclose(str->fp_in);
 
-	str->is_active = false;
+		if (str->fp_out != str->fp_in)
+			fclose(str->fp_out);
+	}
+
+	if (str->is_memory)
+		SB_free(str->sb);
+
 	return ok;
 }
