@@ -8,24 +8,6 @@ subsumes_term(General, Specific) :-
 		SVs1 == SVs2
 	).
 
-:- help(variant(+term,+term), [iso(false)]).
-
-variant(X,Y) :-
-	\+ \+ ( copy_term(X,XC),
-		subsumes_term(XC,Y),
-		subsumes_term(Y,XC)
-	).
-
-:- help('=@='(+term,+term), [iso(false)]).
-
-'=@='(X,Y) :-
-	\+ \+ ( copy_term(X,XC),
-		subsumes_term(XC,Y),
-		subsumes_term(Y,XC)
-	).
-
-:-op(700,xfx,=@=).
-
 :- meta_predicate(countall(0,?)).
 :- help(countall(:callable,?integer), [iso(true)]).
 
@@ -85,7 +67,7 @@ succ(I, S) :-
 
 :- help(cfor(+evaluable,+evaluable,-var), [iso(false),desc('C-style for loop')]).
 
-cfor(I0,J0,K) :-
+cfor(I0, J0, K) :-
 	I is I0,
 	J is J0,
 	between(I, J, K).
@@ -98,6 +80,13 @@ call_det(G, Det) :-
 	call(G),
 	'$get_level'(L2),
 	(L1 = L2 -> Det = true; Det = false).
+
+goal_expansion(call_det(G, Det), Goal) :-
+	nonvar(G),
+	!,
+	Goal = ('$get_level'(L1), call(G), '$get_level'(L2), (L1 = L2 -> Det = true; Det = false)),
+	true.
+goal_expansion(call_det(G, V), call_det(G, V)).
 
 :- meta_predicate(findall(?,0,-,?)).
 :- help(findall(+term,:callable,-list,+list), [iso(false)]).
@@ -129,62 +118,10 @@ time_out(Goal, TimeMs, Result) :-
 	;	('$alarm'(0, Timer), fail)
 	).
 
-:- help(not(:callable), [iso(false),deprecated(true)]).
-:- meta_predicate(not(0)).
+:- help(variant(+term,+term), [iso(false)]).
 
-not(X) :- X, !, fail.
-not(_).
-
-:- help(term_variables(+term,-list,?tail), [iso(false)]).
-
-term_variables(P1, P2, P3) :-
-	term_variables(P1, P4),
-	append(P4, P3, P2).
-
-length(Xs0, N) :-
-   '$skip_max_list'(M, N, Xs0,Xs),
-   !,
-   (  Xs == [] -> N = M
-   ;  nonvar(Xs) -> var(N), Xs = [_|_], resource_error(finite_memory,length/2)
-   ;  nonvar(N) -> R is N-M, length_rundown(Xs, R)
-   ;  N == Xs -> failingvarskip(Xs), resource_error(finite_memory,length/2)
-   ;  length_addendum(Xs, N, M)
-   ).
-length(_, N) :-
-   integer(N), !,
-   domain_error(not_less_than_zero, N, length/2).
-length(_, N) :-
-   type_error(integer, N, length/2).
-
-length_rundown(Xs, 0) :- !, Xs = [].
-length_rundown(Vs, N) :-
-    '$unattributed_var'(Vs), % unconstrained
-    !,
-    '$det_length_rundown'(Vs, N).
-length_rundown([_|Xs], N) :- % force unification
-    N1 is N-1,
-    length(Xs, N1). % maybe some new info on Xs
-
-failingvarskip(Xs) :-
-    '$unattributed_var'(Xs), % unconstrained
-    !.
-failingvarskip([_|Xs0]) :- % force unification
-    '$skip_max_list'(_, _, Xs0,Xs),
-    (  nonvar(Xs) -> Xs = [_|_]
-	 ;  failingvarskip(Xs)
-    ).
-
-length_addendum([], N, N).
-length_addendum([_|Xs], N, M) :-
-    M1 is M + 1,
-    length_addendum(Xs, N, M1).
-
-:- help(length(?term,?integer), [iso(false), desc('Number of elements in list.')]).
-
-memberchk(E, List) :-
-	'$memberchk'(E, List, Tail),
-	(   nonvar(Tail) ->  true
-	;   Tail = [_|_], memberchk(E, Tail)
+variant(X, Y) :-
+	\+ \+ ( copy_term(X,XC),
+		subsumes_term(XC,Y),
+		subsumes_term(Y,XC)
 	).
-
-:- help(memberchk(?term,?term), [iso(false), desc('Is element a member of the list.')]).

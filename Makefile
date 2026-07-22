@@ -214,6 +214,7 @@ LIBOBJECTS +=  \
 	library/random.o \
 	library/raylib.o \
 	library/rbtrees.o \
+	library/quads.o \
 	library/reif.o \
 	library/si.o \
 	library/sqlite3.o \
@@ -224,7 +225,8 @@ LIBOBJECTS +=  \
 	library/wasm.o \
 	library/wasm_generic.o \
 	library/wasm_js.o \
-	library/when.o
+	library/when.o \
+	library/yall.o
 endif
 
 SRCOBJECTS += src/imath/imath.o

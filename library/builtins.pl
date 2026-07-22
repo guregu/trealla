@@ -1,39 +1,110 @@
 :- pragma(builtins, [once(true)]).
 :- use_module(library(error)).
 :- use_module(library(lists)).
+:- use_module(library(iso_ext)).
+:- use_module(library(gensym)).
 
-goal_expansion(maplist(G, L1), Goal) :-
-	nonvar(G), !,
-	term_variables(G, Args),
-	gensym:gensym(maplist_, U),
-	Goal =.. [U,L1,Args],
-	G1 =.. [U,[],Args],
-	'$assertz_static'(G1),
-	G2a =.. [U,[E1|T1],Args],
-	G2b =.. [U,T1,Args],
-	'$assertz_static'((G2a :- call(G, E1), G2b)),
-	true.
-goal_expansion(maplist(G, L1), maplist(G, L1)).
+:- help(term_variables(+term,-list,?tail), [iso(false)]).
 
-goal_expansion(maplist(G, L1, L2), Goal) :-
-	nonvar(G), !,
-	term_variables(G, Args),
-	gensym:gensym(maplist_, U),
-	Goal =.. [U,L1,L2,Args],
-	G1 =.. [U,[],[],Args],
-	'$assertz_static'(G1),
-	G2a =.. [U,[E1|T1],[E2|T2],Args],
-	G2b =.. [U,T1,T2,Args],
-	'$assertz_static'((G2a :- call(G, E1, E2), G2b)),
-	true.
-goal_expansion(maplist(G, L1, L2), maplist(G, L1, L2)).
+term_variables(P1, P2, P3) :-
+	term_variables(P1, P4),
+	append(P4, P3, P2).
 
-goal_expansion(call_det(G, Det), Goal) :-
-	nonvar(G),
-	!,
-	Goal = ('$get_level'(L1), call(G), '$get_level'(L2), (L1 = L2 -> Det = true; Det = false)),
-	true.
-goal_expansion(call_det(G, V), call_det(G, V)).
+length(Xs0, N) :-
+   '$skip_max_list'(M, N, Xs0,Xs),
+   !,
+   (  Xs == [] -> N = M
+   ;  nonvar(Xs) -> var(N), Xs = [_|_], resource_error(finite_memory,length/2)
+   ;  nonvar(N) -> R is N-M, length_rundown(Xs, R)
+   ;  N == Xs -> failingvarskip(Xs), resource_error(finite_memory,length/2)
+   ;  length_addendum(Xs, N, M)
+   ).
+length(_, N) :-
+   integer(N), !,
+   domain_error(not_less_than_zero, N, length/2).
+length(_, N) :-
+   type_error(integer, N, length/2).
+
+length_rundown(Xs, 0) :- !, Xs = [].
+length_rundown(Vs, N) :-
+    '$unattributed_var'(Vs), % unconstrained
+    !,
+    '$det_length_rundown'(Vs, N).
+length_rundown([_|Xs], N) :- % force unification
+    N1 is N-1,
+    length(Xs, N1). % maybe some new info on Xs
+
+failingvarskip(Xs) :-
+    '$unattributed_var'(Xs), % unconstrained
+    !.
+failingvarskip([_|Xs0]) :- % force unification
+    '$skip_max_list'(_, _, Xs0,Xs),
+    (  nonvar(Xs) -> Xs = [_|_]
+	 ;  failingvarskip(Xs)
+    ).
+
+length_addendum([], N, N).
+length_addendum([_|Xs], N, M) :-
+    M1 is M + 1,
+    length_addendum(Xs, N, M1).
+
+:- help(length(?term,?integer), [iso(false), desc('Number of elements in list.')]).
+
+% Blackboard predicates. The raw ops ('$bb_put' etc) store a flat
+% copy of a term, dropping variable attributes. These wrappers use
+% copy_term/3 to residualize attribute goals, store them alongside the
+% term, and call them again on retrieval so attributes (eg. freeze/2,
+% dif/2, clp(Z) domains) survive the blackboard. Terms without
+% attributed variables take the raw path unchanged.
+
+bb_put(K, T) :-
+	term_variables(T, Vs),
+	(	'$bb_any_attributed'(Vs) ->
+		copy_term(T, T2, Gs),
+		(	Gs == [] ->
+			'$bb_put'(K, T)
+		;	'$bb_put'(K, '$bb_attv'(T2, Gs))
+		)
+	;	'$bb_put'(K, T)
+	).
+
+bb_get(K, T) :-
+	'$bb_get'(K, V),
+	'$bb_rehydrate'(V, T).
+
+bb_delete(K, T) :-
+	'$bb_get'(K, V),
+	'$bb_rehydrate'(V, T),
+	'$bb_delete'(K, _).
+
+bb_update(K, O, N) :-
+	'$bb_get'(K, V),
+	'$bb_rehydrate'(V, O),
+	bb_put(K, N).
+
+'$bb_any_attributed'([V|Vs]) :-
+	(	'$attributed_var'(V) ->
+		true
+	;	'$bb_any_attributed'(Vs)
+	).
+
+'$bb_rehydrate'(V, T) :-
+	(	nonvar(V), V = '$bb_attv'(T2, Gs) ->
+		'$bb_call_goals'(Gs),
+		T = T2
+	;	T = V
+	).
+
+'$bb_call_goals'([]).
+'$bb_call_goals'([G|Gs]) :-
+	'$bb_call_goal'(G),
+	'$bb_call_goals'(Gs).
+
+% attribute_goals//1 may residualize a single goal or a list of goals
+
+'$bb_call_goal'([]) :- !.
+'$bb_call_goal'([G|Gs]) :- !, '$bb_call_goals'([G|Gs]).
+'$bb_call_goal'(G) :- call(G).
 
 expand_term((H --> B), Out) :-
 	dcg_translate((H --> B), Out), !.
@@ -822,3 +893,9 @@ thread_join(Tid, Status) :-
 	'$thread_join'(Tid, Status).
 
 :- help(thread_join(+thread,-term), [iso(false)]).
+
+:- meta_predicate(sys_forall(0,0)).
+
+sys_forall(Cond, Action) :-
+	\+ (Cond, \+ Action).
+

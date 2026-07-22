@@ -194,6 +194,67 @@ static bool bif_iso_call_n(query *q)
 	return true;
 }
 
+// Handle a module-qualified goal that carries extra arguments, i.e. a
+// ':'/N term with N>2: ':'(M, Goal, A1, ..., Ak). This normalizes to
+// calling Goal (with A1..Ak appended) in module M -- equivalent to
+// call(M:Goal, A1, ..., Ak). Without this, such terms (which the DCG /
+// meta-predicate machinery can build via =.. on a qualified nonterminal)
+// dispatch as an undefined ':'/N and throw a spurious existence_error.
+
+static bool bif_iso_qualify_n(query *q)
+{
+	GET_FIRST_ARG(p1,atom_or_var);
+	GET_NEXT_ARG(p2,callable);
+	module *m = q->st.m;
+
+	if (is_atom(p1)) {
+		m = find_module(q->pl, C_STR(q, p1));
+
+		if (!m && strcmp(C_STR(q, p1), "loader"))
+			return throw_error(q, p1, p1_ctx, "existence_error", "module");
+
+		if (!m)
+			m = q->st.m;
+	}
+
+	int arity = p2->arity, args = 2, xarity = q->st.instr->arity;
+	CHECKED(init_tmp_heap(q));
+	CHECKED(append_to_tmp(q, p2, p2_ctx));
+
+	while (args++ < xarity) {
+		GET_NEXT_ARG(pe,any);
+		CHECKED(append_to_tmp(q, pe, pe_ctx));
+		arity++;
+	}
+
+	cell *tmp2 = get_tmp_heap(q, 0);
+	tmp2->num_cells = tmp_heap_used(q);
+	tmp2->arity = arity;
+
+	if (is_cstring(tmp2)) {
+		share_cell(tmp2);
+		convert_to_literal(q->st.m, tmp2);
+	}
+
+	tmp2->match = NULL;
+	bool status;
+
+	if (!call_check(q, tmp2, &status, true))
+		return status;
+
+	cell *tmp = prepare_call(q, CALL_NOSKIP, tmp2, q->st.cur_ctx, 3);
+	CHECKED(tmp);
+	tmp->flags &= ~FLAG_INTERNED_TAIL_CALL;
+	pl_idx num_cells = tmp2->num_cells;
+	make_instr(tmp+num_cells++, g_sys_drop_barrier_s, bif_sys_drop_barrier_1, 1, 1);
+	make_uint(tmp+num_cells++, q->st.cp);
+	make_call(q, tmp+num_cells);
+	CHECKED(push_fail_on_retry_with_barrier(q));
+	q->st.instr = tmp;
+	q->st.m = m;
+	return true;
+}
+
 bool bif_iso_call_1(query *q)
 {
 	GET_FIRST_ARG(p1,callable);
@@ -790,6 +851,53 @@ bool bif_sys_succeed_on_retry_2(query *q)
 	return unify(q, p1, p1_ctx, &tmp, q->st.cur_ctx);
 }
 
+
+static pl_idx restore_streams_walk(query *q, const cell *src, cell *dst)
+{
+	if (is_compound(src) && (src->arity == 1) && !strcmp(C_STR(q, src), "$stream")) {
+		const cell *arg = src + 1;
+
+		if (is_smallint(arg)) {
+			make_int(dst, get_smallint(arg));
+			dst->flags |= FLAG_INT_STREAM;
+			return 1;
+		}
+	}
+
+	if (is_compound(src)) {
+		*dst = *src;
+		pl_idx cnt = 1;
+		const cell *p = src + 1;
+
+		for (unsigned i = 0; i < src->arity; i++) {
+			cnt += restore_streams_walk(q, p, dst + cnt);
+			p += p->num_cells;
+		}
+
+		dst->num_cells = cnt;
+		return cnt;
+	}
+
+	pl_idx nc = src->num_cells;
+
+	for (pl_idx i = 0; i < nc; i++)
+		dst[i] = src[i];
+
+	return nc;
+}
+
+static void restore_streams(query *q, cell *ball)
+{
+	if (!ball || !is_compound(ball))
+		return;
+
+	cell *buf = malloc(sizeof(cell) * ball->num_cells);
+	if (!buf) return;
+	pl_idx n = restore_streams_walk(q, ball, buf);
+	memcpy(ball, buf, sizeof(cell) * n);
+	free(buf);
+}
+
 static cell *parse_to_heap(query *q, const char *src)
 {
 	SB(s);
@@ -818,6 +926,7 @@ static cell *parse_to_heap(query *q, const char *src)
 	dup_cells(tmp, p2->cl->cells, p2->cl->cells->num_cells);
 	check_error(tmp, parser_destroy(p2));
 	parser_destroy(p2);
+	restore_streams(q, tmp);
 	return tmp;
 }
 
@@ -1153,7 +1262,7 @@ bool throw_error3(query *q, cell *c, pl_ctx c_ctx, const char *err_type, const c
 		make_cstring(tmp+num_cells++, expected);
 		make_instr(tmp+num_cells, g_slash_s, NULL, 2, 2);
 		SET_OP(tmp+num_cells, OP_YFX); num_cells++;
-		make_cstring(tmp+num_cells++, C_STR(q, c));
+		make_atom(tmp+num_cells++, new_atom(q->pl, C_STR(q, c)));
 		make_int(tmp+num_cells++, c->arity);
 		make_instr(tmp+num_cells, g_slash_s, NULL, 2, 2);
 		SET_OP(tmp+num_cells, OP_YFX); num_cells++;
@@ -1266,6 +1375,12 @@ builtins g_control_bifs[] =
 	{"call", 6, bif_iso_call_n, ":callable,?term,?term,?term,?term,?term", true, false, BLAH},
 	{"call", 7, bif_iso_call_n, ":callable,?term,?term,?term,?term,?term,?term", true, false, BLAH},
 	{"call", 8, bif_iso_call_n, ":callable,?term,?term,?term,?term,?term,?term,?term", true, false, BLAH},
+	{":", 3, bif_iso_qualify_n, "+atom,:callable,?term", true, false, BLAH},
+	{":", 4, bif_iso_qualify_n, "+atom,:callable,?term,?term", true, false, BLAH},
+	{":", 5, bif_iso_qualify_n, "+atom,:callable,?term,?term,?term", true, false, BLAH},
+	{":", 6, bif_iso_qualify_n, "+atom,:callable,?term,?term,?term,?term", true, false, BLAH},
+	{":", 7, bif_iso_qualify_n, "+atom,:callable,?term,?term,?term,?term,?term", true, false, BLAH},
+	{":", 8, bif_iso_qualify_n, "+atom,:callable,?term,?term,?term,?term,?term,?term", true, false, BLAH},
 	{"once", 1, bif_iso_once_1, ":callable", true, false, BLAH},
 	{"throw", 1, bif_iso_throw_1, "+term", true, false, BLAH},
 	{"catch", 3, bif_iso_catch_3, ":callable,?term,:callable", true, false, BLAH},

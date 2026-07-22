@@ -570,6 +570,40 @@ static void do_op(parser *p, cell *c, bool make_public)
 	}
 }
 
+// One place to report a directive the loader could not make sense of.
+// The wording is kept as it was: some callers treat it as an error and
+// stop the load, others merely warn and carry on.
+
+static void report_unknown_directive(parser *p, const char *severity, const char *dirname, unsigned arity)
+{
+	if (p->do_read_term || p->pl->quiet)
+		return;
+
+	fflush(stdout);
+	fprintf(stderr, "%s: unknown directive: %s/%u\n", severity, dirname, arity);
+}
+
+// Runs a directive's goal, distinguishing a goal that raised from one
+// that merely failed so the two can be reported differently...
+
+static bool goal_run_reporting(parser *p, cell *goal, bool *raised)
+{
+	*raised = false;
+
+	if (p->error || p->internal || !is_interned(goal))
+		return false;
+
+	query *q = query_create(p->m);
+	execute(q, goal, p->cl->num_vars);
+	bool ok = (q->retry == QUERY_OK);
+
+	if (!ok)
+		*raised = q->did_throw || q->error;
+
+	query_destroy(q);
+	return ok;
+}
+
 static bool goal_run(parser *p, cell *goal)
 {
 	if (p->error || p->internal || !is_interned(goal))
@@ -655,6 +689,334 @@ static bool conditionals(parser *p, cell *d)
 	return false;
 }
 
+// Quads are queries using answer descriptions: a '?- Query.' term
+// followed by terms describing the expected toplevel answers. See
+// github.com/trealla-prolog/trealla issue #1063. Each quad is recorded
+// as a '$quad'(Query, VarNames, AnswerDescription, File, Line) fact
+// so that library(quads) can interpret them as tests at run time.
+// Nothing is executed at load time.
+
+void quad_reset(module *m)
+{
+	if (m->quad_query) {
+		cell *c = m->quad_query;
+		pl_idx num_cells = c->num_cells;
+
+		for (pl_idx i = 0; i < num_cells; i++, c++)
+			unshare_cell(c);
+
+		TPL_free(m->quad_query);
+		m->quad_query = NULL;
+	}
+
+	m->quad_recorded = false;
+
+	m->quad_num_vars = 0;
+	m->in_quad = false;
+}
+
+// The shape of a toplevel answer, per the grammar in issue #1063
+// plus the annotations used by existing quad suites (Flowlog).
+
+static bool is_answer_description(parser *p, const cell *c)
+{
+	if (!is_interned(c))
+		return false;
+
+	const char *name = C_STR(p, c);
+
+	if (c->arity == 0)
+		return !strcmp(name, "true") || !strcmp(name, "false")
+			|| !strcmp(name, "...") || !strcmp(name, "loops")
+			|| !strcmp(name, "instantiation_error")
+			|| !strcmp(name, "system_error")
+			|| !strcmp(name, "ad_infinitum")
+			|| !strcmp(name, "sto")
+			|| !strcmp(name, "unexpected")
+			|| !strcmp(name, "inattendue");
+
+	if (c->arity == 2) {
+		if (!strcmp(name, "="))
+			return true;
+
+		if (!strcmp(name, ",") || !strcmp(name, ";") || !strcmp(name, "|")) {
+			const cell *lhs = c + 1;
+			const cell *rhs = lhs + lhs->num_cells;
+			return is_answer_description(p, lhs) && is_answer_description(p, rhs);
+		}
+
+		if (!strcmp(name, "error")
+			|| !strcmp(name, "type_error")
+			|| !strcmp(name, "domain_error")
+			|| !strcmp(name, "existence_error"))
+			return true;
+	}
+
+	if (c->arity == 1)
+		return !strcmp(name, "throw")
+			|| !strcmp(name, "syntax_error")
+			|| !strcmp(name, "representation_error")
+			|| !strcmp(name, "resource_error")
+			|| !strcmp(name, "evaluation_error")
+			|| !strcmp(name, "uninstantiation_error");
+
+	if (c->arity == 3)
+		return !strcmp(name, "permission_error");
+
+	return false;
+}
+
+// Build and assert '$quad'(Query, VarNames, AnswerDescription, File, Line).
+// The query was read as one term and the answer description as another,
+// so their variables can only be related by name: VarNames is a list of
+// Name=Var pairs covering the named variables of both terms, and
+// library(quads) unifies same-named entries.
+
+static void quad_record(parser *p, cell *ad)
+{
+	module *m = p->m;
+	cell *q = m->quad_query;
+	pl_idx q_num_cells = q->num_cells;
+	pl_idx ad_num_cells = ad->num_cells;
+	unsigned q_num_vars = m->quad_num_vars;
+	unsigned ad_num_vars = p->cl->num_vars;
+	unsigned total_vars = q_num_vars + ad_num_vars;
+
+	// Collect the named variables of both terms (first occurrence
+	// each). Answer-description vars are renumbered +q_num_vars.
+
+	struct { unsigned var_num; pl_idx off; uint16_t flags; } *vt;
+	vt = TPL_malloc(sizeof(*vt) * (total_vars ? total_vars : 1));
+	if (!vt) { p->error = true; return; }
+	bool *seen = TPL_calloc(total_vars ? total_vars : 1, sizeof(bool));
+	if (!seen) { TPL_free(vt); p->error = true; return; }
+	unsigned num_named = 0;
+
+	for (int pass = 0; pass < 2; pass++) {
+		const cell *c = pass ? ad : q;
+		pl_idx num_cells = pass ? ad_num_cells : q_num_cells;
+		unsigned offset = pass ? q_num_vars : 0;
+
+		for (pl_idx i = 0; i < num_cells; i++, c++) {
+			if (!is_var(c))
+				continue;
+
+			unsigned var_num = c->var_num + offset;
+
+			if (seen[var_num] || is_anon(c) || !strcmp(C_STR(p, c), "_"))
+				continue;
+
+			seen[var_num] = true;
+			vt[num_named].var_num = var_num;
+			vt[num_named].off = c->val_off;
+			vt[num_named].flags = c->flags;
+			num_named++;
+		}
+	}
+
+	// '$quad'/5 + Query + VarNames list + AnswerDescription + File + Line
+
+	pl_idx vn_num_cells = (4 * num_named) + 1;
+	pl_idx total = 1 + q_num_cells + vn_num_cells + ad_num_cells + 1 + 1;
+	cell *tmp = TPL_calloc(total, sizeof(cell));
+
+	if (!tmp) {
+		TPL_free(vt);
+		TPL_free(seen);
+		p->error = true;
+		return;
+	}
+
+	cell *dst = tmp;
+	dst->tag = TAG_INTERNED;
+	dst->val_off = g_sys_quad_s;
+	dst->arity = 5;
+	dst->num_cells = total;
+	dst++;
+
+	dup_cells(dst, q, q_num_cells);
+	dst += q_num_cells;
+
+	for (unsigned i = 0; i < num_named; i++) {
+		dst->tag = TAG_INTERNED;			// list cell
+		dst->val_off = g_dot_s;
+		dst->arity = 2;
+		dst->num_cells = (4 * (num_named - i)) + 1;
+		dst++;
+		dst->tag = TAG_INTERNED;			// Name = Var
+		dst->val_off = g_eq_s;
+		dst->arity = 2;
+		dst->num_cells = 3;
+		dst++;
+		dst->tag = TAG_INTERNED;			// Name
+		dst->val_off = vt[i].off;
+		dst->num_cells = 1;
+		dst++;
+		dst->tag = TAG_VAR;					// Var
+		dst->var_num = vt[i].var_num;
+		dst->val_off = vt[i].off;
+		dst->flags = vt[i].flags;
+		dst->num_cells = 1;
+		dst++;
+	}
+
+	dst->tag = TAG_INTERNED;
+	dst->val_off = g_nil_s;
+	dst->num_cells = 1;
+	dst++;
+
+	dup_cells(dst, ad, ad_num_cells);
+
+	for (pl_idx i = 0; i < ad_num_cells; i++) {
+		if (is_var(dst+i))
+			(dst+i)->var_num += q_num_vars;
+	}
+
+	dst += ad_num_cells;
+
+	dst->tag = TAG_INTERNED;
+	dst->val_off = new_atom(p->pl, get_loaded(m, m->filename));
+	dst->num_cells = 1;
+	dst++;
+
+	dst->tag = TAG_INT;
+	set_smallint(dst, m->quad_line_num);
+	dst->num_cells = 1;
+
+	TPL_free(vt);
+	TPL_free(seen);
+
+	if (assertz_to_db(m, total_vars, tmp, true) == NULL) {
+		fprintf(stderr, "Warning: could not record quad, %s:%d\n", get_loaded(m, m->filename), m->quad_line_num);
+		cell *c = tmp;
+
+		for (pl_idx i = 0; i < total; i++, c++)
+			unshare_cell(c);
+	}
+
+	// On success the asserted copy takes over the cell references
+
+	TPL_free(tmp);
+}
+
+static bool quads(parser *p, cell *d)
+{
+	module *m = p->m;
+
+	if (p->internal || p->error)
+		return false;
+
+	if (!is_interned(d))
+		return false;
+
+	if ((d->val_off == g_quad_s) && (d->arity == 1)) {
+		if (m->quad_query && !m->quad_recorded)
+			fprintf(stderr, "Warning: quad query without answer description, %s:%d\n", get_loaded(m, m->filename), m->quad_line_num);
+
+		quad_reset(m);
+		cell *q = d + 1;
+		m->quad_query = TPL_malloc(sizeof(cell) * q->num_cells);
+
+		if (!m->quad_query) {
+			p->error = true;
+			return true;
+		}
+
+		dup_cells(m->quad_query, q, q->num_cells);
+		m->quad_num_vars = p->cl->num_vars;
+		m->quad_line_num = p->line_num_start ? p->line_num_start : p->line_num;
+		m->in_quad = true;
+		p->line_num_start = 0;
+		return true;
+	}
+
+	if (!m->in_quad)
+		return false;
+
+	if (!is_answer_description(p, d)) {
+		if (m->quad_query && !m->quad_recorded)
+			fprintf(stderr, "Warning: quad query without answer description, %s:%d\n", get_loaded(m, m->filename), m->quad_line_num);
+
+		quad_reset(m);
+		return false;
+	}
+
+	// A quad may carry more than one answer description, and all of
+	// them have to hold. Keep the query so each following description
+	// is recorded against it, rather than discarding all but the first.
+
+	if (m->quad_query) {
+		quad_record(p, d);
+		m->quad_recorded = true;
+		m->in_quad = true;		// keep consuming answer-shaped terms
+	}
+
+	p->line_num_start = 0;
+	return true;
+}
+
+// A directive is a *declaration* if it tells the loader something about
+// how to read or organise the remaining terms. Anything else is, per ISO
+// 7.4.2, simply a goal to be executed at this point in the load.
+
+static bool is_declaration_name(const char *name)
+{
+	static const char *s_names[] = {
+		"attribute", "autoload", "create_prolog_flag", "discontiguous",
+		"dynamic", "elif", "else", "encoding", "endif", "ensure_loaded",
+		"export", "foreign_struct", "help", "if", "include", "info",
+		"initialization", "meta_predicate", "module", "multifile", "op",
+		"pragma", "public", "reexport", "set_prolog_flag",
+		"use_foreign_module", "use_module",
+		NULL
+	};
+
+	for (const char **n = s_names; *n; n++) {
+		if (!strcmp(*n, name))
+			return true;
+	}
+
+	return false;
+}
+
+// Note: a conjunction counts as a declaration only if every conjunct is
+// one, so that ':- dynamic(a/1), dynamic(b/1).' is still handled by the
+// loader while ':- write(hello), nl.' is run as an ordinary goal...
+
+static bool is_declaration(parser *p, cell *c)
+{
+	if (!is_interned(c))
+		return false;
+
+	if ((c->val_off == g_conjunction_s) && (c->arity == 2)) {
+		cell *lhs = c + 1;
+		cell *rhs = lhs + lhs->num_cells;
+		return is_declaration(p, lhs) && is_declaration(p, rhs);
+	}
+
+	return is_declaration_name(C_STR(p, c));
+}
+
+// Does this directive (or any conjunct of it) declare an
+// initialization goal? Those are recorded whole for the end-of-load
+// runner, so they are not split apart.
+
+static bool has_initialization(parser *p, cell *c)
+{
+	if (!is_interned(c))
+		return false;
+
+	if ((c->val_off == g_conjunction_s) && (c->arity == 2)) {
+		cell *lhs = c + 1;
+		cell *rhs = lhs + lhs->num_cells;
+		return has_initialization(p, lhs) || has_initialization(p, rhs);
+	}
+
+	return !strcmp(C_STR(p, c), "initialization") && (c->arity == 1);
+}
+
+static bool directive_term(parser *p, cell *c);
+
 static bool directives(parser *p, cell *d)
 {
 	p->skip = false;
@@ -665,10 +1027,6 @@ static bool directives(parser *p, cell *d)
 	if (is_list(d) && p->is_command) {
 		consultall(p, d);
 		p->skip = true;
-		return false;
-	}
-
-	if (!strcmp(C_STR(p, d), "?-")) {
 		return false;
 	}
 
@@ -696,9 +1054,53 @@ static bool directives(parser *p, cell *d)
 	d->val_off = new_atom(p->pl, "$directive");
 	CLR_OP(d);
 
+	return directive_term(p, c);
+}
+
+// Handles one directive. A conjunction of declarations is the same as
+// giving them separately, so ':- dynamic(a/1), dynamic(b/1).' recurses
+// into each conjunct rather than trying to read ',' as a declaration.
+// initialization/1 is excluded: its goal is recorded as a whole
+// '$directive'(initialization(G)) fact for the end-of-load runner to
+// retract, which a conjunction would not match.
+
+static bool directive_term(parser *p, cell *c)
+{
+	module *m = p->m;
+	const char *dirname = C_STR(p, c);
+
+	if ((c->val_off == g_conjunction_s) && (c->arity == 2)
+		&& is_declaration(p, c) && !has_initialization(p, c)) {
+		cell *lhs = c + 1;
+		cell *rhs = lhs + lhs->num_cells;
+
+		if (!directive_term(p, lhs) || p->error)
+			return false;
+
+		return directive_term(p, rhs);
+	}
+
 	if (!strcmp(dirname, "initialization") && (c->arity == 1)) {
 		p->m->run_init = true;
 		return false;
+	}
+
+	// Not a declaration? Then it's a goal: run it here, at its position
+	// in the load, rather than silently discarding it...
+
+	if (!is_declaration(p, c)) {
+		bool raised = false;
+
+		if (!goal_run_reporting(p, c, &raised)
+			&& !p->internal && !p->do_read_term && !p->pl->quiet) {
+			fflush(stdout);
+			fprintf(stderr, "Warning: directive %s: %s/%u, %s:%d\n",
+				raised ? "raised an exception" : "failed",
+				dirname, (unsigned)c->arity,
+				get_loaded(p->m, p->m->filename), p->line_num);
+		}
+
+		return true;
 	}
 
 	if (!strcmp(dirname, "info") && (c->arity == 1)) {
@@ -1187,9 +1589,7 @@ static bool directives(parser *p, cell *d)
 						}
 					}
 				} else {
-					if (((!p->do_read_term)) && !p->pl->quiet)
-						fprintf(stderr, "Error: unknown directive: %s/%d\n", dirname, c->arity);
-
+					report_unknown_directive(p, "Error", dirname, c->arity);
 					p->error = true;
 					return true;
 				}
@@ -1212,7 +1612,14 @@ static bool directives(parser *p, cell *d)
 		return true;
 	}
 
-	while (is_interned(p1) && (p1->val_off != g_dot_s)) {
+	// Bound the walk by the extent of this directive. Without it the
+	// loop runs on into whatever cells happen to follow, which is how
+	// a conjunct came to be read as a predicate indicator of the
+	// conjunct before it...
+
+	const cell *c_end = c + c->num_cells;
+
+	while ((p1 < c_end) && is_interned(p1) && !is_nil(p1) && (p1->val_off != g_dot_s)) {
 		module *m = p->m;
 		cell *c_id = p1;
 
@@ -1288,9 +1695,7 @@ static bool directives(parser *p, cell *d)
 				set_dynamic_in_db(m, C_STR(p, c_name), arity);
 				p->error = m->error;
 			} else {
-				if (((!p->do_read_term)) && !p->pl->quiet)
-					fprintf_to_stream(p->pl, ERROR_FP, "Error: unknown directive: %s/%d\n", dirname, c->arity);
-
+				report_unknown_directive(p, "Error", dirname, c->arity);
 				p->error = true;
 				return true;
 			}
@@ -1310,11 +1715,8 @@ static bool directives(parser *p, cell *d)
 		} else if (!strcmp(C_STR(p, p1), ",") && (p1->arity == 2))
 			p1 += 1;
 		else {
-			if (((!p->do_read_term)) && !p->pl->quiet)
-				fprintf_to_stream(p->pl, ERROR_FP, "Warning: unknown directive: %s/%d\n", dirname, c->arity);
-
+			report_unknown_directive(p, "Warning", dirname, c->arity);
 			return true;
-			p1 += 1;
 		}
 	}
 
@@ -1330,11 +1732,7 @@ static bool directives(parser *p, cell *d)
 	if (!strcmp(dirname, "multifile") && (c->arity == 1))
 		return true;
 
-	if (((!p->do_read_term)) && !p->pl->quiet) {
-		fprintf(stderr, "Warning: unknown directive: %s/%d\n", dirname, c->arity);
-		return true;
-	}
-
+	report_unknown_directive(p, "Warning", dirname, c->arity);
 	return true;
 }
 
@@ -1576,8 +1974,10 @@ void assign_vars(parser *p, unsigned start, bool rebase)
 			// && (p->vartab.name[i][strlen(p->vartab.name[i])-1] != '_')
 			&& (GET_POOL(p, p->vartab.off[i])[0] != '_')) {
 			if (!p->pl->quiet
-				&& !((cl->cells->val_off == g_neck_s) && cl->cells->arity == 1))
-				fprintf_to_stream(p->pl, WARN_FP, "Warning: singleton: %s, near %s:%d\n", GET_POOL(p, p->vartab.off[i]), get_loaded(p->m, p->m->filename), p->line_num);
+				&& !((cl->cells->val_off == g_neck_s) && cl->cells->arity == 1)
+				&& !((cl->cells->val_off == g_quad_s) && cl->cells->arity == 1)
+				&& !p->m->in_quad)
+				fprintf(stderr, "Warning: singleton: %s, near %s:%d\n", GET_POOL(p, p->vartab.off[i]), get_loaded(p->m, p->m->filename), p->line_num);
 		}
 	}
 
@@ -1963,7 +2363,7 @@ static bool dcg_expansion(parser *p)
 
 	if (p2->error) {
 		parser_destroy(p2);
-		query_destroy(q);
+		TPL_free(src);	// FIX: q already destroyed above (removed double query_destroy); free leaked src
 		p->error = true;
 		return false;
 	}
@@ -2052,6 +2452,7 @@ static bool term_expansion(parser *p)
 	if (p2->error) {
 		parser_destroy(p2);
 		query_destroy(q);
+		TPL_free(src);	// FIX: free leaked src
 		p->error = true;
 		return false;
 	}
@@ -2209,7 +2610,13 @@ static cell *goal_expansion(parser *p, cell *goal)
 	for (unsigned i = 0; i < p->cl->num_vars; i++)
 		q->ignores[i] = true;
 
-	p->cl->num_vars = p2->cl->num_vars;
+	// Never let the variable count go backwards: the sub-parser may
+	// have fewer variables than the clause already has, and lowering
+	// the count makes the next expansion hand out a slot that is
+	// still in use, silently merging two distinct variables...
+
+	if (p2->cl->num_vars > p->cl->num_vars)
+		p->cl->num_vars = p2->cl->num_vars;
 	frame *f = GET_FRAME(0);
 	char *src = NULL;
 
@@ -2274,7 +2681,9 @@ static cell *goal_expansion(parser *p, cell *goal)
 
 	// Push the updated vartab back...
 
-	p->cl->num_vars = p2->cl->num_vars;
+	if (p2->cl->num_vars > p->cl->num_vars)
+		p->cl->num_vars = p2->cl->num_vars;
+
 	p->vartab = p2->vartab;
 
 	// snip the old goal...
@@ -2429,10 +2838,18 @@ static cell *term_to_body_conversion(parser *p, cell *c)
 			if (is_var(rhs))
 				c = insert_call_here(p, c, rhs);
 			else {
+				pl_idx lhs_idx = lhs - p->cl->cells;
 				rhs->arity += extra;
 				rhs = goal_expansion(p, rhs);
 				rhs = term_to_body_conversion(p, rhs);
 				rhs->arity -= extra;
+
+				// Both calls above can grow, and hence move, the
+				// clause. Re-derive the pointers into it; rhs is
+				// already the freshly returned one...
+
+				lhs = p->cl->cells + lhs_idx;
+				c = p->cl->cells + c_idx;
 			}
 
 			c->num_cells = 1 + lhs->num_cells + rhs->num_cells;
@@ -2447,6 +2864,7 @@ static cell *term_to_body_conversion(parser *p, cell *c)
 			} else {
 				rhs = goal_expansion(p, rhs);
 				rhs = term_to_body_conversion(p, rhs);
+				c = p->cl->cells + c_idx;	// may have moved
 			}
 
 			c->num_cells = 1 + rhs->num_cells;
@@ -2455,6 +2873,7 @@ static cell *term_to_body_conversion(parser *p, cell *c)
 
 			if (!is_var(rhs)) {
 				rhs = goal_expansion(p, rhs);
+				c = p->cl->cells + c_idx;	// may have moved
 				c->num_cells = 1 + rhs->num_cells;
 			}
 		}
@@ -2479,6 +2898,7 @@ static cell *term_to_body_conversion(parser *p, cell *c)
 
 		if (meta) {
 			c = goal_expansion(p, c);
+			c_idx = c - p->cl->cells;
 		}
 
 		cell *arg = c + 1;
@@ -2497,6 +2917,7 @@ static cell *term_to_body_conversion(parser *p, cell *c)
 				arg = term_to_body_conversion(p, arg);
 
 			arg->arity -= extra;
+			c = p->cl->cells + c_idx;	// may have moved
 			c->num_cells += arg->num_cells - save_num_cells;
 			arg += arg->num_cells;
 			i++;
@@ -3656,8 +4077,14 @@ static bool process_term(parser *p, cell *p1)
 	if (p->m->ifs_blocked[p->m->if_depth])
 		return true;
 
-	// Note: we actually assert directives after processing
-	// so that they can be examined.
+	if (quads(p, p1))
+		return true;
+
+	// A directive that the loader has fully handled needs no clause in
+	// the database. The exception is initialization/1, which returns
+	// false here so that it is stored as '$directive'(initialization(G))
+	// for the end-of-load runner to retract and call; plain clauses
+	// return false too, and are stored as themselves.
 
 	directives(p, p1);
 
@@ -3866,6 +4293,11 @@ unsigned tokenize(parser *p, bool is_arg_processing, bool is_consing)
 					if (!p1->arity && !strcmp(C_STR(p, p1), "end_of_file")) {
 						p->end_of_term = true;
 						p->end_of_file = true;
+
+						if (p->m->quad_query && !p->m->quad_recorded)
+							fprintf(stderr, "Warning: quad query without answer description, %s:%d\n", get_loaded(p->m, p->m->filename), p->m->quad_line_num);
+
+						quad_reset(p->m);
 						process_module(p->m);
 						return 0;
 					}

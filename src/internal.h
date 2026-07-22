@@ -642,6 +642,7 @@ struct thread_ {
 	unsigned num_vars, at_exit_goal_num_vars, num_locks;
 	int chan, locked_by;
 	pl_atomic bool is_active;
+	volatile int timedout;   // set by SIGALRM handler s_sigfn(); thread-lived
 	bool is_init:1;
 	bool is_finished:1;
 	bool is_detached:1;
@@ -733,7 +734,6 @@ struct query_ {
 	int8_t halt_code;
 	int8_t quoted;
 	enum { WAS_OTHER, WAS_SPACE, WAS_COMMA, WAS_SYMBOL } last_thing;
-	volatile bool timedout;
 	bool oom:1;
 	bool done:1;
 	bool noskip:1;
@@ -871,6 +871,11 @@ struct module_ {
 	int if_depth;
 	bool ifs_blocked[MAX_IF_DEPTH];
 	bool ifs_done[MAX_IF_DEPTH];
+	cell *quad_query;					// pending '?- Query' awaiting its answer description
+	unsigned quad_num_vars;				// number of vars in quad_query
+	unsigned quad_line_num;				// line the pending quad query started on
+	bool in_quad:1;						// consuming answer-description terms after '?- Query'
+	bool quad_recorded:1;				// at least one answer description seen for quad_query
 	bool user_ops:1;
 	bool prebuilt:1;
 	bool make_public:1;
@@ -922,6 +927,7 @@ extern pl_idx g_anon_s, g_neck_s, g_eof_s, g_lt_s, g_false_s, g_once_s;
 extern pl_idx g_gt_s, g_eq_s, g_sys_elapsed_s, g_sys_queue_s, g_braces_s;
 extern pl_idx g_sys_stream_property_s, g_unify_s, g_on_s, g_off_s, g_sys_var_s;
 extern pl_idx g_call_s, g_braces_s, g_plus_s, g_minus_s, g_post_unify_hook_s;
+extern pl_idx g_quad_s, g_sys_quad_s;
 extern bool do_erase(module *m, const char *str);
 
 extern unsigned g_cpu_count;

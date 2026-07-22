@@ -69,13 +69,16 @@ int get_local_port(int clientSock) {
 
 const char *get_local_hostname(char *hostname_buffer, size_t buffer_size) {
 #if !defined(_WIN32) && !defined(__wasi__)
+    // FIX 10: do not exit() from a library routine; report failure to the caller.
     if (gethostname(hostname_buffer, buffer_size) == -1) {
         perror("gethostname error");
-        exit(EXIT_FAILURE);
+        return NULL;
     }
     hostname_buffer[buffer_size - 1] = '\0';
     return hostname_buffer;
 #else
+	(void) hostname_buffer;
+	(void) buffer_size;
 	return NULL;
 #endif
 }
@@ -120,7 +123,7 @@ int tpl_domain_server(const char *name, bool udp)
 	}
 
     server_sockaddr.sun_family = AF_UNIX;
-    strcpy(server_sockaddr.sun_path, name);
+    strncpy(server_sockaddr.sun_path, name, sizeof(server_sockaddr.sun_path) - 1);
     unlink(name);
     int rc = bind(fd, (struct sockaddr *) &server_sockaddr, sizeof(server_sockaddr));
 
@@ -186,7 +189,7 @@ int tpl_connect(const char *hostname, unsigned port, bool udp, bool nodelay)
 	}
 
 	struct linger l;
-	l.l_onoff = 1;
+	l.l_onoff = 0;
 	l.l_linger = 0;
 	setsockopt(fd, SOL_SOCKET, SO_LINGER, (char*)&l, sizeof(l));
 	int flag = 1;
@@ -290,25 +293,24 @@ int tpl_accept(stream *str, char **addr, int *port)
 #if !defined(_WIN32) && !defined(__wasi__)
 	struct sockaddr_in sa = {0};
 	socklen_t len = sizeof(sa);
-	int fd = accept(fileno(str->fp), (struct sockaddr*)&sa, &len);
+	int fd = accept(fileno(str->fp_in), (struct sockaddr*)&sa, &len);
 
-	if ((fd == -1) && ((errno == EWOULDBLOCK) || (errno == EAGAIN))) {
+	// FIX 9: any accept() failure leaves fd == -1; bail before touching it so
+	// setsockopt() is never called on an invalid descriptor.
+	if (fd == -1)
 		return -1;
+
+	if (addr) {
+		char buf[INET_ADDRSTRLEN];
+		inet_ntop(AF_INET, &sa.sin_addr, buf, sizeof(buf));
+		*addr = strdup(buf);
 	}
 
-	if (fd != -1) {
-		if (addr) {
-			char buf[INET_ADDRSTRLEN];
-			inet_ntop(AF_INET, &sa.sin_addr, buf, sizeof(buf));
-			*addr = strdup(buf);
-		}
-
-		if (port)
-			*port = ntohs(sa.sin_port);
-	}
+	if (port)
+		*port = ntohs(sa.sin_port);
 
 	struct linger l;
-	l.l_onoff = 1;
+	l.l_onoff = 0;
 	l.l_linger = 0;
 	setsockopt(fd, SOL_SOCKET, SO_LINGER, (char*)&l, sizeof(l));
 	int flag = 1;
@@ -391,9 +393,12 @@ void *tpl_enable_ssl(int fd, const char *hostname, bool is_server, int level, co
 
 const char *tpl_servername(stream *str)
 {
-#if !defined(_WIN32) && !defined(__wasi__) && defined(USE_SSL)
-	return SSL_get_servername(str->sslptr, TLSEXT_NAMETYPE_host_name);
+	// FIX 2: guard on USE_OPENSSL (the macro the rest of this file uses and that
+	// internal.h always #defines to 0/1) rather than the never-defined USE_SSL.
+#if USE_OPENSSL && !defined(_WIN32) && !defined(__wasi__)
+	return SSL_get_servername((SSL*)str->sslptr, TLSEXT_NAMETYPE_host_name);
 #else
+	(void) str;
 	return NULL;
 #endif
 }
@@ -401,8 +406,10 @@ const char *tpl_servername(stream *str)
 size_t tpl_write(const void *ptr, size_t nbytes, stream *str)
 {
 #if USE_OPENSSL
-	if (str->ssl)
-		return SSL_write((SSL*)str->sslptr, ptr, nbytes);
+	if (str->ssl) {
+		int ok = SSL_write((SSL*)str->sslptr, ptr, nbytes);
+		return ok < 0 ? 0 : (size_t)ok;
+	}
 #endif
 
 	if (is_memory_stream(str)) {
@@ -411,7 +418,7 @@ size_t tpl_write(const void *ptr, size_t nbytes, stream *str)
 	} else {
 		size_t len = fwrite(ptr, 1, nbytes, str->fp_out?str->fp_out:str->fp);
 
-		if (str->is_socket || str->is_pipe)
+		if (str->is_pipe)
 			fflush(str->fp_out);
 
 		return len;
@@ -420,6 +427,7 @@ size_t tpl_write(const void *ptr, size_t nbytes, stream *str)
 
 int tpl_getc(stream *str)
 {
+	errno = 0;	// FIX: reset so a stale EINTR from an earlier call isn't misread as an interrupt
 #if USE_OPENSSL
 	if (str->ssl) {
 		size_t len = 1;
@@ -433,17 +441,25 @@ int tpl_getc(stream *str)
 		}
 
 		if (dst != ptr)
-			return ptr[0];
+			return (unsigned char)ptr[0];		// FIX 6: don't sign-extend 0xFF into EOF
 
-		if (SSL_read((SSL*)str->sslptr, ptr, len) == 0)
+		int rlen = SSL_read((SSL*)str->sslptr, ptr, len);
+
+		// FIX 6: 0 == clean shutdown, <0 == error; either way return EOF rather
+		// than an uninitialised byte.
+		if (rlen <= 0) {
+			if (errno == EINTR)
+				clearerr(str->fp_in);
+
 			return EOF;
+		}
 
-		if (errno == EINTR)
-			return EOF;
-
-		return ptr[0];
+		return (unsigned char)ptr[0];
 	}
 #endif
+
+	if (str->is_socket && str->fp_out)
+		fflush(str->fp_out);
 
 	int ok = fgetc(str->fp_in);
 
@@ -457,6 +473,7 @@ int tpl_getc(stream *str)
 
 size_t tpl_read(void *ptr, size_t len, stream *str)
 {
+	errno = 0;	// FIX: reset so a stale EINTR from an earlier call isn't misread as an interrupt
 #if USE_OPENSSL
 	if (str->ssl) {
 		char *dst = ptr;
@@ -477,9 +494,12 @@ size_t tpl_read(void *ptr, size_t len, stream *str)
 			return EOF;
 		}
 
-		return ok;
+		return ok < 0 ? 0 : (size_t)ok;			// avoid returning a huge size_t on error
 	}
 #endif
+
+	if (str->is_socket && str->fp_out)
+		fflush(str->fp_out);
 
 	int ok = fread(ptr, 1, len, str->fp_in);
 
@@ -544,6 +564,7 @@ ssize_t getline(char **lineptr, size_t *n, FILE *stream) {
 
 int tpl_getline(char **lineptr, size_t *n, stream *str)
 {
+	errno = 0;	// FIX: reset so a stale EINTR from an earlier call isn't misread as an interrupt
 #if USE_OPENSSL
 	if (str->ssl) {
 		if (!*lineptr) {
@@ -557,13 +578,16 @@ int tpl_getline(char **lineptr, size_t *n, stream *str)
 
 		while (!done) {
 			if (str->srclen <= 0) {
-				int rlen = SSL_read((SSL*)str->sslptr, str->srcbuf, STREAM_BUFLEN);
+				// FIX 7: srcbuf is char[STREAM_BUFLEN]; read at most BUFLEN-1 so the
+				// NUL terminator below never writes one byte past the end.
+				int rlen = SSL_read((SSL*)str->sslptr, str->srcbuf, STREAM_BUFLEN - 1);
 
-				if (errno == EINTR)
-					return EOF;
+				if (rlen <= 0) {
+					if (errno == EINTR)
+						return EOF;
 
-				if (rlen <= 0)
 					return -1;
+				}
 
 				str->srcbuf[rlen] = '\0';
 				str->src = str->srcbuf;
@@ -595,6 +619,9 @@ int tpl_getline(char **lineptr, size_t *n, stream *str)
 	}
 #endif
 
+	if (str->is_socket && str->fp_out)
+		fflush(str->fp_out);
+
 	int ok = getline(lineptr, n, str->fp_in);
 
 	if (errno == EINTR) {
@@ -623,6 +650,7 @@ int tpl_close(stream *str)
 
 	if (!str->is_memory && !str->is_popen) {
 		if (str->is_socket) {
+			fflush(str->fp_out);
 #if !defined(_WIN32) && !defined(__wasi__)
 			shutdown(fileno(str->fp_in), SHUT_RD);
 			shutdown(fileno(str->fp_out), SHUT_WR);

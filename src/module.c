@@ -36,17 +36,18 @@ static const op_table g_ops[] =
 	{"*->", OP_XFY, 1050},
 	{",", OP_XFY, 1000},
 
-	//{"public", OP_FX, 1150},
-	//{"discontiguous", OP_FX, 1150},
-	//{"multifile", OP_FX, 1150},
+	{"public", OP_FX, 1150},
+	{"discontiguous", OP_FX, 1150},
+	{"multifile", OP_FX, 1150},
+	{"dynamic", OP_FX, 1150},
+	{"ensure_loaded", OP_FX, 1150},
+	{"meta_predicate", OP_FX, 1150},
+
 	//{"op", OP_FX, 1150},
-	//{"dynamic", OP_FX, 1150},
 	//{"initialization", OP_FX, 1150},
 	//{"set_prolog_flag", OP_FX, 1150},
 	//{"module", OP_FX, 1150},
 	//{"use_module", OP_FX, 1150},
-	//{"ensure_loaded", OP_FX, 1150},
-	//{"meta_predicate", OP_FX, 1150},
 
 	{"\\+", OP_FY, 900},
 	{"as", OP_XFX, 700},
@@ -2109,6 +2110,24 @@ rule *erase_from_db(module *m, uuid *ref)
 	return r;
 }
 
+
+// Retract and run the initialization goals recorded while loading, in
+// the order they were seen. Shared by the two load paths below.
+
+static void run_initialization_goals(parser *p)
+{
+	p->is_consulting = false;
+	p->is_command = true;
+	SB(src);
+	SB_sprintf(src, "sys_forall(%s:retract(('$directive'(initialization(__G_)))), (once(__G_); format('Error: ~w~n', [__G_])))", p->m->name);
+
+	if (run(p, SB_cstr(src), false, NULL, 0))
+		p->pl->status = false;
+
+	SB_free(src);
+	p->m->run_init = false;
+}
+
 module *load_text(module *m, const char *src, const char *filename)
 {
 	parser *p = parser_create(m);
@@ -2134,16 +2153,7 @@ module *load_text(module *m, const char *src, const char *filename)
 		p->is_directive = true;
 
 		if (p->m->run_init) {
-			p->is_consulting = false;
-			p->is_command = true;
-			SB(src);
-			SB_sprintf(src, "forall(%s:retract(('$directive'(initialization(__G_)))), (once(__G_); format('Error: ~w~n', [__G_])))", p->m->name);
-
-			if (run(p, SB_cstr(src), false, NULL, 0))
-				p->pl->status = false;
-
-			SB_free(src);
-			p->m->run_init = false;
+			run_initialization_goals(p);
 		}
 
 		p->is_command = p->is_directive = false;
@@ -2264,16 +2274,7 @@ module *load_fp(module *m, FILE *fp, const char *filename, bool including, bool 
 		p->is_directive = true;
 
 		if (p->m->run_init && init) {
-			p->is_command = true;
-			p->is_consulting = false;
-			SB(src);
-			SB_sprintf(src, "forall(%s:retract(('$directive'(initialization(__G_)))), (once(__G_); format('Error: ~w~n', [__G_])))", p->m->name);
-
-			if (run(p, SB_cstr(src), false, NULL, 0))
-				p->pl->status = false;
-
-			SB_free(src);
-			p->m->run_init = false;
+			run_initialization_goals(p);
 		}
 
 		p->is_command = p->is_directive = false;
@@ -2563,6 +2564,7 @@ void module_destroy(module *m)
 
 	sl_destroy(m->index);
 	sl_destroy(m->keyval);
+	quad_reset(m);
 	parser_destroy(m->p);
 	clear_loaded(m);
 	list_remove(&m->pl->modules, m);
@@ -2631,15 +2633,16 @@ module *module_create(prolog *pl, const char *name)
 		return m;
 	}
 
-	//set_discontiguous_in_db(m, "term_expansion", 2);
-	//set_discontiguous_in_db(m, "goal_expansion", 2);
+	set_discontiguous_in_db(m, "term_expansion", 2);
+	set_discontiguous_in_db(m, "goal_expansion", 2);
+	set_discontiguous_in_db(m, "$directive", 1);
 
-	//set_multifile_in_db(m, "term_expansion", 2);
-	//set_multifile_in_db(m, "goal_expansion", 2);
+	set_multifile_in_db(m, "term_expansion", 2);
+	set_multifile_in_db(m, "goal_expansion", 2);
 	set_multifile_in_db(m, "$directive", 1);
 
-	//set_dynamic_in_db(m, "term_expansion", 2);
-	//set_dynamic_in_db(m, "goal_expansion", 2);
+	set_dynamic_in_db(m, "term_expansion", 2);
+	set_dynamic_in_db(m, "goal_expansion", 2);
 	set_dynamic_in_db(m, "$directive", 1);
 
 	init_lock(&m->guard);

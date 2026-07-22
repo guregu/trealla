@@ -47,6 +47,7 @@ pl_idx g_sys_cut_if_det_s, g_as_s, g_colon_s, g_member_s;
 pl_idx g_caret_s, g_sys_counter_s, g_catch_s, g_memberchk_s;
 pl_idx g_cont_s, g_sys_set_if_var_s, g_is_s, g_maplist_s;
 pl_idx g_sys_succeed_on_retry_s, g_sys_fail_on_retry_s;
+pl_idx g_quad_s, g_sys_quad_s;
 pl_idx g_sys_call_check_s, g_ignore_s, g_sys_reset_handler_s;
 pl_idx g_reset_s, g_sys_get_level_s, g_sys_jump_s, g_if_s;
 pl_idx g_sys_call_s, g_sys_cut_s, g_notunify_s, g_sys_module_s;
@@ -646,6 +647,8 @@ static bool g_init(prolog *pl)
 	CHECK_SENTINEL(g_braces_s = new_atom(pl, "{}"), ERR_IDX);
 	CHECK_SENTINEL(g_fail_s = new_atom(pl, "fail"), ERR_IDX);
 	CHECK_SENTINEL(g_neck_s = new_atom(pl, ":-"), ERR_IDX);
+	CHECK_SENTINEL(g_quad_s = new_atom(pl, "?-"), ERR_IDX);
+	CHECK_SENTINEL(g_sys_quad_s = new_atom(pl, "$quad"), ERR_IDX);
 	CHECK_SENTINEL(g_eof_s = new_atom(pl, "end_of_file"), ERR_IDX);
 	CHECK_SENTINEL(g_lt_s = new_atom(pl, "<"), ERR_IDX);
 	CHECK_SENTINEL(g_gt_s = new_atom(pl, ">"), ERR_IDX);
@@ -888,28 +891,20 @@ prolog *pl_create()
 	pl->def_quoted = true;
 	pl->def_double_quotes = true;
 	pl->rnd_first_time = 1;
-	pl->global_bb = true;		// Fow now, as tabling seems to need it
+	pl->global_bb = true;		// Tabling seems to need it
 
 	// In user space...
 
-	set_discontiguous_in_db(pl->user_m, "term_expansion", 2);
-	set_discontiguous_in_db(pl->user_m, "goal_expansion", 2);
 	set_discontiguous_in_db(pl->user_m, "$predicate_property", 3);
 
-	set_multifile_in_db(pl->user_m, "term_expansion", 2);
-	set_multifile_in_db(pl->user_m, "goal_expansion", 2);
 	set_multifile_in_db(pl->user_m, "portray", 1);
 	set_multifile_in_db(pl->user_m, "$predicate_property", 3);
-	set_multifile_in_db(pl->user_m, "$directive", 1);
 
-	set_dynamic_in_db(pl->user_m, "term_expansion", 2);
-	set_dynamic_in_db(pl->user_m, "goal_expansion", 2);
 	set_dynamic_in_db(pl->user_m, "portray", 1);
 	set_dynamic_in_db(pl->user_m, "$op", 3);
 	set_dynamic_in_db(pl->user_m, "$predicate_property", 3);
 	set_dynamic_in_db(pl->user_m, "$current_prolog_flag", 2);
 	set_dynamic_in_db(pl->user_m, "$stream_property", 2);
-	set_dynamic_in_db(pl->user_m, "$directive", 1);
 
 	pl->user_m->prebuilt = true;
 	const char *save_filename = pl->user_m->filename;

@@ -75,6 +75,8 @@ extern unsigned char library_rbtrees_pl[];
 extern unsigned int library_rbtrees_pl_len;
 extern unsigned char library_reif_pl[];
 extern unsigned int library_reif_pl_len;
+extern unsigned char library_quads_pl[];
+extern unsigned int library_quads_pl_len;
 extern unsigned char library_debug_pl[];
 extern unsigned int library_debug_pl_len;
 extern unsigned char library_arithmetic_pl[];
@@ -89,6 +91,8 @@ extern unsigned char library_aggregate_pl[];
 extern unsigned int library_aggregate_pl_len;
 extern unsigned char library_time_pl[];
 extern unsigned int library_time_pl_len;
+extern unsigned char library_yall_pl[];
+extern unsigned int library_yall_pl_len;
 
 #ifdef WASI_TARGET_SPIN
 extern unsigned char library_spin_pl[];
@@ -130,6 +134,7 @@ library g_libs[] = {
 	 {"pairs", library_pairs_pl, &library_pairs_pl_len},
 	 {"pio", library_pio_pl, &library_pio_pl_len},
 	 {"pseudojson", library_pseudojson_pl, &library_pseudojson_pl_len},
+	 {"quads", library_quads_pl, &library_quads_pl_len},
 	 {"random", library_random_pl, &library_random_pl_len},
 	 {"raylib", library_raylib_pl, &library_raylib_pl_len},
 	 {"rbtrees", library_rbtrees_pl, &library_rbtrees_pl_len},
@@ -147,6 +152,7 @@ library g_libs[] = {
 	 {"wasm_generic", library_wasm_generic_pl, &library_wasm_generic_pl_len},
 	 {"wasm_js", library_wasm_js_pl, &library_wasm_js_pl_len},
 	 {"when", library_when_pl, &library_when_pl_len},
+	 {"yall", library_yall_pl, &library_yall_pl_len},
 
 #ifdef USE_MAIN
 	 {"main", main_pl, &main_pl_len},

@@ -7,6 +7,10 @@
 #include <string.h>
 #include <sys/time.h>
 
+#if defined(__linux__)
+#include <sys/syscall.h>
+#endif
+
 #if !defined(_WIN32) && !defined(__wasi__) && !defined(__ANDROID__)
 #include <spawn.h>
 #include <sys/wait.h>
@@ -45,6 +49,7 @@ typedef struct timer {
 	dispatch_source_t timer_source;
 	struct sigevent evp;
 	int interval_ms;
+	pthread_t target_tid;	// FIX: thread that armed the timer
 } timer_t;
 
 static int timer_create(clockid_t clockid, struct sigevent *sevp, timer_t *timerid)
@@ -59,6 +64,7 @@ static int timer_create(clockid_t clockid, struct sigevent *sevp, timer_t *timer
 		timerid->evp.sigev_signo = SIGALRM;
 	}
 
+	timerid->target_tid = pthread_self();	// FIX: timer_create runs on the arming thread
 	timerid->timer_source = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0));
 	return 0;
 }
@@ -79,12 +85,14 @@ static int timer_settime(timer_t timerid, int flags, const struct itimerspec *ne
 	dispatch_time_t start_time = dispatch_time(DISPATCH_TIME_NOW, start_nsec);
 	dispatch_source_set_timer(timerid.timer_source, start_time, interval_nsec, 0);
 
+	// FIX: deliver the signal to the ARMING thread captured by value; never
+	// dereference 'e' from this GCD worker thread. Self-cancel (one-shot) so the
+	// arming thread's timer_delete is the sole releaser -- eliminates the
+	// double dispatch_release and the use-after-free/data-race on 'e'.
 	dispatch_source_set_event_handler(timerid.timer_source, ^{
-		if (timerid.evp.sigev_notify == SIGEV_SIGNAL) {
-			raise(timerid.evp.sigev_signo);
-		} else if (timerid.evp.sigev_notify == SIGEV_THREAD) {
-			timerid.evp.sigev_notify_function(timerid.evp.sigev_value);
-		}
+		int signo = timerid.evp.sigev_signo ? timerid.evp.sigev_signo : SIGALRM;
+		pthread_kill(timerid.target_tid, signo);
+		dispatch_source_cancel(timerid.timer_source);
 	});
 
 	dispatch_resume(timerid.timer_source);
@@ -422,16 +430,17 @@ static void timer_callback(union sigval sv)
 
 static void s_sigfn(int s)
 {
+	(void)s;
+
+	// Async-signal context: only touch the thread struct, which outlives
+	// individual queries. NEVER dereference t->q here: the query may already
+	// have been freed by the time a late SIGALRM is delivered.
 	for (int i = 0; i < g_tpl_count; i++) {
 		prolog *pl = g_prologs[i];
 		thread *t = get_self(pl);
 
 		if (t) {
-			if (t->q)
-				t->q->timedout = true;
-			else
-				g_tpl_interrupt = s;
-
+			t->timedout = 1;
 			break;
 		}
 	}
@@ -449,6 +458,10 @@ static bool bif_sys_alarm_2(query *q)
 
 	g_tpl_interrupt = 0;
 
+	// Clear any stale timeout flag on this thread when arming/cancelling.
+	thread *self = q->thread_ptr ? q->thread_ptr : &q->pl->threads[0];
+	self->timedout = 0;
+
 	if (is_float(p1))
 		time_ms = get_float(p1) * 1000;
 	else
@@ -456,8 +469,6 @@ static bool bif_sys_alarm_2(query *q)
 
 	if (time_ms < 0)
 		return throw_error(q, p1, p1_ctx, "domain_error", "positive_integer");
-
-	struct itimerval it = {0};
 
 	if (time_ms == 0) {
 		timer_entry *e = get_voidptr(p2);
@@ -475,12 +486,22 @@ static bool bif_sys_alarm_2(query *q)
     sa.sa_flags = 0; // Notice we DO NOT use SA_RESTART
     sigaction(SIGALRM, &sa, NULL);
 
-	timer_entry *e = malloc(sizeof(timer_entry));
+	timer_entry *e = TPL_malloc(sizeof(timer_entry));	// FIX: match TPL_free on the cancel path
 
 	struct sigevent sevp = {0};
+#if defined(__linux__)
+	// Deliver SIGALRM straight to THIS thread via the kernel. No callback
+	// thread ever touches 'e', so there is no free-vs-use race on it.
+	sevp.sigev_notify = SIGEV_THREAD_ID;
+	sevp.sigev_signo = SIGALRM;
+	sevp._sigev_un._tid = syscall(SYS_gettid);   // no portable macro on this glibc
+#else
+	// Portable fallback (e.g. a macOS timer emulation must ensure the
+	// callback never accesses 'e' after the arming thread frees it).
 	sevp.sigev_notify = SIGEV_THREAD;
 	sevp.sigev_notify_function = timer_callback;
 	sevp.sigev_value.sival_ptr = e;
+#endif
 
 	timer_t my_timer;
 	timer_create(CLOCK_REALTIME, &sevp, &my_timer);
@@ -490,7 +511,7 @@ static bool bif_sys_alarm_2(query *q)
 
 	struct itimerspec value = {0};
 	value.it_value.tv_sec = time_ms / 1000;
-	value.it_value.tv_nsec = (time_ms % 1000) * 1000;
+	value.it_value.tv_nsec = (time_ms % 1000) * 1000000;   // ms -> ns
 	value.it_interval.tv_sec = 0;
 	value.it_interval.tv_nsec = 0;
 	timer_settime(my_timer, 0, &value, NULL);
@@ -742,16 +763,20 @@ static bool bif_popen_4(query *q)
 		cell *h = LIST_HEAD(p4);
 		cell *c = deref(q, h, p4_ctx);
 
-		if (is_var(c))
+		if (is_var(c)) {
+			TPL_free(src);	// FIX: free src on error
 			return throw_error(q, c, q->latest_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
+		}
 
 		if (is_compound(c) && (c->arity == 1)) {
 			cell *name = c + 1;
 			name = deref(q, name, q->latest_ctx);
 
 
-			if (get_named_stream(q->pl, C_STR(q, name), C_STRLEN(q, name)) >= 0)
+			if (get_named_stream(q->pl, C_STR(q, name), C_STRLEN(q, name)) >= 0) {
+				TPL_free(src);	// FIX: free src on error
 				return throw_error(q, c, q->latest_ctx, "permission_error", "open,source_sink");
+			}
 
 			if (!CMP_STRING_TO_CSTR(q, c, "alias")) {
 				if (!CMP_STRING_TO_CSTR(q, name, "current_input")) {
@@ -786,15 +811,19 @@ static bool bif_popen_4(query *q)
 					eof_action = eof_action_reset;
 				}
 			}
-		} else
+		} else {
+			TPL_free(src);	// FIX: free src on error
 			return throw_error(q, c, q->latest_ctx, "domain_error", "stream_option");
+		}
 
 		p4 = LIST_TAIL(p4);
 		p4 = deref(q, p4, p4_ctx);
 		p4_ctx = q->latest_ctx;
 
-		if (is_var(p4))
+		if (is_var(p4)) {
+			TPL_free(src);	// FIX: free src on error
 			return throw_error(q, p4, p4_ctx, "instantiation_error", "args_not_sufficiently_instantiated");
+		}
 	}
 
 	str->binary = binary;
